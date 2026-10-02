@@ -18,6 +18,9 @@ type mockMetaToolsHandler struct {
 	resources            []api.ResourceOrigin
 	prompts              []api.PromptOrigin
 	serversRequiringAuth []api.ServerAuthInfo
+	// authLookups counts ListServersRequiringAuth calls, each an auth-store
+	// round trip per server in the aggregator.
+	authLookups int
 
 	callToolResult *mcp.CallToolResult
 	callToolError  error
@@ -69,6 +72,7 @@ func (m *mockMetaToolsHandler) GetPrompt(ctx context.Context, name string, args 
 }
 
 func (m *mockMetaToolsHandler) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
+	m.authLookups++
 	if m.serversRequiringAuth == nil {
 		return []api.ServerAuthInfo{}
 	}

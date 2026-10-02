@@ -482,3 +482,22 @@ func TestToolset_FilterToolsReportsTheLongestPendingPrefixOnly(t *testing.T) {
 	require.Len(t, requiring, 1, "a listed tool names no pending server, and a name goes to its longest pending prefix")
 	assert.Equal(t, "git-lab", requiring[0].(map[string]any)["name"])
 }
+
+// The servers awaiting sign-in cost an auth-store lookup per server; a call
+// or a listing the toolset fully resolves never asks for them.
+func TestToolset_InToolsetRequestsDoNotLookUpPendingServers(t *testing.T) {
+	m := signedOutFixture()
+	defer registerMockHandler(m)()
+	p := NewProvider()
+
+	result, err := p.ExecuteTool(withHeader("server:k8s", true), "call_tool", map[string]any{"name": "x_k8s_get"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	_, err = p.ExecuteTool(withHeader("server:k8s", true), "filter_tools", nil)
+	require.NoError(t, err)
+	assert.Zero(t, m.authLookups)
+
+	_, err = p.ExecuteTool(withHeader("server:k8s,server:gh", true), "call_tool", map[string]any{"name": "x_gh_issues"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, m.authLookups, "a name outside the resolution looks them up once")
+}

@@ -196,9 +196,9 @@ selectors as given), `toolset_unmatched` (the selectors that selected nothing fo
 for example a server the caller has not signed in to; `preset:none` is never reported),
 `toolset_requiring_auth` (the servers awaiting the caller's sign-in that the toolset names by
 server or by a tool of theirs, each with `name`, `auth_tool` and `tool_prefix`: the part of the
-toolset a sign-in would unlock) and `presets` (`[{name, description, built_in}]`, built-ins first). When the request also carries
-`X-muster-Toolset`, the argument resolves **within** the header's toolset and never widens it.
-Argument errors use the header's texts.
+toolset a sign-in would unlock) and `presets` (`[{name, description, built_in}]`, built-ins
+first). When the request also carries `X-muster-Toolset`, the argument resolves **within** the
+header's toolset and never widens it. Argument errors use the header's texts.
 
 `toolset` names the toolset the returned tools were resolved within, whichever way it was
 declared. Without a `toolset` argument, a request carrying `X-muster-Toolset` gets the header's

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
@@ -34,8 +35,9 @@ type scopedCatalogue struct {
 	// tools appear in all. A toolset that names one of them by server or by
 	// tool name still resolves to nothing, so the accessors consult pending
 	// to let the aggregator's auth_required answer through instead of
-	// refusing the name as outside the toolset.
-	pending []api.ServerAuthInfo
+	// refusing the name as outside the toolset. It asks the auth store once
+	// per server, so it runs only when a name falls outside the resolution.
+	pending func() []api.ServerAuthInfo
 }
 
 // catalogue lists the session's tools through the handler and applies the
@@ -46,7 +48,9 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	if err != nil {
 		return nil, errorResult(fmt.Sprintf("Failed to list tools: %v", err))
 	}
-	cat := &scopedCatalogue{all: tools, tools: tools}
+	cat := &scopedCatalogue{all: tools, tools: tools, pending: sync.OnceValue(func() []api.ServerAuthInfo {
+		return handler.ListServersRequiringAuth(ctx)
+	})}
 
 	ts, present, err := toolset.FromContext(ctx)
 	if err != nil {
@@ -61,7 +65,6 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	}
 	cat.scoped, cat.ts, cat.res = true, ts, res
 	cat.tools = toolset.Filter(tools, res)
-	cat.pending = handler.ListServersRequiringAuth(ctx)
 	return cat, nil
 }
 
@@ -99,7 +102,7 @@ func (c *scopedCatalogue) namedForSignIn(name string) bool {
 	if !c.isScoped() || c.res.Contains(name) || listed(c.all, name) {
 		return false
 	}
-	server, ok := pendingOwnerOf(c.pending, name)
+	server, ok := pendingOwnerOf(c.pending(), name)
 	if !ok {
 		return false
 	}
