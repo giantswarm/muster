@@ -130,6 +130,14 @@ Through `muster agent --mcp-server`, `call_tool` additionally takes `timeout` (s
 }
 ```
 
+**Result:** the first content item is a JSON envelope of the wrapped tool's result, `{"isError", "content", "structuredContent", "_meta", "tool"}`. Image and audio items are size-only in it and follow it as native content items with their payload. `tool` names what ran: `name` is the tool asked for, and for a tool an MCP server serves, `server` is that MCPServer and `serverTool` the server's own name for it; muster's core and workflow tools carry the name only. The same object is the `call_tool` result's `_meta` under `muster.giantswarm.io/tool`, for a client that reads `_meta` without parsing the envelope.
+
+```json
+{"isError":false,"content":[{"text":"…","type":"text"}],"tool":{"name":"x_kubernetes_list_pods","server":"kubernetes","serverTool":"list_pods"}}
+```
+
+The Go agent client (`muster agent`, `internal/agent`) unwraps the envelope back into the wrapped tool's result and puts `tool` into its `_meta` under the same key; `metatools.DispatchedToolFromMeta` reads it.
+
 ### Resource Access
 
 | Meta-Tool | Description | Arguments |

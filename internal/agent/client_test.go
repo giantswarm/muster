@@ -7,6 +7,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/v5/internal/metatools"
 )
 
 func TestNewClient(t *testing.T) {
@@ -315,4 +317,35 @@ func TestUnwrapMetaToolResponse_SizeOnlyImageWithoutPayload(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []mcp.Content{mcp.NewTextContent("caption")}, unwrapped.Content)
 	require.Nil(t, unwrapped.Meta)
+}
+
+func TestUnwrapMetaToolResponse_DispatchedTool(t *testing.T) {
+	client := NewClient("http://localhost:8090/mcp", nil, TransportStreamableHTTP)
+	want := metatools.DispatchedTool{Name: "x_kubernetes_list_pods", Server: "kubernetes", ServerTool: "list_pods"}
+
+	t.Run("joins the wrapped result's _meta", func(t *testing.T) {
+		envelope := `{"isError":false,"content":[{"text":"pods","type":"text"}],"_meta":{"traceId":"abc123"},"tool":{"name":"x_kubernetes_list_pods","server":"kubernetes","serverTool":"list_pods"}}`
+		unwrapped, err := client.unwrapMetaToolResponse(&mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(envelope)}}, "x_kubernetes_list_pods")
+		require.NoError(t, err)
+		got, ok := metatools.DispatchedToolFromMeta(unwrapped.Meta)
+		require.True(t, ok)
+		assert.Equal(t, want, got)
+		assert.Equal(t, "abc123", unwrapped.Meta.AdditionalFields["traceId"], "the wrapped tool's _meta stays")
+	})
+
+	t.Run("without _meta of its own", func(t *testing.T) {
+		envelope := `{"isError":false,"content":[{"text":"pods","type":"text"}],"tool":{"name":"x_kubernetes_list_pods","server":"kubernetes","serverTool":"list_pods"}}`
+		unwrapped, err := client.unwrapMetaToolResponse(&mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(envelope)}}, "x_kubernetes_list_pods")
+		require.NoError(t, err)
+		got, ok := metatools.DispatchedToolFromMeta(unwrapped.Meta)
+		require.True(t, ok)
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("a server that does not send it", func(t *testing.T) {
+		envelope := `{"isError":false,"content":[{"text":"pods","type":"text"}]}`
+		unwrapped, err := client.unwrapMetaToolResponse(&mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(envelope)}}, "x_kubernetes_list_pods")
+		require.NoError(t, err)
+		assert.Nil(t, unwrapped.Meta)
+	})
 }
