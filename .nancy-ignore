@@ -1,2 +1,6 @@
 CVE-2026-81871 until=2026-10-03 # go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc@v0.20.0
 CVE-2026-81872 until=2026-10-03 # go.opentelemetry.io/otel/sdk/log@v0.20.0
+CVE-2026-33815 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
+CVE-2026-33816 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
+CVE-2026-41889 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
+CVE-2021-43668 until=2026-10-30 # github.com/syndtr/goleveldb@v1.0.1-0.20220721030215-126854af5e6d
