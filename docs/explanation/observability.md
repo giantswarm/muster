@@ -133,6 +133,17 @@ attribute is `mcpserver.name` — the same key the reconciler's
 internally, never dispatched, and therefore only appear in the
 boundary metrics above.
 
+### Progress relay metrics
+
+| OTel name                                  | Type           | Attributes | Prometheus export name                              |
+|--------------------------------------------|----------------|------------|-----------------------------------------------------|
+| `muster.downstream_progress_notifications` | `Int64Counter` | `outcome`  | `muster_downstream_progress_notifications_total`    |
+
+It counts the `notifications/progress` downstream servers sent, by
+`outcome`: `relayed` to the caller, `unknown_token` (no call in flight
+carries the token), `not_increasing` (not above the progress the caller
+last got) and `send_failed` (the caller's session could not take it).
+
 ### Grafana dashboard
 
 The chart ships a ready-made dashboard built on these metrics

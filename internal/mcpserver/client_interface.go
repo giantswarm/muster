@@ -103,6 +103,10 @@ type baseMCPClient struct {
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
+
+	// progress routes the server's notifications/progress to the callers of
+	// the tool calls in flight (see progress.go).
+	progress progressRouter
 }
 
 // setTimeout sets the budget every operation on the client runs under (see
@@ -215,12 +219,17 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 		return nil, err
 	}
 
-	result, err := b.client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name:      name,
-			Arguments: args,
-		},
-	})
+	params := mcp.CallToolParams{
+		Name:      name,
+		Arguments: args,
+	}
+	if reporter := progressReporterFrom(ctx); reporter != nil {
+		token, done := b.progress.open(reporter)
+		defer done()
+		params.Meta = &mcp.Meta{ProgressToken: token}
+	}
+
+	result, err := b.client.CallTool(ctx, mcp.CallToolRequest{Params: params})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call tool: %w", err)
 	}
@@ -348,29 +357,36 @@ func (b *baseMCPClient) pingOnce(ctx context.Context) error {
 	return b.client.Ping(ctx)
 }
 
-// onNotification stores a notification handler. If the underlying mcp-go
-// client is already initialized, the handler is wired immediately.
+// onNotification stores the handler every server notification except
+// notifications/progress is passed to; the progress router takes those.
 func (b *baseMCPClient) onNotification(handler func(mcp.JSONRPCNotification)) {
 	b.notifMu.Lock()
 	b.notifHandler = handler
 	b.notifMu.Unlock()
+}
 
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-	if b.connected && b.client != nil && handler != nil {
-		b.client.OnNotification(handler)
+// wireNotificationHandler registers dispatchNotification on the underlying
+// mcp-go client. Must be called while holding b.mu (write lock) and after
+// b.client has been assigned, once per underlying client.
+func (b *baseMCPClient) wireNotificationHandler() {
+	if b.client != nil {
+		b.client.OnNotification(b.dispatchNotification)
 	}
 }
 
-// wireNotificationHandler registers the stored notification handler on the
-// underlying mcp-go client. Must be called while holding b.mu (write lock)
-// and after b.client has been assigned.
-func (b *baseMCPClient) wireNotificationHandler() {
+// dispatchNotification routes progress to the call it belongs to and hands
+// every other notification to the stored handler.
+func (b *baseMCPClient) dispatchNotification(notification mcp.JSONRPCNotification) {
+	if notification.Method == string(mcp.MethodNotificationProgress) {
+		b.progress.route(notification)
+		return
+	}
+
 	b.notifMu.Lock()
 	handler := b.notifHandler
 	b.notifMu.Unlock()
 
-	if handler != nil && b.client != nil {
-		b.client.OnNotification(handler)
+	if handler != nil {
+		handler(notification)
 	}
 }

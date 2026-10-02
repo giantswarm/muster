@@ -212,6 +212,31 @@ sequenceDiagram
     MA->>Agent: Tool Execution Result
 ```
 
+### Progress Notifications
+
+A client that sends a `progressToken` in a tool call's `_meta` (on `call_tool`
+or on a tool called directly) gets the `notifications/progress` of the
+downstream tools the call reaches, under its own token:
+
+- The caller's token never leaves muster. Each downstream request carries a
+  token muster mints for it, unique on the downstream connection, and muster
+  translates every progress notification back to the caller's token.
+- A connection shared by several sessions (a server without per-session
+  authentication, or a pooled per-session client) serves each caller only its
+  own progress: notifications are routed by the minted token, never by
+  connection.
+- A notification whose token belongs to no call in flight (it arrived after
+  the call returned, or the server sent a token muster never issued) is
+  dropped and counted.
+- A call that reaches several downstream tools (a workflow) relays all of
+  their progress under one token. The protocol requires progress to increase,
+  so a value that does not exceed the last one relayed is dropped and counted.
+- A call without a `progressToken` sends none downstream.
+
+The counter is `muster.downstream_progress_notifications` (see
+[Observability](observability.md)). Sampling and elicitation requests from a
+downstream server are not relayed.
+
 ### Error Handling and Resilience
 
 The aggregator provides robust error handling:

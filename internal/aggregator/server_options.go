@@ -23,13 +23,15 @@ import (
 //
 // RequestSpan is registered first so it wraps the tracing middleware and sees
 // the mcp.tools/call server span, which dispatch then labels with the backend
-// the call reached.
+// the call reached. ProgressRelay bridges downstream notifications/progress
+// to a caller that sent a progressToken.
 func mcpServerOptions() []server.ServerOption {
 	return []server.ServerOption{
 		server.WithToolHandlerMiddleware(RequestSpan()),
 		mcpotel.WithServerTracing(otel.Tracer(observability.TracerName)),
 		server.WithToolHandlerMiddleware(Logging()),
 		server.WithToolHandlerMiddleware(Metrics()),
+		server.WithToolHandlerMiddleware(ProgressRelay()),
 	}
 }
 
