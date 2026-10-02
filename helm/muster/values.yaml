@@ -645,7 +645,7 @@ muster:
       # muster logs a startup warning when set. Default: empty.
       # Example:
       #   - gateway.internal.example
-      allowPrivateIPClientMetadataHosts: []
+      allowPrivateIPClientMetadataHosts: []  # @schema item: string
 
       # Let a client's redirect URI resolve to a private address (a literal
       # RFC 1918 host or a hostname that resolves to one). Needed where the
