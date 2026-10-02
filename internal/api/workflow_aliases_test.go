@@ -46,6 +46,10 @@ func TestDeprecatedFieldAliases(t *testing.T) {
 				"id":       "group",
 				"parallel": []interface{}{map[string]interface{}{"id": "a", "allow_failure": true}},
 			},
+			map[string]interface{}{
+				"id":      "loop",
+				"forEach": map[string]interface{}{"steps": []interface{}{map[string]interface{}{"id": "each", "allow_failure": true}}},
+			},
 			map[string]interface{}{"id": "clean", "allowFailure": true},
 		},
 		"onFailure": []interface{}{map[string]interface{}{"id": "undo", "allow_failure": true}},
@@ -57,6 +61,7 @@ func TestDeprecatedFieldAliases(t *testing.T) {
 		"steps fallback condition: 'expect_not' (use 'expectNot')",
 		"steps fallback condition: 'from_step' (use 'fromStep')",
 		"steps group parallel a: 'allow_failure' (use 'allowFailure')",
+		"steps loop forEach each: 'allow_failure' (use 'allowFailure')",
 		"steps probe: 'allow_failure' (use 'allowFailure')",
 	}
 	if got := DeprecatedFieldAliases(args); !reflect.DeepEqual(got, want) {

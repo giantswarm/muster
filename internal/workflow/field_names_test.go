@@ -34,6 +34,15 @@ func stepFieldArgs(allowFailure, fromStep, expectNot, jsonPath string) map[strin
 					map[string]interface{}{"id": "a", "tool": "core_service_list", allowFailure: true},
 				},
 			},
+			map[string]interface{}{
+				"id": "loop",
+				"forEach": map[string]interface{}{
+					"items": "{{ .input.items }}",
+					"steps": []interface{}{
+						map[string]interface{}{"id": "each", "tool": "core_service_list", allowFailure: true},
+					},
+				},
+			},
 		},
 		"onFailure": []interface{}{
 			map[string]interface{}{"id": "cleanup", "tool": "core_service_list", allowFailure: true},
