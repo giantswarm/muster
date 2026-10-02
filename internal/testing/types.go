@@ -102,6 +102,9 @@ type TestConfiguration struct {
 	BasePort int `yaml:"base_port,omitempty"`
 	// KeepTempConfig keeps temporary config directory after test execution
 	KeepTempConfig bool `yaml:"keep_temp_config,omitempty"`
+	// ServeBinary is the muster binary the run's instances serve with, set
+	// by the runner before the run header is reported.
+	ServeBinary *ServeBinary `yaml:"serve_binary,omitempty"`
 }
 
 // TestScenario defines a single test scenario
@@ -694,6 +697,9 @@ type MusterInstanceManager interface {
 	// it -- metadata, spec and the status muster wrote. Fails for a
 	// filesystem-mode instance.
 	GetCR(ctx context.Context, instanceID, kind, name string) (map[string]interface{}, error)
+	// ServeBinary returns the muster binary the run's instances serve with,
+	// resolved once per manager.
+	ServeBinary() (ServeBinary, error)
 }
 
 // TestStep defines a single step within a test scenario
