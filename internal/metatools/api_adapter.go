@@ -254,25 +254,23 @@ func (a *Adapter) ListServersRequiringAuth(ctx context.Context) []api.ServerAuth
 	return provider.ListServersRequiringAuth(ctx)
 }
 
-// AnswerSignIn answers a call to a tool of a server awaiting the session's
-// sign-in through the data provider. A failure to start the sign-in is an
-// error result, as for CallTool.
-func (a *Adapter) AnswerSignIn(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, bool, error) {
+// SignedOutOwnerOf returns, through the data provider, the server awaiting
+// the session's sign-in that a call to the name with args would be routed to.
+func (a *Adapter) SignedOutOwnerOf(ctx context.Context, name string, args map[string]any) (api.ServerAuthInfo, bool) {
 	provider, err := a.getDataProvider()
 	if err != nil {
-		logging.Warn("metatools", "AnswerSignIn: %v", err)
-		return nil, false, nil
+		logging.Warn("metatools", "SignedOutOwnerOf: %v", err)
+		return api.ServerAuthInfo{}, false
 	}
-	result, ok, err := provider.AnswerSignIn(ctx, name, args)
+	return provider.SignedOutOwnerOf(ctx, name, args)
+}
+
+// AnswerSignIn starts the session's sign-in to the server through the data
+// provider and runs no tool.
+func (a *Adapter) AnswerSignIn(ctx context.Context, server string) (*mcp.CallToolResult, bool, error) {
+	provider, err := a.getDataProvider()
 	if err != nil {
-		logging.Error("metatools", err, "AnswerSignIn failed for %s", name)
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{mcp.TextContent{
-				Type: "text",
-				Text: fmt.Sprintf("Tool execution failed: %v", err),
-			}},
-			IsError: true,
-		}, true, nil
+		return nil, false, err
 	}
-	return result, ok, nil
+	return provider.AnswerSignIn(ctx, server)
 }

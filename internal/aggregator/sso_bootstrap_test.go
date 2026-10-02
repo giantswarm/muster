@@ -323,7 +323,7 @@ func TestServersInNameSpaceOf(t *testing.T) {
 	assert.Empty(t, registry.ServersInNameSpaceOf("x_unknown_tool", nil))
 }
 
-func TestExposedPrefixOwner(t *testing.T) {
+func TestDeclaredOwnerOf(t *testing.T) {
 	registry := NewServerRegistry("x")
 	for name, prefix := range map[string]string{"git": "git", "git-hub": "git_hub"} {
 		require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
@@ -341,16 +341,42 @@ func TestExposedPrefixOwner(t *testing.T) {
 		}))
 	}
 
-	owner, ok := registry.ExposedPrefixOwner("x_git_clone")
+	owner, ok := registry.DeclaredOwnerOf("x_git_clone", nil)
 	assert.True(t, ok)
 	assert.Equal(t, "git", owner)
-	owner, ok = registry.ExposedPrefixOwner("x_git_hub_issues")
+	owner, ok = registry.DeclaredOwnerOf("x_git_hub_issues", nil)
 	assert.True(t, ok)
 	assert.Equal(t, "git-hub", owner, "the longest prefix the name carries")
-	_, ok = registry.ExposedPrefixOwner("x_kubernetes_get_nodes")
-	assert.False(t, ok, "a prefix the members of a family share names no single owner")
-	_, ok = registry.ExposedPrefixOwner("x_unknown_tool")
+	owner, ok = registry.DeclaredOwnerOf("x_kubernetes_get_nodes", map[string]any{"server": "glean-k8s"})
+	assert.True(t, ok)
+	assert.Equal(t, "glean-k8s", owner, "the member the instance argument selects")
+	_, ok = registry.DeclaredOwnerOf("x_kubernetes_get_nodes", nil)
+	assert.False(t, ok, "a family call without an instance argument names no member")
+	_, ok = registry.DeclaredOwnerOf("x_kubernetes_get_nodes", map[string]any{"server": "git"})
+	assert.False(t, ok, "an instance argument naming a server outside the family")
+	_, ok = registry.DeclaredOwnerOf("x_unknown_tool", nil)
 	assert.False(t, ok)
+	assert.Equal(t, "x_kubernetes_", registry.ExposedToolPrefix("glean-k8s"))
+	assert.Equal(t, "kubernetes", registry.GroupedFamily("glean-k8s"))
+}
+
+// Members whose instance arguments disagree fall back to per-server names,
+// so their prefix and owner are the server's own.
+func TestDeclaredOwnerOf_FamilyFallback(t *testing.T) {
+	registry := NewServerRegistry("x")
+	for member, arg := range map[string]string{"a-k8s": "server", "b-k8s": "cluster"} {
+		require.NoError(t, registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: member, ToolPrefix: member, Family: &api.MCPServerFamily{Name: "kubernetes", InstanceArg: arg}},
+			URL:                "https://" + member + ".invalid",
+			AuthConfig:         &api.MCPServerAuth{ForwardToken: true},
+		}))
+	}
+
+	assert.Equal(t, "x_a-k8s_", registry.ExposedToolPrefix("a-k8s"))
+	assert.Empty(t, registry.GroupedFamily("a-k8s"))
+	owner, ok := registry.DeclaredOwnerOf("x_b-k8s_get", nil)
+	assert.True(t, ok)
+	assert.Equal(t, "b-k8s", owner)
 }
 
 func TestSessionBootstrapped_RemembersASessionsFirstFanOut(t *testing.T) {

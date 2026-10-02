@@ -1,6 +1,8 @@
 package metatools
 
 import (
+	"slices"
+
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
 
@@ -83,7 +85,7 @@ type ToolInfo struct {
 	// Annotations are the tool's MCP annotations as its server declared them
 	// (for a workflow, the derived readOnlyHint); omitted when it has none.
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
-	InputSchema interface{}      `json:"inputSchema,omitempty"`
+	InputSchema any              `json:"inputSchema,omitempty"`
 }
 
 // Text returns the human-readable line for the tool: the full description
@@ -217,12 +219,7 @@ var MetaToolNames = []string{
 
 // IsMetaTool reports whether name is one of the aggregator's meta-tools.
 func IsMetaTool(name string) bool {
-	for _, n := range MetaToolNames {
-		if n == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(MetaToolNames, name)
 }
 
 // ArgServer is the argument name selecting which MCP server a resource or
@@ -304,7 +301,7 @@ type DescribeToolResponse struct {
 	Server      string           `json:"server,omitempty"`
 	Kind        string           `json:"kind,omitempty"`
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
-	InputSchema interface{}      `json:"inputSchema,omitempty"`
+	InputSchema any              `json:"inputSchema,omitempty"`
 	// Invocation states how the described tool is called: through call_tool,
 	// never by its own name.
 	Invocation string `json:"invocation,omitempty"`

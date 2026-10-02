@@ -1,5 +1,5 @@
 name: "toolset-visibility-wins"
-description: "A toolset never widens access: a selector naming a server the session has not authenticated with resolves to nothing (reported in toolset_unmatched), its tools are absent, and a call to one answers the server's sign-in instead of running; after the session signs in the same toolset resolves to them (#1169, giantswarm/giantswarm#38005)"
+description: "A toolset never widens access: a selector naming a server the session has not authenticated with resolves to nothing (reported in toolset_unmatched), its tools are absent, and a call to one the toolset may select (by server, tool or preset) answers the server's sign-in instead of running; after the session signs in the same toolset resolves to them (#1169, giantswarm/giantswarm#38005)"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["toolset", "oauth", "visibility", "1169"]
@@ -75,6 +75,26 @@ steps:
     expected:
       success: false
       error_contains: ["auth_required: server 'protected'", "oauth/proxy/start"]
+
+  - id: "before-login-preset-answers-sign-in"
+    description: "a preset whose rules the tool may satisfy once listed (read-only: its annotation is not known yet) answers the sign-in too"
+    tool: "test_call_meta_tool"
+    args: { tool: "call_tool", arguments: { name: "x_protected_secret_op" } }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: false
+      error_contains: ["auth_required: server 'protected'", "oauth/proxy/start"]
+
+  - id: "before-login-requiring-auth"
+    description: "filter_tools reports the server a sign-in would unlock for the toolset"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { limit: 50 } }
+    headers: { X-Muster-Toolset: "preset:read-only" }
+    expected:
+      success: true
+      json_path:
+        toolset_requiring_auth.0.name: "protected"
+        toolset_requiring_auth.0.tool_prefix: "x_protected_"
 
   - id: "before-login-other-toolset-refused"
     description: "a toolset that does not name the server still refuses the call as outside it"

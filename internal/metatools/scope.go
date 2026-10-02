@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 
@@ -68,18 +69,6 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	return cat, nil
 }
 
-// pendingOwnerOf returns the server awaiting sign-in whose tool prefix is
-// the longest one the exposed name carries.
-func pendingOwnerOf(pending []api.ServerAuthInfo, name string) (api.ServerAuthInfo, bool) {
-	var owner api.ServerAuthInfo
-	for _, server := range pending {
-		if server.ToolPrefix != "" && strings.HasPrefix(name, server.ToolPrefix) && len(server.ToolPrefix) > len(owner.ToolPrefix) {
-			owner = server
-		}
-	}
-	return owner, owner.Name != ""
-}
-
 // listed reports whether the session's catalogue, before the toolset filter,
 // holds the name.
 func listed(tools []mcp.Tool, name string) bool {
@@ -91,64 +80,50 @@ func listed(tools []mcp.Tool, name string) bool {
 	return false
 }
 
-// namedForSignIn reports whether a call outside the toolset's resolution is
-// one the toolset names on a server the session has not signed in to: an
-// inline tool:<name> selector for the tool itself, or server:<name> for its
-// server. A preset cannot name it, since a preset's rules match tools the
-// catalogue holds. A listed tool is never such a call, whatever its prefix:
-// the resolution already left it out. The call goes to AnswerSignIn, which
-// answers with the sign-in link and runs nothing else.
-func (c *scopedCatalogue) namedForSignIn(name string) bool {
-	if !c.isScoped() || c.res.Contains(name) || listed(c.all, name) {
-		return false
-	}
-	server, ok := pendingOwnerOf(c.pending(), name)
-	if !ok {
-		return false
-	}
-	for _, selector := range c.ts.Selectors {
-		switch selector.Kind {
-		case toolset.KindTool:
-			if selector.Name == name {
-				return true
-			}
-		case toolset.KindServer:
-			if selector.Name == server.Name {
-				return true
-			}
-		}
-	}
-	return false
+// unlisted describes the tool name of a server awaiting sign-in for
+// toolset.MaySelect.
+func unlisted(owner api.ServerAuthInfo, name string) toolset.Unlisted {
+	return toolset.Unlisted{Server: owner.Name, Family: owner.Family, Prefix: owner.ToolPrefix, Name: name}
 }
 
-// requiringAuth returns the servers awaiting sign-in that the toolset names,
-// by server or by a tool of theirs: the part of the toolset a sign-in would
-// unlock, which the resolution alone reports as unmatched. A tool selector
-// naming a listed tool names no pending server.
-func requiringAuth(ts toolset.Toolset, pending []api.ServerAuthInfo, all []mcp.Tool) []api.ServerAuthInfo {
+// maySelectSignIn reports whether the request's toolset could select the
+// tool of a server awaiting sign-in once the session signs in and lists it.
+func (p *Provider) maySelectSignIn(ctx context.Context, c *scopedCatalogue, owner api.ServerAuthInfo, name string) bool {
+	return c.isScoped() && p.presets.MaySelect(c.ts, unlisted(owner, name), p.labelsFor(ctx))
+}
+
+// requiringAuth returns the servers awaiting sign-in some of whose tools the
+// toolsets could select once the session signs in: the part of the toolset
+// a sign-in would unlock, which the resolution cannot report since it only
+// sees listed tools. Every toolset given must allow it (an argument resolves
+// within the request's toolset). A tool name carries the longest pending
+// prefix it starts with, unless the catalogue already lists it. The result
+// is sorted by server name.
+func (p *Provider) requiringAuth(ctx context.Context, pending []api.ServerAuthInfo, all []mcp.Tool, toolsets ...toolset.Toolset) []api.ServerAuthInfo {
+	labels := p.labelsFor(ctx)
 	var named []api.ServerAuthInfo
-	seen := map[string]bool{}
-	for _, selector := range ts.Selectors {
-		var server api.ServerAuthInfo
-		var ok bool
-		switch selector.Kind {
-		case toolset.KindServer:
-			for _, candidate := range pending {
-				if candidate.Name == selector.Name {
-					server, ok = candidate, true
-					break
+	for _, server := range pending {
+		u := unlisted(server, "")
+		u.Owns = func(name string) bool {
+			if server.ToolPrefix == "" || !strings.HasPrefix(name, server.ToolPrefix) || listed(all, name) {
+				return false
+			}
+			for _, other := range pending {
+				if len(other.ToolPrefix) > len(server.ToolPrefix) && strings.HasPrefix(name, other.ToolPrefix) {
+					return false
 				}
 			}
-		case toolset.KindTool:
-			if !listed(all, selector.Name) {
-				server, ok = pendingOwnerOf(pending, selector.Name)
-			}
+			return true
 		}
-		if ok && !seen[server.Name] {
-			seen[server.Name] = true
+		selected := true
+		for _, ts := range toolsets {
+			selected = selected && p.presets.MaySelect(ts, u, labels)
+		}
+		if selected {
 			named = append(named, server)
 		}
 	}
+	slices.SortFunc(named, func(a, b api.ServerAuthInfo) int { return strings.Compare(a.Name, b.Name) })
 	return named
 }
 

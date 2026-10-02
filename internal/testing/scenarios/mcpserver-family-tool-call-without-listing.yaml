@@ -1,5 +1,5 @@
 name: "mcpserver-family-tool-call-without-listing"
-description: "A session authenticated to family members calls a family tool without ever having listed tools: the call fills the routing index from the session's cached capabilities, the way list_tools does, and a name that cannot be routed is refused with the family and the members named instead of 'tool not found' (#1204)"
+description: "A session authenticated to family members calls a family tool without ever having listed tools: the call fills the routing index from the session's cached capabilities, the way list_tools does, a call naming a member the session has not signed in to answers that member's sign-in, and a name that cannot be routed is refused with the family and the members named instead of 'tool not found' (#1204, giantswarm/giantswarm#38005)"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "family", "aggregator", "oauth", "session", "regression", "issue-1204"]
@@ -123,16 +123,27 @@ steps:
       success: true
       contains: ["alice"]
 
-  # bob never signed in to a member. The refusal names the family and its
+  # bob never signed in to a member. A call naming its member answers that
+  # member's sign-in; one naming none is refused with the family and its
   # members and points at the sign-in, rather than claiming the tool does not
-  # exist. This runs first: once any session has routed the tool, the index
+  # exist. These run first: once any session has routed the tool, the index
   # knows it process-wide and an unauthenticated caller is refused at the
   # connection instead.
-  - id: "bob-without-sign-in-is-pointed-at-login"
+  - id: "bob-without-sign-in-gets-the-members-sign-in"
     as_user: "bob"
     tool: "x_kubernetes_list_pods"
     args:
       management_cluster: "k8s-a"
+      namespace: "default"
+    expected:
+      success: false
+      error_contains: ["auth_required: server 'k8s-a'", "oauth/proxy/start"]
+      not_contains: ["tool not found", "k8s-b"]
+
+  - id: "bob-without-member-is-pointed-at-login"
+    as_user: "bob"
+    tool: "x_kubernetes_list_pods"
+    args:
       namespace: "default"
     expected:
       success: false

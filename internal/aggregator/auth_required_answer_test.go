@@ -204,10 +204,11 @@ func TestCallTool_UnknownToolOfASignedOutServerAnswersAuthRequired(t *testing.T)
 	require.EqualError(t, err, "tool not found: x_other_op")
 }
 
-// AnswerSignIn answers for the signed-out server owning the name and runs
-// nothing else: a name under a signed-in server's longer prefix is not the
-// signed-out server's, and is not answered.
-func TestAnswerSignIn_AnswersOnlyForTheSignedOutOwner(t *testing.T) {
+// SignedOutOwnerOf names the server a call would be routed to when it awaits
+// the session's sign-in, and AnswerSignIn answers its challenge without
+// running anything: a name under a signed-in or unknown server's prefix has
+// no signed-out owner.
+func TestSignedOutOwnerOf_AnswersOnlyForTheSignedOutOwner(t *testing.T) {
 	pinned := &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: answerIssuer, Scopes: "repo"}}
 	f := newAnswerFixture(t, pinned, nil)
 	require.NoError(t, f.agg.registry.RegisterPendingAuth(PendingAuthRegistration{
@@ -221,18 +222,50 @@ func TestAnswerSignIn_AnswersOnlyForTheSignedOutOwner(t *testing.T) {
 	f.agg.connPool.Evict(answerSession, answerServer)
 	callCtx := api.WithSubject(api.WithSessionID(ctx, answerSession), answerSubject)
 
-	result, ok, err := f.agg.AnswerSignIn(callCtx, "x_svc_op", map[string]any{})
-	require.NoError(t, err)
+	owner, ok := f.agg.SignedOutOwnerOf(callCtx, "x_svc_op", nil)
 	require.True(t, ok)
+	assert.Equal(t, api.ServerAuthInfo{Name: "svc", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_svc_"}, owner)
+	for _, name := range []string{"x_svc_ent_op", "x_other_op", "core_service_list"} {
+		_, ok := f.agg.SignedOutOwnerOf(callCtx, name, nil)
+		assert.False(t, ok, name)
+	}
+
+	result, connected, err := f.agg.AnswerSignIn(callCtx, owner.Name)
+	require.NoError(t, err)
+	assert.False(t, connected)
 	assert.True(t, result.IsError)
 	assert.Contains(t, mcpText(result), "auth_required: server 'svc'")
 	assert.Contains(t, mcpText(result), "https://muster.example.com/oauth/proxy/start")
+	assert.Equal(t, 0, f.client.callCount)
+}
 
-	for _, name := range []string{"x_svc_ent_op", "x_other_op", "core_service_list"} {
-		result, ok, err = f.agg.AnswerSignIn(callCtx, name, map[string]any{})
-		require.NoError(t, err, name)
-		assert.False(t, ok, name)
-		assert.Nil(t, result, name)
+// A family call names its member by the instance argument; a member awaiting
+// sign-in answers its own challenge, not the family's "connected to none".
+func TestCallTool_FamilyMemberAwaitingSignInAnswersAuthRequired(t *testing.T) {
+	pinned := &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: answerIssuer, Scopes: "repo"}}
+	f := newAnswerFixture(t, pinned, nil)
+	family := &api.MCPServerFamily{Name: "fam", InstanceArg: "server"}
+	for _, member := range []string{"fam-a", "fam-b"} {
+		require.NoError(t, f.agg.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: member, ToolPrefix: member, Family: family},
+			URL:                "https://" + member + ".example.com/mcp",
+			AuthInfo:           &AuthInfo{Issuer: answerIssuer, Scope: "repo"},
+			AuthConfig:         pinned,
+		}))
 	}
+	callCtx := api.WithSubject(api.WithSessionID(t.Context(), answerSession), answerSubject)
+
+	owner, ok := f.agg.SignedOutOwnerOf(callCtx, "x_fam_get", map[string]any{"server": "fam-b"})
+	require.True(t, ok)
+	assert.Equal(t, "fam-b", owner.Name)
+	assert.Equal(t, "fam", owner.Family)
+	assert.Equal(t, "x_fam_", owner.ToolPrefix)
+
+	result, err := f.agg.CallToolInternal(callCtx, "x_fam_get", map[string]any{"server": "fam-b"})
+	require.NoError(t, err)
+	assert.Contains(t, mcpText(result), "auth_required: server 'fam-b'")
+
+	_, err = f.agg.CallToolInternal(callCtx, "x_fam_get", map[string]any{})
+	require.ErrorContains(t, err, `in the name space of family "fam"`, "no instance argument names no member")
 	assert.Equal(t, 0, f.client.callCount)
 }

@@ -93,11 +93,25 @@ func TestAggregatorServer_CallToolInternal_FamilyToolWithoutListing(t *testing.T
 		assert.NotContains(t, err.Error(), "tool not found")
 	})
 
-	t.Run("a session connected to no member is pointed at core_auth_login", func(t *testing.T) {
+	t.Run("a session connected to no member gets the selected member's sign-in", func(t *testing.T) {
+		a, client := newRestartedAggregator(t)
+		strangerCtx := api.WithSessionID(context.Background(), "session-without-access")
+
+		result, err := a.CallToolInternal(strangerCtx, toolName, map[string]any{"management_cluster": memberA})
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.True(t, result.IsError)
+		assert.Contains(t, mcpText(result), "auth_required: server '"+memberA+"'")
+		assert.Empty(t, client.lastName, "a sign-in answer runs no tool")
+		assert.False(t, a.registry.IsFamilyTool(toolName),
+			"a session without capabilities contributes nothing to the index")
+	})
+
+	t.Run("a session connected to no member, naming none, is pointed at core_auth_login", func(t *testing.T) {
 		a, _ := newRestartedAggregator(t)
 		strangerCtx := api.WithSessionID(context.Background(), "session-without-access")
 
-		_, err := a.CallToolInternal(strangerCtx, toolName, map[string]any{"management_cluster": memberA})
+		_, err := a.CallToolInternal(strangerCtx, toolName, map[string]any{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `name space of family "kubernetes"`)
 		assert.Contains(t, err.Error(), "connected to none of its members")

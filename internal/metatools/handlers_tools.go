@@ -397,15 +397,15 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	case argToolset != nil:
 		resp.Toolset = argToolset.Raw
 		resp.ToolsetUnmatched = argResolution.Unmatched
-		if len(resp.ToolsetUnmatched) > 0 {
-			resp.ToolsetRequiringAuth = requiringAuth(*argToolset, cat.pending(), cat.all)
+		toolsets := []toolset.Toolset{*argToolset}
+		if cat.scoped {
+			toolsets = append(toolsets, cat.ts)
 		}
+		resp.ToolsetRequiringAuth = p.requiringAuth(ctx, cat.pending(), cat.all, toolsets...)
 	case cat.scoped:
 		resp.Toolset = cat.ts.Raw
 		resp.ToolsetUnmatched = cat.res.Unmatched
-		if len(resp.ToolsetUnmatched) > 0 {
-			resp.ToolsetRequiringAuth = requiringAuth(cat.ts, cat.pending(), cat.all)
-		}
+		resp.ToolsetRequiringAuth = p.requiringAuth(ctx, cat.pending(), cat.all, cat.ts)
 	}
 	// Presets accompany an inline argument (the caller is composing a toolset)
 	// or an explicit include_presets. A request-declared toolset alone does not

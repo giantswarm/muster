@@ -92,12 +92,18 @@ type MetaToolsDataProvider interface {
 	//   - []ServerAuthInfo: List of servers requiring authentication
 	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
 
-	// AnswerSignIn answers a call to a tool of a server awaiting the
-	// session's sign-in, and nothing else: the server's auth_required
-	// challenge, or the call itself once a stored grant reconnects the
-	// session. ok is false, and nothing is called, when no signed-out server
-	// owns the name by its tool prefix.
-	AnswerSignIn(ctx context.Context, name string, args map[string]any) (result *mcp.CallToolResult, ok bool, err error)
+	// SignedOutOwnerOf returns the server awaiting the session's sign-in
+	// that a call to the exposed tool name with args would be routed to: the
+	// member a family call's instance argument selects, else the server whose
+	// tool prefix is the longest the name carries. ok is false when that
+	// server is not awaiting sign-in or no single server owns the name.
+	SignedOutOwnerOf(ctx context.Context, name string, args map[string]any) (owner ServerAuthInfo, ok bool)
+
+	// AnswerSignIn starts the session's sign-in to the server and runs no
+	// tool. It returns the auth_required challenge with the sign-in link, or
+	// connected when a stored grant connected the session without a
+	// browser; the caller then makes the call it was answering as any other.
+	AnswerSignIn(ctx context.Context, server string) (result *mcp.CallToolResult, connected bool, err error)
 }
 
 // ServerAuthInfo contains information about a server requiring authentication.
@@ -109,10 +115,14 @@ type ServerAuthInfo struct {
 	Status string `json:"status"`
 	// AuthTool is the tool to use for authentication (typically "core_auth_login")
 	AuthTool string `json:"auth_tool"`
-	// ToolPrefix is the exposed prefix of the server's tools (x_<server>_),
-	// so a caller can tell which tool names the sign-in would unlock before
-	// the tools are listed.
+	// ToolPrefix is the exposed prefix of the server's tools (x_<server>_,
+	// or x_<family>_ for a member of a family whose tools are grouped), so a
+	// caller can tell which tool names the sign-in would unlock before the
+	// tools are listed.
 	ToolPrefix string `json:"tool_prefix,omitempty"`
+	// Family is the family the server's tools are grouped under; a call to
+	// one selects the server with the family's instance argument.
+	Family string `json:"family,omitempty"`
 }
 
 // metaToolsDataProvider stores the registered MetaToolsDataProvider implementation.
@@ -251,11 +261,14 @@ type MetaToolsHandler interface {
 	//   - []ServerAuthInfo: List of servers requiring authentication
 	ListServersRequiringAuth(ctx context.Context) []ServerAuthInfo
 
-	// AnswerSignIn answers a call to a tool of a server awaiting the
-	// session's sign-in, and runs nothing else. ok is false when no
-	// signed-out server owns the name; a call toolsets hand to it then stays
-	// refused.
-	AnswerSignIn(ctx context.Context, name string, args map[string]any) (result *mcp.CallToolResult, ok bool, err error)
+	// SignedOutOwnerOf returns the server awaiting the session's sign-in
+	// that a call to the exposed tool name with args would be routed to.
+	SignedOutOwnerOf(ctx context.Context, name string, args map[string]any) (owner ServerAuthInfo, ok bool)
+
+	// AnswerSignIn starts the session's sign-in to the server and runs no
+	// tool: the auth_required challenge, or connected when a stored grant
+	// connected the session.
+	AnswerSignIn(ctx context.Context, server string) (result *mcp.CallToolResult, connected bool, err error)
 }
 
 // ResourceOrigin pairs an aggregated resource with the server exposing it.

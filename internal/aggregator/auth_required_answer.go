@@ -65,48 +65,66 @@ func credentialRefused(err error) bool {
 // its connection is made from the session's muster token, so the answer says
 // to sign in to muster again.
 func (a *AggregatorServer) authRequiredAnswer(ctx context.Context, serverName, originalToolName string, args map[string]any, sessionID, sub, reason string) (*mcp.CallToolResult, error) {
+	result, connected, err := a.signInAnswer(ctx, serverName, sessionID, reason)
+	if err != nil || !connected {
+		return result, err
+	}
+	client, cleanup, err := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, err)
+	}
+	defer cleanup()
+	return client.CallTool(ctx, originalToolName, args)
+}
+
+// signInAnswer starts the session's sign-in to the server and runs no tool:
+// the auth_required challenge, or connected when the login connected the
+// session without a browser (a stored grant the server still accepts).
+func (a *AggregatorServer) signInAnswer(ctx context.Context, serverName, sessionID, reason string) (*mcp.CallToolResult, bool, error) {
 	info, ok := a.registry.GetServerInfo(serverName)
 	if !ok {
-		return nil, fmt.Errorf("server not found: %s", serverName)
+		return nil, false, fmt.Errorf("server not found: %s", serverName)
 	}
 	if !needsManualLogin(info) {
 		return authRequiredResult(serverName, reason, &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Server '%s' is connected with your muster session (SSO) and has no sign-in of its own. "+
 				"Sign in to muster again to reconnect it.", serverName)},
-		}), nil
+		}), false, nil
 	}
 
 	login, err := NewAuthToolProvider(a).handleAuthLogin(ctx, map[string]any{resourceServerArg: serverName})
 	if err != nil {
-		return nil, fmt.Errorf("server %s requires authentication and the sign-in could not be started: %w", serverName, err)
+		return nil, false, fmt.Errorf("server %s requires authentication and the sign-in could not be started: %w", serverName, err)
 	}
 	if !login.IsError && loginConnected(login) {
-		logging.InfoWithAttrs("Aggregator", "Session reconnected to the server from its stored grant, calling the tool on the new connection",
+		logging.InfoWithAttrs("Aggregator", "Session reconnected to the server from its stored grant",
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
 			slog.String("server", serverName))
-		client, cleanup, err := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
-		if err != nil {
-			return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, err)
-		}
-		defer cleanup()
-		return client.CallTool(ctx, originalToolName, args)
+		return nil, true, nil
 	}
-	return authRequiredResult(serverName, reason, login), nil
+	return authRequiredResult(serverName, reason, login), false, nil
 }
 
-// AnswerSignIn answers a call to a tool of a server awaiting the session's
-// sign-in, and nothing else: the server's auth_required challenge, or the
-// call on the new connection when a stored grant reconnects the session.
-// ok is false, and nothing is called, when no signed-out server owns the
-// name.
-func (a *AggregatorServer) AnswerSignIn(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, bool, error) {
-	serverName, originalName, ok := a.signedOutOwnerOf(ctx, toolName)
+// SignedOutOwnerOf returns the server awaiting the session's sign-in that a
+// call to the exposed name with args would be routed to.
+func (a *AggregatorServer) SignedOutOwnerOf(ctx context.Context, exposedName string, args map[string]any) (api.ServerAuthInfo, bool) {
+	owner, ok := a.registry.DeclaredOwnerOf(exposedName, args)
 	if !ok {
-		return nil, false, nil
+		return api.ServerAuthInfo{}, false
 	}
-	result, err := a.authRequiredAnswer(ctx, serverName, originalName, args,
-		getSessionIDFromContext(ctx), getUserSubjectFromContext(ctx), "this session is not authenticated to it")
-	return result, true, err
+	for _, server := range a.ListServersRequiringAuth(ctx) {
+		if server.Name == owner {
+			return server, true
+		}
+	}
+	return api.ServerAuthInfo{}, false
+}
+
+// AnswerSignIn starts the session's sign-in to a server awaiting it and runs
+// no tool: the auth_required challenge, or connected when a stored grant
+// connected the session, for the caller to make its call as any other.
+func (a *AggregatorServer) AnswerSignIn(ctx context.Context, serverName string) (*mcp.CallToolResult, bool, error) {
+	return a.signInAnswer(ctx, serverName, getSessionIDFromContext(ctx), "this session is not authenticated to it")
 }
 
 // loginConnected reports whether a core_auth_login answer says the session is

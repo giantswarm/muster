@@ -169,12 +169,15 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
   at info level with the tool, the toolset and the session. The tools a workflow's steps call
   internally are the workflow author's composition and are not re-checked. A tool of a server
   the session has not signed in to is not in the catalogue, so no selector resolves to it; when
-  the toolset names it all the same (`tool:<name>`, or `server:<name>` for its server) the call
-  answers `auth_required` with the sign-in link instead of refusing the name, and runs nothing
-  else. The server is the one whose tool prefix is the longest the name carries; a tool the
-  catalogue lists, a name under a prefix several servers share (a family) and a name another
-  server's longer prefix owns stay refused. A preset cannot name it, since preset rules match
-  tools the catalogue holds.
+  the toolset could select it once listed, the call answers `auth_required` with the sign-in link
+  instead of refusing the name, and runs nothing. The server is the one the call would be routed
+  to: in a family's name space, the member the instance argument selects; elsewhere, the server
+  whose tool prefix is the longest the name carries. The toolset could select it when a
+  `tool:<name>` or `server:<name>` selector names it (`server:` also takes the family name), or a
+  preset's rules could: `tool`, `pattern`, `server` and `label` rules are decided on the name, the
+  server and its labels, and `readOnly`, whose annotation is not known before sign-in, counts as a
+  possible include and never as an exclude. When a stored grant connects the session instead, the
+  call is checked against the tool as listed, with its annotations, like any other.
 - Resources and prompts follow the servers: a server is inside the toolset when at least one
   of its tools is selected. `list_resources`, `filter_resources`, `describe_resource`,
   `list_prompts`, `filter_prompts`, `describe_prompt` hide the others; `get_resource` and
@@ -194,9 +197,10 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
 The response carries the tools the toolset resolves to **for the caller**, `toolset` (the
 selectors as given), `toolset_unmatched` (the selectors that selected nothing for the caller —
 for example a server the caller has not signed in to; `preset:none` is never reported),
-`toolset_requiring_auth` (the servers awaiting the caller's sign-in that the toolset names by
-server or by a tool of theirs, each with `name`, `auth_tool` and `tool_prefix`: the part of the
-toolset a sign-in would unlock) and `presets` (`[{name, description, built_in}]`, built-ins
+`toolset_requiring_auth` (the servers awaiting the caller's sign-in some of whose tools the
+toolset could select once listed, by the same rules as `call_tool`, sorted by name, each with
+`name`, `auth_tool`, `tool_prefix` and, for a family member, `family`: the part of the toolset a
+sign-in would unlock) and `presets` (`[{name, description, built_in}]`, built-ins
 first). When the request also carries `X-muster-Toolset`, the argument resolves **within** the
 header's toolset and never widens it. Argument errors use the header's texts.
 
