@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -222,4 +223,96 @@ func TestUnwrapMetaToolResponse_NoStructuredContent(t *testing.T) {
 	unwrapped, err := client.unwrapMetaToolResponse(wrapped, "some_tool")
 	require.NoError(t, err)
 	require.Nil(t, unwrapped.StructuredContent)
+}
+
+func TestUnwrapMetaToolResponse_RichResult(t *testing.T) {
+	client := NewClient("http://localhost:8090/mcp", nil, TransportStreamableHTTP)
+
+	envelope := `{
+		"isError": false,
+		"content": [
+			{"type": "text", "text": "rendered graph", "annotations": {"audience": ["user"], "priority": 0.9}},
+			{"type": "image", "mimeType": "image/png", "dataSize": 16, "annotations": {"audience": ["user"], "priority": 0.9}},
+			{"type": "audio", "mimeType": "audio/wav", "dataSize": 16},
+			{"type": "resource", "resource": {"uri": "file:///report.md", "mimeType": "text/markdown", "text": "# Report"}},
+			{"type": "resource_link", "uri": "file:///graph.png", "name": "graph", "mimeType": "image/png"}
+		],
+		"_meta": {"traceId": "abc123"}
+	}`
+	image := mcp.NewImageContent("aW1hZ2UtYnl0ZXM=", "image/png")
+	image.Annotations = &mcp.Annotations{Audience: []mcp.Role{mcp.RoleUser}, Priority: new(0.9)}
+	audio := mcp.NewAudioContent("YXVkaW8tYnl0ZXM=", "audio/wav")
+	wrapped := &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent(envelope), image, audio},
+	}
+
+	unwrapped, err := client.unwrapMetaToolResponse(wrapped, "render_graph")
+	require.NoError(t, err)
+
+	t.Run("text annotations survive", func(t *testing.T) {
+		text, ok := contentOfType[mcp.TextContent](unwrapped.Content)
+		require.True(t, ok)
+		assert.Equal(t, "rendered graph", text.Text)
+		require.NotNil(t, text.Annotations)
+		assert.Equal(t, []mcp.Role{mcp.RoleUser}, text.Annotations.Audience)
+	})
+
+	t.Run("image and audio payloads are restored", func(t *testing.T) {
+		restoredImage, ok := contentOfType[mcp.ImageContent](unwrapped.Content)
+		require.True(t, ok)
+		assert.Equal(t, image, restoredImage)
+		restoredAudio, ok := contentOfType[mcp.AudioContent](unwrapped.Content)
+		require.True(t, ok)
+		assert.Equal(t, audio, restoredAudio)
+	})
+
+	t.Run("embedded resources and resource links survive", func(t *testing.T) {
+		resource, ok := contentOfType[mcp.EmbeddedResource](unwrapped.Content)
+		require.True(t, ok)
+		contents, ok := resource.Resource.(mcp.TextResourceContents)
+		require.True(t, ok, "got %T", resource.Resource)
+		assert.Equal(t, "# Report", contents.Text)
+		link, ok := contentOfType[mcp.ResourceLink](unwrapped.Content)
+		require.True(t, ok)
+		assert.Equal(t, "file:///graph.png", link.URI)
+	})
+
+	t.Run("content order is kept", func(t *testing.T) {
+		require.Len(t, unwrapped.Content, 5)
+		for i, want := range []string{"text", "image", "audio", "resource", "resource_link"} {
+			wire, err := json.Marshal(unwrapped.Content[i])
+			require.NoError(t, err)
+			assert.Contains(t, string(wire), `"type":"`+want+`"`)
+		}
+	})
+
+	t.Run("result _meta survives", func(t *testing.T) {
+		require.NotNil(t, unwrapped.Meta)
+		assert.Equal(t, "abc123", unwrapped.Meta.AdditionalFields["traceId"])
+	})
+}
+
+// contentOfType returns the first content item of type T.
+func contentOfType[T mcp.Content](contents []mcp.Content) (T, bool) {
+	for _, c := range contents {
+		if typed, ok := c.(T); ok {
+			return typed, true
+		}
+	}
+	var zero T
+	return zero, false
+}
+
+func TestUnwrapMetaToolResponse_SizeOnlyImageWithoutPayload(t *testing.T) {
+	client := NewClient("http://localhost:8090/mcp", nil, TransportStreamableHTTP)
+
+	// A server that sends the envelope without native items: the image has
+	// nothing to restore from and is left out, the text is kept.
+	envelope := `{"isError": false, "content": [{"type": "image", "mimeType": "image/png", "dataSize": 16}, {"type": "text", "text": "caption"}]}`
+	wrapped := &mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(envelope)}}
+
+	unwrapped, err := client.unwrapMetaToolResponse(wrapped, "render_graph")
+	require.NoError(t, err)
+	require.Equal(t, []mcp.Content{mcp.NewTextContent("caption")}, unwrapped.Content)
+	require.Nil(t, unwrapped.Meta)
 }

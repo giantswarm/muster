@@ -605,3 +605,95 @@ func TestErrorResult(t *testing.T) {
 	assert.Len(t, result.Content, 1)
 	assert.Equal(t, "error message", result.Content[0])
 }
+
+// richResult is a downstream tool result that uses every part of the MCP
+// result the call_tool envelope has to carry besides text.
+func richResult() *mcp.CallToolResult {
+	annotations := &mcp.Annotations{Audience: []mcp.Role{mcp.RoleUser}, Priority: new(0.9)}
+	text := mcp.NewTextContent("rendered graph")
+	text.Annotations = annotations
+	image := mcp.NewImageContent("aW1hZ2UtYnl0ZXM=", "image/png")
+	image.Annotations = annotations
+	return &mcp.CallToolResult{
+		Result: mcp.Result{Meta: mcp.NewMetaFromMap(map[string]any{"traceId": "abc123"})},
+		Content: []mcp.Content{
+			text,
+			image,
+			mcp.NewAudioContent("YXVkaW8tYnl0ZXM=", "audio/wav"),
+			mcp.NewEmbeddedResource(mcp.TextResourceContents{URI: "file:///report.md", MIMEType: "text/markdown", Text: "# Report"}),
+			mcp.NewResourceLink("file:///graph.png", "graph", "the full graph", "image/png"),
+		},
+	}
+}
+
+func TestProvider_HandleCallTool_RichResult(t *testing.T) {
+	provider := NewProvider()
+	ctx := context.Background()
+
+	mock := &mockMetaToolsHandler{callToolResult: richResult()}
+	cleanup := registerMockHandler(mock)
+	defer cleanup()
+
+	result, err := provider.ExecuteTool(ctx, "call_tool", map[string]any{"name": "render_graph"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+
+	var envelope struct {
+		Content []map[string]any `json:"content"`
+		Meta    map[string]any   `json:"_meta"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].(string)), &envelope))
+	require.Len(t, envelope.Content, 5)
+
+	t.Run("result _meta is in the envelope", func(t *testing.T) {
+		assert.Equal(t, "abc123", envelope.Meta["traceId"])
+	})
+
+	t.Run("content annotations are in the envelope", func(t *testing.T) {
+		for _, i := range []int{0, 1} {
+			annotations, ok := envelope.Content[i]["annotations"].(map[string]any)
+			require.True(t, ok, "item %d lost its annotations", i)
+			assert.Equal(t, []any{"user"}, annotations["audience"])
+			assert.Equal(t, 0.9, annotations["priority"])
+		}
+	})
+
+	t.Run("image and audio stay size-only in the envelope", func(t *testing.T) {
+		assert.Equal(t, float64(len("aW1hZ2UtYnl0ZXM=")), envelope.Content[1]["dataSize"])
+		assert.NotContains(t, envelope.Content[1], "data")
+		assert.NotContains(t, envelope.Content[2], "data")
+	})
+
+	t.Run("image and audio payloads follow the envelope natively", func(t *testing.T) {
+		require.Len(t, result.Content, 3)
+		image, ok := result.Content[1].(mcp.ImageContent)
+		require.True(t, ok, "expected native image content, got %T", result.Content[1])
+		assert.Equal(t, "aW1hZ2UtYnl0ZXM=", image.Data)
+		assert.Equal(t, "image/png", image.MIMEType)
+		require.NotNil(t, image.Annotations)
+		audio, ok := result.Content[2].(mcp.AudioContent)
+		require.True(t, ok, "expected native audio content, got %T", result.Content[2])
+		assert.Equal(t, "YXVkaW8tYnl0ZXM=", audio.Data)
+	})
+
+	t.Run("embedded resources and resource links are in the envelope", func(t *testing.T) {
+		assert.Equal(t, "resource", envelope.Content[3]["type"])
+		assert.Equal(t, "# Report", envelope.Content[3]["resource"].(map[string]any)["text"])
+		assert.Equal(t, "resource_link", envelope.Content[4]["type"])
+		assert.Equal(t, "file:///graph.png", envelope.Content[4]["uri"])
+	})
+}
+
+func TestProvider_HandleCallTool_PlainEnvelopeUnchanged(t *testing.T) {
+	provider := NewProvider()
+	mock := &mockMetaToolsHandler{callToolResult: &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.NewTextContent("Success!")},
+	}}
+	cleanup := registerMockHandler(mock)
+	defer cleanup()
+
+	result, err := provider.ExecuteTool(context.Background(), "call_tool", map[string]any{"name": "some_tool"})
+	require.NoError(t, err)
+	require.Len(t, result.Content, 1)
+	assert.Equal(t, `{"isError":false,"content":[{"text":"Success!","type":"text"}]}`, result.Content[0].(string))
+}
