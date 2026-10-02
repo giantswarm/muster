@@ -56,6 +56,19 @@ func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
 	cmd.PersistentFlags().BoolVar(&flags.Login, LoginFlag, false, "Open the browser to sign in when authentication is required (same as --auth auto)")
 }
 
+// CompletionOptions returns the options of a shell-completion lookup: quiet
+// JSON against the aggregator the command itself would reach, so --endpoint,
+// --context and their environment variables pick it, not the default context.
+func (f *CommandFlags) CompletionOptions() ExecutorOptions {
+	return ExecutorOptions{
+		Format:     OutputFormatJSON,
+		Quiet:      true,
+		ConfigPath: f.ConfigPath,
+		Endpoint:   f.Endpoint,
+		Context:    f.Context,
+	}
+}
+
 // ToExecutorOptions converts CommandFlags to ExecutorOptions for use with NewToolExecutor.
 // This provides a convenient bridge between the flag registration and executor creation.
 // It validates the output format and returns an error for unsupported formats.

@@ -37,11 +37,7 @@ func startWorkflowNameCompletion(cmd *cobra.Command, args []string, toComplete s
 	}
 
 	// Get workflow names using the same pattern as getResourceNameCompletion
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormatJSON,
-		Quiet:      true,
-		ConfigPath: startFlags.ConfigPath,
-	})
+	executor, err := cli.NewToolExecutor(startFlags.CompletionOptions())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

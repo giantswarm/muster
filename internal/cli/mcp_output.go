@@ -536,13 +536,16 @@ func wrapText(text string, width int) []string {
 
 // FormatMCPResourceDetail formats and displays detailed MCP resource info.
 // For table format, it uses a kubectl-describe-like plain text output.
-func FormatMCPResourceDetail(resource MCPResource, format OutputFormat) error {
+func FormatMCPResourceDetail(resource MCPResourceInfo, format OutputFormat) error {
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		resourceInfo := map[string]interface{}{
 			api.FieldURI:             resource.URI,
 			api.FieldName:            resource.Name,
 			api.SchemaKeyDescription: resource.Description,
 			api.FieldMimeType:        resource.MIMEType,
+		}
+		if resource.Server != "" {
+			resourceInfo[api.FieldServer] = resource.Server
 		}
 		if format == OutputFormatJSON {
 			return outputJSON(resourceInfo)
@@ -553,6 +556,9 @@ func FormatMCPResourceDetail(resource MCPResource, format OutputFormat) error {
 	// kubectl-describe-like plain text format
 	fmt.Printf("URI:          %s\n", resource.URI)
 	fmt.Printf("Name:         %s\n", resource.Name)
+	if resource.Server != "" {
+		fmt.Printf("Server:       %s\n", resource.Server)
+	}
 	if resource.Description != "" {
 		fmt.Printf("Description:  %s\n", resource.Description)
 	}
@@ -565,11 +571,14 @@ func FormatMCPResourceDetail(resource MCPResource, format OutputFormat) error {
 
 // FormatMCPPromptDetail formats and displays detailed MCP prompt info.
 // For table format, it uses a kubectl-describe-like plain text output.
-func FormatMCPPromptDetail(prompt MCPPrompt, format OutputFormat) error {
+func FormatMCPPromptDetail(prompt MCPPromptInfo, format OutputFormat) error {
 	if format == OutputFormatJSON || format == OutputFormatYAML {
 		promptInfo := map[string]interface{}{
 			api.FieldName:            prompt.Name,
 			api.SchemaKeyDescription: prompt.Description,
+		}
+		if prompt.Server != "" {
+			promptInfo[api.FieldServer] = prompt.Server
 		}
 		if len(prompt.Arguments) > 0 {
 			args := make([]map[string]interface{}, len(prompt.Arguments))
@@ -590,6 +599,9 @@ func FormatMCPPromptDetail(prompt MCPPrompt, format OutputFormat) error {
 
 	// kubectl-describe-like plain text format
 	fmt.Printf("Name:         %s\n", prompt.Name)
+	if prompt.Server != "" {
+		fmt.Printf("Server:       %s\n", prompt.Server)
+	}
 	fmt.Printf("Description:  %s\n", prompt.Description)
 
 	// Print arguments
