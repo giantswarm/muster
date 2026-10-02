@@ -344,7 +344,16 @@ type OAuthServerConfig struct {
 	// Reduces SSRF protection for CIMD fetches; mcp-oauth logs a startup
 	// warning when set. PKCE and redirect-URI checks are unchanged.
 	// Default: false
+	// Prefer AllowPrivateIPClientMetadataHosts when only known hosts are private.
 	AllowPrivateIPClientMetadata bool `yaml:"allowPrivateIPClientMetadata,omitempty"`
+
+	// AllowPrivateIPClientMetadataHosts is the host-scoped alternative to
+	// AllowPrivateIPClientMetadata: a CIMD client_id URL may resolve to a
+	// private, loopback or link-local address only when its hostname is listed
+	// (exact match, no port, no wildcard); every other host keeps the SSRF
+	// guard, at validation and at connection time. mcp-oauth logs a startup
+	// warning when set. Default: empty
+	AllowPrivateIPClientMetadataHosts []string `yaml:"allowPrivateIPClientMetadataHosts,omitempty"`
 
 	// AllowPrivateIPRedirectURIs lets a client's redirect URI resolve to a
 	// private address (a literal RFC 1918 host or a hostname that resolves to

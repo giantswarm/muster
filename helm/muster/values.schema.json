@@ -313,6 +313,12 @@
                                 "allowPrivateIPClientMetadata": {
                                     "type": "boolean"
                                 },
+                                "allowPrivateIPClientMetadataHosts": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
                                 "allowPrivateIPRedirectURIs": {
                                     "type": "boolean"
                                 },

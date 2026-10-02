@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`oauth.server.allowPrivateIPClientMetadataHosts` lets a listed CIMD host resolve to a private address, and the CIMD fetch trusts `--extra-ca-file`.** A CIMD client on a private hostname (an internal load balancer, a VPN-only platform) needed `allowPrivateIPClientMetadata`, which lifts the SSRF guard for every host, and one served under an internal CA failed TLS verification even with that CA in `--extra-ca-file`. The new list (Helm: `muster.oauth.server.allowPrivateIPClientMetadataHosts`, empty by default) lifts the guard for the hostnames listed only, mirroring `trustedIssuers[].allowPrivateIPJWKSHosts`; every other host keeps it, at validation and at connection time. The CIMD fetch now verifies against the `--extra-ca-file` pool, the system roots plus the operator's CA, as the forwarded-token JWKS client already did; without `--extra-ca-file` it keeps the system roots. Prefer the list over the bool, which stays for an installation where every hostname is private. Requires mcp-oauth v1.6.0. ([#1396](https://github.com/giantswarm/muster/issues/1396))
+
 ### Fixed
 
 - **The capability store's expiry test no longer fails on a slow machine.** `TestInMemoryCapabilityStore_ListSessions_skipsExpired` gave the store a 10 ms TTL, so under load the session it had just set as fresh had expired by the time it listed the sessions, and the test (and with it a release's tag pipeline) failed. The stale session is rewound explicitly; the TTL is now a minute.

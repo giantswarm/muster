@@ -88,6 +88,10 @@ data:
           {{- if .Values.muster.oauth.server.allowPrivateIPClientMetadata }}
           allowPrivateIPClientMetadata: true
           {{- end }}
+          {{- with .Values.muster.oauth.server.allowPrivateIPClientMetadataHosts }}
+          allowPrivateIPClientMetadataHosts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if .Values.muster.oauth.server.allowPrivateIPRedirectURIs }}
           allowPrivateIPRedirectURIs: true
           {{- end }}
