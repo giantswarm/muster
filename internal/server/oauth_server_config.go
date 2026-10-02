@@ -80,6 +80,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
 		AllowLocalhostRedirectURIs:            cfg.AllowLocalhostRedirectURIs,
 		AllowPrivateIPClientMetadata:          cfg.AllowPrivateIPClientMetadata,
+		AllowPrivateIPClientMetadataHosts:     cfg.AllowPrivateIPClientMetadataHosts,
 		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirectURIs,
 		TrustedAudiences:                      cfg.TrustedAudiences,
 		// The forwarded-ID-token (TrustedAudiences) JWKS validation in

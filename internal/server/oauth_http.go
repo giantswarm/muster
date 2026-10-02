@@ -767,6 +767,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	// Verify the forwarded-ID-token (TrustedAudiences) JWKS endpoint against the
 	// operator's extra CA when the issuer is private-IP. nil keeps system-pool.
 	serverConfig.JWKSRootCAs = caPool
+	// The same pool verifies a CIMD client_id URL served under the operator's
+	// CA. It replaces the system roots for that fetch, which is why
+	// tlsutil.LoadCAPool starts from them: public CIMD clients keep working.
+	serverConfig.ClientMetadataRootCAs = caPool
 
 	builtOpts, err := buildOAuthServerOptions(cfg, logger, caPool, inst)
 	if err != nil {

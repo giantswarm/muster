@@ -632,8 +632,20 @@ muster:
       # (a management cluster reachable only over VPN) -- otherwise the SSRF guard
       # rejects such a client with "client_id metadata URL resolves to
       # private/internal IP address". Reduces SSRF protection for CIMD fetches;
-      # muster logs a startup warning when set. Default: false.
+      # muster logs a startup warning when set. Prefer
+      # allowPrivateIPClientMetadataHosts; keep this for an installation where
+      # every hostname is private. Default: false.
       allowPrivateIPClientMetadata: false
+
+      # The host-scoped alternative to allowPrivateIPClientMetadata: a CIMD
+      # client_id URL may resolve to a private, loopback or link-local address
+      # only when its hostname is listed (exact match, no port, no wildcard);
+      # every other host keeps the SSRF guard. A CIMD client served under an
+      # internal CA is verified against extraCaFile (plus the system roots).
+      # muster logs a startup warning when set. Default: empty.
+      # Example:
+      #   - gateway.internal.example
+      allowPrivateIPClientMetadataHosts: []
 
       # Let a client's redirect URI resolve to a private address (a literal
       # RFC 1918 host or a hostname that resolves to one). Needed where the

@@ -42,6 +42,32 @@ tests:
           path: data["config.yaml"]
           pattern: "cursor"
 
+  - it: renders allowPrivateIPClientMetadataHosts into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.allowPrivateIPClientMetadataHosts:
+        - "gateway.internal.example"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPClientMetadataHosts:\\n\\s+- gateway\\.internal\\.example"
+
+  - it: omits allowPrivateIPClientMetadataHosts by default
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPClientMetadataHosts:"
+
   - it: omits trustedPublicRegistrationRedirectURIs when empty
     set:
       muster.oauth.server.enabled: true

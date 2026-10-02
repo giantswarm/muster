@@ -311,11 +311,14 @@ The same guard applies to the token endpoint of a remote Dex that muster exchang
 
 #### Private-IP CIMD Clients
 
-The SSRF guard also covers Client ID Metadata Documents (CIMD): a `client_id` that is a URL is fetched by the OAuth server, and by default that URL must not resolve to a private, loopback or link-local address. On a cluster whose own hostnames resolve to an internal load balancer, a CIMD client hosted on the platform itself (klaus-gateway's `/auth/slack/client.json`, for example) is rejected with `invalid_client: ... client_id metadata URL resolves to private/internal IP address`. Lift the guard only there.
+The SSRF guard also covers Client ID Metadata Documents (CIMD): a `client_id` that is a URL is fetched by the OAuth server, and by default that URL must not resolve to a private, loopback or link-local address. On a cluster whose own hostnames resolve to an internal load balancer, a CIMD client hosted on the platform itself (klaus-gateway's `/auth/slack/client.json`, for example) is rejected with `invalid_client: ... client_id metadata URL resolves to private/internal IP address`. Lift the guard only for that host.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `allowPrivateIPClientMetadata` | `bool` | `false` | Allow a CIMD `client_id` URL to resolve to a private/loopback/link-local IP. Emits a startup warning when set. PKCE and redirect-URI validation are unchanged. Helm: `muster.oauth.server.allowPrivateIPClientMetadata`. |
+| `allowPrivateIPClientMetadataHosts` | `[]string` | `[]` | Host-scoped allowance: a CIMD `client_id` URL may resolve to a private/loopback/link-local IP only when its hostname is listed (exact match, no port, no wildcard); every other host keeps the SSRF guard, at validation and at connection time. Emits a startup warning when set. Helm: `muster.oauth.server.allowPrivateIPClientMetadataHosts`. |
+| `allowPrivateIPClientMetadata` | `bool` | `false` | Allow every CIMD `client_id` URL to resolve to a private/loopback/link-local IP. Prefer `allowPrivateIPClientMetadataHosts`; keep this for an installation where every hostname is private. Emits a startup warning when set. PKCE and redirect-URI validation are unchanged. Helm: `muster.oauth.server.allowPrivateIPClientMetadata`. |
+
+The CIMD fetch verifies the client's TLS certificate against the system roots, plus the CA of `--extra-ca-file` when it is set (Helm: `muster.extraCaFile`), so a CIMD client served under an internal CA needs no further setting. The same pool verifies the JWKS of a private-IP Dex.
 
 #### Private-IP Redirect URIs
 

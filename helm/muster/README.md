@@ -141,6 +141,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.allowLocalhostRedirectURIs | bool | `true` |  |
 | muster.oauth.server.providerTokenRefreshThreshold | string | `""` | How much lifetime the provider (Dex) token muster holds for a user must have left before muster hands it out as is; a token closer to its expiry is refreshed at the provider first. Governs the token forwarded to downstream servers and the one a client's refresh returns. Raise it when a caller needs a forwarded token that outlives a long operation (e.g. "25m" for agent turns of 20 minutes); keep it below the provider's token lifetime (Dex idTokens, 30m by default), or every request refreshes at the provider. Go duration of at least 1s. Empty: the mcp-oauth default of 5m. |
 | muster.oauth.server.allowPrivateIPClientMetadata | bool | `false` |  |
+| muster.oauth.server.allowPrivateIPClientMetadataHosts | list | `[]` |  |
 | muster.oauth.server.allowPrivateIPRedirectURIs | bool | `false` |  |
 | muster.oauth.server.trustedAudiences | list | `[]` | ------------------------------------------------------------------------- OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer tokens without the client completing muster's own OAuth flow.  The token's aud claim must match one of these values and the signature must validate against the provider's JWKS. SECURITY: only list client IDs you fully trust. |
 | muster.oauth.server.trustedIssuers | list | `[]` |  |
