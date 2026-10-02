@@ -555,3 +555,94 @@ func TestToolset_InToolsetCallsDoNotLookUpPendingServers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, m.authLookups, "a name outside the resolution looks them up once")
 }
+
+// familyFixture is toolsetFixture with a kube family served by kube-a and
+// kube-b, each exposing its own resource.
+func familyFixture() *mockMetaToolsHandler {
+	m := toolsetFixture()
+	kubeGet := ro(tagged("x_kube_get", toolset.ToolOrigin{
+		Kind: toolset.OriginKindTool, Server: "kube", Servers: []string{"kube-a", "kube-b"}, InstanceArg: "server",
+	}), true)
+	toolset.SetFamilyMembers(&kubeGet, "server", []string{"kube-a", "kube-b"})
+	m.tools = append(m.tools, kubeGet)
+	m.resources = append(m.resources,
+		api.ResourceOrigin{Resource: mcp.Resource{URI: "kube-a://nodes", Name: "nodes-a"}, Server: "kube-a"},
+		api.ResourceOrigin{Resource: mcp.Resource{URI: "kube-b://nodes", Name: "nodes-b"}, Server: "kube-b"},
+	)
+	return m
+}
+
+// A family tool runs on the member its instance argument selects, so the
+// toolset must select the tool on that member, not merely by name.
+func TestToolset_CallToolChecksTheFamilyMember(t *testing.T) {
+	r, err := toolset.NewRegistry(toolset.PresetsConfig{
+		"no-kube-b": {Include: []toolset.Rule{{Pattern: "x_*"}}, Exclude: []toolset.Rule{{Server: "kube-b"}}},
+	})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		header, member string
+		inside         bool
+	}{
+		{"server:kube-a", "kube-a", true},
+		{"server:kube-a", "kube-b", false},
+		{"server:kube-a", "kube-c", false},
+		{"server:kube", "kube-b", true},
+		{"tool:x_kube_get", "kube-b", true},
+		{"preset:read-only", "kube-b", true},
+		{"preset:no-kube-b", "kube-a", true},
+		{"preset:no-kube-b", "kube-b", false},
+	} {
+		m := familyFixture()
+		restore := registerMockHandler(m)
+		result, err := NewProviderWithPresets(r).ExecuteTool(withHeader(tc.header, true), "call_tool",
+			map[string]any{"name": "x_kube_get", "arguments": map[string]any{"server": tc.member}})
+		restore()
+		require.NoError(t, err)
+		if tc.inside {
+			assert.False(t, result.IsError, "%s on %s", tc.header, tc.member)
+			assert.Equal(t, []string{"x_kube_get"}, m.called, "%s on %s", tc.header, tc.member)
+		} else {
+			assert.Equal(t, `tool "x_kube_get" on server "`+tc.member+`" is outside the toolset [`+tc.header+`]`, errorText(t, result))
+			assert.Empty(t, m.called, "%s on %s", tc.header, tc.member)
+		}
+	}
+}
+
+func TestToolset_FamilyResourcesFollowTheSelectedMembers(t *testing.T) {
+	defer registerMockHandler(familyFixture())()
+	p := NewProvider()
+	ctx := withHeader("server:kube-a", true)
+
+	result, err := p.ExecuteTool(ctx, "list_resources", nil)
+	require.NoError(t, err)
+	text := result.Content[0].(string)
+	assert.Contains(t, text, "kube-a://nodes")
+	assert.NotContains(t, text, "kube-b://nodes")
+
+	result, err = p.ExecuteTool(ctx, "get_resource", map[string]any{"uri": "kube-b://nodes"})
+	require.NoError(t, err)
+	assert.Equal(t, `resource "kube-b://nodes" is outside the toolset [server:kube-a]`, errorText(t, result))
+
+	result, err = p.ExecuteTool(withHeader("server:kube", true), "list_resources", nil)
+	require.NoError(t, err)
+	text = result.Content[0].(string)
+	assert.Contains(t, text, "kube-a://nodes")
+	assert.Contains(t, text, "kube-b://nodes")
+}
+
+func TestToolset_DescribeToolAdvertisesTheSelectedMembers(t *testing.T) {
+	defer registerMockHandler(familyFixture())()
+	p := NewProvider()
+
+	result, err := p.ExecuteTool(withHeader("server:kube-a", true), "describe_tool", map[string]any{"name": "x_kube_get"})
+	require.NoError(t, err)
+	detail := decode(t, result)
+	assert.Equal(t, "x_kube_get description (available on servers: kube-a)", detail["description"])
+	schema := detail["inputSchema"].(map[string]any)
+	assert.Equal(t, []any{"kube-a"}, schema["properties"].(map[string]any)["server"].(map[string]any)["enum"])
+
+	result, err = p.ExecuteTool(withHeader("server:kube", true), "describe_tool", map[string]any{"name": "x_kube_get"})
+	require.NoError(t, err)
+	assert.Equal(t, "x_kube_get description (available on servers: kube-a, kube-b)", decode(t, result)["description"])
+}

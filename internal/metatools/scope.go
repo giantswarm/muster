@@ -171,20 +171,33 @@ func (c *scopedCatalogue) outside(name string) *api.CallToolResult {
 
 // refuse gates call_tool: with a toolset declared, any name outside it is
 // refused — known or not, since either way it is not something the agent was
-// composed with — and the refusal is logged with tool, toolset and session.
-func (c *scopedCatalogue) refuse(ctx context.Context, name string) *api.CallToolResult {
-	if !c.isScoped() || c.res.Contains(name) {
+// composed with — and so is a call to a family tool on a member the toolset
+// does not select it on, selected by the call's instance argument. The
+// refusal is logged with tool, member, toolset and session.
+func (c *scopedCatalogue) refuse(ctx context.Context, name string, args map[string]any) *api.CallToolResult {
+	if !c.isScoped() {
+		return nil
+	}
+	member, inside := c.res.CallInside(name, args)
+	if inside {
 		return nil
 	}
 	attrs := []slog.Attr{
 		slog.String("tool", name),
 		slog.String("toolset", c.ts.String()),
 	}
+	if member != "" {
+		attrs = append(attrs, slog.String("server", member))
+	}
 	if sessionID := api.GetSessionIDFromContext(ctx); sessionID != "" {
 		attrs = append(attrs, slog.String("session", logging.TruncateIdentifier(sessionID)))
 	}
 	if cs := mcpserver.ClientSessionFromContext(ctx); cs != nil {
 		attrs = append(attrs, logging.TransportSessionID(cs.SessionID()))
+	}
+	if member != "" {
+		logging.InfoWithAttrs("metatools", fmt.Sprintf("call_tool refused: tool %q on server %q is outside the toolset %s", name, member, c.ts), attrs...)
+		return errorResult(fmt.Sprintf("tool %q on server %q is outside the toolset %s", name, member, c.ts))
 	}
 	logging.InfoWithAttrs("metatools", fmt.Sprintf("call_tool refused: tool %q is outside the toolset %s", name, c.ts), attrs...)
 	return c.outsideError("tool", name)

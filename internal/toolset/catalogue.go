@@ -1,6 +1,7 @@
 package toolset
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -26,9 +27,19 @@ type Entry struct {
 	Server string
 	// Servers lists the member servers of a family tool.
 	Servers []string
+	// InstanceArg is the argument a call to a family tool selects its member
+	// with; empty for every other entry.
+	InstanceArg string
 	// ReadOnly is the tool's readOnlyHint annotation (for a workflow the
 	// derived hint the aggregator computed from its step tools).
 	ReadOnly bool
+}
+
+// Member is the entry as one member of a family tool serves it: the same
+// name, family and annotations, with that member alone among its servers.
+func (e Entry) Member(server string) Entry {
+	e.Servers = []string{server}
+	return e
 }
 
 // ServerLabels resolves an MCPServer name to its resource labels (nil when the
@@ -48,6 +59,7 @@ func EntriesFromTools(tools []mcp.Tool) []Entry {
 		if origin, ok := ToolOriginOf(t); ok {
 			e.Server = origin.Server
 			e.Servers = origin.Servers
+			e.InstanceArg = origin.InstanceArg
 		}
 		if t.Annotations.ReadOnlyHint != nil && *t.Annotations.ReadOnlyHint {
 			e.ReadOnly = true
@@ -79,13 +91,29 @@ func KindOf(t mcp.Tool) Kind {
 	return KindEntryTool
 }
 
-// Filter returns the tools whose names the resolution selected, in input order.
+// Filter returns the tools whose names the resolution selected, in input
+// order. A family tool selected on some of its members only is narrowed to
+// them: its instance argument, description and origin name those members
+// alone, so a resolution of the filtered tools cannot select the others.
 func Filter(tools []mcp.Tool, res Resolution) []mcp.Tool {
 	out := make([]mcp.Tool, 0, len(res.Selected))
 	for _, t := range tools {
 		if _, ok := res.Selected[t.Name]; ok {
-			out = append(out, t)
+			out = append(out, narrowToMembers(t, res.members[t.Name]))
 		}
 	}
 	return out
+}
+
+// narrowToMembers returns t advertising members alone when it is a family
+// tool served by others too; any other tool is returned as is.
+func narrowToMembers(t mcp.Tool, members []string) mcp.Tool {
+	origin, ok := ToolOriginOf(t)
+	if !ok || origin.InstanceArg == "" || len(members) == 0 || slices.Equal(members, origin.Servers) {
+		return t
+	}
+	SetFamilyMembers(&t, origin.InstanceArg, members)
+	origin.Servers = members
+	SetToolOrigin(&t, origin)
+	return t
 }
