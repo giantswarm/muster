@@ -26,9 +26,19 @@ type Entry struct {
 	Server string
 	// Servers lists the member servers of a family tool.
 	Servers []string
+	// InstanceArg is the argument a call to a family tool selects its member
+	// with; empty for every other entry.
+	InstanceArg string
 	// ReadOnly is the tool's readOnlyHint annotation (for a workflow the
 	// derived hint the aggregator computed from its step tools).
 	ReadOnly bool
+}
+
+// Member is the entry as one member of a family tool serves it: the same
+// name, family and annotations, with that member alone among its servers.
+func (e Entry) Member(server string) Entry {
+	e.Servers = []string{server}
+	return e
 }
 
 // ServerLabels resolves an MCPServer name to its resource labels (nil when the
@@ -48,6 +58,7 @@ func EntriesFromTools(tools []mcp.Tool) []Entry {
 		if origin, ok := ToolOriginOf(t); ok {
 			e.Server = origin.Server
 			e.Servers = origin.Servers
+			e.InstanceArg = origin.InstanceArg
 		}
 		if t.Annotations.ReadOnlyHint != nil && *t.Annotations.ReadOnlyHint {
 			e.ReadOnly = true

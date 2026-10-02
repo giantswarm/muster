@@ -1,0 +1,90 @@
+name: "toolset-family-member-gate"
+description: "A toolset is checked against the family member a call selects: server:<member> lets a family tool run on that member only, server:<family> on every member"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["toolset", "family", "aggregator"]
+timeout: "2m"
+
+# Given: Two MCP servers share spec.family = {name: kubernetes, instanceArg: management_cluster}.
+# When:  an agent scoped to server:k8s-graveler calls x_kubernetes_list_pods.
+# Then:  the call runs on k8s-graveler, and is refused on k8s-gazelle without reaching it.
+
+pre_configuration:
+  mcp_servers:
+    - name: "k8s-graveler"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-graveler"
+    - name: "k8s-gazelle"
+      config:
+        family:
+          name: "kubernetes"
+          instanceArg: "management_cluster"
+        tools:
+          - name: "list_pods"
+            description: "List pods"
+            input_schema:
+              type: "object"
+              properties:
+                namespace: { type: "string" }
+            responses:
+              - response:
+                  source: "k8s-gazelle"
+
+steps:
+  - id: "family-listed"
+    tool: "test_call_meta_tool"
+    args: { tool: "list_tools" }
+    headers: { X-Muster-Toolset: "server:k8s-graveler" }
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["x_kubernetes_list_pods"]
+
+  - id: "member-in-toolset-runs"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "call_tool"
+      arguments:
+        name: "x_kubernetes_list_pods"
+        arguments: { management_cluster: "k8s-graveler", namespace: "default" }
+    headers: { X-Muster-Toolset: "server:k8s-graveler" }
+    expected:
+      success: true
+      contains: ["k8s-graveler"]
+      not_contains: ["k8s-gazelle"]
+
+  - id: "member-outside-toolset-refused"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "call_tool"
+      arguments:
+        name: "x_kubernetes_list_pods"
+        arguments: { management_cluster: "k8s-gazelle", namespace: "default" }
+    headers: { X-Muster-Toolset: "server:k8s-graveler" }
+    expected:
+      success: false
+      error_contains: ['tool "x_kubernetes_list_pods" on server "k8s-gazelle" is outside the toolset [server:k8s-graveler]']
+
+  - id: "family-selector-runs-on-every-member"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "call_tool"
+      arguments:
+        name: "x_kubernetes_list_pods"
+        arguments: { management_cluster: "k8s-gazelle", namespace: "default" }
+    headers: { X-Muster-Toolset: "server:kubernetes" }
+    expected:
+      success: true
+      contains: ["k8s-gazelle"]

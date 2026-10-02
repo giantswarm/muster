@@ -14,16 +14,44 @@ type Resolution struct {
 	// tool in this catalogue. preset:none is empty by definition and is never
 	// reported.
 	Unmatched []string
-	// Servers holds every server that contributes at least one selected tool
-	// (family members included). Resource and prompt accessors use it to
-	// decide which servers are inside the toolset.
+	// Servers holds every server that contributes at least one selected tool:
+	// for a family tool, the members the toolset selects it on. Resource and
+	// prompt accessors use it to decide which servers are inside the toolset.
 	Servers map[string]struct{}
+
+	// families holds the selected family tools by name, and selects tells
+	// whether the toolset selects an entry, so a call's member is checked
+	// against the toolset (CallInside).
+	families map[string]Entry
+	selects  func(Entry) bool
 }
 
 // Contains reports whether the exposed tool name is inside the resolution.
 func (r Resolution) Contains(name string) bool {
 	_, ok := r.Selected[name]
 	return ok
+}
+
+// CallInside reports whether a call to the exposed tool name with args stays
+// inside the toolset. For a family tool the call runs on the member its
+// instance argument selects, so that member must be one the toolset selects
+// the tool on: server:<member> selects one member, while server:<family>,
+// tool:, pattern: and readOnly rules select every member. member is the
+// member the call selects, "" for a solo tool or a call without the
+// argument (the aggregator refuses that call as missing its argument).
+func (r Resolution) CallInside(name string, args map[string]any) (member string, inside bool) {
+	if !r.Contains(name) {
+		return "", false
+	}
+	e, ok := r.families[name]
+	if !ok {
+		return "", true
+	}
+	member, _ = args[e.InstanceArg].(string)
+	if member == "" {
+		return "", true
+	}
+	return member, r.selects(e.Member(member))
 }
 
 // ContainsServer reports whether a server contributes to the resolution.
@@ -55,45 +83,88 @@ func (r *Registry) Resolve(ts Toolset, entries []Entry) (Resolution, error) {
 // resource labels for label: rules and is consulted lazily — only when such a
 // rule is evaluated — so a request whose presets carry no label rule never
 // pays for the lookup; nil means no labels are known.
+//
+// A family tool is evaluated once per member, as that member serves it
+// (Entry.Member): a rule naming one member selects or excludes the tool on
+// that member alone. The tool is selected when the toolset selects it on at
+// least one member, and only those members are inside the toolset.
 func (r *Registry) ResolveWith(ts Toolset, entries []Entry, labels ServerLabels) (Resolution, error) {
 	if err := r.Check(ts); err != nil {
 		return Resolution{}, err
 	}
-	res := Resolution{Selected: map[string]struct{}{}, Servers: map[string]struct{}{}}
+	res := Resolution{
+		Selected: map[string]struct{}{},
+		Servers:  map[string]struct{}{},
+		families: map[string]Entry{},
+		selects:  func(e Entry) bool { return r.selects(ts, e, labels) },
+	}
+	expanded := byMember(entries)
+	selected := map[int]struct{}{}
 	for i, sel := range ts.Selectors {
-		var matched map[string]struct{}
-		switch sel.Kind {
-		case KindPreset:
-			matched = r.resolvePreset(sel.Name, entries, labels, map[string]bool{})
-		default:
-			matched = matchInline(sel, entries)
-		}
+		matched := r.matchSelector(sel, expanded, labels)
 		isNone := sel.Kind == KindPreset && sel.Name == PresetNone
 		if len(matched) == 0 && !isNone {
 			res.Unmatched = append(res.Unmatched, ts.Raw[i])
 		}
-		for name := range matched {
-			res.Selected[name] = struct{}{}
+		for j := range matched {
+			selected[j] = struct{}{}
 		}
 	}
-	for _, e := range entries {
-		if _, ok := res.Selected[e.Name]; !ok {
-			continue
-		}
+	for j := range selected {
+		e := expanded[j]
+		res.Selected[e.Name] = struct{}{}
 		if e.Server != "" {
 			res.Servers[e.Server] = struct{}{}
 		}
 		for _, s := range e.Servers {
 			res.Servers[s] = struct{}{}
 		}
+		if e.InstanceArg != "" {
+			res.families[e.Name] = e
+		}
 	}
 	return res, nil
 }
 
-// matchInline evaluates a server:, workflow: or tool: selector.
-func matchInline(sel Selector, entries []Entry) map[string]struct{} {
-	matched := map[string]struct{}{}
+// byMember returns entries with every family tool split into one entry per
+// member.
+func byMember(entries []Entry) []Entry {
+	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {
+		if e.InstanceArg == "" || len(e.Servers) == 0 {
+			out = append(out, e)
+			continue
+		}
+		for _, s := range e.Servers {
+			out = append(out, e.Member(s))
+		}
+	}
+	return out
+}
+
+// selects reports whether ts selects the one entry e.
+func (r *Registry) selects(ts Toolset, e Entry, labels ServerLabels) bool {
+	entries := []Entry{e}
+	for _, sel := range ts.Selectors {
+		if len(r.matchSelector(sel, entries, labels)) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// matchSelector returns the indexes of the entries one selector selects.
+func (r *Registry) matchSelector(sel Selector, entries []Entry, labels ServerLabels) map[int]struct{} {
+	if sel.Kind == KindPreset {
+		return r.resolvePreset(sel.Name, entries, labels, map[string]bool{})
+	}
+	return matchInline(sel, entries)
+}
+
+// matchInline evaluates a server:, workflow: or tool: selector.
+func matchInline(sel Selector, entries []Entry) map[int]struct{} {
+	matched := map[int]struct{}{}
+	for i, e := range entries {
 		var ok bool
 		switch sel.Kind {
 		case KindTool:
@@ -104,7 +175,7 @@ func matchInline(sel Selector, entries []Entry) map[string]struct{} {
 			ok = e.Kind == KindEntryWorkflow && e.Name == "workflow_"+sel.Name
 		}
 		if ok {
-			matched[e.Name] = struct{}{}
+			matched[i] = struct{}{}
 		}
 	}
 	return matched
@@ -119,11 +190,11 @@ func entryServedBy(e Entry, server string) bool {
 	return e.Server == server || slices.Contains(e.Servers, server)
 }
 
-// resolvePreset returns the names a preset selects: includes minus excludes.
-// visiting guards against composition cycles (rejected at construction, but
-// the walk stays safe regardless).
-func (r *Registry) resolvePreset(name string, entries []Entry, labels ServerLabels, visiting map[string]bool) map[string]struct{} {
-	matched := map[string]struct{}{}
+// resolvePreset returns the indexes of the entries a preset selects:
+// includes minus excludes. visiting guards against composition cycles
+// (rejected at construction, but the walk stays safe regardless).
+func (r *Registry) resolvePreset(name string, entries []Entry, labels ServerLabels, visiting map[string]bool) map[int]struct{} {
+	matched := map[int]struct{}{}
 	p, ok := r.presets[name]
 	if !ok || visiting[name] {
 		return matched
@@ -133,21 +204,21 @@ func (r *Registry) resolvePreset(name string, entries []Entry, labels ServerLabe
 
 	for _, rule := range p.Include {
 		if rule.Preset != "" {
-			for n := range r.resolvePreset(rule.Preset, entries, labels, visiting) {
-				matched[n] = struct{}{}
+			for i := range r.resolvePreset(rule.Preset, entries, labels, visiting) {
+				matched[i] = struct{}{}
 			}
 			continue
 		}
-		for _, e := range entries {
+		for i, e := range entries {
 			if ruleMatches(rule, e, labels) {
-				matched[e.Name] = struct{}{}
+				matched[i] = struct{}{}
 			}
 		}
 	}
 	for _, rule := range p.Exclude {
-		for _, e := range entries {
+		for i, e := range entries {
 			if ruleMatches(rule, e, labels) {
-				delete(matched, e.Name)
+				delete(matched, i)
 			}
 		}
 	}

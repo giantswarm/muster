@@ -35,7 +35,7 @@ release.
 | Selector | Selects |
 |---|---|
 | `preset:<name>` | A preset from `toolsetPresets` or a built-in (below). |
-| `server:<name>` | Every tool of the MCPServer `<name>`. For a family, the family name selects the family surface; a member's name selects it too. |
+| `server:<name>` | Every tool of the MCPServer `<name>`. For a family, the family name selects the family surface on every member; a member's name selects it on that member only, so a call naming another member with the instance argument is refused. |
 | `workflow:<name>` | The workflow's execution tool (`workflow_<name>`). |
 | `tool:<name>` | One tool by its exposed name (`x_<server>_<tool>`, `workflow_<name>`, `core_*`). |
 
@@ -100,11 +100,11 @@ rule sets **exactly one** key:
 |---|---|
 | `tool: <name>` | One tool by exposed name. |
 | `pattern: <glob>` | Tools whose exposed name matches the glob (`core_*`, `x_mcp-kubernetes_*`; Go `path.Match` syntax). |
-| `server: <name>` | Every tool of that server (family name or member name for families). |
+| `server: <name>` | Every tool of that server (family name for every member, member name for that member alone). |
 | `workflow: <name>` | The workflow's execution tool. |
 | `readOnly: true` | Every tool annotated `readOnlyHint: true`, including workflows carrying the derived hint (below). |
 | `preset: <name>` | Composition: everything another preset selects. `include` only. |
-| `label: <key>=<value>` / `label: <key>` | Tools of every MCPServer whose resource carries that label — `metadata.labels` in both storage modes, read live on each request, so a server gaining or losing the label changes the resolution on the next request without a restart. `<key>=<value>` matches the value, `<key>` alone matches presence, `<key>=` matches an empty value. A family tool joins when any member providing it carries the label. Presets only — inline `label:` is rejected. |
+| `label: <key>=<value>` / `label: <key>` | Tools of every MCPServer whose resource carries that label — `metadata.labels` in both storage modes, read live on each request, so a server gaining or losing the label changes the resolution on the next request without a restart. `<key>=<value>` matches the value, `<key>` alone matches presence, `<key>=` matches an empty value. A family tool joins on the members providing it that carry the label. Presets only — inline `label:` is rejected. |
 
 The two platform presets are defined by the tool-group label every platform-shipped MCPServer
 carries (`agent-platform.giantswarm.io/tool-group: infrastructure | agent-platform`; see the
@@ -166,9 +166,14 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
   `tool "<name>" is outside the toolset [<selectors>]`; an unknown name is still `Tool not found`.
 - `call_tool` — including workflow execution (`workflow_<name>`) — of a name outside the
   toolset is refused with `tool "<name>" is outside the toolset [<selectors>]` and logged once
-  at info level with the tool, the toolset and the session. The tools a workflow's steps call
-  internally are the workflow author's composition and are not re-checked. A tool of a server
-  the session has not signed in to is not in the catalogue, so no selector resolves to it; when
+  at info level with the tool, the toolset and the session. A family tool runs on the member its
+  instance argument selects, and the toolset is checked on that member: a call naming a member
+  the toolset does not select the tool on is refused with
+  `tool "<name>" on server "<member>" is outside the toolset [<selectors>]`. Rules are evaluated
+  per member, so a preset excluding `server: <member>` keeps the tool on the other members. The
+  tools a workflow's steps call internally are the workflow author's composition and are not
+  re-checked. A tool of a server the session has not signed in to is not in the catalogue, so no
+  selector resolves to it; when
   the toolset could select it once listed, the call answers `auth_required` with the sign-in link
   instead of refusing the name, and runs nothing. The server is the one the call would be routed
   to: in a family's name space, the member the instance argument selects; elsewhere, the server

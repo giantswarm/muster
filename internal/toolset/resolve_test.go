@@ -22,7 +22,7 @@ func familyTool(name, family string, members []string, readOnly bool) mcp.Tool {
 	if readOnly {
 		t.Annotations.ReadOnlyHint = boolPtr(true)
 	}
-	SetToolOrigin(&t, ToolOrigin{Kind: OriginKindTool, Server: family, Servers: members})
+	SetToolOrigin(&t, ToolOrigin{Kind: OriginKindTool, Server: family, Servers: members, InstanceArg: "server"})
 	return t
 }
 
@@ -159,6 +159,8 @@ func TestResolve_InlineSelectors(t *testing.T) {
 	assert.True(t, res.ContainsServer("prom-b"))
 	res = resolve(t, r, "server:prom-b")
 	assert.Equal(t, []string{"x_prometheus_query"}, res.Names())
+	assert.True(t, res.ContainsServer("prom-b"))
+	assert.False(t, res.ContainsServer("prom-a"), "a member selector puts that member alone inside the toolset")
 
 	res = resolve(t, r, "workflow:triage")
 	assert.Equal(t, []string{"workflow_triage"}, res.Names())
@@ -234,4 +236,45 @@ func TestSetToolOrigin_ClonesMeta(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "k8s", origin.Server)
 	assert.Equal(t, map[string]string{"a": "b"}, exposed.Meta.AdditionalFields[MetaKeyLabels], "existing meta keys are kept")
+}
+
+func TestResolution_CallInsideChecksTheFamilyMember(t *testing.T) {
+	r, err := NewRegistry(PresetsConfig{
+		"prom-b-only": {Include: []Rule{{Server: "prom-b"}}},
+		"no-prom-a":   {Include: []Rule{{Pattern: "x_*"}}, Exclude: []Rule{{Server: "prom-a"}}},
+	})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		toolset string
+		args    map[string]any
+		member  string
+		inside  bool
+	}{
+		{"server:prom-b", map[string]any{"server": "prom-b"}, "prom-b", true},
+		{"server:prom-b", map[string]any{"server": "prom-a"}, "prom-a", false},
+		{"server:prom-b", map[string]any{"server": "prom-c"}, "prom-c", false},
+		{"server:prometheus", map[string]any{"server": "prom-a"}, "prom-a", true},
+		{"server:prometheus", map[string]any{"server": "prom-c"}, "prom-c", true},
+		{"tool:x_prometheus_query", map[string]any{"server": "prom-a"}, "prom-a", true},
+		{"preset:read-only", map[string]any{"server": "prom-a"}, "prom-a", true},
+		{"preset:prom-b-only", map[string]any{"server": "prom-a"}, "prom-a", false},
+		{"preset:no-prom-a", map[string]any{"server": "prom-a"}, "prom-a", false},
+		{"preset:no-prom-a", map[string]any{"server": "prom-b"}, "prom-b", true},
+		{"server:prom-b", nil, "", true},
+		{"server:k8s", map[string]any{"server": "prom-b"}, "", false},
+	} {
+		res := resolve(t, r, tc.toolset)
+		member, inside := res.CallInside("x_prometheus_query", tc.args)
+		assert.Equal(t, tc.member, member, "%s %v", tc.toolset, tc.args)
+		assert.Equal(t, tc.inside, inside, "%s %v", tc.toolset, tc.args)
+	}
+
+	res := resolve(t, r, "server:prom-b")
+	_, inside := res.CallInside("x_k8s_get", map[string]any{"server": "prom-a"})
+	assert.False(t, inside, "a solo tool outside the toolset")
+	res = resolve(t, r, "server:k8s")
+	member, inside := res.CallInside("x_k8s_get", map[string]any{"server": "prom-a"})
+	assert.True(t, inside, "a solo tool's server argument selects nothing")
+	assert.Empty(t, member)
 }

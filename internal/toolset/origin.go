@@ -44,6 +44,9 @@ type ToolOrigin struct {
 	// Servers lists the member servers providing a family-grouped tool, in
 	// sorted order. Empty for solo tools, workflows and core tools.
 	Servers []string
+	// InstanceArg is the argument a call to a family-grouped tool selects its
+	// member with. Empty for every other tool.
+	InstanceArg string
 }
 
 // SetToolOrigin records origin on tool. The tool's _meta is cloned before it

@@ -123,11 +123,12 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	}
 
 	// A declared toolset bounds what the model may call: the refusal names
-	// the tool and the toolset, and is logged with the session so an operator
-	// can see which agent asked for what. Workflow execution (workflow_<name>)
-	// goes through the same gate; the tools a workflow's steps call
-	// internally are the workflow author's composition, not the model's, and
-	// are not re-checked here.
+	// the tool (and, for a family tool, the member the call selects) and the
+	// toolset, and is logged with the session so an operator can see which
+	// agent asked for what. Workflow execution (workflow_<name>) goes through
+	// the same gate; the tools a workflow's steps call internally are the
+	// workflow author's composition, not the model's, and are not re-checked
+	// here.
 	cat, errResult := p.scope(ctx, handler)
 	if errResult != nil {
 		return errResult, nil
@@ -143,7 +144,7 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 		}
 	}
 	if result == nil && err == nil {
-		if errResult := cat.refuse(ctx, name); errResult != nil {
+		if errResult := cat.refuse(ctx, name, toolArgs); errResult != nil {
 			return errResult, nil
 		}
 		result, err = handler.CallTool(ctx, name, toolArgs)

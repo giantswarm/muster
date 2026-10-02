@@ -830,7 +830,7 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		exposedTool.Description = annotateMultiServer(exposedTool.Description, sortedServers)
 		// The exposed name carries the family, so the family is the owning
 		// server; the members are recorded so server:<member> selects it too.
-		toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: key.family, Servers: sortedServers})
+		toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: key.family, Servers: sortedServers, InstanceArg: entry.instanceArg})
 
 		soloTools = append(soloTools, exposedTool)
 		for _, sn := range sortedServers {
