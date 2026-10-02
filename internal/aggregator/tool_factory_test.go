@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -72,4 +73,13 @@ func TestConvertToMCPResult_StructuredContent(t *testing.T) {
 
 	result = convertToMCPResult(&api.CallToolResult{Content: []any{"some text"}})
 	assert.Nil(t, result.StructuredContent)
+}
+
+func TestConvertToMCPResult_NativeContent(t *testing.T) {
+	image := mcp.NewImageContent("aW1hZ2U=", "image/png")
+
+	result := convertToMCPResult(&api.CallToolResult{Content: []any{"envelope", image}})
+	require.Len(t, result.Content, 2)
+	assert.Equal(t, mcp.NewTextContent("envelope"), result.Content[0])
+	assert.Equal(t, image, result.Content[1], "an MCP content item must pass through, not be marshaled to text")
 }

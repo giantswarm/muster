@@ -319,7 +319,8 @@ func applyToolAnnotations(tool *mcp.Tool, a *api.ToolAnnotations) {
 // This function handles the conversion from the internal CallToolResult format
 // to the MCP CallToolResult format. It processes different types of content:
 //   - String content is converted directly to MCP text content
-//   - Non-string content is marshaled to JSON and converted to text content
+//   - MCP content items (e.g. call_tool's native images) pass through unchanged
+//   - Other non-string content is marshaled to JSON and converted to text content
 //   - Error status is preserved in the result
 //
 // This allows tools to return various types of data while ensuring compatibility
@@ -335,6 +336,8 @@ func convertToMCPResult(result *api.CallToolResult) *mcp.CallToolResult {
 	for i, content := range result.Content {
 		if text, ok := content.(string); ok {
 			mcpContent[i] = mcp.NewTextContent(text)
+		} else if native, ok := content.(mcp.Content); ok {
+			mcpContent[i] = native
 		} else {
 			// Marshal non-string content to JSON for MCP compatibility
 			jsonBytes, _ := json.Marshal(content)

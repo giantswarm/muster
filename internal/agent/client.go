@@ -859,14 +859,12 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
 	}
 
 	// Parse the wrapped result structure
-	// The call_tool meta-tool returns: {"isError": bool, "content": [...], "structuredContent": ...}
+	// The call_tool meta-tool returns: {"isError": bool, "content": [...], "structuredContent": ..., "_meta": ...}
 	var wrappedResult struct {
-		IsError bool `json:"isError"`
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text,omitempty"`
-		} `json:"content"`
-		StructuredContent any `json:"structuredContent,omitempty"`
+		IsError           bool             `json:"isError"`
+		Content           []map[string]any `json:"content"`
+		StructuredContent any              `json:"structuredContent,omitempty"`
+		Meta              *mcp.Meta        `json:"_meta,omitempty"`
 	}
 
 	if err := json.Unmarshal([]byte(textContent.Text), &wrappedResult); err != nil {
@@ -877,13 +875,25 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
 
 	// Reconstruct the CallToolResult from the wrapped structure
 	unwrapped := &mcp.CallToolResult{
-		IsError: wrappedResult.IsError,
+		Result:            mcp.Result{Meta: wrappedResult.Meta},
+		IsError:           wrappedResult.IsError,
+		StructuredContent: wrappedResult.StructuredContent,
 	}
-	unwrapped.StructuredContent = wrappedResult.StructuredContent
 
+	// Image and audio items are size-only in the envelope; their payload
+	// follows the envelope as native content items, in the same order.
+	native := result.Content[1:]
 	for _, item := range wrappedResult.Content {
-		if item.Type == "text" {
-			unwrapped.Content = append(unwrapped.Content, mcp.NewTextContent(item.Text))
+		switch item["type"] {
+		case mcp.ContentTypeImage, mcp.ContentTypeAudio:
+			if len(native) > 0 {
+				unwrapped.Content = append(unwrapped.Content, native[0])
+				native = native[1:]
+			}
+		default:
+			if content, err := mcp.ParseContent(item); err == nil {
+				unwrapped.Content = append(unwrapped.Content, content)
+			}
 		}
 	}
 

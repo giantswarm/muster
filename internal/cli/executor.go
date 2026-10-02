@@ -582,23 +582,40 @@ func (e *ToolExecutor) formatOutput(result *mcp.CallToolResult) error {
 		return nil
 	}
 
-	content := result.Content[0]
-	textContent, ok := mcp.AsTextContent(content)
-	if !ok {
-		return fmt.Errorf("content is not text")
+	// The first text item is the tool's answer; images, audio and resources
+	// that come with it are not rendered. A result without any text is
+	// rendered as its content items.
+	text, err := firstText(result.Content)
+	if err != nil {
+		return err
 	}
 
 	switch e.options.Format {
 	case OutputFormatJSON:
-		fmt.Println(textContent.Text)
+		fmt.Println(text)
 		return nil
 	case OutputFormatYAML:
-		return e.outputYAML(textContent.Text)
+		return e.outputYAML(text)
 	case OutputFormatTable, OutputFormatWide:
-		return e.outputTable(textContent.Text)
+		return e.outputTable(text)
 	default:
 		return fmt.Errorf("unsupported output format: %s", e.options.Format)
 	}
+}
+
+// firstText returns the text of the first text item of content, or the
+// content items as JSON when there is none.
+func firstText(content []mcp.Content) (string, error) {
+	for _, item := range content {
+		if textContent, ok := mcp.AsTextContent(item); ok {
+			return textContent.Text, nil
+		}
+	}
+	data, err := json.Marshal(content)
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize content: %w", err)
+	}
+	return string(data), nil
 }
 
 // outputYAML converts JSON data to YAML format and prints it.

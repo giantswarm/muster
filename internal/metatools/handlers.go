@@ -142,13 +142,15 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	// CRITICAL: Return result as structured JSON to preserve CallToolResult structure.
 	// This enables proper unwrapping by clients and maintains BDD test validation fidelity.
 	resultJSON, err := json.Marshal(struct {
-		IsError           bool  `json:"isError"`
-		Content           []any `json:"content"`
-		StructuredContent any   `json:"structuredContent,omitempty"`
+		IsError           bool      `json:"isError"`
+		Content           []any     `json:"content"`
+		StructuredContent any       `json:"structuredContent,omitempty"`
+		Meta              *mcp.Meta `json:"_meta,omitempty"`
 	}{
 		IsError:           result.IsError,
 		Content:           SerializeContent(result.Content),
 		StructuredContent: result.StructuredContent,
+		Meta:              result.Meta,
 	})
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to serialize result: %v", err)), nil
@@ -161,8 +163,11 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	// that unwrap the text content). The native Content is the envelope JSON while
 	// the native StructuredContent mirrors the wrapped tool: the two fields describe
 	// different layers by design and are not meant to agree.
+	// Image and audio items follow the envelope as native content with their
+	// payload, in the order of the envelope's size-only items, so a client sees
+	// the actual image while the envelope text stays small.
 	return &api.CallToolResult{
-		Content:           []any{string(resultJSON)},
+		Content:           append([]any{string(resultJSON)}, NativeContent(result.Content)...),
 		IsError:           result.IsError,
 		StructuredContent: result.StructuredContent,
 	}, nil

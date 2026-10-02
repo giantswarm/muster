@@ -338,35 +338,69 @@ func (f *Formatters) FindPrompt(prompts []api.PromptOrigin, name string) *api.Pr
 // SerializeContent serializes MCP content items to a format suitable for JSON.
 // This preserves the full structure of content items for proper response unwrapping.
 //
+// Image and audio items are rendered size-only ({type, mimeType, dataSize}) so
+// the JSON stays small for LLM consumption; call_tool carries their payload as
+// native content items next to the envelope (see NativeContent). Content
+// annotations and _meta are kept on every item; resource links and embedded
+// resources are serialized as-is.
+//
 // Args:
 //   - content: Slice of MCP content interfaces
 //
 // Returns:
 //   - Slice of serializable content representations
-func SerializeContent(content []mcp.Content) []interface{} {
-	result := make([]interface{}, 0, len(content))
+func SerializeContent(content []mcp.Content) []any {
+	result := make([]any, 0, len(content))
 	for _, item := range content {
 		if textContent, ok := mcp.AsTextContent(item); ok {
-			result = append(result, map[string]interface{}{
+			result = append(result, withAnnotations(map[string]any{
 				"type": "text",
 				"text": textContent.Text,
-			})
+			}, textContent.Annotations, textContent.Meta))
 		} else if imageContent, ok := mcp.AsImageContent(item); ok {
-			result = append(result, map[string]interface{}{
+			result = append(result, withAnnotations(map[string]any{
 				"type":            "image",
 				api.FieldMimeType: imageContent.MIMEType,
 				"dataSize":        len(imageContent.Data),
-			})
+			}, imageContent.Annotations, imageContent.Meta))
 		} else if audioContent, ok := mcp.AsAudioContent(item); ok {
-			result = append(result, map[string]interface{}{
+			result = append(result, withAnnotations(map[string]any{
 				"type":            "audio",
 				api.FieldMimeType: audioContent.MIMEType,
 				"dataSize":        len(audioContent.Data),
-			})
+			}, audioContent.Annotations, audioContent.Meta))
 		} else {
-			// Fallback for unknown content types
+			// Resource links, embedded resources and unknown content types
+			// marshal as-is, annotations and _meta included.
 			result = append(result, item)
 		}
 	}
 	return result
+}
+
+// NativeContent returns the image and audio items of content, in order, with
+// their full payload. call_tool appends them to its result after the envelope,
+// whose JSON carries them size-only.
+func NativeContent(content []mcp.Content) []any {
+	var native []any
+	for _, item := range content {
+		if imageContent, ok := mcp.AsImageContent(item); ok {
+			native = append(native, *imageContent)
+		} else if audioContent, ok := mcp.AsAudioContent(item); ok {
+			native = append(native, *audioContent)
+		}
+	}
+	return native
+}
+
+// withAnnotations adds a content item's annotations and _meta to its
+// serialized form when they are set, leaving the form unchanged otherwise.
+func withAnnotations(item map[string]any, annotations *mcp.Annotations, meta *mcp.Meta) map[string]any {
+	if annotations != nil {
+		item["annotations"] = annotations
+	}
+	if meta != nil {
+		item["_meta"] = meta
+	}
+	return item
 }
