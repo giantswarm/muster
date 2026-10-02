@@ -2015,6 +2015,9 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		}
 		originalName, resolveErr := a.registry.ResolveToolNameForServer(toolName, explicitServer)
 		if resolveErr != nil {
+			if result, answered, err := a.answerSignedOutOwner(ctx, toolName, args); answered {
+				return result, err
+			}
 			return nil, resolveErr
 		}
 		return a.dispatchResolvedTool(ctx, toolName, explicitServer, originalName, forwarded, sessionID, sub)
@@ -2067,10 +2070,42 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 
 	logging.DebugWithAttrs("Aggregator", "Tool not found in registry, session, or core tools",
 		slog.String("tool", toolName))
+	if result, answered, err := a.answerSignedOutOwner(ctx, toolName, args); answered {
+		return result, err
+	}
 	if family := a.registry.FamilyOfExposedName(toolName); family != "" {
 		return nil, a.familyToolUnavailableError(ctx, toolName, family, sessionID)
 	}
 	return nil, fmt.Errorf("tool not found: %s", toolName)
+}
+
+// signInRetriedKey marks a call routed again after its sign-in answer
+// connected the session, so the second routing never answers again.
+type signInRetriedKey struct{}
+
+// answerSignedOutOwner answers a call no tool the session holds resolves,
+// when the server the call would be routed to awaits the session's sign-in:
+// a session that never connected to the server holds none of its tools, so
+// the name resolves to nothing, but the registry's declarations still name
+// the server. The answer is its auth_required challenge. When a stored grant
+// connects the session instead, the call is routed again, now that the
+// server's tools are listed. answered is false when no signed-out server
+// owns the call.
+func (a *AggregatorServer) answerSignedOutOwner(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, bool, error) {
+	if ctx.Value(signInRetriedKey{}) != nil {
+		return nil, false, nil
+	}
+	owner, ok := a.SignedOutOwnerOf(ctx, toolName, args)
+	if !ok {
+		return nil, false, nil
+	}
+	result, connected, err := a.AnswerSignIn(ctx, owner.Name)
+	if err != nil || !connected {
+		return result, true, err
+	}
+	a.GetToolsForSession(ctx, getSessionIDFromContext(ctx))
+	result, err = a.CallToolInternal(context.WithValue(ctx, signInRetriedKey{}, true), toolName, args)
+	return result, true, err
 }
 
 // isFamilyToolForSession reports whether toolName is family-grouped, filling
@@ -3369,8 +3404,7 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 ) (*mcp.CallToolResult, error) {
 	client, cleanup, err := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, sub)
 	if err != nil {
-		var notAuthenticated *sessionNotAuthenticatedError
-		if errors.As(err, &notAuthenticated) {
+		if notAuthenticated, ok := errors.AsType[*sessionNotAuthenticatedError](err); ok {
 			return a.authRequiredAnswer(ctx, serverName, originalToolName, args, sessionID, sub, notAuthenticated.reason())
 		}
 		return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, err)
@@ -3659,9 +3693,11 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 		}
 
 		authRequired = append(authRequired, api.ServerAuthInfo{
-			Name:     name,
-			Status:   "auth_required",
-			AuthTool: "core_auth_login",
+			Name:       name,
+			Status:     "auth_required",
+			AuthTool:   "core_auth_login",
+			ToolPrefix: a.registry.ExposedToolPrefix(name),
+			Family:     a.registry.GroupedFamily(name),
 		})
 	}
 

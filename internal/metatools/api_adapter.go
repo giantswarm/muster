@@ -253,3 +253,24 @@ func (a *Adapter) ListServersRequiringAuth(ctx context.Context) []api.ServerAuth
 
 	return provider.ListServersRequiringAuth(ctx)
 }
+
+// SignedOutOwnerOf returns, through the data provider, the server awaiting
+// the session's sign-in that a call to the name with args would be routed to.
+func (a *Adapter) SignedOutOwnerOf(ctx context.Context, name string, args map[string]any) (api.ServerAuthInfo, bool) {
+	provider, err := a.getDataProvider()
+	if err != nil {
+		logging.Warn("metatools", "SignedOutOwnerOf: %v", err)
+		return api.ServerAuthInfo{}, false
+	}
+	return provider.SignedOutOwnerOf(ctx, name, args)
+}
+
+// AnswerSignIn starts the session's sign-in to the server through the data
+// provider and runs no tool.
+func (a *Adapter) AnswerSignIn(ctx context.Context, server string) (*mcp.CallToolResult, bool, error) {
+	provider, err := a.getDataProvider()
+	if err != nil {
+		return nil, false, err
+	}
+	return provider.AnswerSignIn(ctx, server)
+}

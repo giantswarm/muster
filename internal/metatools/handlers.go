@@ -128,16 +128,26 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	// goes through the same gate; the tools a workflow's steps call
 	// internally are the workflow author's composition, not the model's, and
 	// are not re-checked here.
-	if cat, errResult := p.scope(ctx, handler); errResult != nil {
-		return errResult, nil
-	} else if errResult := cat.refuse(ctx, name); errResult != nil {
+	cat, errResult := p.scope(ctx, handler)
+	if errResult != nil {
 		return errResult, nil
 	}
 
 	// Execute the tool via the handler, learning where the aggregator
 	// dispatched it.
 	ctx, dispatch := observability.ContextWithDispatchRecord(ctx, name)
-	result, err := handler.CallTool(ctx, name, toolArgs)
+	result, connected, err := p.answerSignIn(ctx, handler, cat, name, toolArgs)
+	if connected {
+		if cat, errResult = p.scope(ctx, handler); errResult != nil {
+			return errResult, nil
+		}
+	}
+	if result == nil && err == nil {
+		if errResult := cat.refuse(ctx, name); errResult != nil {
+			return errResult, nil
+		}
+		result, err = handler.CallTool(ctx, name, toolArgs)
+	}
 	if err != nil {
 		return errorResult(fmt.Sprintf("Tool execution failed: %v", err)), nil
 	}
@@ -652,4 +662,24 @@ func errorResult(message string) *api.CallToolResult {
 		Content: []any{message},
 		IsError: true,
 	}
+}
+
+// answerSignIn answers a call outside the toolset's resolution whose server
+// awaits the session's sign-in, when the toolset could select the tool once
+// the session signs in and lists it: the server's auth_required challenge,
+// and no tool runs. A tool of such a server is not in the catalogue, so no
+// selector resolves to it, yet the toolset may name it (tool:, server:) or
+// select it by a rule its listing would satisfy (a preset). It answers
+// nothing for every other call. connected says a stored grant connected the
+// session instead: the call is then gated against the newly listed tool like
+// any other.
+func (p *Provider) answerSignIn(ctx context.Context, handler api.MetaToolsHandler, cat *scopedCatalogue, name string, args map[string]any) (result *mcp.CallToolResult, connected bool, err error) {
+	if !cat.isScoped() || cat.res.Contains(name) {
+		return nil, false, nil
+	}
+	owner, ok := handler.SignedOutOwnerOf(ctx, name, args)
+	if !ok || !p.maySelectSignIn(ctx, cat, owner, name) {
+		return nil, false, nil
+	}
+	return handler.AnswerSignIn(ctx, owner.Name)
 }

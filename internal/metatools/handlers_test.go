@@ -3,6 +3,8 @@ package metatools
 import (
 	"context"
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -18,9 +20,22 @@ type mockMetaToolsHandler struct {
 	resources            []api.ResourceOrigin
 	prompts              []api.PromptOrigin
 	serversRequiringAuth []api.ServerAuthInfo
+	// authLookups counts ListServersRequiringAuth calls, each an auth-store
+	// round trip per server in the aggregator.
+	authLookups int
 
 	callToolResult *mcp.CallToolResult
 	callToolError  error
+	// called records the names CallTool ran and signIns the servers
+	// AnswerSignIn was asked for. declaredOwners, when set, is the
+	// registry's routing owner of a name, which SignedOutOwnerOf consults
+	// instead of the pending servers' prefixes. connectOnSignIn lists the
+	// tools a stored grant connects for a server: AnswerSignIn then lists
+	// them and reports connected.
+	called          []string
+	signIns         []string
+	declaredOwners  map[string]string
+	connectOnSignIn map[string][]mcp.Tool
 
 	getResourceResult *mcp.ReadResourceResult
 	getResourceError  error
@@ -34,6 +49,7 @@ func (m *mockMetaToolsHandler) ListTools(ctx context.Context) ([]mcp.Tool, error
 }
 
 func (m *mockMetaToolsHandler) CallTool(ctx context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+	m.called = append(m.called, name)
 	if m.callToolError != nil {
 		return nil, m.callToolError
 	}
@@ -63,10 +79,52 @@ func (m *mockMetaToolsHandler) GetPrompt(ctx context.Context, name string, args 
 }
 
 func (m *mockMetaToolsHandler) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
+	m.authLookups++
 	if m.serversRequiringAuth == nil {
 		return []api.ServerAuthInfo{}
 	}
 	return m.serversRequiringAuth
+}
+
+func (m *mockMetaToolsHandler) SignedOutOwnerOf(ctx context.Context, name string, args map[string]any) (api.ServerAuthInfo, bool) {
+	pending := m.ListServersRequiringAuth(ctx)
+	if owner, declared := m.declaredOwners[name]; declared {
+		for _, server := range pending {
+			if server.Name == owner {
+				return server, true
+			}
+		}
+		return api.ServerAuthInfo{}, false
+	}
+	var found api.ServerAuthInfo
+	for _, server := range pending {
+		if !strings.HasPrefix(name, server.ToolPrefix) {
+			continue
+		}
+		if server.Family != "" {
+			if selected, _ := args["server"].(string); selected == server.Name {
+				return server, true
+			}
+			continue
+		}
+		if len(server.ToolPrefix) > len(found.ToolPrefix) {
+			found = server
+		}
+	}
+	return found, found.Name != ""
+}
+
+func (m *mockMetaToolsHandler) AnswerSignIn(ctx context.Context, server string) (*mcp.CallToolResult, bool, error) {
+	m.signIns = append(m.signIns, server)
+	if tools, ok := m.connectOnSignIn[server]; ok {
+		m.tools = append(m.tools, tools...)
+		m.serversRequiringAuth = slices.DeleteFunc(m.serversRequiringAuth, func(s api.ServerAuthInfo) bool { return s.Name == server })
+		return nil, true, nil
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{mcp.TextContent{Type: "text", Text: "auth_required: server '" + server + "'"}},
+		IsError: true,
+	}, false, nil
 }
 
 // registerMockHandler registers a mock handler for testing

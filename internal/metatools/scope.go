@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strings"
+	"sync"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
@@ -29,6 +32,13 @@ type scopedCatalogue struct {
 	scoped bool
 	ts     toolset.Toolset
 	res    toolset.Resolution
+	// pending lists the servers the session must sign in to before their
+	// tools appear in all. A toolset that names one of them by server or by
+	// tool name still resolves to nothing, so the accessors consult pending
+	// to let the aggregator's auth_required answer through instead of
+	// refusing the name as outside the toolset. It asks the auth store once
+	// per server, so it runs only when a name falls outside the resolution.
+	pending func() []api.ServerAuthInfo
 }
 
 // catalogue lists the session's tools through the handler and applies the
@@ -39,7 +49,9 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	if err != nil {
 		return nil, errorResult(fmt.Sprintf("Failed to list tools: %v", err))
 	}
-	cat := &scopedCatalogue{all: tools, tools: tools}
+	cat := &scopedCatalogue{all: tools, tools: tools, pending: sync.OnceValue(func() []api.ServerAuthInfo {
+		return handler.ListServersRequiringAuth(ctx)
+	})}
 
 	ts, present, err := toolset.FromContext(ctx)
 	if err != nil {
@@ -55,6 +67,64 @@ func (p *Provider) catalogue(ctx context.Context, handler api.MetaToolsHandler) 
 	cat.scoped, cat.ts, cat.res = true, ts, res
 	cat.tools = toolset.Filter(tools, res)
 	return cat, nil
+}
+
+// listed reports whether the session's catalogue, before the toolset filter,
+// holds the name.
+func listed(tools []mcp.Tool, name string) bool {
+	for _, tool := range tools {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// unlisted describes the tool name of a server awaiting sign-in for
+// toolset.MaySelect.
+func unlisted(owner api.ServerAuthInfo, name string) toolset.Unlisted {
+	return toolset.Unlisted{Server: owner.Name, Family: owner.Family, Prefix: owner.ToolPrefix, Name: name}
+}
+
+// maySelectSignIn reports whether the request's toolset could select the
+// tool of a server awaiting sign-in once the session signs in and lists it.
+func (p *Provider) maySelectSignIn(ctx context.Context, c *scopedCatalogue, owner api.ServerAuthInfo, name string) bool {
+	return c.isScoped() && p.presets.MaySelect(c.ts, unlisted(owner, name), p.labelsFor(ctx))
+}
+
+// requiringAuth returns the servers awaiting sign-in some of whose tools the
+// toolsets could select once the session signs in: the part of the toolset
+// a sign-in would unlock, which the resolution cannot report since it only
+// sees listed tools. Every toolset given must allow it (an argument resolves
+// within the request's toolset). A tool name carries the longest pending
+// prefix it starts with, unless the catalogue already lists it. The result
+// is sorted by server name.
+func (p *Provider) requiringAuth(ctx context.Context, pending []api.ServerAuthInfo, all []mcp.Tool, toolsets ...toolset.Toolset) []api.ServerAuthInfo {
+	labels := p.labelsFor(ctx)
+	var named []api.ServerAuthInfo
+	for _, server := range pending {
+		u := unlisted(server, "")
+		u.Owns = func(name string) bool {
+			if server.ToolPrefix == "" || !strings.HasPrefix(name, server.ToolPrefix) || listed(all, name) {
+				return false
+			}
+			for _, other := range pending {
+				if len(other.ToolPrefix) > len(server.ToolPrefix) && strings.HasPrefix(name, other.ToolPrefix) {
+					return false
+				}
+			}
+			return true
+		}
+		selected := true
+		for _, ts := range toolsets {
+			selected = selected && p.presets.MaySelect(ts, u, labels)
+		}
+		if selected {
+			named = append(named, server)
+		}
+	}
+	slices.SortFunc(named, func(a, b api.ServerAuthInfo) int { return strings.Compare(a.Name, b.Name) })
+	return named
 }
 
 // scope is catalogue for the accessors that do not otherwise list tools

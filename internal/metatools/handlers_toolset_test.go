@@ -369,3 +369,189 @@ func must(r *toolset.Registry, err error) *toolset.Registry {
 	}
 	return r
 }
+
+// signedOutFixture is toolsetFixture with the gh server awaiting the caller's
+// sign-in: its tools are not in the catalogue, only its name and prefix are.
+func signedOutFixture() *mockMetaToolsHandler {
+	m := toolsetFixture()
+	var tools []mcp.Tool
+	for _, tool := range m.tools {
+		if origin, _ := toolset.ToolOriginOf(tool); origin.Server != "gh" {
+			tools = append(tools, tool)
+		}
+	}
+	m.tools = tools
+	m.serversRequiringAuth = []api.ServerAuthInfo{{Name: "gh", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_gh_"}}
+	return m
+}
+
+func TestToolset_CallToolTheToolsetMaySelectAnswersTheSignIn(t *testing.T) {
+	m := signedOutFixture()
+	defer registerMockHandler(m)()
+	p := NewProvider()
+
+	for _, header := range []string{"tool:x_gh_issues", "server:gh", "tool:x_k8s_get,tool:x_gh_issues", "preset:read-only", "preset:full"} {
+		result, err := p.ExecuteTool(withHeader(header, true), "call_tool", map[string]any{"name": "x_gh_issues"})
+		require.NoError(t, err, header)
+		assert.Contains(t, errorText(t, result), "auth_required: server 'gh'", header)
+	}
+	assert.Empty(t, m.called, "a sign-in answer runs no tool")
+
+	for _, header := range []string{"preset:none", "server:k8s", "tool:x_gh_pulls", "workflow:triage"} {
+		result, err := p.ExecuteTool(withHeader(header, true), "call_tool", map[string]any{"name": "x_gh_issues"})
+		require.NoError(t, err, header)
+		assert.Equal(t, `tool "x_gh_issues" is outside the toolset [`+header+`]`, errorText(t, result), header)
+	}
+	assert.Equal(t, []string{"gh", "gh", "gh", "gh", "gh"}, m.signIns)
+}
+
+func TestToolset_CallToolForSignInFollowsPresetRules(t *testing.T) {
+	m := signedOutFixture()
+	defer registerMockHandler(m)()
+	r, err := toolset.NewRegistry(toolset.PresetsConfig{
+		"github":        {Include: []toolset.Rule{{Server: "gh"}}},
+		"github-no-del": {Include: []toolset.Rule{{Server: "gh"}}, Exclude: []toolset.Rule{{Pattern: "x_gh_delete_*"}}},
+	})
+	require.NoError(t, err)
+	p := NewProviderWithPresets(r)
+
+	result, err := p.ExecuteTool(withHeader("preset:github", true), "call_tool", map[string]any{"name": "x_gh_delete_repo"})
+	require.NoError(t, err)
+	assert.Contains(t, errorText(t, result), "auth_required: server 'gh'")
+
+	result, err = p.ExecuteTool(withHeader("preset:github-no-del", true), "call_tool", map[string]any{"name": "x_gh_delete_repo"})
+	require.NoError(t, err)
+	assert.Equal(t, `tool "x_gh_delete_repo" is outside the toolset [preset:github-no-del]`, errorText(t, result))
+	assert.Equal(t, []string{"gh"}, m.signIns)
+}
+
+// A family member awaiting sign-in is the server the call's instance
+// argument selects; the family's other members are not.
+func TestToolset_CallToolForSignInSelectsTheFamilyMember(t *testing.T) {
+	m := toolsetFixture()
+	m.tools = append(m.tools, tagged("x_kube_get", toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: "kube", Servers: []string{"kube-a"}}))
+	m.serversRequiringAuth = []api.ServerAuthInfo{{Name: "kube-b", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_kube_", Family: "kube"}}
+	defer registerMockHandler(m)()
+	p := NewProvider()
+
+	result, err := p.ExecuteTool(withHeader("server:kube-b", true), "call_tool", map[string]any{"name": "x_kube_get", "arguments": map[string]any{"server": "kube-b"}})
+	require.NoError(t, err)
+	assert.Contains(t, errorText(t, result), "auth_required: server 'kube-b'")
+
+	result, err = p.ExecuteTool(withHeader("server:kube-b", true), "call_tool", map[string]any{"name": "x_kube_get", "arguments": map[string]any{"server": "kube-a"}})
+	require.NoError(t, err)
+	assert.Equal(t, `tool "x_kube_get" is outside the toolset [server:kube-b]`, errorText(t, result))
+	assert.Equal(t, []string{"kube-b"}, m.signIns)
+	assert.Empty(t, m.called)
+}
+
+// A listed tool outside the toolset is refused even when its name carries
+// the prefix of a server the toolset names for sign-in: the registry routes
+// it to its own server, not to the signed-out one.
+func TestToolset_CallToolForSignInNeverRunsAnotherServersTool(t *testing.T) {
+	m := signedOutFixture()
+	m.serversRequiringAuth = []api.ServerAuthInfo{{Name: "git", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_git_"}}
+	m.tools = append(m.tools, tagged("x_git_hub_delete_repo", toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: "git-hub"}))
+	m.declaredOwners = map[string]string{"x_git_hub_delete_repo": "git-hub", "x_git_hub_unknown": "git-hub"}
+	defer registerMockHandler(m)()
+
+	for _, name := range []string{"x_git_hub_delete_repo", "x_git_hub_unknown"} {
+		result, err := NewProvider().ExecuteTool(withHeader("server:git", true), "call_tool", map[string]any{"name": name})
+		require.NoError(t, err)
+		assert.Equal(t, `tool "`+name+`" is outside the toolset [server:git]`, errorText(t, result))
+	}
+	assert.Empty(t, m.called)
+	assert.Empty(t, m.signIns)
+}
+
+// A stored grant that connects the session answers no challenge: the call is
+// gated against the tool as now listed, with its real annotations.
+func TestToolset_CallToolAfterAStoredGrantConnectsIsGatedOnTheListedTool(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		readOnly bool
+		ran      bool
+	}{
+		{name: "read-only tool runs", readOnly: true, ran: true},
+		{name: "write tool refused", readOnly: false, ran: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := signedOutFixture()
+			m.connectOnSignIn = map[string][]mcp.Tool{"gh": {ro(tagged("x_gh_issues", toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: "gh"}), tc.readOnly)}}
+			defer registerMockHandler(m)()
+
+			result, err := NewProvider().ExecuteTool(withHeader("preset:read-only", true), "call_tool", map[string]any{"name": "x_gh_issues"})
+			require.NoError(t, err)
+			assert.Equal(t, []string{"gh"}, m.signIns)
+			if tc.ran {
+				assert.False(t, result.IsError)
+				assert.Equal(t, []string{"x_gh_issues"}, m.called)
+				return
+			}
+			assert.Equal(t, `tool "x_gh_issues" is outside the toolset [preset:read-only]`, errorText(t, result))
+			assert.Empty(t, m.called)
+		})
+	}
+}
+
+func TestToolset_FilterToolsReportsTheServersASignInWouldUnlock(t *testing.T) {
+	defer registerMockHandler(signedOutFixture())()
+	p := NewProvider()
+
+	for _, header := range []string{"tool:x_k8s_get,tool:x_gh_issues", "preset:read-only"} {
+		result, err := p.ExecuteTool(withHeader(header, true), "filter_tools", nil)
+		require.NoError(t, err)
+		requiring, _ := decode(t, result)["toolset_requiring_auth"].([]any)
+		require.Len(t, requiring, 1, header)
+		assert.Equal(t, "gh", requiring[0].(map[string]any)["name"], header)
+		assert.Equal(t, "x_gh_", requiring[0].(map[string]any)["tool_prefix"], header)
+	}
+
+	result, err := p.ExecuteTool(withHeader("", false), "filter_tools", map[string]any{"toolset": []any{"server:gh"}})
+	require.NoError(t, err)
+	requiring, _ := decode(t, result)["toolset_requiring_auth"].([]any)
+	require.Len(t, requiring, 1, "a toolset argument naming the server reports it too")
+
+	result, err = p.ExecuteTool(withHeader("server:k8s", true), "filter_tools", map[string]any{"toolset": []any{"server:gh"}})
+	require.NoError(t, err)
+	_, present := decode(t, result)["toolset_requiring_auth"]
+	assert.False(t, present, "an argument resolves within the header's toolset")
+
+	result, err = p.ExecuteTool(withHeader("server:k8s", true), "filter_tools", nil)
+	require.NoError(t, err)
+	_, present = decode(t, result)["toolset_requiring_auth"]
+	assert.False(t, present, "a toolset that cannot select a pending server's tools reports none")
+}
+
+func TestToolset_FilterToolsReportsTheLongestPendingPrefixOnly(t *testing.T) {
+	m := toolsetFixture()
+	m.tools = append(m.tools, tagged("x_git_hub_issues", toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: "git-hub"}))
+	m.serversRequiringAuth = []api.ServerAuthInfo{
+		{Name: "git", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_git_"},
+		{Name: "git-lab", Status: "auth_required", AuthTool: "core_auth_login", ToolPrefix: "x_git_lab_"},
+	}
+	defer registerMockHandler(m)()
+
+	result, err := NewProvider().ExecuteTool(withHeader("tool:x_git_hub_issues,tool:x_git_lab_mrs", true), "filter_tools", nil)
+	require.NoError(t, err)
+	requiring, _ := decode(t, result)["toolset_requiring_auth"].([]any)
+	require.Len(t, requiring, 1, "a listed tool names no pending server, and a name goes to its longest pending prefix")
+	assert.Equal(t, "git-lab", requiring[0].(map[string]any)["name"])
+}
+
+// The servers awaiting sign-in cost an auth-store lookup per server; a call
+// the toolset resolves never asks for them.
+func TestToolset_InToolsetCallsDoNotLookUpPendingServers(t *testing.T) {
+	m := signedOutFixture()
+	defer registerMockHandler(m)()
+	p := NewProvider()
+
+	result, err := p.ExecuteTool(withHeader("server:k8s", true), "call_tool", map[string]any{"name": "x_k8s_get"})
+	require.NoError(t, err)
+	require.False(t, result.IsError)
+	assert.Zero(t, m.authLookups)
+
+	_, err = p.ExecuteTool(withHeader("server:k8s,server:gh", true), "call_tool", map[string]any{"name": "x_gh_issues"})
+	require.NoError(t, err)
+	assert.Equal(t, 1, m.authLookups, "a name outside the resolution looks them up once")
+}

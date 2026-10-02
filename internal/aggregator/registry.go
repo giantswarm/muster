@@ -201,6 +201,96 @@ func (r *ServerRegistry) buildExposedNameLocked(serverName, name string) string 
 	return r.musterPrefix + "_" + name
 }
 
+// ExposedToolPrefix returns the prefix every exposed tool of the server
+// carries: {musterPrefix}_{family}_ for a member of a family whose tools are
+// grouped, else {musterPrefix}_{serverPrefix}_. It needs no tool to have been
+// listed, so it names the tools of a server the session has not signed in to
+// yet.
+func (r *ServerRegistry) ExposedToolPrefix(serverName string) string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	return r.exposedToolPrefixLocked(serverName, r.familyFallbackStatusLocked())
+}
+
+// exposedToolPrefixLocked is ExposedToolPrefix with the family fallback
+// status computed by the caller. Caller must hold nameMu.
+func (r *ServerRegistry) exposedToolPrefixLocked(serverName string, fallback map[string]bool) string {
+	if family := r.groupedFamilyLocked(serverName, fallback); family != "" {
+		return r.musterPrefix + "_" + family + "_"
+	}
+	prefix := r.serverPrefixes[serverName]
+	if prefix == "" {
+		prefix = serverName
+	}
+	return r.musterPrefix + "_" + prefix + "_"
+}
+
+// GroupedFamily returns the family the server's tools are grouped under, or
+// "" for a server outside any family or in a family fallen back to
+// per-server prefixing.
+func (r *ServerRegistry) GroupedFamily(serverName string) string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	return r.groupedFamilyLocked(serverName, r.familyFallbackStatusLocked())
+}
+
+// groupedFamilyLocked is GroupedFamily. Caller must hold nameMu.
+func (r *ServerRegistry) groupedFamilyLocked(serverName string, fallback map[string]bool) string {
+	family := r.serverFamilies[serverName]
+	if family == nil || family.Name == "" || fallback[family.Name] {
+		return ""
+	}
+	return family.Name
+}
+
+// DeclaredOwnerOf returns the server a call to the exposed name would be
+// routed to, from the registry's declarations alone, so it also answers for
+// a server no session has listed: in a family's name space, the member the
+// call's instance argument selects; elsewhere, the server whose tool prefix
+// is the longest the name carries (x_git_hub_op belongs to a server prefixed
+// git_hub, not to one prefixed git). ok is false when the declarations name
+// no single server: a family call without a member's instance argument, or a
+// prefix several servers share.
+func (r *ServerRegistry) DeclaredOwnerOf(exposedName string, args map[string]any) (owner string, ok bool) {
+	r.mu.RLock()
+	names := make([]string, 0, len(r.servers))
+	for name := range r.servers {
+		names = append(names, name)
+	}
+	r.mu.RUnlock()
+
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	if family := r.familyOfExposedNameLocked(exposedName); family != "" {
+		for _, name := range names {
+			f := r.serverFamilies[name]
+			if f == nil || f.Name != family {
+				continue
+			}
+			if selected, _ := args[f.InstanceArg].(string); selected == name {
+				return name, true
+			}
+		}
+		return "", false
+	}
+
+	fallback := r.familyFallbackStatusLocked()
+	var longest string
+	shared := false
+	for _, name := range names {
+		prefix := r.exposedToolPrefixLocked(name, fallback)
+		if !strings.HasPrefix(exposedName, prefix) || len(prefix) < len(longest) {
+			continue
+		}
+		if len(prefix) == len(longest) {
+			shared = true
+			continue
+		}
+		owner, longest, shared = name, prefix, false
+	}
+	return owner, owner != "" && !shared
+}
+
 // SetServerPrefix configures the prefix to use for a specific server.
 // If prefix is empty the server name itself is used.
 func (r *ServerRegistry) SetServerPrefix(serverName, prefix string) {
@@ -352,7 +442,7 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 // whatever was fetched either way.
 func (r *ServerRegistry) fetchInitialCapabilities(ctx context.Context, info *ServerInfo) error {
 	var lastErr error
-	for attempt := 0; attempt < registerCapabilityAttempts; attempt++ {
+	for attempt := range registerCapabilityAttempts {
 		if ctx.Err() != nil {
 			if lastErr == nil {
 				lastErr = ctx.Err()

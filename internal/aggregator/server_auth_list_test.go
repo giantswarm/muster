@@ -31,6 +31,7 @@ func TestListServersRequiringAuth(t *testing.T) {
 		assert.Equal(t, "plain-oauth", result[0].Name)
 		assert.Equal(t, "auth_required", result[0].Status)
 		assert.Equal(t, "core_auth_login", result[0].AuthTool)
+		assert.Equal(t, "x_plain_", result[0].ToolPrefix, "the prefix of the tools a sign-in would unlock")
 	})
 
 	t.Run("skips token-forwarding SSO server", func(t *testing.T) {
