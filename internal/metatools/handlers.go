@@ -11,6 +11,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/observability"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -133,24 +134,29 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 		return errResult, nil
 	}
 
-	// Execute the tool via the handler
+	// Execute the tool via the handler, learning where the aggregator
+	// dispatched it.
+	ctx, dispatch := observability.ContextWithDispatchRecord(ctx, name)
 	result, err := handler.CallTool(ctx, name, toolArgs)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Tool execution failed: %v", err)), nil
 	}
+	tool := newDispatchedTool(name, dispatch)
 
 	// CRITICAL: Return result as structured JSON to preserve CallToolResult structure.
 	// This enables proper unwrapping by clients and maintains BDD test validation fidelity.
 	resultJSON, err := json.Marshal(struct {
-		IsError           bool      `json:"isError"`
-		Content           []any     `json:"content"`
-		StructuredContent any       `json:"structuredContent,omitempty"`
-		Meta              *mcp.Meta `json:"_meta,omitempty"`
+		IsError           bool           `json:"isError"`
+		Content           []any          `json:"content"`
+		StructuredContent any            `json:"structuredContent,omitempty"`
+		Meta              *mcp.Meta      `json:"_meta,omitempty"`
+		Tool              DispatchedTool `json:"tool"`
 	}{
 		IsError:           result.IsError,
 		Content:           SerializeContent(result.Content),
 		StructuredContent: result.StructuredContent,
 		Meta:              result.Meta,
+		Tool:              tool,
 	})
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to serialize result: %v", err)), nil
@@ -166,10 +172,14 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	// Image and audio items follow the envelope as native content with their
 	// payload, in the order of the envelope's size-only items, so a client sees
 	// the actual image while the envelope text stays small.
+	// The dispatched tool's identity is the envelope's last field, after the
+	// wrapped result's own, and is also the call_tool result's _meta for
+	// clients that read it without parsing the envelope.
 	return &api.CallToolResult{
 		Content:           append([]any{string(resultJSON)}, NativeContent(result.Content)...),
 		IsError:           result.IsError,
 		StructuredContent: result.StructuredContent,
+		Meta:              map[string]any{MetaKeyDispatchedTool: tool},
 	}, nil
 }
 

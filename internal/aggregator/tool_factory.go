@@ -345,9 +345,13 @@ func convertToMCPResult(result *api.CallToolResult) *mcp.CallToolResult {
 		}
 	}
 
-	return &mcp.CallToolResult{
+	mcpResult := &mcp.CallToolResult{
 		Content:           mcpContent,
 		IsError:           result.IsError,
 		StructuredContent: result.StructuredContent,
 	}
+	if len(result.Meta) > 0 {
+		mcpResult.Meta = &mcp.Meta{AdditionalFields: result.Meta}
+	}
+	return mcpResult
 }

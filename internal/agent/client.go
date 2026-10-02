@@ -861,10 +861,11 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
 	// Parse the wrapped result structure
 	// The call_tool meta-tool returns: {"isError": bool, "content": [...], "structuredContent": ..., "_meta": ...}
 	var wrappedResult struct {
-		IsError           bool             `json:"isError"`
-		Content           []map[string]any `json:"content"`
-		StructuredContent any              `json:"structuredContent,omitempty"`
-		Meta              *mcp.Meta        `json:"_meta,omitempty"`
+		IsError           bool                      `json:"isError"`
+		Content           []map[string]any          `json:"content"`
+		StructuredContent any                       `json:"structuredContent,omitempty"`
+		Meta              *mcp.Meta                 `json:"_meta,omitempty"`
+		Tool              *metatools.DispatchedTool `json:"tool,omitempty"`
 	}
 
 	if err := json.Unmarshal([]byte(textContent.Text), &wrappedResult); err != nil {
@@ -895,6 +896,19 @@ func (c *Client) unwrapMetaToolResponse(result *mcp.CallToolResult, toolName str
 				unwrapped.Content = append(unwrapped.Content, content)
 			}
 		}
+	}
+
+	// The dispatched tool's identity joins the wrapped result's _meta, where
+	// metatools.DispatchedToolFromMeta reads it. A server that does not send
+	// it leaves the _meta as the wrapped tool returned it.
+	if wrappedResult.Tool != nil {
+		if unwrapped.Meta == nil {
+			unwrapped.Meta = &mcp.Meta{}
+		}
+		if unwrapped.Meta.AdditionalFields == nil {
+			unwrapped.Meta.AdditionalFields = map[string]any{}
+		}
+		unwrapped.Meta.AdditionalFields[metatools.MetaKeyDispatchedTool] = *wrappedResult.Tool
 	}
 
 	return unwrapped, nil

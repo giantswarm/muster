@@ -83,3 +83,11 @@ func TestConvertToMCPResult_NativeContent(t *testing.T) {
 	assert.Equal(t, mcp.NewTextContent("envelope"), result.Content[0])
 	assert.Equal(t, image, result.Content[1], "an MCP content item must pass through, not be marshaled to text")
 }
+
+func TestConvertToMCPResult_Meta(t *testing.T) {
+	assert.Nil(t, convertToMCPResult(&api.CallToolResult{Content: []any{"text"}}).Meta, "no _meta without entries")
+
+	result := convertToMCPResult(&api.CallToolResult{Content: []any{"text"}, Meta: map[string]any{"muster.giantswarm.io/tool": "x"}})
+	require.NotNil(t, result.Meta)
+	assert.Equal(t, map[string]any{"muster.giantswarm.io/tool": "x"}, result.Meta.AdditionalFields)
+}

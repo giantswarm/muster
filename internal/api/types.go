@@ -82,6 +82,9 @@ type CallToolResult struct {
 	// returned alongside Content, never instead of it, so text-only consumers
 	// keep working.
 	StructuredContent any `json:"structuredContent,omitempty"`
+
+	// Meta optionally carries entries for the MCP result's _meta field.
+	Meta map[string]any `json:"_meta,omitempty"`
 }
 
 // ToolMetadata describes a tool that can be exposed through the MCP protocol.

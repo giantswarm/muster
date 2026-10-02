@@ -695,5 +695,7 @@ func TestProvider_HandleCallTool_PlainEnvelopeUnchanged(t *testing.T) {
 	result, err := provider.ExecuteTool(context.Background(), "call_tool", map[string]any{"name": "some_tool"})
 	require.NoError(t, err)
 	require.Len(t, result.Content, 1)
-	assert.Equal(t, `{"isError":false,"content":[{"text":"Success!","type":"text"}]}`, result.Content[0].(string))
+	// The wrapped result's bytes are unchanged; the dispatched tool's
+	// identity follows them as the envelope's last field.
+	assert.Equal(t, `{"isError":false,"content":[{"text":"Success!","type":"text"}],"tool":{"name":"some_tool"}}`, result.Content[0].(string))
 }

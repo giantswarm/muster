@@ -87,3 +87,20 @@ func TestDownstreamCallFromContext_Absent(t *testing.T) {
 		observability.AnnotateDownstreamCall(observability.WithoutRequestSpan(t.Context()), "s", "t", "t")
 	})
 }
+
+func TestDispatchRecord(t *testing.T) {
+	ctx, record := observability.ContextWithDispatchRecord(t.Context(), "x_kubernetes_list_pods")
+	_, ok := record.Dispatched()
+	require.False(t, ok, "nothing dispatched yet")
+
+	// A workflow step's dispatch of another tool under the same context.
+	observability.AnnotateDownstreamCall(ctx, "prometheus", "x_prometheus_query", "query")
+	_, ok = record.Dispatched()
+	require.False(t, ok, "another tool's dispatch is not recorded")
+
+	observability.AnnotateDownstreamCall(ctx, "kubernetes", "x_kubernetes_list_pods", "list_pods")
+	observability.AnnotateDownstreamCall(ctx, "kubernetes-2", "x_kubernetes_list_pods", "list_pods")
+	call, ok := record.Dispatched()
+	require.True(t, ok)
+	require.Equal(t, observability.DownstreamCall{Server: "kubernetes", Tool: "list_pods"}, call, "the first dispatch wins")
+}
