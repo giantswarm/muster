@@ -54,6 +54,9 @@ func (r *testReporter) ReportStart(config TestConfiguration) {
 	// instance ports ("address already in use" at startup); the guard state
 	// says whether the harness is immune to it on this platform.
 	fmt.Printf("🔌 Port allocation: %s\n", PortAllocationBanner(config.BasePort))
+	if config.ServeBinary != nil {
+		fmt.Printf("📦 Serve binary: %s\n", config.ServeBinary)
+	}
 
 	if r.verbose {
 		fmt.Printf("\n⚙️  Configuration:\n")

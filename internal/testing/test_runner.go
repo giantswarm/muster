@@ -67,6 +67,13 @@ func (r *testRunner) Run(ctx context.Context, config TestConfiguration, scenario
 		Configuration:   config,
 	}
 
+	// Name the serve binary in the run header: a run served by another muster
+	// than the one under test fails in ways nothing else explains.
+	if serveBinary, err := r.instanceManager.ServeBinary(); err == nil {
+		config.ServeBinary = &serveBinary
+		result.Configuration = config
+	}
+
 	// Report test start
 	r.reporter.ReportStart(config)
 

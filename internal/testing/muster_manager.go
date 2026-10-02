@@ -249,6 +249,12 @@ type musterInstanceManager struct {
 	// owns on it (namespace, proxy, kubeconfig), by instance ID.
 	envtest    *envtestControlPlane
 	kubernetes map[string]*instanceKubernetes
+
+	// serveBinary is the muster binary every instance of the run serves
+	// with, resolved once on first use (see ServeBinary).
+	serveBinaryOnce sync.Once
+	serveBinary     ServeBinary
+	serveBinaryErr  error
 }
 
 // NewMusterInstanceManagerWithLogger creates a new muster instance manager with custom logger
@@ -1396,90 +1402,10 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	return managedProc, nil
 }
 
-// getMusterBinaryPath returns the muster binary the instances run.
-//
-// The running executable comes first when it is muster itself: `muster test`
-// then tests the build it is part of. PATH came first before, and a stale
-// `go install` from another checkout on PATH ran a suite whose every scenario
-// that needed a newer serve failed against the wrong binary. The PATH lookup,
-// the checkout's build outputs and a build from source remain for callers
-// that are not the muster binary, such as `go test`.
-func (m *musterInstanceManager) getMusterBinaryPath() (string, error) {
-	if path, err := os.Executable(); err == nil && isMusterExecutable(path) {
-		return path, nil
-	}
-
-	// Then try to find in PATH
-	if path, err := exec.LookPath("muster"); err == nil {
-		return path, nil
-	}
-
-	// Try common locations relative to current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("failed to get current directory: %w", err)
-	}
-
-	// Check if we're in the muster project root
-	possiblePaths := []string{
-		filepath.Join(cwd, "muster"),
-		filepath.Join(cwd, "bin", "muster"),
-		filepath.Join(cwd, "..", "muster"),
-		filepath.Join(cwd, "..", "bin", "muster"),
-	}
-
-	for _, path := range possiblePaths {
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
-		}
-	}
-
-	// Try to build muster if we're in the source directory
-	if m.isInMusterSource(cwd) {
-		if m.debug {
-			m.logger.Debug("🔨 Building muster binary from source\n")
-		}
-
-		buildCmd := exec.Command("go", "build", "-o", "muster", ".")
-		buildCmd.Dir = cwd
-		if err := buildCmd.Run(); err != nil {
-			return "", fmt.Errorf("failed to build muster: %w", err)
-		}
-
-		builtPath := filepath.Join(cwd, "muster")
-		if _, err := os.Stat(builtPath); err == nil {
-			return builtPath, nil
-		}
-	}
-
-	return "", fmt.Errorf("muster binary not found")
-}
-
-// isMusterExecutable reports whether path names a muster executable: its base
-// name is muster (muster.exe on Windows), as opposed to a `go test` binary.
-func isMusterExecutable(path string) bool {
-	base := strings.TrimSuffix(filepath.Base(path), ".exe")
-	return base == "muster"
-}
-
 // fileExists reports whether path names an existing regular file.
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
-}
-
-// isInMusterSource checks if we're in the muster source directory
-func (m *musterInstanceManager) isInMusterSource(dir string) bool {
-	// Check for key files that indicate we're in the muster source
-	markers := []string{"main.go", "go.mod", "cmd/serve.go"}
-
-	for _, marker := range markers {
-		if _, err := os.Stat(filepath.Join(dir, marker)); err != nil {
-			return false
-		}
-	}
-
-	return true
 }
 
 // writeYAMLFile writes data to a YAML file

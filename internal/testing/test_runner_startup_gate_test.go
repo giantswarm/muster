@@ -71,6 +71,7 @@ func (m *gateProbeManager) PatchCR(context.Context, string, string, string, map[
 func (m *gateProbeManager) GetCR(context.Context, string, string, string) (map[string]interface{}, error) {
 	return nil, nil
 }
+func (m *gateProbeManager) ServeBinary() (ServeBinary, error) { return ServeBinary{}, nil }
 
 // TestStartupParallelGate verifies that at high --parallel the number of
 // concurrently *starting* instances is bounded by the startup gate, while an
