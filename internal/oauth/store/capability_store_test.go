@@ -197,8 +197,10 @@ func TestInMemoryCapabilityStore_ListSessions(t *testing.T) {
 }
 
 func TestInMemoryCapabilityStore_ListSessions_skipsExpired(t *testing.T) {
-	// Short TTL — expired entries must not be returned to the admin UI.
-	store := NewInMemoryCapabilityStore(10 * time.Millisecond)
+	// Expired entries must not be returned to the admin UI. The stale entry is
+	// rewound below; the TTL is long enough that the fresh one never expires
+	// before ListSessions, however slow the machine.
+	store := NewInMemoryCapabilityStore(time.Minute)
 	defer store.Stop()
 	ctx := context.Background()
 
