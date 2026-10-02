@@ -278,3 +278,50 @@ func TestResolution_CallInsideChecksTheFamilyMember(t *testing.T) {
 	assert.True(t, inside, "a solo tool's server argument selects nothing")
 	assert.Empty(t, member)
 }
+
+func TestFilter_NarrowsAFamilyToolToTheSelectedMembers(t *testing.T) {
+	tools := catalogue()
+	SetFamilyMembers(&tools[2], "server", []string{"prom-a", "prom-b"})
+	servers := func(tool mcp.Tool) []string {
+		origin, ok := ToolOriginOf(tool)
+		require.True(t, ok)
+		return origin.Servers
+	}
+
+	filtered := Filter(tools, resolve(t, BuiltIns(), "server:prom-b"))
+	require.Len(t, filtered, 1)
+	narrowed := filtered[0]
+	assert.Equal(t, []any{"prom-b"}, narrowed.InputSchema.Properties["server"].(map[string]any)["enum"])
+	assert.Equal(t, []string{"server"}, narrowed.InputSchema.Required)
+	assert.Equal(t, " (available on servers: prom-b)", narrowed.Description)
+	assert.Equal(t, []string{"prom-b"}, servers(narrowed))
+	assert.Equal(t, []any{"prom-a", "prom-b"}, tools[2].InputSchema.Properties["server"].(map[string]any)["enum"], "the catalogue's tool is not mutated")
+	assert.Equal(t, []string{"prom-a", "prom-b"}, servers(tools[2]))
+
+	ts, err := ParseHeader("server:prometheus")
+	require.NoError(t, err)
+	again, err := BuiltIns().Resolve(ts, EntriesFromTools(filtered))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"prom-b"}, servers(Filter(filtered, again)[0]), "resolving the filtered tools cannot widen them back")
+
+	assert.Equal(t, tools[2], Filter(tools, resolve(t, BuiltIns(), "server:prometheus"))[0], "a tool selected on every member is returned as is")
+}
+
+func TestSetFamilyMembers_ReplacesWhatItAdvertised(t *testing.T) {
+	tool := mcp.Tool{Name: "query", Description: "Run a query"}
+	tool.InputSchema.Properties = map[string]any{"q": map[string]any{"type": "string"}}
+	tool.InputSchema.Required = []string{"q"}
+	original := tool.InputSchema.Properties
+
+	SetFamilyMembers(&tool, "server", []string{"a", "b"})
+	SetFamilyMembers(&tool, "server", []string{"b"})
+
+	assert.Equal(t, "Run a query (available on servers: b)", tool.Description)
+	assert.Equal(t, []string{"q", "server"}, tool.InputSchema.Required)
+	assert.Equal(t, map[string]any{
+		"type":        "string",
+		"description": "Target instance to execute this tool on. Available: b",
+		"enum":        []any{"b"},
+	}, tool.InputSchema.Properties["server"])
+	assert.NotContains(t, original, "server", "the input schema's properties are not mutated")
+}

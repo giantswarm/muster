@@ -164,6 +164,8 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
   Like `filter_tools`, it echoes the header's selectors in `toolset`.
   `describe_tool` of a tool the session can see but the toolset excludes answers
   `tool "<name>" is outside the toolset [<selectors>]`; an unknown name is still `Tool not found`.
+  A family tool is shown with the members the toolset selects it on alone, in its instance
+  argument's enum and its description.
 - `call_tool` — including workflow execution (`workflow_<name>`) — of a name outside the
   toolset is refused with `tool "<name>" is outside the toolset [<selectors>]` and logged once
   at info level with the tool, the toolset and the session. A family tool runs on the member its

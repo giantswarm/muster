@@ -24,6 +24,9 @@ type Resolution struct {
 	// against the toolset (CallInside).
 	families map[string]Entry
 	selects  func(Entry) bool
+	// members holds, per selected family tool, the members the toolset
+	// selects it on, sorted; Filter advertises only those.
+	members map[string][]string
 }
 
 // Contains reports whether the exposed tool name is inside the resolution.
@@ -96,6 +99,7 @@ func (r *Registry) ResolveWith(ts Toolset, entries []Entry, labels ServerLabels)
 		Selected: map[string]struct{}{},
 		Servers:  map[string]struct{}{},
 		families: map[string]Entry{},
+		members:  map[string][]string{},
 		selects:  func(e Entry) bool { return r.selects(ts, e, labels) },
 	}
 	expanded := byMember(entries)
@@ -121,7 +125,11 @@ func (r *Registry) ResolveWith(ts Toolset, entries []Entry, labels ServerLabels)
 		}
 		if e.InstanceArg != "" {
 			res.families[e.Name] = e
+			res.members[e.Name] = append(res.members[e.Name], e.Servers...)
 		}
+	}
+	for _, members := range res.members {
+		slices.Sort(members)
 	}
 	return res, nil
 }
@@ -133,10 +141,10 @@ func byMember(entries []Entry) []Entry {
 	for _, e := range entries {
 		if e.InstanceArg == "" || len(e.Servers) == 0 {
 			out = append(out, e)
-			continue
-		}
-		for _, s := range e.Servers {
-			out = append(out, e.Member(s))
+		} else {
+			for _, s := range e.Servers {
+				out = append(out, e.Member(s))
+			}
 		}
 	}
 	return out

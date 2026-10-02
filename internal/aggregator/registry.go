@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
-	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/metatools"
@@ -826,10 +825,10 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 
 		exposedTool := entry.tools[0]
 		exposedTool.Name = r.familyExposedName(key.family, key.toolName)
-		exposedTool.InputSchema = injectInstanceEnum(exposedTool.InputSchema, entry.instanceArg, sortedServers)
-		exposedTool.Description = annotateMultiServer(exposedTool.Description, sortedServers)
+		toolset.SetFamilyMembers(&exposedTool, entry.instanceArg, sortedServers)
 		// The exposed name carries the family, so the family is the owning
-		// server; the members are recorded so server:<member> selects it too.
+		// server; the members are recorded so server:<member> selects it on that
+		// member.
 		toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: key.family, Servers: sortedServers, InstanceArg: entry.instanceArg})
 
 		soloTools = append(soloTools, exposedTool)
@@ -1026,36 +1025,6 @@ func (r *ServerRegistry) removeFamilyTool(exposedName string) {
 	delete(r.familyMappings, exposedName)
 }
 
-// injectInstanceEnum returns a copy of schema with a required string
-// parameter (named instanceArg) whose enum lists the available backend
-// servers. Properties and Required are deep-copied — including nested
-// object properties and array items — so the per-server cached tool schema
-// is not mutated by callers that walk the returned schema.
-func injectInstanceEnum(schema mcp.ToolInputSchema, instanceArg string, servers []string) mcp.ToolInputSchema {
-	enumVals := make([]any, len(servers))
-	for i, s := range servers {
-		enumVals[i] = s
-	}
-
-	properties := runtime.DeepCopyJSON(schema.Properties)
-	if properties == nil {
-		properties = make(map[string]any, 1)
-	}
-	properties[instanceArg] = map[string]any{
-		"type":        "string",
-		"description": "Target instance to execute this tool on. Available: " + strings.Join(servers, ", "),
-		"enum":        enumVals,
-	}
-
-	required := make([]string, 0, len(schema.Required)+1)
-	required = append(required, schema.Required...)
-	required = append(required, instanceArg)
-
-	schema.Properties = properties
-	schema.Required = required
-	return schema
-}
-
 // instanceArgCollides reports whether instanceArg matches a property name on
 // any contributing tool's InputSchema. The collision is asymmetric: server A's
 // tool can lack the property while server B's tool declares it, in which case
@@ -1080,19 +1049,6 @@ func cloneFamily(f *api.MCPServerFamily) *api.MCPServerFamily {
 	}
 	clone := *f
 	return &clone
-}
-
-// annotateMultiServer appends a (available on servers: …) trailer to the
-// description so MCP clients reading tools/list see which instances the
-// "server" parameter accepts. A single trailer is preserved across repeated
-// passes by treating an existing parenthesised "available on servers" suffix
-// as canonical.
-func annotateMultiServer(description string, servers []string) string {
-	trailer := " (available on servers: " + strings.Join(servers, ", ") + ")"
-	if idx := strings.LastIndex(description, " (available on servers:"); idx >= 0 {
-		description = description[:idx]
-	}
-	return description + trailer
 }
 
 // GetAllResources returns a consolidated list of all resources from all connected servers.

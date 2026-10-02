@@ -560,9 +560,11 @@ func TestToolset_InToolsetCallsDoNotLookUpPendingServers(t *testing.T) {
 // kube-b, each exposing its own resource.
 func familyFixture() *mockMetaToolsHandler {
 	m := toolsetFixture()
-	m.tools = append(m.tools, ro(tagged("x_kube_get", toolset.ToolOrigin{
+	kubeGet := ro(tagged("x_kube_get", toolset.ToolOrigin{
 		Kind: toolset.OriginKindTool, Server: "kube", Servers: []string{"kube-a", "kube-b"}, InstanceArg: "server",
-	}), true))
+	}), true)
+	toolset.SetFamilyMembers(&kubeGet, "server", []string{"kube-a", "kube-b"})
+	m.tools = append(m.tools, kubeGet)
 	m.resources = append(m.resources,
 		api.ResourceOrigin{Resource: mcp.Resource{URI: "kube-a://nodes", Name: "nodes-a"}, Server: "kube-a"},
 		api.ResourceOrigin{Resource: mcp.Resource{URI: "kube-b://nodes", Name: "nodes-b"}, Server: "kube-b"},
@@ -600,10 +602,10 @@ func TestToolset_CallToolChecksTheFamilyMember(t *testing.T) {
 		if tc.inside {
 			assert.False(t, result.IsError, "%s on %s", tc.header, tc.member)
 			assert.Equal(t, []string{"x_kube_get"}, m.called, "%s on %s", tc.header, tc.member)
-			continue
+		} else {
+			assert.Equal(t, `tool "x_kube_get" on server "`+tc.member+`" is outside the toolset [`+tc.header+`]`, errorText(t, result))
+			assert.Empty(t, m.called, "%s on %s", tc.header, tc.member)
 		}
-		assert.Equal(t, `tool "x_kube_get" on server "`+tc.member+`" is outside the toolset [`+tc.header+`]`, errorText(t, result))
-		assert.Empty(t, m.called, "%s on %s", tc.header, tc.member)
 	}
 }
 
@@ -627,4 +629,20 @@ func TestToolset_FamilyResourcesFollowTheSelectedMembers(t *testing.T) {
 	text = result.Content[0].(string)
 	assert.Contains(t, text, "kube-a://nodes")
 	assert.Contains(t, text, "kube-b://nodes")
+}
+
+func TestToolset_DescribeToolAdvertisesTheSelectedMembers(t *testing.T) {
+	defer registerMockHandler(familyFixture())()
+	p := NewProvider()
+
+	result, err := p.ExecuteTool(withHeader("server:kube-a", true), "describe_tool", map[string]any{"name": "x_kube_get"})
+	require.NoError(t, err)
+	detail := decode(t, result)
+	assert.Equal(t, "x_kube_get description (available on servers: kube-a)", detail["description"])
+	schema := detail["inputSchema"].(map[string]any)
+	assert.Equal(t, []any{"kube-a"}, schema["properties"].(map[string]any)["server"].(map[string]any)["enum"])
+
+	result, err = p.ExecuteTool(withHeader("server:kube", true), "describe_tool", map[string]any{"name": "x_kube_get"})
+	require.NoError(t, err)
+	assert.Equal(t, "x_kube_get description (available on servers: kube-a, kube-b)", decode(t, result)["description"])
 }

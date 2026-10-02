@@ -52,6 +52,17 @@ steps:
       wait_for_state: "30s"
       contains: ["x_kubernetes_list_pods"]
 
+  - id: "describe-advertises-selected-member"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments: { name: "x_kubernetes_list_pods" }
+    headers: { X-Muster-Toolset: "server:k8s-graveler" }
+    expected:
+      success: true
+      contains: ["available on servers: k8s-graveler)"]
+      not_contains: ["k8s-gazelle"]
+
   - id: "member-in-toolset-runs"
     tool: "test_call_meta_tool"
     args:
