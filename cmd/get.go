@@ -14,6 +14,9 @@ import (
 
 var getFlags cli.CommandFlags
 
+// getServer picks the server of a resource URI several servers expose.
+var getServer string
+
 // Available resource types for autocompletion
 var getResourceTypes = []string{
 	api.ResourceTypeService,
@@ -57,11 +60,7 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 	resourceType := args[0]
 
 	// Try to get available resources from the server
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormatJSON,
-		Quiet:      true,
-		ConfigPath: getFlags.ConfigPath,
-	})
+	executor, err := cli.NewToolExecutor(getFlags.CompletionOptions())
 	if err != nil {
 		// Fallback if server not available
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -99,15 +98,24 @@ func getResourceNameCompletion(cmd *cobra.Command, args []string, toComplete str
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	// Filter by what the user has typed so far
+	return completeNames(names, toComplete), cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeNames returns the names starting with what the user has typed so
+// far, case-insensitively, sorted and each once: the resource listing carries
+// a URI several servers expose once per server.
+func completeNames(names []string, toComplete string) []string {
+	seen := make(map[string]bool, len(names))
 	var completions []string
 	for _, name := range names {
-		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(toComplete)) {
-			completions = append(completions, name)
+		if seen[name] || !strings.HasPrefix(strings.ToLower(name), strings.ToLower(toComplete)) {
+			continue
 		}
+		seen[name] = true
+		completions = append(completions, name)
 	}
-
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	sort.Strings(completions)
+	return completions
 }
 
 // getMCPPrimitiveCompletion provides tab completion for MCP primitives (tools, resources, prompts)
@@ -124,7 +132,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 			names = append(names, tool.Name)
 		}
 	case api.MCPPrimitiveResource:
-		resources, err := executor.ListMCPResources(ctx)
+		resources, err := executor.ListMCPResourcesWithServer(ctx)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -133,7 +141,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 			names = append(names, resource.URI)
 		}
 	case api.MCPPrimitivePrompt:
-		prompts, err := executor.ListMCPPrompts(ctx)
+		prompts, err := executor.ListMCPPromptsWithServer(ctx, false)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -144,16 +152,7 @@ func getMCPPrimitiveCompletion(ctx context.Context, executor *cli.ToolExecutor, 
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	// Filter by what the user has typed so far
-	var completions []string
-	for _, name := range names {
-		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(toComplete)) {
-			completions = append(completions, name)
-		}
-	}
-
-	sort.Strings(completions)
-	return completions, cobra.ShellCompDirectiveNoFileComp
+	return completeNames(names, toComplete), cobra.ShellCompDirectiveNoFileComp
 }
 
 // Helper function to extract resource names from server response
@@ -222,8 +221,12 @@ Examples:
   muster get workflow-execution abc123-def456-789
   muster get mcpserver kubernetes --output yaml
   muster get tool core_service_list
-  muster get resource muster://auth/status
+  muster get resource auth://status
+  muster get resource file:///readme --server files
   muster get prompt code_review
+
+A resource or prompt of an aggregated server is shown with that server. A
+URI several servers expose needs --server.
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args: cobra.ExactArgs(2),
@@ -243,11 +246,16 @@ Note: The aggregator server must be running (use 'muster serve') before using th
 func init() {
 	rootCmd.AddCommand(getCmd)
 	cli.RegisterCommonFlags(getCmd, &getFlags)
+	getCmd.Flags().StringVar(&getServer, "server", "", "The server of a resource URI several servers expose (for resource only)")
 }
 
 func runGet(cmd *cobra.Command, args []string) error {
 	resourceType := args[0]
 	resourceName := args[1]
+
+	if getServer != "" && getMCPResourceTypes[resourceType] != api.MCPPrimitiveResource {
+		return fmt.Errorf("--server applies to get resource only")
+	}
 
 	// Check if this is an MCP primitive type
 	if mcpType, isMCP := getMCPResourceTypes[resourceType]; isMCP {
@@ -338,12 +346,15 @@ func runGetMCPTool(cmd *cobra.Command, executor *cli.ToolExecutor, name string) 
 
 // runGetMCPResource gets details of a specific MCP resource
 func runGetMCPResource(cmd *cobra.Command, executor *cli.ToolExecutor, uri string) error {
-	resource, err := executor.GetMCPResource(cmd.Context(), uri)
+	resource, err := executor.GetMCPResource(cmd.Context(), uri, getServer)
 	if err != nil {
 		return fmt.Errorf("failed to get resource: %w", err)
 	}
 
 	if resource == nil {
+		if getServer != "" {
+			return fmt.Errorf("resource not found: %s on server %s", uri, getServer)
+		}
 		return fmt.Errorf("resource not found: %s", uri)
 	}
 

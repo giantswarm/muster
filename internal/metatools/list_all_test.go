@@ -205,3 +205,68 @@ func TestDescribePromptArguments(t *testing.T) {
 	_, err = DescribePromptArguments(context.Background(), call, "x_pp_other")
 	assert.ErrorContains(t, err, "Prompt not found")
 }
+
+// describeCatalogue fakes describe_resource and describe_prompt the way the
+// handlers answer: a URI two servers expose needs the server argument.
+func describeCatalogue(_ context.Context, name string, args map[string]any) (*mcp.CallToolResult, error) {
+	switch name {
+	case ToolDescribeResource:
+		switch args["uri"] {
+		case "proof://docs/readme":
+			return mcp.NewToolResultText(`{"uri":"proof://docs/readme","name":"readme","description":"The readme","mimeType":"text/markdown","server":"docs"}`), nil
+		case "file:///shared":
+			if args[ArgServer] == "files_x" {
+				return mcp.NewToolResultText(`{"uri":"file:///shared","name":"shared","server":"files_x"}`), nil
+			}
+			return mcp.NewToolResultError(`Resource file:///shared is exposed by servers files, files_x; the "server" argument is required`), nil
+		}
+		return mcp.NewToolResultError(resourceNotFound + args["uri"].(string)), nil
+	case ToolDescribePrompt:
+		if args["name"] == "x_docs_summarise" {
+			return mcp.NewToolResultText(`{"name":"x_docs_summarise","description":"Summarise","server":"docs","arguments":[{"name":"topic","required":true}]}`), nil
+		}
+		return mcp.NewToolResultError(promptNotFound + args["name"].(string)), nil
+	}
+	return nil, fmt.Errorf("unexpected tool %s", name)
+}
+
+func TestDescribeResource(t *testing.T) {
+	ctx := context.Background()
+
+	got, err := DescribeResource(ctx, describeCatalogue, "proof://docs/readme", "")
+	require.NoError(t, err)
+	assert.Equal(t, &ResourceInfo{URI: "proof://docs/readme", Name: "readme", Description: "The readme", MIMEType: "text/markdown", Server: "docs"}, got)
+
+	got, err = DescribeResource(ctx, describeCatalogue, "file:///shared", "files_x")
+	require.NoError(t, err)
+	assert.Equal(t, "files_x", got.Server)
+
+	_, err = DescribeResource(ctx, describeCatalogue, "file:///shared", "")
+	assert.ErrorContains(t, err, "exposed by servers files, files_x", "an ambiguous URI names its servers")
+
+	got, err = DescribeResource(ctx, describeCatalogue, "auth://status", "")
+	require.NoError(t, err)
+	assert.Nil(t, got, "a URI the catalogue lacks is no resource, not an error")
+}
+
+func TestDescribePrompt(t *testing.T) {
+	ctx := context.Background()
+
+	got, err := DescribePrompt(ctx, describeCatalogue, "x_docs_summarise")
+	require.NoError(t, err)
+	assert.Equal(t, &PromptDetail{
+		Name:        "x_docs_summarise",
+		Description: "Summarise",
+		Arguments:   []mcp.PromptArgument{{Name: "topic", Required: true}},
+		Server:      "docs",
+	}, got)
+
+	got, err = DescribePrompt(ctx, describeCatalogue, "x_docs_other")
+	require.NoError(t, err)
+	assert.Nil(t, got)
+
+	_, err = DescribePrompt(ctx, func(context.Context, string, map[string]any) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultError("aggregator not ready"), nil
+	}, "x_docs_summarise")
+	assert.ErrorContains(t, err, "aggregator not ready")
+}

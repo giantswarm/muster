@@ -57,11 +57,7 @@ func init() {
 
 // callToolNameCompletion provides tab completion for tool names
 func callToolNameCompletion(cmd *cobra.Command, toComplete string) ([]string, cobra.ShellCompDirective) {
-	executor, err := cli.NewToolExecutor(cli.ExecutorOptions{
-		Format:     cli.OutputFormatJSON,
-		Quiet:      true,
-		ConfigPath: callFlags.ConfigPath,
-	})
+	executor, err := cli.NewToolExecutor(callFlags.CompletionOptions())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

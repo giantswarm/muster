@@ -21,8 +21,12 @@ Examples:
   muster get workflow-execution abc123-def456-789
   muster get mcpserver kubernetes --output yaml
   muster get tool core_service_list
-  muster get resource muster://auth/status
+  muster get resource auth://status
+  muster get resource file:///readme --server files
   muster get prompt code_review
+
+A resource or prompt of an aggregated server is shown with that server. A
+URI several servers expose needs --server.
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.
 
@@ -43,6 +47,7 @@ muster get <type> <name|uri|id>
       --no-headers           Suppress header row in table output
   -o, --output string        Output format (table, wide, json, yaml) (default "table")
   -q, --quiet                Suppress non-essential output
+      --server string        The server of a resource URI several servers expose (for resource only)
 ```
 
 ## SEE ALSO

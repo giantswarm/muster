@@ -128,3 +128,58 @@ func attributePrompts(listed []metatools.PromptInfo, native []MCPPrompt) []MCPPr
 	}
 	return prompts
 }
+
+// findResource looks a resource up with describe_resource, which knows every
+// aggregated one. muster's own resources (auth://status) are not aggregated:
+// only the native listing has them, and they carry no server.
+func findResource(ctx context.Context, call metatools.ToolCaller, native func(context.Context) ([]MCPResource, error), uri, server string) (*MCPResourceInfo, error) {
+	detail, err := metatools.DescribeResource(ctx, call, uri, server)
+	if err != nil {
+		return nil, err
+	}
+	if detail != nil {
+		return &MCPResourceInfo{
+			MCPResource: MCPResource{URI: detail.URI, Name: detail.Name, Description: detail.Description, MIMEType: detail.MIMEType},
+			Server:      detail.Server,
+		}, nil
+	}
+	if server != "" {
+		return nil, nil
+	}
+	resources, err := native(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range resources {
+		if r.URI == uri {
+			return &MCPResourceInfo{MCPResource: r}, nil
+		}
+	}
+	return nil, nil
+}
+
+// findPrompt looks a prompt up with describe_prompt, which knows every
+// aggregated one with its arguments; a prompt only the native listing has is
+// muster's own and carries no server.
+func findPrompt(ctx context.Context, call metatools.ToolCaller, native func(context.Context) ([]MCPPrompt, error), name string) (*MCPPromptInfo, error) {
+	detail, err := metatools.DescribePrompt(ctx, call, name)
+	if err != nil {
+		return nil, err
+	}
+	if detail != nil {
+		return &MCPPromptInfo{
+			MCPPrompt: MCPPrompt{Name: detail.Name, Description: detail.Description, Arguments: detail.Arguments},
+			Server:    detail.Server,
+		}, nil
+	}
+	prompts, err := native(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range prompts {
+		if p.Name == name {
+			return &MCPPromptInfo{MCPPrompt: p}, nil
+		}
+	}
+	return nil, nil
+}

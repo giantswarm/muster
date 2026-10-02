@@ -657,34 +657,6 @@ func (e *ToolExecutor) outputTable(jsonData string) error {
 	return e.formatter.FormatData(data)
 }
 
-// ListMCPResources returns all MCP resources using native protocol.
-// This method retrieves resources directly from the MCP server without going through
-// the tool execution interface.
-//
-// Args:
-//   - ctx: Context for execution timeout and cancellation
-//
-// Returns:
-//   - []mcp.Resource: Slice of all available resources from the server
-//   - error: Connection or retrieval error, if any
-func (e *ToolExecutor) ListMCPResources(ctx context.Context) ([]mcp.Resource, error) {
-	return e.client.ListResourcesFromServer(ctx)
-}
-
-// ListMCPPrompts returns all MCP prompts using native protocol.
-// This method retrieves prompts directly from the MCP server without going through
-// the tool execution interface.
-//
-// Args:
-//   - ctx: Context for execution timeout and cancellation
-//
-// Returns:
-//   - []mcp.Prompt: Slice of all available prompts from the server
-//   - error: Connection or retrieval error, if any
-func (e *ToolExecutor) ListMCPPrompts(ctx context.Context) ([]mcp.Prompt, error) {
-	return e.client.ListPromptsFromServer(ctx)
-}
-
 // GetMCPTool returns detailed info for a specific tool by calling describe_tool meta-tool.
 // This method retrieves the tool information from the actual tools (core_*, x_*, workflow_*)
 // rather than the meta-tools exposed by the MCP native protocol.
@@ -744,46 +716,17 @@ func (e *ToolExecutor) GetMCPTool(ctx context.Context, name string) (*mcp.Tool, 
 	return nil, nil
 }
 
-// GetMCPResource returns detailed info for a specific resource.
-// This method retrieves the resource list and finds the specified resource by URI.
-//
-// Args:
-//   - ctx: Context for execution timeout and cancellation
-//   - uri: The exact URI of the resource to find
-//
-// Returns:
-//   - *mcp.Resource: Pointer to the found resource, or nil if not found
-//   - error: Connection or retrieval error, if any
-func (e *ToolExecutor) GetMCPResource(ctx context.Context, uri string) (*mcp.Resource, error) {
-	// First refresh the cache
-	_, err := e.client.ListResourcesFromServer(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	resource := e.client.GetResourceByURI(uri)
-	return resource, nil
+// GetMCPResource returns a resource by URI with the server it comes from,
+// or nil when the caller has no such resource. server picks one of several
+// servers exposing the URI.
+func (e *ToolExecutor) GetMCPResource(ctx context.Context, uri, server string) (*MCPResourceInfo, error) {
+	return findResource(ctx, e.client.CallTool, e.client.ListResourcesFromServer, uri, server)
 }
 
-// GetMCPPrompt returns detailed info for a specific prompt.
-// This method retrieves the prompt list and finds the specified prompt by name.
-//
-// Args:
-//   - ctx: Context for execution timeout and cancellation
-//   - name: The exact name of the prompt to find
-//
-// Returns:
-//   - *mcp.Prompt: Pointer to the found prompt, or nil if not found
-//   - error: Connection or retrieval error, if any
-func (e *ToolExecutor) GetMCPPrompt(ctx context.Context, name string) (*mcp.Prompt, error) {
-	// First refresh the cache
-	_, err := e.client.ListPromptsFromServer(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	prompt := e.client.GetPromptByName(name)
-	return prompt, nil
+// GetMCPPrompt returns a prompt by name with its arguments and the server it
+// comes from, or nil when the caller has no such prompt.
+func (e *ToolExecutor) GetMCPPrompt(ctx context.Context, name string) (*MCPPromptInfo, error) {
+	return findPrompt(ctx, e.client.CallTool, e.client.ListPromptsFromServer, name)
 }
 
 // GetOptions returns the executor options.

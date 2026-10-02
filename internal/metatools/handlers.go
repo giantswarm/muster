@@ -215,7 +215,7 @@ func (p *Provider) handleDescribeResource(ctx context.Context, args map[string]a
 		if cat.isScoped() {
 			return cat.outsideError("resource", uri), nil
 		}
-		return errorResult(fmt.Sprintf("Resource not found: %s", uri)), nil
+		return errorResult(resourceNotFound + uri), nil
 	}
 
 	// A URI carrying a scheme is exposed unprefixed, so several servers can
@@ -513,7 +513,7 @@ func (p *Provider) handleDescribePrompt(ctx context.Context, args map[string]any
 		if cat.isScoped() {
 			return cat.outsideError("prompt", name), nil
 		}
-		return errorResult(fmt.Sprintf("Prompt not found: %s", name)), nil
+		return errorResult(promptNotFound + name), nil
 	}
 
 	jsonData, err := p.formatters.FormatPromptDetailJSON(*prompt)

@@ -98,6 +98,13 @@ const (
 	noPromptsAvailable   = "No prompts available"
 )
 
+// The start of describe_resource's and describe_prompt's answer for an item
+// the caller's catalogue lacks; the URI or name follows.
+const (
+	resourceNotFound = "Resource not found: "
+	promptNotFound   = "Prompt not found: "
+)
+
 // ListAllResources calls list_resources and returns every resource of the
 // caller's catalogue with the server it comes from: one entry per server
 // that exposes a URI.
@@ -135,24 +142,66 @@ func listCapabilities[T any](ctx context.Context, call ToolCaller, tool, empty s
 	return items, nil
 }
 
+// PromptDetail is a describe_prompt answer: the prompt, the arguments it
+// declares and the server it comes from.
+type PromptDetail struct {
+	Name        string               `json:"name"`
+	Description string               `json:"description,omitempty"`
+	Arguments   []mcp.PromptArgument `json:"arguments,omitempty"`
+	Server      string               `json:"server"`
+}
+
+// DescribePrompt calls describe_prompt for one prompt and returns it with its
+// arguments and server; nil when the caller's catalogue has no such prompt.
+func DescribePrompt(ctx context.Context, call ToolCaller, name string) (*PromptDetail, error) {
+	return describe[PromptDetail](ctx, call, ToolDescribePrompt, map[string]any{"name": name}, promptNotFound)
+}
+
 // DescribePromptArguments calls describe_prompt for one prompt and returns
 // the arguments it declares, which list_prompts does not report.
 func DescribePromptArguments(ctx context.Context, call ToolCaller, name string) ([]mcp.PromptArgument, error) {
-	result, err := call(ctx, ToolDescribePrompt, map[string]any{"name": name})
+	detail, err := DescribePrompt(ctx, call, name)
 	if err != nil {
-		return nil, fmt.Errorf("%s failed: %w", ToolDescribePrompt, err)
+		return nil, err
 	}
-	if result == nil {
-		return nil, fmt.Errorf("nil result from %s", ToolDescribePrompt)
-	}
-	if result.IsError {
-		return nil, fmt.Errorf("%s failed: %s", ToolDescribePrompt, resultText(result))
-	}
-	var detail struct {
-		Arguments []mcp.PromptArgument `json:"arguments"`
-	}
-	if err := json.Unmarshal([]byte(resultText(result)), &detail); err != nil {
-		return nil, fmt.Errorf("failed to parse %s response: %w", ToolDescribePrompt, err)
+	if detail == nil {
+		return nil, fmt.Errorf("%s failed: %s%s", ToolDescribePrompt, promptNotFound, name)
 	}
 	return detail.Arguments, nil
+}
+
+// DescribeResource calls describe_resource for one URI and returns the
+// resource with its server; nil when the caller's catalogue has no such
+// resource. server picks one of several servers exposing the URI; without
+// it such a URI is an error naming them.
+func DescribeResource(ctx context.Context, call ToolCaller, uri, server string) (*ResourceInfo, error) {
+	args := map[string]any{"uri": uri}
+	if server != "" {
+		args[ArgServer] = server
+	}
+	return describe[ResourceInfo](ctx, call, ToolDescribeResource, args, resourceNotFound)
+}
+
+// describe calls a describe meta-tool and decodes its JSON answer. The
+// tool's not-found answer, which starts with notFound, is a nil result.
+func describe[T any](ctx context.Context, call ToolCaller, tool string, args map[string]any, notFound string) (*T, error) {
+	result, err := call(ctx, tool, args)
+	if err != nil {
+		return nil, fmt.Errorf("%s failed: %w", tool, err)
+	}
+	if result == nil {
+		return nil, fmt.Errorf("nil result from %s", tool)
+	}
+	text := resultText(result)
+	if result.IsError {
+		if strings.HasPrefix(text, notFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%s failed: %s", tool, text)
+	}
+	var detail T
+	if err := json.Unmarshal([]byte(text), &detail); err != nil {
+		return nil, fmt.Errorf("failed to parse %s response: %w", tool, err)
+	}
+	return &detail, nil
 }
