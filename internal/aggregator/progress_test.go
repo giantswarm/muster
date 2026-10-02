@@ -19,12 +19,6 @@ import (
 // that called through muster, under the client's own token, and that a call
 // without a token gets none.
 func TestProgressRelayBridgesDownstreamProgressToTheCaller(t *testing.T) {
-	// delivered paces the backend on the caller's receipt of each
-	// notification: mcp-go's streamable-http server drops a notification
-	// in flight while a response is written (see progress_test.go in
-	// internal/mcpserver).
-	delivered := make(chan struct{}, 1)
-
 	backend := server.NewMCPServer("backend", "test")
 	backend.AddTool(mcp.NewTool("work"), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		if req.Params.Meta == nil || req.Params.Meta.ProgressToken == nil {
@@ -38,11 +32,6 @@ func TestProgressRelayBridgesDownstreamProgressToTheCaller(t *testing.T) {
 			})
 			if err != nil {
 				return nil, err
-			}
-			select {
-			case <-delivered:
-			case <-ctx.Done():
-				return nil, ctx.Err()
 			}
 		}
 		return mcp.NewToolResultText("done"), nil
@@ -68,7 +57,6 @@ func TestProgressRelayBridgesDownstreamProgressToTheCaller(t *testing.T) {
 	caller.OnNotification(func(n mcp.JSONRPCNotification) {
 		if n.Method == string(mcp.MethodNotificationProgress) {
 			progress = append(progress, n.Params.AdditionalFields)
-			delivered <- struct{}{}
 		}
 	})
 	require.NoError(t, caller.Start(t.Context()))

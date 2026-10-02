@@ -13,19 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// progressRecorder collects what a ProgressReporter sends to the caller and
-// tells the backend each notification arrived.
+// progressRecorder collects what a ProgressReporter sends to the caller.
 type progressRecorder struct {
-	mu        sync.Mutex
-	sent      []map[string]any
-	delivered chan struct{}
+	mu   sync.Mutex
+	sent []map[string]any
 }
 
 func (r *progressRecorder) send(params map[string]any) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sent = append(r.sent, params)
-	r.delivered <- struct{}{}
 	return nil
 }
 
@@ -41,34 +38,27 @@ func (r *progressRecorder) progress() []float64 {
 
 // progressBackend is a streamable-http MCP server whose tool "work" reports
 // progress 1..steps (total = steps) under the request's progressToken and
-// records the tokens it was sent.
-//
-// It sends each notification only after the caller's recorder got the one
-// before. mcp-go's streamable-http server drops a notification its
-// forwarder takes off the session's channel while the response is being
-// written, so a tool that reports and returns at once loses its last
-// in-flight notification; pacing on delivery keeps the tests about muster.
+// records the tokens it was sent. It reports and returns at once, so every
+// test also proves the transport delivers the last in-flight notification.
 type progressBackend struct {
 	url string
 
-	mu        sync.Mutex
-	seen      []any
-	recorders map[string]*progressRecorder
+	mu   sync.Mutex
+	seen []any
 }
 
 func newProgressBackend(t *testing.T) *progressBackend {
 	t.Helper()
-	b := &progressBackend{recorders: map[string]*progressRecorder{}}
+	b := &progressBackend{}
 
 	srv := server.NewMCPServer("progress-backend", "test")
-	srv.AddTool(mcp.NewTool("work", mcp.WithNumber("steps"), mcp.WithString("caller")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	srv.AddTool(mcp.NewTool("work", mcp.WithNumber("steps")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		var token mcp.ProgressToken
 		if req.Params.Meta != nil {
 			token = req.Params.Meta.ProgressToken
 		}
 		b.mu.Lock()
 		b.seen = append(b.seen, token)
-		rec := b.recorders[req.GetString("caller", "")]
 		b.mu.Unlock()
 
 		steps := int(req.GetFloat("steps", 3))
@@ -82,11 +72,6 @@ func newProgressBackend(t *testing.T) *progressBackend {
 			if err != nil {
 				return nil, err
 			}
-			select {
-			case <-rec.delivered:
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			}
 		}
 		return mcp.NewToolResultText("done"), nil
 	})
@@ -95,15 +80,6 @@ func newProgressBackend(t *testing.T) *progressBackend {
 	t.Cleanup(ts.Close)
 	b.url = ts.URL
 	return b
-}
-
-// recorder returns the recorder of the calls made with caller as argument.
-func (b *progressBackend) recorder(caller string) *progressRecorder {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	rec := &progressRecorder{delivered: make(chan struct{}, 1)}
-	b.recorders[caller] = rec
-	return rec
 }
 
 func (b *progressBackend) tokens() []any {
@@ -129,9 +105,9 @@ func TestCallToolRelaysDownstreamProgressUnderTheCallersToken(t *testing.T) {
 	backend := newProgressBackend(t)
 	c := connectedClient(t, backend.url)
 
-	rec := backend.recorder("caller-token")
+	rec := &progressRecorder{}
 	ctx := WithProgressReporter(t.Context(), NewProgressReporter("caller-token", rec.send))
-	_, err := c.CallTool(ctx, "work", map[string]any{"steps": 3, "caller": "caller-token"})
+	_, err := c.CallTool(ctx, "work", map[string]any{"steps": 3})
 	require.NoError(t, err)
 
 	tokens := backend.tokens()
@@ -168,13 +144,13 @@ func TestPooledClientRoutesProgressToEachCaller(t *testing.T) {
 	recorders := map[string]*progressRecorder{}
 	var wg sync.WaitGroup
 	for caller, n := range steps {
-		rec := backend.recorder(caller)
+		rec := &progressRecorder{}
 		recorders[caller] = rec
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			ctx := WithProgressReporter(t.Context(), NewProgressReporter(caller, rec.send))
-			_, err := c.CallTool(ctx, "work", map[string]any{"steps": n, "caller": caller})
+			_, err := c.CallTool(ctx, "work", map[string]any{"steps": n})
 			assert.NoError(t, err)
 		}()
 	}
@@ -208,7 +184,7 @@ func progressNotification(token any, progress float64) mcp.JSONRPCNotification {
 // in flight, or under a token muster never sent, reaches no caller.
 func TestProgressRouterDropsUnknownTokens(t *testing.T) {
 	var router progressRouter
-	rec := &progressRecorder{delivered: make(chan struct{}, 4)}
+	rec := &progressRecorder{}
 	token, done := router.open(NewProgressReporter("caller", rec.send))
 
 	router.route(progressNotification(token, 1))
@@ -223,7 +199,7 @@ func TestProgressRouterDropsUnknownTokens(t *testing.T) {
 // TestProgressReporterKeepsProgressIncreasing proves a caller whose call
 // reaches several downstream tools never sees its progress go back.
 func TestProgressReporterKeepsProgressIncreasing(t *testing.T) {
-	rec := &progressRecorder{delivered: make(chan struct{}, 5)}
+	rec := &progressRecorder{}
 	reporter := NewProgressReporter("caller", rec.send)
 	for _, progress := range []float64{1, 2, 1, 2, 3} {
 		reporter.report(t.Context(), progress, nil, "")
