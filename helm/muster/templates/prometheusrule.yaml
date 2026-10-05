@@ -84,12 +84,23 @@ spec:
         # sum, not max: the counter is per process, so across a rollout the
         # transitions the old and the new pod observed add up to what the
         # backend did.
+        #
+        # One outage is one burst, not flapping: a backend that is down for
+        # seconds (its node replaced, a proxy refusing connections) moves
+        # through Failed once per retry and caller, past the threshold on its
+        # own, and the 1h window would hold the alert for an hour after it
+        # recovered. The second operand therefore asks for a transition in the
+        # last 5m too. A burst keeps it true for less than the 10m `for:`, so
+        # it never fires; a backend that keeps dropping, with transitions at
+        # least every 5m, does.
         - alert: MusterMCPServerFlapping
           annotations:
             description: '{{`MCPServer {{ $labels.mcpserver_namespace }}/{{ $labels.mcpserver_name }} entered state Failed {{ $value | printf "%.0f" }} times in the last hour; the MCP backend is connecting and dropping repeatedly.`}}'
             runbook_url: '{{`https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}`}}'
           expr: |-
             sum by ({{ $by }}) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h])) > 5
+            and
+            sum by ({{ $by }}) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[5m])) > 0
           for: 10m
           labels:
             area: platform

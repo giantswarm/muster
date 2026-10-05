@@ -104,6 +104,8 @@ tests:
           path: spec.groups[0].rules[1].expr
           value: |-
             sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h])) > 5
+            and
+            sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[5m])) > 0
       - equal:
           path: spec.groups[0].rules[1].for
           value: 10m
