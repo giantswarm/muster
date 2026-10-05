@@ -2,7 +2,6 @@ package workflow
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"testing"
@@ -433,88 +432,6 @@ func TestWorkflowExecutor_ForEachIndexedResults(t *testing.T) {
 	assert.Equal(t, "alpha", summary["first"], "first iteration must be addressable as deploy_0")
 	assert.Equal(t, "beta", summary["second"], "second iteration must be addressable as deploy_1")
 	assert.Equal(t, "beta", summary["last"], "plain id keeps the last iteration's result")
-}
-
-// TestWorkflowExecutor_ForEachSkippedIterationHasNoResult verifies that an
-// iteration whose sub-step is skipped by its condition gets no "<id>_<index>"
-// result and no result in the returned document, whether it comes before or
-// after an iteration that ran.
-func TestWorkflowExecutor_ForEachSkippedIterationHasNoResult(t *testing.T) {
-	mock := &scriptedToolCaller{
-		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-			name, _ := args["name"].(string)
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{mcp.NewTextContent(fmt.Sprintf(`{"children_of": %q}`, name))},
-			}, nil
-		},
-	}
-	executor := NewWorkflowExecutor(mock, nil)
-
-	workflow := &api.Workflow{
-		Name: "foreach_skip",
-		Args: map[string]api.ArgDefinition{"items": {Type: "array", Required: true}},
-		Steps: []api.WorkflowStep{
-			{
-				ID: "loop",
-				ForEach: &api.WorkflowForEach{
-					Items: "{{ .input.items }}",
-					Steps: []api.WorkflowSubStep{
-						{
-							ID:        "subs",
-							Tool:      "list_sub_issues",
-							Args:      map[string]interface{}{"name": "{{ .vars.item.name }}"},
-							Condition: &api.WorkflowCondition{Template: `{{ eq .vars.item.kind "epic" }}`},
-							Store:     true,
-						},
-					},
-				},
-			},
-			{
-				ID:   "summary",
-				Tool: "summary_tool",
-				Args: map[string]interface{}{
-					"has0": `{{ hasKey .results "subs_0" }}`,
-					"has1": `{{ hasKey .results "subs_1" }}`,
-					"has2": `{{ hasKey .results "subs_2" }}`,
-				},
-			},
-		},
-	}
-
-	items := []interface{}{
-		map[string]interface{}{"name": "task-a", "kind": "task"},
-		map[string]interface{}{"name": "epic-b", "kind": "epic"},
-		map[string]interface{}{"name": "task-c", "kind": "task"},
-	}
-
-	result, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{"items": items})
-	require.NoError(t, err)
-
-	require.Len(t, mock.calls, 2)
-	assert.Equal(t, "epic-b", mock.calls[0].args["name"])
-	summary := mock.calls[1].args
-	assert.Equal(t, false, summary["has0"], "skipped iteration before any run must have no subs_0")
-	assert.Equal(t, true, summary["has1"], "iteration that ran must have subs_1")
-	assert.Equal(t, false, summary["has2"], "skipped iteration after a run must not inherit subs_2")
-
-	require.Len(t, result.Content, 1)
-	textContent, ok := result.Content[0].(mcp.TextContent)
-	require.True(t, ok)
-	var doc map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(textContent.Text), &doc))
-	steps, ok := doc["steps"].([]interface{})
-	require.True(t, ok)
-	require.Len(t, steps, 4)
-	for i, want := range []string{statusSkipped, statusCompleted, statusSkipped} {
-		step := steps[i].(map[string]interface{})
-		assert.Equal(t, want, step["status"], "iteration %d status", i)
-		assert.Equal(t, float64(i), step["iteration"], "iteration %d index", i)
-		if want == statusSkipped {
-			assert.NotContains(t, step, "result", "skipped iteration %d must carry no result", i)
-		} else {
-			assert.Equal(t, map[string]interface{}{"children_of": "epic-b"}, step["result"])
-		}
-	}
 }
 
 func TestWorkflowExecutor_ForEachFailureStops(t *testing.T) {

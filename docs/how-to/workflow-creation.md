@@ -272,11 +272,12 @@ The body is non-recursive: sub-steps are plain tool calls and cannot themselves
 contain `forEach` or `parallel`. A sub-step's result is available within the same
 iteration as `{{ .results.<sub_step_id> }}`, and each iteration is also
 addressable after the loop by zero-based index as
-`{{ .results.<sub_step_id>_<index> }}` (e.g. `{{ .results.deploy_0 }}`). The
-plain `{{ .results.<sub_step_id> }}` key keeps the last iteration's result.
-An iteration whose sub-step was skipped by its `condition` has no indexed key,
-so `{{ if hasKey .results "deploy_1" }}` tells a skipped iteration from one that
-ran.
+`{{ .results.<sub_step_id>_<index> }}` (e.g. `{{ .results.deploy_0 }}`). After
+the loop, the plain `{{ .results.<sub_step_id> }}` key keeps the result of the
+last iteration that ran the sub-step. A sub-step skipped by its `condition` has
+no result in that iteration: neither the plain key for the later sub-steps of
+the iteration nor the indexed key, so `{{ if hasKey .results "deploy_1" }}`
+tells a skipped iteration from one that ran.
 
 > The indexed key is a literal `<id>_<index>` string, so avoid a sub-step id
 > that already ends in `_<number>` (e.g. `deploy_0`) inside a `forEach` to keep
