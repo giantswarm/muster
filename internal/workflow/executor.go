@@ -313,7 +313,7 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 		if stepMeta.Iteration != nil {
 			step["iteration"] = *stepMeta.Iteration
 		}
-		if (stepMeta.Output || includeAllResults) && results[resultKey] != nil {
+		if (stepMeta.Output || includeAllResults) && stepMeta.Status != statusSkipped && results[resultKey] != nil {
 			step["result"] = results[resultKey]
 		}
 
@@ -756,7 +756,8 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 	// key "<id>_<index>" after each iteration, so every iteration stays
 	// addressable after the loop (the plain ID keeps the last iteration's result
 	// for convenience). Results are recorded for every sub-step regardless of its
-	// output flag.
+	// output flag; an iteration whose sub-step was skipped by its condition gets
+	// no "<id>_<index>" key.
 	prev, hadPrev := execCtx.variables[as]
 	defer func() {
 		if hadPrev {
@@ -782,16 +783,25 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 				}
 				return outcome, nil
 			}
+			// The record runStep just appended is this iteration's; it gets the
+			// index and points at the per-iteration result, so the returned
+			// document shows what this iteration produced, not the loop's last.
+			var meta *stepMetadata
+			if n := len(execCtx.stepMetadata); n > 0 && execCtx.stepMetadata[n-1].ID == ss.ID {
+				meta = &execCtx.stepMetadata[n-1]
+				i := idx
+				meta.Iteration = &i
+			}
+			// A skipped sub-step produced nothing; its plain ID still holds an
+			// earlier iteration's result, so "<id>_<index>" stays absent.
+			if meta != nil && meta.Status == statusSkipped {
+				continue
+			}
 			if v, ok := execCtx.results[ss.ID]; ok {
 				key := fmt.Sprintf("%s_%d", ss.ID, idx)
 				execCtx.results[key] = v
-				// The record runStep just appended is this iteration's; point it
-				// at the per-iteration result so the returned document shows
-				// what this iteration produced, not the loop's last.
-				if n := len(execCtx.stepMetadata); n > 0 && execCtx.stepMetadata[n-1].ID == ss.ID {
-					i := idx
-					execCtx.stepMetadata[n-1].ResultKey = key
-					execCtx.stepMetadata[n-1].Iteration = &i
+				if meta != nil {
+					meta.ResultKey = key
 				}
 			}
 		}

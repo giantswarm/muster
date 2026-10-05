@@ -782,7 +782,7 @@ Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a plain tool
 | `tool` | `string` | Yes | Name of the tool to execute |
 | `args` | `map[string]any` | No | Arguments for tool execution (supports templating) |
 | `condition` | `WorkflowCondition` | No | Optional execution condition |
-| `output` | `boolean` | No | Include this sub-step's result in the returned document (default `false`). The result is referenceable by later steps regardless of this flag. Inside `forEach`, each iteration is also addressable as `{{.results.<id>_<index>}}` (the plain `{{.results.<id>}}` keeps the last iteration). |
+| `output` | `boolean` | No | Include this sub-step's result in the returned document (default `false`). The result is referenceable by later steps regardless of this flag. Inside `forEach`, each iteration is also addressable as `{{.results.<id>_<index>}}` (the plain `{{.results.<id>}}` keeps the last iteration); an iteration skipped by its `condition` has no indexed key. |
 | `store` | `boolean` | No | Deprecated alias for `output`; kept for backwards compatibility (default `false`) |
 | `allowFailure` | `boolean` | No | Continue on failure (default `false`) |
 | `description` | `string` | No | Human-readable documentation |

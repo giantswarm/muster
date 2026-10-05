@@ -274,6 +274,9 @@ iteration as `{{ .results.<sub_step_id> }}`, and each iteration is also
 addressable after the loop by zero-based index as
 `{{ .results.<sub_step_id>_<index> }}` (e.g. `{{ .results.deploy_0 }}`). The
 plain `{{ .results.<sub_step_id> }}` key keeps the last iteration's result.
+An iteration whose sub-step was skipped by its `condition` has no indexed key,
+so `{{ if hasKey .results "deploy_1" }}` tells a skipped iteration from one that
+ran.
 
 > The indexed key is a literal `<id>_<index>` string, so avoid a sub-step id
 > that already ends in `_<number>` (e.g. `deploy_0`) inside a `forEach` to keep

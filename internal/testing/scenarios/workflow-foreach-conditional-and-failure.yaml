@@ -36,6 +36,11 @@ steps:
               tool: "x_echo-provider_echo"
               args: { text: "kept {{ .vars.entry }}" }
               store: true
+      # A skipped iteration has no "<id>_<index>" key, even after one that ran.
+      - id: "summary"
+        tool: "x_echo-provider_echo"
+        args:
+          text: 'act_0={{ hasKey .results "act_0" }} act_1={{ hasKey .results "act_1" }} act_2={{ hasKey .results "act_2" }}'
   expected:
     success: true
   cleanup:
@@ -54,8 +59,10 @@ steps:
       steps.0.condition_evaluation: true
       steps.1.status: "skipped"
       steps.1.condition_evaluation: false
+      steps.1.iteration: 1
       steps.2.status: "completed"
       steps.2.condition_evaluation: true
+      said: "act_0=true act_1=false act_2=true"
 
 # A sub-step failure inside forEach, with no allow_failure, fails the workflow.
 - id: "create-foreach-fail"
