@@ -556,10 +556,8 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 			api.FieldError:  "step returned error result",
 			"allow_failure": s.AllowFailure,
 		})
+		execCtx.stepMetadata[len(execCtx.stepMetadata)-1].Status = statusFailed
 		if s.AllowFailure {
-			if len(execCtx.stepMetadata) > 0 {
-				execCtx.stepMetadata[len(execCtx.stepMetadata)-1].Status = statusFailed
-			}
 			var errorMessage string
 			if len(result.Content) > 0 {
 				if textContent, ok := result.Content[0].(mcp.TextContent); ok {
@@ -869,7 +867,10 @@ func (we *WorkflowExecutor) runParallel(ctx context.Context, workflowName string
 		offset := len(execCtx.stepMetadata)
 		execCtx.stepMetadata = append(execCtx.stepMetadata, r.local.stepMetadata...)
 		execCtx.templateVars = append(execCtx.templateVars, r.local.templateVars...)
-		if r.outcome.stop && fatal == nil {
+		// A Go error takes precedence over an IsError result: only it yields
+		// the failure document, so the outcome does not depend on the order
+		// of the sub-steps.
+		if r.outcome.stop && (fatal == nil || (fatal.fatalErr == nil && r.outcome.fatalErr != nil)) {
 			oc := r.outcome
 			oc.failedRecord += offset
 			fatal = &oc
