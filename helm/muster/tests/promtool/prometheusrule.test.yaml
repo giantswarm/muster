@@ -136,6 +136,21 @@ tests:
               description: 'MCPServer agent-platform/flapper entered state Failed 60 times in the last hour; the MCP backend is connecting and dropping repeatedly.'
               runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=test&CLUSTER=test'
 
+  # One outage is one burst: eight entries into Failed within a minute, then
+  # nothing. Past the threshold of 5 per hour, but the alert must stay silent
+  # for the whole hour the window holds them.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state_transitions_total{cluster_id="test", installation="test", container="muster", endpoint="metrics", instance="10.0.0.1:9464", job="muster", namespace="agent-platform", otel_scope_name="github.com/giantswarm/muster", pipeline="stable", pod="muster-a", provider="capa", service="muster", mcpserver_name="blip", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "0x10 8x60"
+    alert_rule_test:
+      - alertname: MusterMCPServerFlapping
+        eval_time: 25m
+        exp_alerts: []
+      - alertname: MusterMCPServerFlapping
+        eval_time: 60m
+        exp_alerts: []
+
   # muster rolls while a backend stays Failed throughout. The old pod's series
   # ends (Prometheus writes a staleness marker when the scrape target goes away,
   # so `stale` rather than a plain gap) and the new pod's begins, overlapping
