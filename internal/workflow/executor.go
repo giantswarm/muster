@@ -83,6 +83,10 @@ type stepMetadata struct {
 	// every iteration's record would show the last iteration's result.
 	ResultKey string
 	Iteration *int // The forEach iteration this record belongs to (nil outside a loop)
+	// Error is the error of a failure the step does not allow. It lives on the
+	// record, not the ID: a forEach body step has one record per iteration, and
+	// an onFailure step may reuse a step's ID.
+	Error string
 }
 
 // executionContext holds the state during workflow execution.
@@ -219,7 +223,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 	// Build clean final result with consolidated step information. Debug mode
 	// surfaces every recorded step result, not just the output-flagged ones.
-	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "", debug)
+	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, false, debug)
 
 	finalResult := map[string]interface{}{
 		api.FieldExecutionID: "", // Will be filled by manager
@@ -276,8 +280,10 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 // buildStepsArray creates a consolidated steps array from step metadata and
 // results. When includeAllResults is true (debug/verbose mode), every recorded
 // step result is surfaced regardless of its output flag; otherwise only
-// output-flagged steps surface their result in the returned document.
-func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results map[string]interface{}, failedStepID string, errorMessage string, includeAllResults bool) []map[string]interface{} {
+// output-flagged steps surface their result in the returned document. When
+// withErrors is true (the failure document), a step that stopped on an error
+// carries it.
+func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results map[string]interface{}, withErrors bool, includeAllResults bool) []map[string]interface{} {
 	var steps []map[string]interface{}
 
 	for _, stepMeta := range stepMetadata {
@@ -317,9 +323,8 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 			step["result"] = results[resultKey]
 		}
 
-		// Add error if this is the failed step
-		if failedStepID != "" && stepMeta.ID == failedStepID {
-			step["error"] = errorMessage
+		if withErrors && stepMeta.Error != "" {
+			step["error"] = stepMeta.Error
 		}
 
 		steps = append(steps, step)
@@ -334,7 +339,7 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 // steps surface theirs. extra carries additional top-level fields, e.g. the
 // rendered output template ("output") or an output template error ("output_error").
 func (we *WorkflowExecutor) buildResponse(workflow *api.Workflow, execCtx *executionContext, status string, includeAllResults bool, extra map[string]interface{}) map[string]interface{} {
-	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, "", "", includeAllResults)
+	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, false, includeAllResults)
 	resp := map[string]interface{}{
 		api.FieldExecutionID: "", // Will be filled by manager
 		"workflow":           workflow.Name,
@@ -406,9 +411,8 @@ type stepOutcome struct {
 	result *mcp.CallToolResult
 	// fatalErr is the Go error that caused a fatal stop (nil for an IsError stop).
 	fatalErr error
-	// failedStepID / errorMessage describe the failing step for partial-result reporting.
+	// failedStepID names the failing step in the returned error.
 	failedStepID string
-	errorMessage string
 }
 
 // templateContext builds the variable context exposed to templates: workflow
@@ -493,7 +497,7 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 			api.FieldError:  err.Error(),
 			"allow_failure": s.AllowFailure,
 		})
-		execCtx.stepMetadata = append(execCtx.stepMetadata, stepMetadata{
+		meta := stepMetadata{
 			ID:                  s.ID,
 			Tool:                s.Tool,
 			Output:              s.Output,
@@ -502,7 +506,11 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 			ConditionEvaluation: conditionEvaluation,
 			ConditionResult:     conditionResult,
 			ConditionTool:       conditionTool,
-		})
+		}
+		if !s.AllowFailure {
+			meta.Error = err.Error()
+		}
+		execCtx.stepMetadata = append(execCtx.stepMetadata, meta)
 		// Always record a result for the failed step so later steps and the
 		// output template can reference it, regardless of the output flag.
 		execCtx.results[s.ID] = map[string]interface{}{
@@ -514,7 +522,7 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 			logging.Debug("WorkflowExecutor", "Step %s failed but allow_failure is true, continuing", s.ID)
 			return stepOutcome{}, nil
 		}
-		return stepOutcome{stop: true, fatalErr: err, failedStepID: s.ID, errorMessage: err.Error()}, nil
+		return stepOutcome{stop: true, fatalErr: err, failedStepID: s.ID}, nil
 	}
 
 	// Always record the step result so later steps and the output template can
@@ -944,7 +952,7 @@ func (we *WorkflowExecutor) failWorkflow(ctx context.Context, workflow *api.Work
 		return outcome.result, nil
 	}
 
-	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, outcome.failedStepID, outcome.errorMessage, false)
+	steps := we.buildStepsArray(execCtx.stepMetadata, execCtx.results, true, false)
 	partialResult := map[string]interface{}{
 		api.FieldExecutionID: "",
 		"workflow":           workflow.Name,
