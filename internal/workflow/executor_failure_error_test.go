@@ -87,10 +87,10 @@ func TestWorkflowExecutor_FailureErrorNotOnOnFailureStep(t *testing.T) {
 	assert.NotContains(t, entries[1], "error", "the onFailure step ran fine and must carry no error")
 }
 
-// TestWorkflowExecutor_FailureErrorPerEntry verifies that, in the failure
-// document, a failure tolerated by a forEach step's allow_failure carries its
-// own error and the step that stopped the workflow carries its own.
-func TestWorkflowExecutor_FailureErrorPerEntry(t *testing.T) {
+// TestWorkflowExecutor_FailureErrorOnStoppingStepOnly verifies that a failure
+// tolerated by a forEach step's allow_failure carries no error in the failure
+// document; only the step that stopped the workflow does.
+func TestWorkflowExecutor_FailureErrorOnStoppingStepOnly(t *testing.T) {
 	mock := &scriptedToolCaller{
 		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 			return nil, fmt.Errorf("%s broke", toolName)
@@ -99,7 +99,7 @@ func TestWorkflowExecutor_FailureErrorPerEntry(t *testing.T) {
 	executor := NewWorkflowExecutor(mock, nil)
 
 	workflow := &api.Workflow{
-		Name: "failure_error_per_entry",
+		Name: "failure_error_stopping_step",
 		Args: map[string]api.ArgDefinition{"items": {Type: "array", Required: true}},
 		Steps: []api.WorkflowStep{
 			{
@@ -120,8 +120,54 @@ func TestWorkflowExecutor_FailureErrorPerEntry(t *testing.T) {
 
 	probe := stepEntries(t, result, "probe")
 	require.Len(t, probe, 1)
-	assert.Equal(t, "probe_tool broke", probe[0]["error"])
+	assert.Equal(t, statusFailed, probe[0]["status"])
+	assert.NotContains(t, probe[0], "error", "a tolerated failure did not stop the workflow")
 	deploy := stepEntries(t, result, "deploy")
 	require.Len(t, deploy, 1)
 	assert.Equal(t, "deploy_tool broke", deploy[0]["error"])
+}
+
+// TestWorkflowExecutor_ParallelFailureErrorOnStoppingSubStepOnly verifies that
+// when several parallel sub-steps fail, only the one the returned error names
+// carries it, at its place after the records of the steps before the group.
+func TestWorkflowExecutor_ParallelFailureErrorOnStoppingSubStepOnly(t *testing.T) {
+	mock := &scriptedToolCaller{
+		responder: func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+			if toolName == "prepare_tool" {
+				return &mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent(`{}`)}}, nil
+			}
+			return nil, fmt.Errorf("%s broke", toolName)
+		},
+	}
+	executor := NewWorkflowExecutor(mock, nil)
+
+	workflow := &api.Workflow{
+		Name: "parallel_failure_error",
+		Steps: []api.WorkflowStep{
+			{ID: "prepare", Tool: "prepare_tool"},
+			{
+				ID: "group",
+				Parallel: []api.WorkflowSubStep{
+					{ID: "a", Tool: "a_tool"},
+					{ID: "b", Tool: "b_tool"},
+				},
+			},
+		},
+	}
+
+	result, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "step a failed")
+	require.NotNil(t, result)
+
+	prepare := stepEntries(t, result, "prepare")
+	require.Len(t, prepare, 1)
+	assert.NotContains(t, prepare[0], "error")
+	a := stepEntries(t, result, "a")
+	require.Len(t, a, 1)
+	assert.Equal(t, "a_tool broke", a[0]["error"])
+	b := stepEntries(t, result, "b")
+	require.Len(t, b, 1)
+	assert.Equal(t, statusFailed, b[0]["status"])
+	assert.NotContains(t, b[0], "error", "only the sub-step the returned error names carries it")
 }
