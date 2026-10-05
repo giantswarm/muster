@@ -114,3 +114,35 @@ steps:
     json_path:
       status: "completed"
     contains: ["still going"]
+
+# A branch's Go error outranks a sibling's error result listed before it: the
+# caller gets the failure document, not just the sibling's error result.
+- id: "create-parallel-error-precedence"
+  tool: "core_workflow_create"
+  args:
+    name: "parallel-error-precedence"
+    steps:
+      - id: "fan"
+        parallel:
+          - id: "no"
+            tool: "core_workflow_get"
+            args: { name: "no-such-workflow" }
+          - id: "down"
+            tool: "x_echo-provider_boom"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "parallel-error-precedence" }
+
+- id: "run-parallel-error-precedence"
+  tool: "workflow_parallel-error-precedence"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["parallel branch exploded"]
+    json_path:
+      status: "failed"
+      steps.0.id: "no"
+      steps.0.status: "failed"
+      steps.1.id: "down"

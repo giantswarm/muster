@@ -171,3 +171,45 @@ func TestWorkflowExecutor_ParallelFailureErrorOnStoppingSubStepOnly(t *testing.T
 	assert.Equal(t, statusFailed, b[0]["status"])
 	assert.NotContains(t, b[0], "error", "only the sub-step the returned error names carries it")
 }
+
+// TestWorkflowExecutor_ParallelGoErrorOutranksIsErrorResult verifies that a
+// parallel group's Go error stops the workflow with the failure document
+// whatever the sub-steps' order, and that a sibling whose IsError result also
+// stopped the group reads failed in it.
+func TestWorkflowExecutor_ParallelGoErrorOutranksIsErrorResult(t *testing.T) {
+	responder := func(toolName string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+		if toolName == "no_tool" {
+			return &mcp.CallToolResult{Content: []mcp.Content{mcp.NewTextContent("a said no")}, IsError: true}, nil
+		}
+		return nil, fmt.Errorf("db down")
+	}
+	no := api.WorkflowSubStep{ID: "a", Tool: "no_tool"}
+	down := api.WorkflowSubStep{ID: "b", Tool: "down_tool"}
+
+	for name, order := range map[string][]api.WorkflowSubStep{
+		"IsError first":  {no, down},
+		"Go error first": {down, no},
+	} {
+		t.Run(name, func(t *testing.T) {
+			executor := NewWorkflowExecutor(&scriptedToolCaller{responder: responder}, nil)
+			workflow := &api.Workflow{
+				Name:  "parallel_error_precedence",
+				Steps: []api.WorkflowStep{{ID: "group", Parallel: order}},
+			}
+
+			result, err := executor.ExecuteWorkflow(context.Background(), workflow, map[string]interface{}{})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "step b failed: db down")
+			require.NotNil(t, result)
+			assert.True(t, result.IsError)
+
+			a := stepEntries(t, result, "a")
+			require.Len(t, a, 1)
+			assert.Equal(t, statusFailed, a[0]["status"])
+			assert.NotContains(t, a[0], "error", "only the sub-step the returned error names carries it")
+			b := stepEntries(t, result, "b")
+			require.Len(t, b, 1)
+			assert.Equal(t, "db down", b[0]["error"])
+		})
+	}
+}
