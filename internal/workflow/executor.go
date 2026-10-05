@@ -614,27 +614,31 @@ func (we *WorkflowExecutor) evaluateStepCondition(ctx context.Context, workflowN
 			}
 		}
 
+		// Only the latest record counts: inside forEach, an earlier iteration's
+		// record says nothing about this one.
 		if !found {
-			for _, stepMeta := range execCtx.stepMetadata {
-				if stepMeta.ID == cond.FromStep {
-					if stepMeta.Status == statusFailed {
-						referencedStepResult = map[string]interface{}{
-							api.FieldError:   fmt.Sprintf("Step %s failed", stepMeta.ID),
-							api.FieldSuccess: false,
-							"isError":        true,
-							api.FieldStatus:  stepMeta.Status,
-						}
-						found = true
-						break
-					} else if stepMeta.Status == statusCompleted {
-						referencedStepResult = map[string]interface{}{
-							api.FieldSuccess: true,
-							api.FieldStatus:  stepMeta.Status,
-						}
-						found = true
-						break
-					}
+			for i := len(execCtx.stepMetadata) - 1; i >= 0; i-- {
+				stepMeta := execCtx.stepMetadata[i]
+				if stepMeta.ID != cond.FromStep {
+					continue
 				}
+				switch stepMeta.Status {
+				case statusFailed:
+					referencedStepResult = map[string]interface{}{
+						api.FieldError:   fmt.Sprintf("Step %s failed", stepMeta.ID),
+						api.FieldSuccess: false,
+						"isError":        true,
+						api.FieldStatus:  stepMeta.Status,
+					}
+					found = true
+				case statusCompleted:
+					referencedStepResult = map[string]interface{}{
+						api.FieldSuccess: true,
+						api.FieldStatus:  stepMeta.Status,
+					}
+					found = true
+				}
+				break
 			}
 		}
 
@@ -751,13 +755,20 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 	}
 	idxKey := as + "_index"
 
-	// Each sub-step's result lives under its plain ID (so later sub-steps in the
-	// same iteration can chain off it) and is also copied to an index-suffixed
-	// key "<id>_<index>" after each iteration, so every iteration stays
-	// addressable after the loop (the plain ID keeps the last iteration's result
-	// for convenience). Results are recorded for every sub-step regardless of its
+	// Within an iteration, a sub-step's result lives under its plain ID, so later
+	// sub-steps in the same iteration can chain off it; it is also copied to
+	// "<id>_<index>", so every iteration stays addressable after the loop. A
+	// sub-step skipped by its condition leaves neither key for that iteration.
+	// After the loop, the plain ID keeps the result of the last iteration that
+	// ran the sub-step. Results are recorded for every sub-step regardless of its
 	// output flag.
 	prev, hadPrev := execCtx.variables[as]
+	lastRun := make(map[string]interface{})
+	for _, ss := range step.ForEach.Steps {
+		if v, ok := execCtx.results[ss.ID]; ok {
+			lastRun[ss.ID] = v
+		}
+	}
 	defer func() {
 		if hadPrev {
 			execCtx.variables[as] = prev
@@ -765,15 +776,34 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 			delete(execCtx.variables, as)
 		}
 		delete(execCtx.variables, idxKey)
+		for id, v := range lastRun {
+			execCtx.results[id] = v
+		}
 	}()
 
 	for idx, item := range items {
 		execCtx.variables[as] = item
 		execCtx.variables[idxKey] = idx
 		for _, ss := range step.ForEach.Steps {
+			delete(execCtx.results, ss.ID)
+		}
+		for _, ss := range step.ForEach.Steps {
 			outcome, err := we.runStep(ctx, workflowName, subStepViewFrom(ss), execCtx)
 			if err != nil {
 				return stepOutcome{}, err
+			}
+			// The record runStep just appended is this iteration's; it points at
+			// the per-iteration key, so the returned document shows what this
+			// iteration produced, and nothing for a skipped one.
+			key := fmt.Sprintf("%s_%d", ss.ID, idx)
+			if n := len(execCtx.stepMetadata); n > 0 && execCtx.stepMetadata[n-1].ID == ss.ID {
+				i := idx
+				execCtx.stepMetadata[n-1].ResultKey = key
+				execCtx.stepMetadata[n-1].Iteration = &i
+			}
+			if v, ok := execCtx.results[ss.ID]; ok {
+				execCtx.results[key] = v
+				lastRun[ss.ID] = v
 			}
 			if outcome.stop {
 				if step.AllowFailure {
@@ -781,18 +811,6 @@ func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string,
 					return stepOutcome{}, nil
 				}
 				return outcome, nil
-			}
-			if v, ok := execCtx.results[ss.ID]; ok {
-				key := fmt.Sprintf("%s_%d", ss.ID, idx)
-				execCtx.results[key] = v
-				// The record runStep just appended is this iteration's; point it
-				// at the per-iteration result so the returned document shows
-				// what this iteration produced, not the loop's last.
-				if n := len(execCtx.stepMetadata); n > 0 && execCtx.stepMetadata[n-1].ID == ss.ID {
-					i := idx
-					execCtx.stepMetadata[n-1].ResultKey = key
-					execCtx.stepMetadata[n-1].Iteration = &i
-				}
 			}
 		}
 	}
