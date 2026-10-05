@@ -622,7 +622,8 @@ func (we *WorkflowExecutor) evaluateStepCondition(ctx context.Context, workflowN
 				if stepMeta.ID != cond.FromStep {
 					continue
 				}
-				if stepMeta.Status == statusFailed {
+				switch stepMeta.Status {
+				case statusFailed:
 					referencedStepResult = map[string]interface{}{
 						api.FieldError:   fmt.Sprintf("Step %s failed", stepMeta.ID),
 						api.FieldSuccess: false,
@@ -630,7 +631,7 @@ func (we *WorkflowExecutor) evaluateStepCondition(ctx context.Context, workflowN
 						api.FieldStatus:  stepMeta.Status,
 					}
 					found = true
-				} else if stepMeta.Status == statusCompleted {
+				case statusCompleted:
 					referencedStepResult = map[string]interface{}{
 						api.FieldSuccess: true,
 						api.FieldStatus:  stepMeta.Status,
