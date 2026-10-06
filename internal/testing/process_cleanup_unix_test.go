@@ -40,6 +40,8 @@ func TestMain(m *testing.M) {
 		runHelperHarness()
 	case helperRoleInstance:
 		runHelperInstance()
+	case helperRoleServe:
+		runHelperServe()
 	default:
 		os.Exit(m.Run())
 	}

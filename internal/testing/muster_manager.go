@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/listenfds"
 	"github.com/giantswarm/muster/v5/internal/netdiag"
 	"github.com/giantswarm/muster/v5/internal/testing/mock"
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
@@ -1284,9 +1285,10 @@ func (m *musterInstanceManager) releasePort(port int, instanceID string, logger 
 
 // startMusterProcess starts an muster serve process.
 //
-// port is the reserved port muster serve will bind. The probe listener held open
-// for it (see findAvailablePort) is closed immediately before exec so the child
-// can take the port over with a near-zero race window.
+// port and metricsPort are the instance's reserved ports. Where listenfds is
+// supported, muster serve inherits the probe listeners held open for them (see
+// findAvailablePort) and binds neither port itself; elsewhere the probes are
+// closed immediately before exec and muster serve binds the ports.
 func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPath string, port, metricsPort int, timing instanceTiming, logger TestLogger) (*managedProcess, error) {
 	// Get the path to the muster binary
 	musterPath, err := m.getMusterBinaryPath()
@@ -1344,8 +1346,14 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	cmd.Env = append(cmd.Env, "GOTRACEBACK=all")
 	// The lifecycle timers' schedule and the controllable clock, see timingEnv.
 	cmd.Env = append(cmd.Env, timingEnv(timing)...)
+	// With inherited listeners the exporter serves the one named metrics;
+	// the host and port stay for the platforms without.
+	metricsExporter := "prometheus"
+	if listenfds.Supported {
+		metricsExporter = listenfds.PrometheusExporter
+	}
 	cmd.Env = append(cmd.Env,
-		"OTEL_METRICS_EXPORTER=prometheus",
+		"OTEL_METRICS_EXPORTER="+metricsExporter,
 		"OTEL_EXPORTER_PROMETHEUS_HOST=127.0.0.1",
 		fmt.Sprintf("OTEL_EXPORTER_PROMETHEUS_PORT=%d", metricsPort),
 	)
@@ -1372,16 +1380,30 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	cmd.Stdout = logCapture.stdoutWriter
 	cmd.Stderr = logCapture.stderrWriter
 
-	// Release the probe listeners just before exec: they kept the ports from
-	// being taken during setup, and muster serve binds both early in startup.
-	// The guard listeners (reservedGuards) stay bound, so on Linux the exec
-	// window is closed to ephemeral allocations too; elsewhere it remains a
-	// process-startup-sized race window.
-	m.closeReservedListener(port)
-	m.closeReservedListener(metricsPort)
+	// Hand the ports down as inherited listeners: a probe closed here and
+	// bound again by muster serve fails with "address already in use" when
+	// another child forked in between still holds it. Where descriptors cannot
+	// be passed, release the probes just before exec; the guard listeners
+	// (reservedGuards) keep ephemeral allocations off the ports meanwhile.
+	var inherited []*os.File
+	if listenfds.Supported {
+		files, err := m.passListeners(cmd, port, metricsPort)
+		if err != nil {
+			logCapture.close()
+			return nil, err
+		}
+		inherited = files
+	} else {
+		m.closeReservedListener(port)
+		m.closeReservedListener(metricsPort)
+	}
 
-	// Start the process
-	if err := cmd.Start(); err != nil {
+	// Start the process; it holds the inherited sockets from here on.
+	err = cmd.Start()
+	for _, f := range inherited {
+		_ = f.Close()
+	}
+	if err != nil {
 		logCapture.close()
 		return nil, fmt.Errorf("failed to start muster process: %w", err)
 	}
@@ -1400,6 +1422,40 @@ func (m *musterInstanceManager) startMusterProcess(ctx context.Context, configPa
 	}()
 
 	return managedProc, nil
+}
+
+// passListeners makes cmd inherit the listeners muster serve serves its API
+// and its Prometheus exporter on, and returns the descriptors to close once
+// cmd started. The first start takes the probe listeners over; a restart
+// binds the ports again, its predecessor having exited.
+func (m *musterInstanceManager) passListeners(cmd *exec.Cmd, port, metricsPort int) ([]*os.File, error) {
+	api, err := m.serveListener(port)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = api.Close() }()
+	metrics, err := m.serveListener(metricsPort)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = metrics.Close() }()
+	return listenfds.Pass(cmd,
+		listenfds.Listener{Name: listenfds.API, Listener: api},
+		listenfds.Listener{Name: listenfds.Metrics, Listener: metrics},
+	)
+}
+
+// serveListener returns a listener on the reserved port: the probe held open
+// since the reservation, or a new one on the address the probe bound.
+func (m *musterInstanceManager) serveListener(port int) (net.Listener, error) {
+	if ln := m.takeReservedListener(port); ln != nil {
+		return ln, nil
+	}
+	ln, err := net.Listen("tcp", m.probeAddr(port))
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind port %d for muster serve: %w", port, err)
+	}
+	return ln, nil
 }
 
 // fileExists reports whether path names an existing regular file.

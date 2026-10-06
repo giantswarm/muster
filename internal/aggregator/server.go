@@ -18,6 +18,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/admin"
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/listenfds"
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 	"github.com/giantswarm/muster/v5/internal/server"
@@ -25,7 +26,6 @@ import (
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 	"github.com/giantswarm/muster/v5/pkg/observability"
 
-	"github.com/coreos/go-systemd/v22/activation"
 	oauth "github.com/giantswarm/mcp-oauth"
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/security"
@@ -943,23 +943,15 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Start the configured transport server
 	addr := fmt.Sprintf("%s:%d", a.config.Host, a.config.Port)
 
-	// Check if we're running under systemd socket activation
-	var systemdListeners []net.Listener = nil
-	listenersWithNames, err := activation.ListenersWithNames()
+	// Listeners inherited from systemd socket activation or the test harness;
+	// the Prometheus exporter's is not the aggregator's to serve.
+	systemdListeners, err := listenfds.TakeAllBut(listenfds.Metrics)
 	if err != nil {
-		logging.Error("Aggregator", err, "Failed to get systemd listeners with names")
-	} else {
-		for name, listeners := range listenersWithNames {
-			for i, l := range listeners {
-				logging.InfoWithAttrs("Aggregator", "Systemd listener found",
-					slog.Int("index", i), slog.String("name", name))
-				systemdListeners = append(systemdListeners, l)
-			}
-		}
+		return fmt.Errorf("failed to take inherited listeners: %w", err)
 	}
 	useSystemdActivation := len(systemdListeners) > 0
 	if useSystemdActivation {
-		logging.InfoWithAttrs("Aggregator", "Systemd socket activation detected",
+		logging.InfoWithAttrs("Aggregator", "Inherited listeners detected (socket activation)",
 			slog.Int("listeners", len(systemdListeners)))
 
 		if a.config.Transport == config.MCPTransportStdio {
@@ -989,7 +981,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		}
 
 		if useSystemdActivation {
-			logging.Info("Aggregator", "Using systemd socket activation for SSE transport")
+			logging.Info("Aggregator", "Serving the SSE transport on the inherited listeners")
 			for i, listener := range systemdListeners {
 				server := &http.Server{
 					Handler:           handler,
@@ -1059,7 +1051,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		}
 
 		if useSystemdActivation {
-			logging.Info("Aggregator", "Using systemd socket activation for streamable HTTP transport")
+			logging.Info("Aggregator", "Serving the streamable HTTP transport on the inherited listeners")
 			for i, listener := range systemdListeners {
 				server := &http.Server{
 					Handler:           handler,
