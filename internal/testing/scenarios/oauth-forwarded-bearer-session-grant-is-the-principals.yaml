@@ -1,0 +1,175 @@
+name: "oauth-forwarded-bearer-session-grant-is-the-principals"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  The session of a forwarded or trusted-issuer bearer is its principal (iss,
+  sub, azp or aud, the act chain), not the token: a refreshed token keeps the
+  session, and a fresh token of the same person through the same client is
+  the same session. A grantScope: session grant that session obtained
+  therefore serves every such token until core_auth_logout:
+
+  1. alice signs in to a session-scoped server under one token; a second
+     token of alice from the same client (another jti, a second login) calls
+     the server's tool without a sign-in of its own.
+  2. bob, and alice through another client (azp), stay signed out.
+  3. After core_auth_logout under alice's second token, a third token of
+     alice from the same client is signed out too.
+tags: ["oauth", "authentication", "token-forwarding", "session-grant", "multi-user", "session-isolation", "mcpserver", "issue-1397"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    # The issuer of the bearers a front end forwards (Dex's stand-in).
+    - name: "workload-idp"
+      token_lifetime: "1h"
+
+    # The server's own authorization server, a separate issuer: the grant
+    # obtained there is filed under the bearer's muster session.
+    - name: "server-idp"
+      scopes: ["mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "server-client"
+      use_tls: true
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "workload-idp"
+        accepted_typ_headers: [""]
+
+  mcp_servers:
+    - name: "session-scoped"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "server-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "whoami"
+            description: "The signed-in caller"
+            responses:
+              - response:
+                  status: "signed-in"
+
+steps:
+  - id: "server-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["session-scoped"]
+      wait_for_state: "30s"
+
+  - id: "mint-alice-first"
+    tool: "test_mint_token"
+    args: {server: "workload-idp", name: "alice-first", sub: "alice", azp: "portal", jti: "alice-1"}
+    expected: {success: true}
+  - id: "mint-alice-second"
+    tool: "test_mint_token"
+    args: {server: "workload-idp", name: "alice-second", sub: "alice", azp: "portal", jti: "alice-2"}
+    expected: {success: true}
+  - id: "mint-alice-third"
+    tool: "test_mint_token"
+    args: {server: "workload-idp", name: "alice-third", sub: "alice", azp: "portal", jti: "alice-3"}
+    expected: {success: true}
+  - id: "mint-alice-other-client"
+    tool: "test_mint_token"
+    args: {server: "workload-idp", name: "alice-cli", sub: "alice", azp: "cli", jti: "alice-cli"}
+    expected: {success: true}
+  - id: "mint-bob"
+    tool: "test_mint_token"
+    args: {server: "workload-idp", name: "bob", sub: "bob", azp: "portal", jti: "bob-1"}
+    expected: {success: true}
+
+  - id: "alice-first-connects"
+    tool: "test_reconnect_with_token"
+    args: {token_ref: "alice-first"}
+    expected:
+      success: true
+      wait_for_state: "30s"
+  - id: "alice-first-signed-out-before-sign-in"
+    tool: "x_session-scoped_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required"]
+  - id: "alice-first-signs-in"
+    tool: "test_simulate_oauth_callback"
+    args: {server: "session-scoped"}
+    expected:
+      success: true
+      contains: ["success"]
+  - id: "alice-first-calls"
+    tool: "x_session-scoped_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["signed-in"]
+
+  - id: "alice-second-connects"
+    tool: "test_reconnect_with_token"
+    args: {token_ref: "alice-second"}
+    expected: {success: true}
+  - id: "alice-second-calls-without-sign-in"
+    description: "A second token of the same principal is the same session: signed in"
+    tool: "x_session-scoped_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["signed-in"]
+
+  - id: "alice-other-client-connects"
+    tool: "test_reconnect_with_token"
+    args: {token_ref: "alice-cli"}
+    expected: {success: true}
+  - id: "alice-other-client-signed-out"
+    description: "Another client (azp) is another principal: signed out"
+    tool: "x_session-scoped_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required"]
+
+  - id: "bob-connects"
+    tool: "test_reconnect_with_token"
+    args: {token_ref: "bob"}
+    expected: {success: true}
+  - id: "bob-signed-out"
+    description: "Another person is signed out"
+    tool: "x_session-scoped_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required"]
+
+  - id: "alice-second-reconnects"
+    tool: "test_reconnect_with_token"
+    args: {token_ref: "alice-second"}
+    expected: {success: true}
+  - id: "alice-second-logs-out"
+    tool: "core_auth_logout"
+    args: {server: "session-scoped"}
+    expected: {success: true}
+
+  - id: "alice-third-connects"
+    tool: "test_reconnect_with_token"
+    args: {token_ref: "alice-third"}
+    expected: {success: true}
+  - id: "alice-third-signed-out-after-logout"
+    description: "The sign-out ends the principal's sign-in for every token of it"
+    tool: "x_session-scoped_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required"]
