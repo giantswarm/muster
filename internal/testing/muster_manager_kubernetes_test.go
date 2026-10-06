@@ -3,10 +3,14 @@ package testing
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -164,6 +168,64 @@ func TestStartKubernetesWithoutAssetsFailsNamingTheReason(t *testing.T) {
 	err := m.startKubernetes(context.Background(), "inst", t.TempDir(), &MusterPreConfiguration{Mode: ModeKubernetes}, m.logger)
 	require.ErrorContains(t, err, "KUBEBUILDER_ASSETS is not set")
 	require.Nil(t, m.kubernetesFor("inst"), "nothing is left behind")
+}
+
+// TestInstanceAPIServerProxyWhileTheHarnessForks opens instance proxies while
+// other goroutines fork children all the time, as a --parallel run does. A
+// child forked while a listener on the port is open holds a copy of it until
+// its exec; a proxy that closed the allocator's probe and bound the port again
+// failed in that window with "address already in use".
+func TestInstanceAPIServerProxyWhileTheHarnessForks(t *testing.T) {
+	m := newStorageTestManager(t)
+	upstream := startEchoServer(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	forkCtx, stopForks := context.WithCancel(ctx)
+	var forks sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		forks.Add(1)
+		go func() {
+			defer forks.Done()
+			for forkCtx.Err() == nil {
+				_ = exec.CommandContext(forkCtx, os.Args[0], "-test.run=^$").Run()
+			}
+		}()
+	}
+	defer func() {
+		stopForks()
+		forks.Wait()
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for i := 0; time.Now().Before(deadline); i++ {
+		id := fmt.Sprintf("inst-%d", i)
+		proxy, port, err := m.newInstanceAPIServerProxy(id, upstream, 0, m.logger)
+		require.NoError(t, err)
+		require.NoError(t, proxy.open(), "open %d", i)
+		proxy.shutdown()
+		m.releasePort(port, id, m.logger)
+	}
+}
+
+func TestInstanceAPIServerProxyWithDelayRefusesUntilOpen(t *testing.T) {
+	m := newStorageTestManager(t)
+	proxy, port, err := m.newInstanceAPIServerProxy("inst", startEchoServer(t), time.Minute, m.logger)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		proxy.shutdown()
+		m.releasePort(port, "inst", m.logger)
+	})
+
+	_, err = net.DialTimeout("tcp", proxy.addr(), time.Second)
+	require.Error(t, err, "the probe is released, so a connect is refused before the proxy opens")
+
+	require.NoError(t, proxy.open())
+	conn, err := net.Dial("tcp", proxy.addr())
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	answer, err := roundTrip(conn, "ping")
+	require.NoError(t, err)
+	require.Equal(t, "ping", answer)
 }
 
 func TestMutateMCPServerDefinitionOnTheFilesystem(t *testing.T) {

@@ -26,6 +26,13 @@ type apiServerProxy struct {
 
 	mu       sync.Mutex
 	listener net.Listener
+	// reserved is the allocator's probe listener the first open serves on,
+	// nil when the API server is reachable only after a delay. Taking it over
+	// instead of closing it and binding the port again closes the gap in
+	// which the port was lost: a socket closed while the harness forks a
+	// child lives on in the child until its exec, and a bind in that window
+	// fails with "address already in use".
+	reserved net.Listener
 	conns    map[net.Conn]struct{}
 	// generation counts opens; an accept loop that outlives its listener
 	// (closed under it) must not touch the connections of the next open.
@@ -33,10 +40,14 @@ type apiServerProxy struct {
 	wg         sync.WaitGroup
 }
 
-func newAPIServerProxy(listenAddr, targetAddr string) *apiServerProxy {
+// newAPIServerProxy returns a closed proxy for listenAddr; reserved, when not
+// nil, is a listener already bound to listenAddr that the first open serves
+// on, and the proxy owns it from then on.
+func newAPIServerProxy(listenAddr, targetAddr string, reserved net.Listener) *apiServerProxy {
 	return &apiServerProxy{
 		listenAddr: listenAddr,
 		targetAddr: targetAddr,
+		reserved:   reserved,
 		conns:      make(map[net.Conn]struct{}),
 	}
 }
@@ -53,17 +64,22 @@ func (p *apiServerProxy) reachable() bool {
 	return p.listener != nil
 }
 
-// open starts accepting connections and relaying them to the API server.
-// Opening an open proxy is a no-op.
+// open starts accepting connections and relaying them to the API server: on
+// the reserved listener the first time, on a fresh bind of listenAddr after a
+// close. Opening an open proxy is a no-op.
 func (p *apiServerProxy) open() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.listener != nil {
 		return nil
 	}
-	listener, err := net.Listen("tcp", p.listenAddr)
-	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", p.listenAddr, err)
+	listener := p.reserved
+	p.reserved = nil
+	if listener == nil {
+		var err error
+		if listener, err = net.Listen("tcp", p.listenAddr); err != nil {
+			return fmt.Errorf("failed to listen on %s: %w", p.listenAddr, err)
+		}
 	}
 	p.listener = listener
 	p.generation++
@@ -74,11 +90,16 @@ func (p *apiServerProxy) open() error {
 
 // close stops accepting and severs every relayed connection: to muster the
 // API server is gone, its watches end and its next request is refused.
-// Closing a closed proxy is a no-op.
+// A reserved listener not served yet is released. Closing a closed proxy is
+// a no-op.
 func (p *apiServerProxy) close() {
 	p.mu.Lock()
 	listener := p.listener
 	p.listener = nil
+	if p.reserved != nil {
+		_ = p.reserved.Close()
+		p.reserved = nil
+	}
 	conns := p.conns
 	p.conns = make(map[net.Conn]struct{})
 	p.mu.Unlock()
