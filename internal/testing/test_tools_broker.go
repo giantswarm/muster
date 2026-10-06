@@ -68,8 +68,10 @@ func (h *TestToolsHandler) handleReconnectWithToken(ctx context.Context, args ma
 
 // handleMintToken mints a signed JWT on the referenced mock OAuth server and
 // stores it under args["name"] so later steps can present it as a subject or
-// actor token. args: server, name, sub (required); iss, aud, typ, email
-// (string), email_verified (bool), groups ([]string), act (map) optional.
+// actor token. args: server, name, sub (required); iss, aud, azp, jti, typ,
+// email (string), email_verified (bool), groups ([]string), act (map)
+// optional. jti tells apart two tokens of the same claims minted in the
+// same second, a person's second login.
 func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]interface{}) (interface{}, error) {
 	if h.currentInstance == nil || h.instanceManager == nil {
 		return nil, fmt.Errorf("instance manager or current instance not available")
@@ -105,6 +107,11 @@ func (h *TestToolsHandler) handleMintToken(_ context.Context, args map[string]in
 		claims["aud"] = aud
 	} else {
 		claims["aud"] = pkgoauth.NormalizeServerURL(h.currentInstance.Endpoint)
+	}
+	for _, claim := range []string{"azp", "jti"} {
+		if v, ok := args[claim].(string); ok && v != "" {
+			claims[claim] = v
+		}
 	}
 	if groups := toStringSlice(args["groups"]); len(groups) > 0 {
 		claims["groups"] = groups

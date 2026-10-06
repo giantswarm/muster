@@ -167,10 +167,12 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 | `tokenEndpoint` | `string` | No | Token endpoint of such a server | Set together with `authorizationEndpoint`; HTTPS |
 | `expectedIssuer` | `string` | No | Issuer identifier the server puts in the RFC 9207 `iss` parameter of its authorization responses when that differs from `issuer`, which stays the grant key -- two GitHub Apps pinned under `https://github.com/apps/<slug>` each, both with `expectedIssuer: https://github.com/login/oauth` | Needs `authorizationEndpoint` and `tokenEndpoint`; HTTPS. Default: `issuer` |
 | `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Secret holding a client registered with the server out of band (a GitHub App or OAuth App); used instead of muster's Client ID Metadata Document or a dynamic registration | See below |
-| `grantScope` | `string` | No | Whom a token belongs to: `session` (the login session that obtained it) or `subject` (the person; every session of the same person reuses it until `core_auth_logout` on this server) | `session` or `subject`. Default: `session` |
+| `grantScope` | `string` | No | Whom a token belongs to: `session` (the muster session that obtained it; for a forwarded or trusted-issuer bearer that is the principal, see below) or `subject` (the person; every session of the same person reuses it until `core_auth_logout` on this server) | `session` or `subject`. Default: `session` |
 | `scopes` | `string` | No | OAuth `scope` parameter value (space-separated scope tokens); leave empty for a GitHub App | |
 
 See [Connecting to MCP servers that don't publish RFC 9728 metadata](../how-to/connecting-non-rfc9728-mcp-servers.md) for the flows these fields configure.
+
+**What a `session` grant is bound to.** For a client that signs in to muster itself (`muster auth login`, Claude Code), the session is that login's refresh-token family: another login of the same person starts signed out. For a forwarded or trusted-issuer bearer (an ID token a portal or an agent gateway presents), the session is the token's principal -- issuer, subject, authorized party (`azp`, or the audience when the token has none) and the actor chain -- not the token itself, so a refreshed token keeps its session. A fresh token of the same person through the same client is the same principal: a `session` grant obtained under one such token serves every later one until `core_auth_logout` on the server. Another person, another client (`azp`) or another actor chain is another session and starts signed out. `subject` differs in reaching every session of the person, across clients and login families.
 
 #### ClientCredentialsSecretRef Fields
 
