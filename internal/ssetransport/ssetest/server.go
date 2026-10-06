@@ -188,20 +188,24 @@ func (t *holdTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // holdBody arms its connection once the answer was read. Its first Close,
 // mcp-go's closer goroutine, waits for the reader to block in Read, closes the
 // body and ends the stream: the end arrives inside the transport's post-close
-// drain. A later Close, SendRequest's, comes once the drain is done or the
-// reader returned.
+// drain. A first Close with no Read in flight, ssetransport's, closes at once:
+// no Read follows it. A later Close, SendRequest's, comes once the drain is
+// done or the reader returned.
 type holdBody struct {
 	io.ReadCloser
 	conn        *signalConn
 	closed      chan struct{}
 	endStream   func()
 	first       atomic.Bool
+	inRead      atomic.Int32
 	readerOnce  sync.Once
 	readerDone  chan struct{}
 	underReader *atomic.Bool
 }
 
 func (b *holdBody) Read(p []byte) (int, error) {
+	b.inRead.Add(1)
+	defer b.inRead.Add(-1)
 	armed := b.conn.armed.Load()
 	n, err := b.ReadCloser.Read(p)
 	if armed {
@@ -221,11 +225,13 @@ func (b *holdBody) Close() error {
 		}
 		return b.ReadCloser.Close()
 	}
-	<-b.conn.reading
-	select {
-	case <-b.readerDone:
-	default:
-		b.underReader.Store(true)
+	if b.inRead.Load() > 0 {
+		<-b.conn.reading
+		select {
+		case <-b.readerDone:
+		default:
+			b.underReader.Store(true)
+		}
 	}
 	err := b.ReadCloser.Close()
 	close(b.closed)
