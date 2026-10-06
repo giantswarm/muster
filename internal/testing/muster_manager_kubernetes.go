@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -213,16 +214,19 @@ func (m *musterInstanceManager) startKubernetes(ctx context.Context, instanceID,
 		return fmt.Errorf("mode %s: %w", ModeKubernetes, err)
 	}
 
-	port, err := m.findAvailablePort(instanceID, logger)
-	if err != nil {
-		return fmt.Errorf("failed to find available port for the api server proxy: %w", err)
+	var delay time.Duration
+	if config.APIServer != nil {
+		delay = config.APIServer.ReachableAfter
 	}
-	m.closeReservedListener(port)
+	proxy, port, err := m.newInstanceAPIServerProxy(instanceID, m.envtest.apiServerAddr(), delay, logger)
+	if err != nil {
+		return err
+	}
 
 	ik := &instanceKubernetes{
 		namespace:      instanceNamespace(instanceID),
 		kubeconfigPath: filepath.Join(configPath, "kubeconfig"),
-		proxy:          newAPIServerProxy(fmt.Sprintf("127.0.0.1:%d", port), m.envtest.apiServerAddr()),
+		proxy:          proxy,
 		proxyPort:      port,
 	}
 	m.mu.Lock()
@@ -246,10 +250,6 @@ func (m *musterInstanceManager) startKubernetes(ctx context.Context, instanceID,
 		return fail(fmt.Errorf("failed to write kubeconfig: %w", err))
 	}
 
-	var delay time.Duration
-	if config.APIServer != nil {
-		delay = config.APIServer.ReachableAfter
-	}
 	if delay <= 0 {
 		if err := ik.proxy.open(); err != nil {
 			return fail(err)
@@ -270,6 +270,25 @@ func (m *musterInstanceManager) startKubernetes(ctx context.Context, instanceID,
 		}
 	})
 	return nil
+}
+
+// newInstanceAPIServerProxy returns a closed proxy to target for the instance
+// on a port from the harness's allocator. Without a delay the proxy's first
+// open serves on the allocator's probe listener itself; with one the probe is
+// released at once, so until the proxy opens a connect is refused rather than
+// accepted and left unanswered.
+func (m *musterInstanceManager) newInstanceAPIServerProxy(instanceID, target string, delay time.Duration, logger TestLogger) (*apiServerProxy, int, error) {
+	port, err := m.findAvailablePort(instanceID, logger)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to find available port for the api server proxy: %w", err)
+	}
+	var reserved net.Listener
+	if delay <= 0 {
+		reserved = m.takeReservedListener(port)
+	} else {
+		m.closeReservedListener(port)
+	}
+	return newAPIServerProxy(fmt.Sprintf("127.0.0.1:%d", port), target, reserved), port, nil
 }
 
 // kubernetesFor returns the instance's Kubernetes-mode state, or nil when the

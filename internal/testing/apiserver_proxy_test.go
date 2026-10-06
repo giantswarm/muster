@@ -62,7 +62,7 @@ func roundTrip(conn net.Conn, line string) (string, error) {
 
 func TestAPIServerProxyRelaysWhileOpen(t *testing.T) {
 	upstream := startEchoServer(t)
-	proxy := newAPIServerProxy(freeLoopbackAddr(t), upstream)
+	proxy := newAPIServerProxy(freeLoopbackAddr(t), upstream, nil)
 	t.Cleanup(proxy.shutdown)
 
 	require.False(t, proxy.reachable(), "a new proxy is closed until opened")
@@ -83,7 +83,7 @@ func TestAPIServerProxyRelaysWhileOpen(t *testing.T) {
 
 func TestAPIServerProxyCloseSeversConnectionsAndReopenRestores(t *testing.T) {
 	upstream := startEchoServer(t)
-	proxy := newAPIServerProxy(freeLoopbackAddr(t), upstream)
+	proxy := newAPIServerProxy(freeLoopbackAddr(t), upstream, nil)
 	t.Cleanup(proxy.shutdown)
 	require.NoError(t, proxy.open())
 
@@ -118,7 +118,7 @@ func TestAPIServerProxyCloseSeversConnectionsAndReopenRestores(t *testing.T) {
 func TestAPIServerProxyUnreachableUpstreamClosesTheConnection(t *testing.T) {
 	// Nothing listens upstream: the proxy accepts and then ends the connection
 	// -- muster sees a reset, not a hang.
-	proxy := newAPIServerProxy(freeLoopbackAddr(t), freeLoopbackAddr(t))
+	proxy := newAPIServerProxy(freeLoopbackAddr(t), freeLoopbackAddr(t), nil)
 	t.Cleanup(proxy.shutdown)
 	require.NoError(t, proxy.open())
 
@@ -131,7 +131,7 @@ func TestAPIServerProxyUnreachableUpstreamClosesTheConnection(t *testing.T) {
 
 func TestAPIServerProxyOpenAfterDelay(t *testing.T) {
 	upstream := startEchoServer(t)
-	proxy := newAPIServerProxy(freeLoopbackAddr(t), upstream)
+	proxy := newAPIServerProxy(freeLoopbackAddr(t), upstream, nil)
 	t.Cleanup(proxy.shutdown)
 
 	opened := make(chan error, 1)
@@ -155,10 +155,45 @@ func TestAPIServerProxyOpenFailsOnTakenPort(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = taken.Close() })
 
-	proxy := newAPIServerProxy(taken.Addr().String(), startEchoServer(t))
+	proxy := newAPIServerProxy(taken.Addr().String(), startEchoServer(t), nil)
 	err = proxy.open()
 	require.Error(t, err)
 	require.False(t, proxy.reachable())
 	var opErr *net.OpError
 	require.True(t, errors.As(err, &opErr), "the listen error is wrapped, got %v", err)
+}
+
+func TestAPIServerProxyFirstOpenServesTheReservedListener(t *testing.T) {
+	reserved, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+
+	proxy := newAPIServerProxy(reserved.Addr().String(), startEchoServer(t), reserved)
+	t.Cleanup(proxy.shutdown)
+	require.NoError(t, proxy.open(), "the first open binds nothing, so the held port cannot be in use")
+	require.Same(t, reserved, proxy.listener)
+
+	conn, err := net.Dial("tcp", proxy.addr())
+	require.NoError(t, err)
+	answer, err := roundTrip(conn, "ping")
+	require.NoError(t, err)
+	require.Equal(t, "ping", answer)
+	_ = conn.Close()
+
+	// After a close the port is bound afresh.
+	proxy.close()
+	require.NoError(t, proxy.open())
+	require.NotSame(t, reserved, proxy.listener)
+}
+
+func TestAPIServerProxyCloseReleasesAnUnservedReservation(t *testing.T) {
+	reserved, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := reserved.Addr().String()
+
+	proxy := newAPIServerProxy(addr, startEchoServer(t), reserved)
+	proxy.shutdown()
+
+	again, err := net.Listen("tcp", addr)
+	require.NoError(t, err, "a proxy shut down before its first open hands the port back")
+	_ = again.Close()
 }
