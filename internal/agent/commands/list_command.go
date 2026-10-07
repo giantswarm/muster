@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/metatools"
 	pkgstrings "github.com/giantswarm/muster/v5/pkg/strings"
 
@@ -89,16 +90,21 @@ func (l *ListCommand) listTools(ctx context.Context) error {
 		l.output.OutputLine("  %d. %-30s - %s", i+1, tool.Name, desc)
 	}
 
-	// Show servers requiring auth if any
-	if len(response.ServersRequiringAuth) > 0 {
-		l.output.OutputLine("")
-		l.output.OutputLine("Servers requiring authentication:")
-		for _, server := range response.ServersRequiringAuth {
-			l.output.OutputLine("  - %s (use '%s' to authenticate)", server.Name, server.AuthTool)
-		}
-	}
-
+	printServersRequiringAuth(l.output, response.ServersRequiringAuth)
 	return nil
+}
+
+// printServersRequiringAuth prints the servers a sign-in would unlock, as a
+// tool or filter listing reports them; nothing when there are none.
+func printServersRequiringAuth(output OutputLogger, servers []api.ServerAuthInfo) {
+	if len(servers) == 0 {
+		return
+	}
+	output.OutputLine("")
+	output.OutputLine("Servers requiring authentication:")
+	for _, server := range servers {
+		output.OutputLine("  - %s (use '%s' to authenticate)", server.Name, server.AuthTool)
+	}
 }
 
 // listResources lists all available resources

@@ -127,9 +127,8 @@ func TestListTools_RejectsInvalidPaging(t *testing.T) {
 }
 
 func TestListTools_EmptyCatalogueIsStructured(t *testing.T) {
-	// Unlike filter_tools, list_tools never falls back to a text answer: the
-	// servers a sign-in would unlock must stay readable when nothing is
-	// listed yet.
+	// list_tools never falls back to a text answer: the servers a sign-in
+	// would unlock must stay readable when nothing is listed yet.
 	defer registerMockHandler(&mockMetaToolsHandler{serversRequiringAuth: []api.ServerAuthInfo{
 		{Name: "gh", Status: "auth_required", AuthTool: "core_auth_login"},
 	}})()
@@ -141,8 +140,14 @@ func TestListTools_EmptyCatalogueIsStructured(t *testing.T) {
 	assert.False(t, resp.Truncated)
 	require.Len(t, resp.ServersRequiringAuth, 1)
 
-	// filter_tools keeps its legacy text on the same empty catalogue.
+	// filter_tools says the same on the same empty catalogue; its legacy text
+	// is for a catalogue no sign-in would add to.
 	result, err := p.ExecuteTool(withHeader("", false), "filter_tools", nil)
+	require.NoError(t, err)
+	assert.Len(t, decodeListTools(t, result).ServersRequiringAuth, 1)
+
+	defer registerMockHandler(&mockMetaToolsHandler{})()
+	result, err = p.ExecuteTool(withHeader("", false), "filter_tools", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "No tools available to filter", result.Content[0].(string))
 }

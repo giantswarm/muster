@@ -98,6 +98,8 @@ through `call_tool`, and only through `call_tool`.
 
 The response carries `total` (matches across the caller's catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present), the owning `server` (omitted for workflows and core tools), the `kind` (`tool` | `workflow` | `core`) and the tool's `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` as the server declared them; for a workflow the derived `readOnlyHint` when every step tool is read-only; omitted when none). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it — it carries the same `server`, `kind` and `annotations`.
 
+It also carries `servers_requiring_auth` when a sign-in would unlock a server whose tools the `pattern` could match once they are listed — every such server without a pattern; with `x_slack_*`, the `slack` server alone — each with `name`, `status`, `auth_tool` (`core_auth_login`), `tool_prefix` and, for a family member, `family`, as `list_tools` reports them. Neither the toolset (`toolset_requiring_auth`, see [Toolsets](toolsets.md)) nor the other filters narrow it, and it is not paged. A tool you cannot find may be one of theirs: an agent that filters for `*slack*` before the person has signed in to Slack gets no tool and `servers_requiring_auth: [{"name": "slack", "auth_tool": "core_auth_login", …}]`, and calls `core_auth_login` with `server: slack`.
+
 When the request declares a toolset (`X-muster-Toolset` header), every discovery meta-tool reads the catalogue intersected with it, `call_tool` refuses anything outside it (`tool "<name>" is outside the toolset [<selectors>]`), and an invalid toolset (empty, unknown preset, reserved `toolset:`, inline `label:`, more than 32 selectors, malformed) is an error result on every meta-tool call. Without the header nothing changes.
 
 ```bash
@@ -109,6 +111,9 @@ filter_tools(labels={"category": "observability"})
 
 # Page through a broad match
 filter_tools(pattern="*workflow*", limit=25, offset=25)
+
+# A server the caller has not signed in to is named, not silently absent
+filter_tools(pattern="x_slack_*")   # tools: [], servers_requiring_auth: [{"name": "slack", "auth_tool": "core_auth_login", …}]
 ```
 
 ### Tool Execution
@@ -735,7 +740,7 @@ While an OAuth-protected MCPServer is stopped this way (`spec.suspended: true`),
 `core_auth_login` refuses it — `Server '<name>' is deactivated
 (spec.suspended=true); activate it with core_service_start before signing in.` —
 `auth://status` reports it `disconnected` with `"suspended": true`, and
-`list_tools` neither lists its tools nor names it under `servers_requiring_auth`.
+`list_tools` and `filter_tools` neither list its tools nor name it under `servers_requiring_auth`.
 A session that had signed in before the stop finds its tools again after
 `core_service_start` without a new sign-in.
 

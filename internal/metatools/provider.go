@@ -112,7 +112,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		},
 		{
 			Name:        "filter_tools",
-			Description: "Discover tools cheaply: filter by name pattern, description, or labels, optionally rank by a natural-language query, and get a bounded, summarised page. Full descriptions and schemas are omitted by default — use describe_tool for the authoritative detail of a chosen tool. Pass a toolset to see which tools a set of selectors resolves to for you, and include_presets to list the known toolset presets. The response's toolset field names the toolset the tools were resolved within — the argument, else the toolset declared for the request (X-Muster-Toolset) — so a scoped caller can learn what bounds it.",
+			Description: "Discover tools cheaply: filter by name pattern, description, or labels, optionally rank by a natural-language query, and get a bounded, summarised page — plus the servers a sign-in would unlock whose tools the pattern could match (servers_requiring_auth, each naming its auth_tool): a tool you cannot find may belong to a server the caller has not signed in to yet, and a call to auth_tool with that server's name starts the sign-in. Full descriptions and schemas are omitted by default — use describe_tool for the authoritative detail of a chosen tool. Pass a toolset to see which tools a set of selectors resolves to for you, and include_presets to list the known toolset presets. The response's toolset field names the toolset the tools were resolved within — the argument, else the toolset declared for the request (X-Muster-Toolset) — so a scoped caller can learn what bounds it.",
 			Args: []api.ArgMetadata{
 				{
 					Name:        "toolset",
@@ -132,7 +132,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Name:        "pattern",
 					Type:        api.ArgTypeString,
 					Required:    false,
-					Description: "Pattern to match against tool names (supports wildcards like *)",
+					Description: "Glob to match against tool names (wildcards like *). It also picks the servers_requiring_auth entries: the servers awaiting a sign-in whose tool prefix the pattern could match (x_slack_* names slack alone, *slack* every one of them).",
 				},
 				{
 					Name:        "description_filter",

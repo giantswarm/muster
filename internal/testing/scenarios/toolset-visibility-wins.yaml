@@ -67,6 +67,34 @@ steps:
         tools.0.name: "x_k8s_get_pods"
         toolset_unmatched.0: "server:protected"
 
+  - id: "before-login-filter-names-the-sign-in"
+    description: "filter_tools for the protected server's tools finds none and names the server a sign-in would unlock"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_protected_*"
+    expected:
+      success: true
+      json_path:
+        total: 0
+        servers_requiring_auth.0.name: "protected"
+        servers_requiring_auth.0.auth_tool: "core_auth_login"
+        servers_requiring_auth.0.tool_prefix: "x_protected_"
+
+  - id: "before-login-filter-elsewhere-names-nothing"
+    description: "a pattern the protected server's tools could not match names no sign-in"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        pattern: "x_k8s_*"
+    expected:
+      success: true
+      json_path:
+        total: 1
+      not_contains: ["servers_requiring_auth"]
+
   - id: "before-login-answers-sign-in"
     description: "calling the protected tool the toolset names does not run it: the answer is the server's sign-in"
     tool: "test_call_meta_tool"

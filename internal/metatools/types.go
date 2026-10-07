@@ -134,12 +134,9 @@ func originOf(tool mcp.Tool) (server, kind string) {
 // ListToolsResponse is the response structure from the list_tools meta-tool:
 // one page of the caller's catalogue in the discovery tier's shape (summarised
 // entries, limit/offset echoed in Filters, Total and Truncated for paging),
-// plus the servers a sign-in would unlock. ServersRequiringAuth is neither
-// paged nor narrowed by a toolset.
-type ListToolsResponse struct {
-	FilterToolsResponse
-	ServersRequiringAuth []api.ServerAuthInfo `json:"servers_requiring_auth,omitempty"`
-}
+// plus the servers a sign-in would unlock — the filter_tools response of a
+// request without a filter.
+type ListToolsResponse = FilterToolsResponse
 
 // FilterToolsResponse is the response structure from the filter_tools meta-tool.
 //
@@ -179,6 +176,16 @@ type FilterToolsResponse struct {
 	// toolset argument was given; a request-declared toolset alone does not
 	// add them.
 	Presets []toolset.Info `json:"presets,omitempty"`
+	// ServersRequiringAuth lists the servers awaiting the caller's sign-in
+	// whose tools the name pattern could match once they are listed (every
+	// such server without a pattern), each with the tool that signs in: a
+	// caller that finds no tool of a server it has not signed in to learns
+	// here that the server exists. Neither paged nor narrowed by the toolset
+	// — a toolset can only match a server's tools once the caller has signed
+	// in to it; ToolsetRequiringAuth names the part of the toolset a sign-in
+	// would unlock — nor by the other filters, which have no text to match
+	// before the sign-in.
+	ServersRequiringAuth []api.ServerAuthInfo `json:"servers_requiring_auth,omitempty"`
 }
 
 // FilterCriteria describes the filter parameters applied.
