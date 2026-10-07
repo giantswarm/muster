@@ -488,6 +488,12 @@ func (a *AggregatorServer) scheduleSSORetry(ctx context.Context, serverName, mus
 		retryCtx = server.ContextWithCallerTokens(retryCtx, tokens)
 		a.establishSSOConnection(retryCtx, info, musterIssuer)
 	}
+	a.retryAfter(delay, retry)
+}
+
+// retryAfter runs a retry muster schedules on its own initiative after delay:
+// on a timer, or through the test seam ssoRetryAfter when set.
+func (a *AggregatorServer) retryAfter(delay time.Duration, retry func()) {
 	if a.ssoRetryAfter != nil {
 		a.ssoRetryAfter(delay, retry)
 		return

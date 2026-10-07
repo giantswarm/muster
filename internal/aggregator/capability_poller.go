@@ -239,7 +239,7 @@ func (a *AggregatorServer) pollSessionCapabilities(serverName string, ps PooledS
 		return
 	}
 	_, _, _ = a.notifRefreshGroup.Do(sessionRefreshKey(ps.SessionID, serverName), func() (any, error) {
-		a.refreshSessionCapabilities(a.refreshContext(), serverName, ps.SessionID, ps.Client, refreshByPoll)
+		a.relistSession(serverName, ps.SessionID, ps.Client, refreshByPoll, 0)
 		return nil, nil
 	})
 }
