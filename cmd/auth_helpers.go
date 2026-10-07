@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -256,14 +257,10 @@ func triggerMCPServerAuthWithWait(ctx context.Context, handler api.AuthHandler, 
 		return fmt.Errorf("auth tool did not return an auth URL")
 	}
 
-	// Try to open browser
-	authPrintln("Opening browser for authentication...")
-
-	err = openBrowserForAuth(authURL)
-	if err != nil {
-		authPrintln("Could not open browser automatically.")
-		authPrint("\nPlease open this URL in your browser:\n  %s\n\n", authURL)
-		// Continue - user can still manually open the URL
+	// Open the browser; print the URL when the launch is disabled or fails.
+	// The wait below continues either way.
+	if oauth.OpenOrPrint(os.Stdout, authURL) {
+		authPrintln("Opened the browser for authentication.")
 	}
 
 	// If waiting is enabled, poll until completion using the SAME client.
@@ -420,11 +417,6 @@ func extractAuthURL(result *mcp.CallToolResult) string {
 	}
 
 	return ""
-}
-
-// openBrowserForAuth opens the browser for OAuth authentication.
-func openBrowserForAuth(url string) error {
-	return oauth.OpenBrowser(url)
 }
 
 // SSO wait timeout constants.
