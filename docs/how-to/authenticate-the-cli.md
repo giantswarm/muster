@@ -15,6 +15,12 @@ The CLI opens the browser at muster's authorization endpoint, muster redirects t
 the sign-in the tokens are stored locally. `muster auth status` shows the identity and how long
 the session lasts; `muster auth whoami` prints the identity alone.
 
+The browser is the first command in `$BROWSER` that starts, else the platform default (`xdg-open`,
+`open`, `start`). `--no-browser` (env: `MUSTER_NO_BROWSER=1`) starts none: the CLI prints the
+authorization URL to stdout and waits for the callback until the URL is opened in any browser on
+the same machine, for example a tab an automated session drives. The environment variable applies
+to every command that signs in.
+
 ```bash
 muster auth status
 muster auth whoami

@@ -390,14 +390,9 @@ func (a *AuthAdapter) interactiveLogin(ctx context.Context, mgr *oauth.AuthManag
 		return &AuthFailedError{Endpoint: endpoint, Reason: err}
 	}
 
-	// Try to open browser, only show URL if it fails
-	fmt.Print("Opening browser for authentication...")
-
-	if err := oauth.OpenBrowser(authURL); err != nil {
-		fmt.Println(" failed")
-		fmt.Printf("Please open this URL in your browser:\n  %s\n\n", authURL)
-	} else {
-		fmt.Println(" done")
+	// Open the browser; print the URL when the launch is disabled or fails.
+	if oauth.OpenOrPrint(os.Stdout, authURL) {
+		fmt.Println("Opened the browser for authentication.")
 	}
 
 	fmt.Println("Waiting for authentication to complete...")
