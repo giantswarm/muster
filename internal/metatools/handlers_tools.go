@@ -81,15 +81,7 @@ func (p *Provider) handleListTools(ctx context.Context, args map[string]any) (*a
 	if errResult != nil {
 		return errResult, nil
 	}
-
-	// The servers requiring authentication are informational (which sign-in
-	// would unlock more tools) and are not narrowed by the toolset: a toolset
-	// selector can only match a server's tools once the caller has signed in
-	// to it. Nor are they paged — the list is a handful of names.
-	return jsonResult(ListToolsResponse{
-		FilterToolsResponse:  *page,
-		ServersRequiringAuth: handler.ListServersRequiringAuth(ctx),
-	}, "tools")
+	return jsonResult(page, "tools")
 }
 
 // handleDescribeTool handles the describe_tool meta-tool.
@@ -251,9 +243,10 @@ func toStringList(v any) ([]string, error) {
 }
 
 // filterToolsWithOptions runs the engine for filter_tools and list_core_tools
-// and serialises the page. An unscoped request whose catalogue is empty keeps
-// the legacy text answer; a toolset that resolves to nothing (preset:none, a
-// selector matching nothing) is a structured answer the caller can read.
+// and serialises the page. An unscoped request whose catalogue is empty and
+// whose pattern no sign-in could serve keeps the legacy text answer; a toolset
+// that resolves to nothing (preset:none, a selector matching nothing) and a
+// server a sign-in would unlock are structured answers the caller can read.
 func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsOptions) (*api.CallToolResult, error) {
 	handler, errResult := p.getHandler()
 	if errResult != nil {
@@ -265,7 +258,7 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 		return errResult, nil
 	}
 
-	if _, scoped, _ := toolset.FromContext(ctx); page.TotalTools == 0 && !scoped && opts.toolsetArg == nil {
+	if _, scoped, _ := toolset.FromContext(ctx); page.TotalTools == 0 && len(page.ServersRequiringAuth) == 0 && !scoped && opts.toolsetArg == nil {
 		return textResult("No tools available to filter"), nil
 	}
 
@@ -414,6 +407,16 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	if opts.includePresets || argToolset != nil {
 		resp.Presets = p.presets.List()
 	}
+	// The servers a sign-in would unlock, narrowed to those whose tools the
+	// pattern could match once they are listed: an agent filtering for a tool
+	// of a server the caller has not signed in to finds nothing, and this is
+	// how it learns the server exists and which tool signs in (#1351). The
+	// toolset does not narrow them — it can only match a server's tools once
+	// the caller has signed in to it; toolset_requiring_auth above names the
+	// part of the toolset a sign-in would unlock — nor do the other filters,
+	// which have no text to match before then. Nor are they paged: the list
+	// is a handful of names.
+	resp.ServersRequiringAuth = pendingUnder(cat.pending(), opts.pattern, opts.caseSensitive)
 	return resp, nil
 }
 

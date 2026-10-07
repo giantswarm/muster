@@ -189,8 +189,9 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
   of its tools is selected. `list_resources`, `filter_resources`, `describe_resource`,
   `list_prompts`, `filter_prompts`, `describe_prompt` hide the others; `get_resource` and
   `get_prompt` refuse them (`resource "<uri>" is outside the toolset […]`).
-- `list_tools`' `servers_requiring_auth` is neither narrowed nor paged: it tells the caller
-  which sign-in would make more of the toolset resolve.
+- `servers_requiring_auth` (`list_tools`; `filter_tools` for the servers its `pattern` could
+  match) is neither narrowed by the toolset nor paged: it tells the caller which sign-in would
+  make more of the toolset resolve.
 - `tools/list` — the meta-tools themselves — is unchanged.
 
 ### `filter_tools` and toolsets
