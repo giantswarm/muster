@@ -404,7 +404,7 @@ func EstablishConnectionWithTokenForwarding(
 		// A token issued moments ago is likely signed with a key the issuer
 		// just rotated to and the backend has not fetched yet: retried soon,
 		// not held back as a refused credential.
-		if issuedWithin(forwardedToken, ssoFreshTokenWindow) && mayBeUnknownSigningKey(err) {
+		if refusedFreshToken(forwardedToken, err) {
 			logging.Warn("Connection", "ID token forwarding to server %s for user %s: fresh token refused: the backend may not know the issuer's new signing key yet, retrying soon: %v (%s)",
 				serverInfo.Name, logging.TruncateIdentifier(sub), err, diagnostic)
 			return nil, &ssoFreshTokenRefusedError{err: fmt.Errorf("fresh token refused: the backend may not know the issuer's new signing key yet: %w (%s)", err, diagnostic)}
@@ -1000,7 +1000,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	sessionID, sub, musterIssuer string,
 	serverInfo *ServerInfo,
 	onStaleToken func(),
-) (*internalmcp.StreamableHTTPClient, string, error) {
+) (*tokenForwardingClient, string, error) {
 	refresher := a.sessionRefresher()
 	// A connection that forwards the request's own bearer belongs to a
 	// session keyed by that bearer: it ends when the bearer expires
@@ -1024,8 +1024,10 @@ func (a *AggregatorServer) newTokenForwardingClient(
 		return nil, "", fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired)
-	return internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout), token, nil
+	presented := &atomic.Pointer[string]{}
+	headerFunc := presentingHeaderFunc(makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired), presented)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout)
+	return &tokenForwardingClient{StreamableHTTPClient: client, presented: presented}, token, nil
 }
 
 // registeredServerInfo returns the registry entry of a server -- the home of
@@ -1080,6 +1082,15 @@ func (e *ssoFreshTokenRefusedError) Unwrap() error { return e.err }
 func isSSOFreshTokenRefused(err error) bool {
 	var freshErr *ssoFreshTokenRefusedError
 	return errors.As(err, &freshErr)
+}
+
+// refusedFreshToken reports whether err is a backend's 401 for a forwarded
+// token that is likely valid but signed with a key the backend (or the gateway
+// in front of it) has not fetched yet: the token was issued within
+// ssoFreshTokenWindow and the 401 names no cause but a key. It judges a
+// connect and a request on a pooled connection alike.
+func refusedFreshToken(token string, err error) bool {
+	return credentialRefused(err) && issuedWithin(token, ssoFreshTokenWindow) && mayBeUnknownSigningKey(err)
 }
 
 // mayBeUnknownSigningKey reports whether a backend's 401 leaves room for a

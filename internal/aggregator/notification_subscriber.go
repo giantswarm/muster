@@ -29,6 +29,9 @@ type refreshTrigger string
 const (
 	refreshByNotification refreshTrigger = "notification"
 	refreshByPoll         refreshTrigger = "poll"
+	// refreshByRetry is muster's own re-listing of a session whose fresh
+	// forwarded token the backend refused (relistSession).
+	refreshByRetry refreshTrigger = "retry"
 )
 
 // nonOAuthRefreshKey is the singleflight key of a shared-client server's
@@ -224,8 +227,7 @@ func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string, trigge
 func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID string, client MCPClient) {
 	go func() {
 		_, _, _ = a.notifRefreshGroup.Do(sessionRefreshKey(sessionID, serverName), func() (any, error) {
-			ctx := a.refreshContext()
-			a.refreshSessionCapabilities(ctx, serverName, sessionID, client, refreshByNotification)
+			a.relistSession(serverName, sessionID, client, refreshByNotification, 0)
 			return nil, nil
 		})
 	}()
@@ -233,14 +235,13 @@ func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID 
 
 // refreshSessionCapabilities re-fetches capabilities for a single session
 // using that session's own client, and updates the CapabilityStore if anything
-// changed. A listing that fails leaves the session's entry as it is.
-func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serverName, sessionID string, client MCPClient, trigger refreshTrigger) {
+// changed. A listing that fails leaves the session's entry as it is and is
+// returned for the caller to judge (relistSession).
+func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serverName, sessionID string, client MCPClient, trigger refreshTrigger) error {
 	newTools, newResources, newPrompts, err := relistDeclared(ctx, client,
 		serverName+" (session "+logging.TruncateIdentifier(sessionID)+")", trigger)
 	if err != nil {
-		logging.Warn("Aggregator", "Session capability refresh (%s): failed to list tools for %s (session %s): %v",
-			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
-		return
+		return err
 	}
 
 	toolsChanged, resourcesChanged, promptsChanged := true, true, true
@@ -250,7 +251,7 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 		resourcesChanged = newResources != nil && !resourceListsEqual(cached.Resources, newResources)
 		promptsChanged = newPrompts != nil && !promptListsEqual(cached.Prompts, newPrompts)
 		if !toolsChanged && !resourcesChanged && !promptsChanged {
-			return
+			return nil
 		}
 	}
 
@@ -263,7 +264,7 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 	if err := a.capabilityStore.Set(ctx, sessionID, serverName, caps); err != nil {
 		logging.Warn("Aggregator", "Session capability refresh (%s): failed to update store for %s (session %s): %v",
 			trigger, serverName, logging.TruncateIdentifier(sessionID), err)
-		return
+		return nil
 	}
 
 	logging.Info("Aggregator", "Session capability refresh (%s): updated capabilities for %s (session %s: %d tools, %d resources, %d prompts)",
@@ -278,6 +279,7 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 		a.notifySubjectMethods(a.subjectSessions.OAuthSubject(sessionID),
 			capabilityMethodsFor(toolsChanged, resourcesChanged, promptsChanged))
 	}
+	return nil
 }
 
 // toolListsEqual compares two tool lists by name, description, and

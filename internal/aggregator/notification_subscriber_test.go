@@ -443,7 +443,7 @@ func TestRefreshSessionCapabilities_UpdatesStore(t *testing.T) {
 
 	client := &notifMockClient{tools: []mcp.Tool{{Name: "tool-a"}, {Name: "tool-b"}}}
 
-	a.refreshSessionCapabilities(context.Background(), "sso-srv", "session-1", client, refreshByNotification)
+	require.NoError(t, a.refreshSessionCapabilities(context.Background(), "sso-srv", "session-1", client, refreshByNotification))
 
 	caps, err := capStore.Get(context.Background(), "session-1", "sso-srv")
 	require.NoError(t, err)
@@ -464,7 +464,7 @@ func TestRefreshSessionCapabilities_NoChangeSkipsUpdate(t *testing.T) {
 
 	client := &notifMockClient{tools: tools}
 
-	a.refreshSessionCapabilities(context.Background(), "sso-srv", "sess", client, refreshByNotification)
+	require.NoError(t, a.refreshSessionCapabilities(context.Background(), "sso-srv", "sess", client, refreshByNotification))
 
 	caps, err := capStore.Get(context.Background(), "sess", "sso-srv")
 	require.NoError(t, err)
@@ -610,7 +610,7 @@ func TestRefreshSessionCapabilities_ListsOnlyDeclaredCapabilities(t *testing.T) 
 	require.NoError(t, capStore.Set(ctx, "sess", "sso", &oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "probe"}}}))
 
 	toolsOnly := &notifMockClient{tools: []mcp.Tool{{Name: "report"}}}
-	a.refreshSessionCapabilities(ctx, "sso", "sess", toolsOnly, refreshByPoll)
+	require.NoError(t, a.refreshSessionCapabilities(ctx, "sso", "sess", toolsOnly, refreshByPoll))
 	tools, resources, prompts := toolsOnly.listCounts()
 	assert.Equal(t, [3]int32{1, 0, 0}, [3]int32{tools, resources, prompts}, "a tools-only server costs one request")
 
@@ -619,7 +619,7 @@ func TestRefreshSessionCapabilities_ListsOnlyDeclaredCapabilities(t *testing.T) 
 		resources:    []mcp.Resource{{URI: "r://one", Name: "one"}},
 		capabilities: declaring(true, false),
 	}
-	a.refreshSessionCapabilities(ctx, "sso", "sess", withResources, refreshByPoll)
+	require.NoError(t, a.refreshSessionCapabilities(ctx, "sso", "sess", withResources, refreshByPoll))
 	tools, resources, prompts = withResources.listCounts()
 	assert.Equal(t, [3]int32{1, 1, 0}, [3]int32{tools, resources, prompts}, "resources are listed once declared, prompts still not")
 	caps, err := capStore.Get(ctx, "sess", "sso")
