@@ -174,12 +174,18 @@ func (f *FilterCommand) filterTools(ctx context.Context, toolArgs map[string]int
 	return nil
 }
 
-// renderResponse prints the applied filters, the match/page counts, and the
-// matching tools (brief by default, full specifications when detailed).
+// renderResponse prints the applied filters, the match/page counts, the
+// matching tools (brief by default, full specifications when detailed) and
+// the servers a sign-in would unlock, whose tools the pattern could match.
 func (f *FilterCommand) renderResponse(response metatools.FilterToolsResponse, detailed bool) {
 	f.printFilterSummary(response)
+	f.printTools(response.Tools, detailed)
+	printServersRequiringAuth(f.output, response.ServersRequiringAuth)
+}
 
-	if len(response.Tools) == 0 {
+// printTools prints the page of matching tools, or that there is none.
+func (f *FilterCommand) printTools(tools []metatools.ToolInfo, detailed bool) {
+	if len(tools) == 0 {
 		f.output.OutputLine("No tools match the specified filters.")
 		return
 	}
@@ -188,7 +194,7 @@ func (f *FilterCommand) renderResponse(response metatools.FilterToolsResponse, d
 		f.output.OutputLine("\nFiltered Tools with Full Specifications:")
 		f.output.OutputLine("%s", strings.Repeat("=", 60))
 
-		for i, tool := range response.Tools {
+		for i, tool := range tools {
 			f.output.OutputLine("\n%d. %s", i+1, tool.Name)
 			f.output.OutputLine("   Description: %s", tool.Text())
 			if len(tool.Labels) > 0 {
@@ -199,7 +205,7 @@ func (f *FilterCommand) renderResponse(response metatools.FilterToolsResponse, d
 					f.output.OutputLine("   Schema: %s", string(schemaJSON))
 				}
 			}
-			if i < len(response.Tools)-1 {
+			if i < len(tools)-1 {
 				f.output.OutputLine("%s", strings.Repeat("-", 40))
 			}
 		}
@@ -209,9 +215,9 @@ func (f *FilterCommand) renderResponse(response metatools.FilterToolsResponse, d
 	// Tools are already returned best-first when ranked, so the order conveys
 	// relevance; we omit the raw BM25 score here as it is unbounded and not
 	// meaningful to a human (it stays in the JSON response for programmatic use).
-	width := nameColumnWidth(response.Tools)
+	width := nameColumnWidth(tools)
 	f.output.OutputLine("\nMatching tools:")
-	for i, tool := range response.Tools {
+	for i, tool := range tools {
 		line := fmt.Sprintf("  %d. %-*s - %s", i+1, width, tool.Name, tool.Text())
 		if len(tool.Labels) > 0 {
 			line += fmt.Sprintf("  {%s}", formatLabels(tool.Labels))

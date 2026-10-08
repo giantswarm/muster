@@ -159,8 +159,9 @@ type AggregatorServer struct {
 	// without a backend.
 	ssoConnect func(ctx context.Context, info *ServerInfo, musterIssuer string) ssoConnectOutcome
 
-	// ssoRetryAfter runs a retry muster schedules for an SSO connect after
-	// the delay (scheduleSSORetry). Nil means time.AfterFunc; tests set it to
+	// ssoRetryAfter runs a retry muster schedules on its own after the delay:
+	// an SSO connect (scheduleSSORetry) or a session's re-listing refused a
+	// fresh token (relistSession). Nil means time.AfterFunc; tests set it to
 	// run the retry without waiting.
 	ssoRetryAfter func(delay time.Duration, retry func())
 
@@ -3386,6 +3387,11 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 // usually means the token expired while pooled. The stale entry is evicted,
 // a fresh client re-exchanges the token, and the call is made again; only a
 // refusal of the fresh token is an authentication loss.
+//
+// A forwarded token issued moments ago is not a refused credential either
+// (refusedFreshForward): the backend likely does not know the issuer's new
+// signing key yet. The session keeps its authentication and connection, and
+// the call is answered with a transient error to retry shortly.
 func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	ctx context.Context,
 	serverName string,
@@ -3411,6 +3417,14 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || !credentialRefused(callErr) {
 		return nil, callErr
+	}
+
+	if refusedFreshForward(client, callErr) {
+		logging.WarnWithAttrs("Aggregator", "Fresh token refused: the backend may not know the issuer's new signing key yet; the session keeps its connection",
+			slog.String("server", serverName),
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
+			slog.String("error", callErr.Error()))
+		return freshTokenRefusedAnswer(serverName), nil
 	}
 
 	if ShouldUseTokenExchange(serverInfo) {

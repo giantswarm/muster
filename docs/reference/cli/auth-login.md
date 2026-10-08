@@ -17,6 +17,7 @@ Examples:
   muster auth login --silent           # Attempt silent re-auth (requires IdP support)
   muster auth login --force            # Sign in again although the session is valid
   muster auth login --callback-port 3001  # Take the browser's callback on another port
+  muster auth login --no-browser       # Print the sign-in URL instead of opening a browser
 
 A valid session is reused. The session's automatic refresh renews the access
 token and the OIDC ID token together, once the access token has expired; when
@@ -30,6 +31,11 @@ holder, when another process has it on either. --callback-port (env:
 MUSTER_OAUTH_CALLBACK_PORT) picks another port, for a server that accepts a
 localhost redirect to it.
 
+--no-browser (env: MUSTER_NO_BROWSER=1) starts no browser: the sign-in URL is
+printed to stdout and login waits for the callback until the URL is opened in
+any browser on this machine. Otherwise the commands in $BROWSER are tried
+before the platform default (xdg-open, open, start).
+
 ```
 muster auth login [flags]
 ```
@@ -41,6 +47,7 @@ muster auth login [flags]
       --callback-port int   Local port the browser is redirected back to (env: MUSTER_OAUTH_CALLBACK_PORT) (default 3000)
       --force               Sign in again through the browser although the session is valid, renewing the stored ID token
   -h, --help                help for login
+      --no-browser          Print the sign-in URL and wait for the callback instead of opening a browser (env: MUSTER_NO_BROWSER)
       --server string       MCP server name (managed by aggregator) to authenticate to
       --silent              Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)
 ```

@@ -1,6 +1,9 @@
 package oauth
 
 import (
+	"bytes"
+	"errors"
+	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -154,5 +157,146 @@ func TestOpenBrowser_LauncherError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed to open browser") {
 		t.Errorf("Expected 'failed to open browser' in error, got: %s", err.Error())
+	}
+}
+
+// recordLaunches replaces the launcher with one that records every command
+// and fails the ones named in fail, restoring the original at test end.
+func recordLaunches(t *testing.T, fail ...string) *[][]string {
+	t.Helper()
+	var launched [][]string
+	original := browserLauncher
+	browserLauncher = func(cmd *exec.Cmd) error {
+		launched = append(launched, cmd.Args)
+		for _, f := range fail {
+			if cmd.Args[0] == f {
+				return exec.ErrNotFound
+			}
+		}
+		return nil
+	}
+	t.Cleanup(func() { browserLauncher = original })
+	return &launched
+}
+
+func TestOpenBrowser_NoBrowserLaunchesNothing(t *testing.T) {
+	for _, v := range []string{"1", "true", "TRUE", "yes"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv(NoBrowserEnvVar, v)
+			t.Setenv(BrowserEnvVar, "mybrowser")
+			launched := recordLaunches(t)
+
+			err := OpenBrowser("https://example.com/auth")
+			if !errors.Is(err, ErrBrowserDisabled) {
+				t.Fatalf("expected ErrBrowserDisabled, got %v", err)
+			}
+			if len(*launched) != 0 {
+				t.Fatalf("expected no launch, got %v", *launched)
+			}
+		})
+	}
+}
+
+func TestBrowserDisabled_FalseValues(t *testing.T) {
+	for _, v := range []string{"", "0", "false", "no", "off"} {
+		t.Run(v, func(t *testing.T) {
+			t.Setenv(NoBrowserEnvVar, v)
+			if BrowserDisabled() {
+				t.Errorf("%s=%q should not disable the browser", NoBrowserEnvVar, v)
+			}
+		})
+	}
+}
+
+func TestOpenOrPrint_NoBrowserPrintsURL(t *testing.T) {
+	t.Setenv(NoBrowserEnvVar, "1")
+	launched := recordLaunches(t)
+	var out bytes.Buffer
+
+	if OpenOrPrint(&out, "https://example.com/auth?state=x") {
+		t.Fatal("expected OpenOrPrint to report no launch")
+	}
+	if !strings.Contains(out.String(), "https://example.com/auth?state=x") {
+		t.Errorf("expected the URL on the writer, got %q", out.String())
+	}
+	if len(*launched) != 0 {
+		t.Fatalf("expected no launch, got %v", *launched)
+	}
+}
+
+func TestOpenOrPrint_LaunchPrintsNothing(t *testing.T) {
+	t.Setenv(NoBrowserEnvVar, "")
+	t.Setenv(BrowserEnvVar, "mybrowser")
+	recordLaunches(t)
+	var out bytes.Buffer
+
+	if !OpenOrPrint(&out, "https://example.com/auth") {
+		t.Fatal("expected OpenOrPrint to report a launch")
+	}
+	if out.Len() != 0 {
+		t.Errorf("expected nothing printed, got %q", out.String())
+	}
+}
+
+func TestOpenBrowser_BrowserEnvWins(t *testing.T) {
+	const u = "https://example.com/auth"
+	sep := string(os.PathListSeparator)
+	tests := []struct {
+		name    string
+		browser string
+		fail    []string
+		want    []string
+	}{
+		{"appends the URL", "mybrowser --new-window", nil, []string{"mybrowser", "--new-window", u}},
+		{"substitutes %s", "mybrowser --url=%s --x", nil, []string{"mybrowser", "--url=" + u, "--x"}},
+		{"next entry when the first fails", "missing" + sep + "mybrowser", []string{"missing"}, []string{"mybrowser", u}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(NoBrowserEnvVar, "")
+			t.Setenv(BrowserEnvVar, tc.browser)
+			launched := recordLaunches(t, tc.fail...)
+
+			if err := OpenBrowser(u); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			last := (*launched)[len(*launched)-1]
+			if strings.Join(last, " ") != strings.Join(tc.want, " ") {
+				t.Errorf("launched %v, want %v", last, tc.want)
+			}
+		})
+	}
+}
+
+func TestOpenBrowser_DefaultWithoutBrowserEnv(t *testing.T) {
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" && runtime.GOOS != "windows" {
+		t.Skip("unsupported platform")
+	}
+	t.Setenv(NoBrowserEnvVar, "")
+	t.Setenv(BrowserEnvVar, "")
+	launched := recordLaunches(t)
+
+	if err := OpenBrowser("https://example.com"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]string{"linux": "xdg-open", "darwin": "open", "windows": "cmd"}[runtime.GOOS]
+	if len(*launched) != 1 || (*launched)[0][0] != want {
+		t.Errorf("launched %v, want one %s", *launched, want)
+	}
+}
+
+func TestOpenBrowser_FallsBackWhenBrowserEnvFails(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("checks the linux default")
+	}
+	t.Setenv(NoBrowserEnvVar, "")
+	t.Setenv(BrowserEnvVar, "missing")
+	launched := recordLaunches(t, "missing")
+
+	if err := OpenBrowser("https://example.com"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := (*launched)[len(*launched)-1][0]; got != "xdg-open" {
+		t.Errorf("expected xdg-open after $BROWSER failed, got %s", got)
 	}
 }

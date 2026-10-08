@@ -10,6 +10,7 @@ import (
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
+	"github.com/giantswarm/muster/v5/internal/agent/oauth"
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/cli"
 
@@ -23,6 +24,7 @@ var (
 	loginSilent       bool
 	loginForce        bool
 	loginCallbackPort int
+	loginNoBrowser    bool
 )
 
 // authLoginCmd represents the auth login command
@@ -42,6 +44,7 @@ Examples:
   muster auth login --silent           # Attempt silent re-auth (requires IdP support)
   muster auth login --force            # Sign in again although the session is valid
   muster auth login --callback-port 3001  # Take the browser's callback on another port
+  muster auth login --no-browser       # Print the sign-in URL instead of opening a browser
 
 A valid session is reused. The session's automatic refresh renews the access
 token and the OIDC ID token together, once the access token has expired; when
@@ -53,7 +56,12 @@ The browser returns to http://localhost:<port>/callback (default 3000). muster
 listens on that port on 127.0.0.1 and ::1 and stops at once, naming the
 holder, when another process has it on either. --callback-port (env:
 MUSTER_OAUTH_CALLBACK_PORT) picks another port, for a server that accepts a
-localhost redirect to it.`,
+localhost redirect to it.
+
+--no-browser (env: MUSTER_NO_BROWSER=1) starts no browser: the sign-in URL is
+printed to stdout and login waits for the callback until the URL is opened in
+any browser on this machine. Otherwise the commands in $BROWSER are tried
+before the platform default (xdg-open, open, start).`,
 	RunE: runAuthLogin,
 }
 
@@ -64,6 +72,17 @@ func init() {
 	authLoginCmd.Flags().BoolVar(&loginSilent, "silent", false, "Attempt silent re-auth using OIDC prompt=none (requires IdP support, not supported by Dex)")
 	authLoginCmd.Flags().BoolVar(&loginForce, "force", false, "Sign in again through the browser although the session is valid, renewing the stored ID token")
 	authLoginCmd.Flags().IntVar(&loginCallbackPort, "callback-port", cli.DefaultCallbackPort, "Local port the browser is redirected back to (env: "+cli.CallbackPortEnvVar+")")
+	authLoginCmd.Flags().BoolVar(&loginNoBrowser, "no-browser", false, "Print the sign-in URL and wait for the callback instead of opening a browser (env: "+oauth.NoBrowserEnvVar+")")
+}
+
+// applyNoBrowserFlag hands --no-browser to every browser launch the login
+// reaches. They all decide through oauth.BrowserDisabled, which reads the
+// environment, so the flag sets the environment variable.
+func applyNoBrowserFlag() error {
+	if !loginNoBrowser {
+		return nil
+	}
+	return os.Setenv(oauth.NoBrowserEnvVar, "1")
 }
 
 // applyCallbackPortFlag hands --callback-port to every OAuth entry point the
@@ -83,6 +102,9 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
 	if err := applyCallbackPortFlag(cmd); err != nil {
+		return err
+	}
+	if err := applyNoBrowserFlag(); err != nil {
 		return err
 	}
 
