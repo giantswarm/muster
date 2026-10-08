@@ -163,11 +163,11 @@ func (h *ToolHandler) valuesEqual(expected, actual interface{}) bool {
 	return false
 }
 
-// createMCPTool creates an MCP tool definition from the tool configuration
+// createMCPTool creates an MCP tool definition from the tool configuration,
+// with the input schema the configuration declares (toolWithSchema), like
+// the plain mock server's.
 func (h *ToolHandler) createMCPTool() mcp.Tool {
-	tool := mcp.NewTool(h.config.Name, mcp.WithDescription(h.config.Description))
-	h.config.Annotations.Apply(&tool)
-	return tool
+	return toolWithSchema(h.config)
 }
 
 // createMCPHandler creates an MCP tool handler function

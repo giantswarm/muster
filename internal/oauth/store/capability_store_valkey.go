@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,39 @@ import (
 // capabilityRefPrefix marks a hash field that points at a shared document
 // instead of carrying the document inline.
 const capabilityRefPrefix = "sha256:"
+
+// listedAtSeparator separates the reference in a hash field from the time
+// the entry was listed: "sha256:{hex}@{unix nanoseconds}". The time is the
+// session's, so it lives in the field, not in the shared document; a field
+// without it (written before the time was kept) reads as listed at the zero
+// time.
+const listedAtSeparator = "@"
+
+// fieldValue composes the hash field for a reference listed at the given
+// time.
+func fieldValue(ref string, at time.Time) string {
+	return ref + listedAtSeparator + strconv.FormatInt(at.UnixNano(), 10)
+}
+
+// fieldRef returns the reference a hash field carries, without its time.
+func fieldRef(field string) string {
+	ref, _, _ := strings.Cut(field, listedAtSeparator)
+	return ref
+}
+
+// fieldListedAt returns the time a hash field says its entry was listed, or
+// the zero time when the field carries none.
+func fieldListedAt(field string) time.Time {
+	_, suffix, found := strings.Cut(field, listedAtSeparator)
+	if !found {
+		return time.Time{}
+	}
+	nanos, err := strconv.ParseInt(suffix, 10, 64)
+	if err != nil {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos)
+}
 
 // ValkeyCapabilityStore stores per-session capabilities in Valkey.
 //
@@ -134,15 +168,18 @@ func (s *ValkeyCapabilityStore) Get(ctx context.Context, sessionID, serverName s
 		return decodeCapabilities([]byte(field))
 	}
 
-	docs, err := s.documents(ctx, []string{field})
+	ref := fieldRef(field)
+	docs, err := s.documents(ctx, []string{ref})
 	if err != nil {
 		return nil, err
 	}
-	caps, ok := docs[field]
+	caps, ok := docs[ref]
 	if !ok {
 		return nil, nil
 	}
-	return caps.DeepCopy(), nil
+	entry := caps.DeepCopy()
+	entry.ListedAt = fieldListedAt(field)
+	return entry, nil
 }
 
 func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (map[string]*Capabilities, error) {
@@ -166,7 +203,7 @@ func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (m
 	refs := make([]string, 0, len(fields))
 	for _, field := range fields {
 		if isCapabilityRef(field) {
-			refs = append(refs, field)
+			refs = append(refs, fieldRef(field))
 		}
 	}
 	docs, err := s.documents(ctx, refs)
@@ -177,13 +214,15 @@ func (s *ValkeyCapabilityStore) GetAll(ctx context.Context, sessionID string) (m
 	caps := make(map[string]*Capabilities, len(fields))
 	for serverName, field := range fields {
 		if isCapabilityRef(field) {
-			c, ok := docs[field]
+			c, ok := docs[fieldRef(field)]
 			if !ok {
 				logging.Debug("CapabilityStore", "Capability document for %s/%s has expired; treating as a miss",
 					logging.TruncateIdentifier(sessionID), serverName)
 				continue
 			}
-			caps[serverName] = c.DeepCopy()
+			entry := c.DeepCopy()
+			entry.ListedAt = fieldListedAt(field)
+			caps[serverName] = entry
 			continue
 		}
 		c, err := decodeCapabilities([]byte(field))
@@ -252,22 +291,26 @@ func (s *ValkeyCapabilityStore) Set(ctx context.Context, sessionID, serverName s
 	if err != nil {
 		return err
 	}
-	if err := s.setReference(ctx, s.key(sessionID), serverName, ref, doc, true); err != nil {
+	if err := s.setReference(ctx, s.key(sessionID), serverName, fieldValue(ref, listedAt(caps)), ref, doc, true); err != nil {
 		return err
 	}
 	// The next listing that meets this reference finds it decoded already.
-	s.decoded.put(ref, caps.DeepCopy(), len(doc))
+	// The document is every session's: it carries no listing time.
+	document := caps.DeepCopy()
+	document.ListedAt = time.Time{}
+	s.decoded.put(ref, document, len(doc))
 	return nil
 }
 
 // setReference writes the document under its content address (refreshing its
-// TTL), points the session's field at it and, when refreshSession is set,
-// resets the session TTL. The three commands travel in one pipeline.
-func (s *ValkeyCapabilityStore) setReference(ctx context.Context, key, serverName, ref string, doc []byte, refreshSession bool) error {
+// TTL), points the session's field at it with the given field value and,
+// when refreshSession is set, resets the session TTL. The three commands
+// travel in one pipeline.
+func (s *ValkeyCapabilityStore) setReference(ctx context.Context, key, serverName, field, ref string, doc []byte, refreshSession bool) error {
 	cmds := make(valkey.Commands, 0, 3)
 	cmds = append(cmds,
 		s.client.B().Set().Key(s.blobKey(strings.TrimPrefix(ref, capabilityRefPrefix))).Value(valkey.BinaryString(doc)).ExSeconds(s.ttlSeconds()).Build(),
-		s.client.B().Hset().Key(key).FieldValue().FieldValue(serverName, ref).Build(),
+		s.client.B().Hset().Key(key).FieldValue().FieldValue(serverName, field).Build(),
 	)
 	if refreshSession {
 		cmds = append(cmds, s.client.B().Expire().Key(key).Seconds(s.ttlSeconds()).Build())
@@ -429,7 +472,7 @@ func (s *ValkeyCapabilityStore) MigrateInlineEntries(ctx context.Context) (Migra
 				if err != nil {
 					return err
 				}
-				if err := s.setReference(ctx, key, serverName, ref, doc, false); err != nil {
+				if err := s.setReference(ctx, key, serverName, ref, ref, doc, false); err != nil {
 					return fmt.Errorf("migrate %s/%s: %w", key, serverName, err)
 				}
 				documents[ref] = struct{}{}

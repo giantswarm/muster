@@ -34,6 +34,24 @@ func TestInMemoryCapabilityStore_GetSetRoundTrip(t *testing.T) {
 	assert.Equal(t, caps.Prompts, got.Prompts)
 }
 
+// An entry is stamped with its listing time on Set when the caller left it
+// zero, and keeps the time a caller gives.
+func TestInMemoryCapabilityStore_StampsTheListingTime(t *testing.T) {
+	store := NewInMemoryCapabilityStore(time.Hour)
+	ctx := context.Background()
+	earlier := time.Now().Add(-time.Hour)
+
+	require.NoError(t, store.Set(ctx, "s", "stamped", &Capabilities{Tools: []mcp.Tool{{Name: "t"}}}))
+	require.NoError(t, store.Set(ctx, "s", "given", &Capabilities{Tools: []mcp.Tool{{Name: "t"}}, ListedAt: earlier}))
+
+	stamped, err := store.Get(ctx, "s", "stamped")
+	require.NoError(t, err)
+	assert.False(t, stamped.ListedAt.IsZero())
+	all, err := store.GetAll(ctx, "s")
+	require.NoError(t, err)
+	assert.True(t, all["given"].ListedAt.Equal(earlier))
+}
+
 func TestInMemoryCapabilityStore_GetNonexistent(t *testing.T) {
 	store := NewInMemoryCapabilityStore(30 * time.Minute)
 	defer store.Stop()

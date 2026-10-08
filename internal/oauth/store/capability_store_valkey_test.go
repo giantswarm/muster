@@ -75,12 +75,14 @@ func TestValkeyCapabilityStore_SetWritesReferenceAndSharedDocument(t *testing.T)
 	// The same document under a second server name of the same session.
 	require.NoError(t, store.Set(ctx, "session-b", "other-mcp-kubernetes", caps))
 
-	// The session hashes carry references, not documents.
+	// The session hashes carry references and each entry's listing time,
+	// not documents.
 	fieldA := srv.HGet("muster:cap:session-a", "mcp-kubernetes")
 	fieldB := srv.HGet("muster:cap:session-b", "mcp-kubernetes")
 	assert.True(t, strings.HasPrefix(fieldA, "sha256:"), "field is a reference: %q", fieldA)
-	assert.Equal(t, fieldA, fieldB, "identical documents share one reference")
-	assert.Less(t, len(fieldA), 80, "a reference is small")
+	assert.Equal(t, fieldRef(fieldA), fieldRef(fieldB), "identical documents share one reference")
+	assert.Less(t, len(fieldA), 100, "a reference with its time is small")
+	assert.False(t, fieldListedAt(fieldA).IsZero(), "the field carries the listing time")
 
 	// Exactly one document for three fields across two sessions.
 	blobs := srv.Keys()
@@ -91,7 +93,7 @@ func TestValkeyCapabilityStore_SetWritesReferenceAndSharedDocument(t *testing.T)
 		}
 	}
 	require.Len(t, docKeys, 1)
-	assert.Equal(t, "muster:capblob:"+strings.TrimPrefix(fieldA, "sha256:"), docKeys[0])
+	assert.Equal(t, "muster:capblob:"+strings.TrimPrefix(fieldRef(fieldA), "sha256:"), docKeys[0])
 
 	// Both the session hash and the document carry the store TTL.
 	assert.InDelta(t, time.Hour.Seconds(), srv.TTL("muster:cap:session-a").Seconds(), 5)
@@ -136,7 +138,7 @@ func TestValkeyCapabilityStore_ExpiredDocumentIsAMiss(t *testing.T) {
 	require.NoError(t, writer.Set(ctx, "s", "gone", bigCapabilities("gone")))
 	require.NoError(t, writer.Set(ctx, "s", "kept", bigCapabilities("kept")))
 	ref := srv.HGet("muster:cap:s", "gone")
-	srv.Del("muster:capblob:" + strings.TrimPrefix(ref, "sha256:"))
+	srv.Del("muster:capblob:" + strings.TrimPrefix(fieldRef(ref), "sha256:"))
 
 	// A process that never decoded the document -- a fresh store on the same
 	// key space, as after a restart -- sees the miss.
@@ -175,7 +177,7 @@ func TestValkeyCapabilityStore_SetRefreshesTheDocumentTTL(t *testing.T) {
 
 	require.NoError(t, store.Set(ctx, "old-session", "srv", caps))
 	ref := srv.HGet("muster:cap:old-session", "srv")
-	doc := "muster:capblob:" + strings.TrimPrefix(ref, "sha256:")
+	doc := "muster:capblob:" + strings.TrimPrefix(fieldRef(ref), "sha256:")
 
 	srv.FastForward(50 * time.Minute)
 	assert.InDelta(t, (10 * time.Minute).Seconds(), srv.TTL(doc).Seconds(), 5)
@@ -202,6 +204,33 @@ func TestValkeyCapabilityStore_ReadsLegacyInlineFields(t *testing.T) {
 	all, err := store.GetAll(ctx, "s")
 	require.NoError(t, err)
 	require.Len(t, all, 1)
+	assertSameCapabilities(t, caps, all["srv"])
+}
+
+// The listing time is the entry's, kept in the session's field next to the
+// reference: two sessions sharing one document keep their own times, an
+// entry written before the time was kept reads as listed at the zero time,
+// and a caller's own time is stored as given.
+func TestValkeyCapabilityStore_KeepsEachEntrysListingTime(t *testing.T) {
+	store, srv := newValkeyCapabilityStoreForTest(t, time.Hour)
+	ctx := context.Background()
+	caps := bigCapabilities("k8s")
+	earlier := time.Now().Add(-time.Hour).Truncate(time.Nanosecond)
+
+	require.NoError(t, store.Set(ctx, "session-a", "srv", caps))
+	require.NoError(t, store.Set(ctx, "session-b", "srv", &Capabilities{Tools: caps.Tools, Resources: caps.Resources, Prompts: caps.Prompts, ListedAt: earlier}))
+	srv.HSet("muster:cap:session-c", "srv", fieldRef(srv.HGet("muster:cap:session-a", "srv")))
+
+	a, err := store.Get(ctx, "session-a", "srv")
+	require.NoError(t, err)
+	assert.False(t, a.ListedAt.IsZero(), "stamped on Set")
+	b, err := store.Get(ctx, "session-b", "srv")
+	require.NoError(t, err)
+	assert.True(t, b.ListedAt.Equal(earlier), "a given time is kept: %s", b.ListedAt)
+	all, err := store.GetAll(ctx, "session-c")
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+	assert.True(t, all["srv"].ListedAt.IsZero(), "a field without a time reads as the zero time")
 	assertSameCapabilities(t, caps, all["srv"])
 }
 
@@ -235,7 +264,7 @@ func TestValkeyCapabilityStore_MigrateInlineEntries(t *testing.T) {
 	for _, key := range []string{"muster:cap:ext-1", "muster:cap:ext-2", "muster:cap:ext-3"} {
 		assert.True(t, strings.HasPrefix(srv.HGet(key, "k8s"), "sha256:"), "%s k8s is a reference", key)
 	}
-	assert.Equal(t, srv.HGet("muster:cap:ext-1", "k8s"), srv.HGet("muster:cap:ext-3", "k8s"), "migrated and freshly written fields share the document")
+	assert.Equal(t, fieldRef(srv.HGet("muster:cap:ext-1", "k8s")), fieldRef(srv.HGet("muster:cap:ext-3", "k8s")), "migrated and freshly written fields share the document")
 	assert.Equal(t, "not json", srv.HGet("muster:cap:ext-2", "junk"), "an undecodable field is left alone")
 
 	// Session TTLs are untouched by the migration.

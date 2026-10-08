@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/clock"
 	configPkg "github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/internal/mcpserver"
 
@@ -194,6 +195,49 @@ type ServerInfo struct {
 	Tools     []mcp.Tool     // Cached list of available tools
 	Resources []mcp.Resource // Cached list of available resources
 	Prompts   []mcp.Prompt   // Cached list of available prompts
+
+	// rolledAt is when the aggregator last saw this server's backend change
+	// underneath it: a connection whose MCP session the backend had forgotten
+	// (a new process behind the address), or a listing that answered
+	// differently from the one before. A session's cached capabilities
+	// listed before it describe the old process and are re-listed on the
+	// session's next read (catalogue_freshness.go). Zero until a change was
+	// seen; kept for this process's lifetime.
+	rolledAt time.Time
+}
+
+// rollCoalesce is how close two signs of a backend change have to be to count
+// as one change: a recovered session and the listing it enabled arrive
+// moments apart, and a backend does not roll twice within a second.
+const rollCoalesce = time.Second
+
+// MarkRolled records that the server's backend was seen to have changed at
+// now (on the process clock) and reports whether that is news: false when a
+// change was recorded within rollCoalesce of it already.
+func (s *ServerInfo) MarkRolled() bool {
+	now := clock.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if now.Sub(s.rolledAt) < rollCoalesce {
+		return false
+	}
+	s.rolledAt = now
+	return true
+}
+
+// RolledAt returns when the server's backend was last seen to have changed,
+// or the zero time when it never was in this process's lifetime.
+func (s *ServerInfo) RolledAt() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rolledAt
+}
+
+// PredatesRoll reports whether capabilities listed at listedAt describe the
+// server's backend from before the change last seen: they are stale and are
+// re-listed before they are served.
+func (s *ServerInfo) PredatesRoll(listedAt time.Time) bool {
+	return listedAt.Before(s.RolledAt())
 }
 
 // UpdateTools safely updates the server's cached tool list.
