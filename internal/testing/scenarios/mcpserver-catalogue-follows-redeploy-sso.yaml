@@ -1,0 +1,167 @@
+name: "mcpserver-catalogue-follows-redeploy-sso"
+description: "An SSO (token-forwarding) MCPServer whose backend is redeployed with another input schema for a tool it keeps, telling nobody, is described from the new process as soon as the session's next call met it: the recovered MCP session re-lists the server, no poll and no restart needed (#1440)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "oauth", "sso", "redeploy", "capabilities", "describe_tool", "issue-1440"]
+timeout: "3m"
+
+# Given: a token-forwarding MCP server behind muster's own authorization
+#        server, and a person signed in to muster and connected to it: the
+#        session holds a pooled connection, and the capability store has the
+#        session's list with list_issues taking its field filters at the top
+#        level. Production intervals: the capability poll is five minutes
+#        away and nothing advances the clock.
+# When:  the backend is redeployed with an image whose list_issues takes the
+#        field filters under `filters` only. The fresh process knows no
+#        session and notifies nobody.
+# Then:  describe_tool still shows the old schema -- nothing has met the new
+#        process yet. The session's next call to the server meets it: the
+#        old MCP session is refused, the client re-initialises, and the
+#        recovery re-lists the server for the session. describe_tool now
+#        shows `filters` and no longer `Team`, within seconds.
+
+pre_configuration:
+  intervals: "production"
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "sso-schema-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "muster-idp"
+          forward_token: true
+        tools:
+          - name: "list_issues"
+            description: "List issues (field names at the top level)"
+            input_schema:
+              type: "object"
+              properties:
+                board:
+                  type: "string"
+                Team:
+                  type: "string"
+            responses:
+              - response:
+                  count: 1
+
+steps:
+  - id: "server-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["sso-schema-server"]
+    timeout: "30s"
+
+  - id: "muster-auth-login"
+    tool: "test_muster_auth_login"
+    args: {}
+    expected:
+      success: true
+      contains: ["success", "ID token stored"]
+    timeout: "30s"
+
+  - id: "connected-with-the-forwarded-token"
+    tool: "core_auth_login"
+    args:
+      server: "sso-schema-server"
+    expected:
+      success: true
+    timeout: "30s"
+
+  - id: "call-before-the-roll"
+    description: "The call pools the session's connection to the backend"
+    tool: "x_sso-schema-server_list_issues"
+    args:
+      board: "roadmap"
+      Team: "Bumblebee"
+    expected:
+      success: true
+      contains: ["count"]
+    timeout: "15s"
+
+  - id: "described-from-the-old-process"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_sso-schema-server_list_issues"
+    expected:
+      success: true
+      contains: ["Team"]
+      not_contains: ["filters"]
+    timeout: "15s"
+
+  - id: "backend-rolled-with-another-schema"
+    description: "A fresh process behind the same port serves list_issues with the field filters under filters; it has never seen muster's session, so no list_changed goes out"
+    tool: "test_redeploy_mock_server"
+    args:
+      server: "sso-schema-server"
+      add_tools:
+        - name: "list_issues"
+          description: "List issues (field names under one object)"
+          input_schema:
+            type: "object"
+            properties:
+              board:
+                type: "string"
+              filters:
+                type: "object"
+    expected:
+      success: true
+      contains: ["Redeployed mock server", "tools changed: +list_issues"]
+    timeout: "15s"
+
+  - id: "still-described-from-the-old-process"
+    description: "Nothing has met the new process: the session's entry is served as cached"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_sso-schema-server_list_issues"
+    expected:
+      success: true
+      contains: ["Team"]
+      not_contains: ["filters"]
+    timeout: "15s"
+
+  - id: "call-meets-the-new-process"
+    description: "The pooled connection's MCP session is refused by the new process and recovered; the call succeeds on the new session, which answers as a redeployed mock tool does"
+    tool: "x_sso-schema-server_list_issues"
+    args:
+      board: "roadmap"
+    expected:
+      success: true
+      contains: ["list_issues"]
+    timeout: "15s"
+
+  - id: "described-from-the-new-process"
+    description: "The recovery re-listed the server for the session: the catalogue follows without a poll"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_sso-schema-server_list_issues"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["filters"]
+      not_contains: ["Team"]
+    timeout: "45s"
+
+# The recovery re-listed the server for the session; neither a notification
+# nor the poll did.
+instance_logs:
+  contains:
+    - "recovered a lost MCP session"
+    - "Session capability refresh (recovery): updated capabilities for sso-schema-server"

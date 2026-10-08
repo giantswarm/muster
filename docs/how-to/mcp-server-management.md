@@ -660,6 +660,30 @@ listing that fails leaves the cached list as it is. The log line for a change
 names its trigger, `Capability refresh (poll): updated 3 tools for <server>`,
 as against `(notification)`.
 
+The poll is the catch-all; a backend redeployed with another catalogue is
+usually re-listed before it runs. The new process does not know the MCP
+sessions the old one issued, so the next request on any connection to it is
+answered 404 and the client re-establishes its session with a fresh handshake
+(session recovery). That is muster's sign of a new process behind the address
+-- no watch on the backend's pods, so it works for a backend off the cluster
+too -- and every recovered session re-lists the server through the recovered
+connection: a shared client's within one health-probe interval, a session's
+on the session's next call. The server is marked rolled at the same time, and
+every other session's cached list from before the mark is re-listed, through
+that session's connection, before `describe_tool`, `filter_tools` or a
+`tools/list` serves it (bounded to 15 s, the cached list is served when the
+backend does not answer in time). Three more signs mark a server rolled where
+no session is lost: a listing that answers differently from the one cached
+after the last mark (a stateless backend has no session to forget), a call the
+backend refuses as invalid params (the caller followed a schema the backend no
+longer serves: the server is re-listed first, and when the called tool's
+schema turns out to have changed the refusal says so and points at
+`describe_tool`), and a connection a tool call opens for a session that holds a
+cached list from an earlier one. The log line names these triggers too:
+`(recovery)`, `(read)`, `(refusal)`, `(connect)`. What stays until the poll
+is a backend whose catalogue changed without a session being lost and that no
+session calls or reads meanwhile.
+
 ## Advanced Configuration
 
 ### Environment Variables for Stdio Servers

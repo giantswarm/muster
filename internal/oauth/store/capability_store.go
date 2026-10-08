@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/clock"
+
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -16,6 +18,15 @@ type Capabilities struct {
 	Tools     []mcp.Tool
 	Resources []mcp.Resource
 	Prompts   []mcp.Prompt
+	// ListedAt is when the server answered the listing this entry holds, on
+	// the process clock. A store stamps it on Set when the caller left it
+	// zero. It is the entry's, not the document's: two sessions that listed
+	// the same catalogue at different times share one document (the Valkey
+	// store addresses documents by content) and keep their own times. The
+	// aggregator compares it with the time it last saw the server's backend
+	// change to tell an entry that predates a redeploy from one listed after
+	// it (issue #1440).
+	ListedAt time.Time `json:"-"`
 }
 
 // DeepCopy returns a new Capabilities with independent slice backing arrays.
@@ -28,7 +39,17 @@ func (c *Capabilities) DeepCopy() *Capabilities {
 		Tools:     append([]mcp.Tool(nil), c.Tools...),
 		Resources: append([]mcp.Resource(nil), c.Resources...),
 		Prompts:   append([]mcp.Prompt(nil), c.Prompts...),
+		ListedAt:  c.ListedAt,
 	}
+}
+
+// listedAt returns the time an entry being stored was listed: the caller's,
+// or now when the caller left it zero.
+func listedAt(caps *Capabilities) time.Time {
+	if !caps.ListedAt.IsZero() {
+		return caps.ListedAt
+	}
+	return clock.Now()
 }
 
 // CapabilityStore stores per-session, per-server MCP capabilities.
@@ -134,6 +155,7 @@ func (s *InMemoryCapabilityStore) Set(_ context.Context, sessionID, serverName s
 		Tools:     append([]mcp.Tool(nil), caps.Tools...),
 		Resources: append([]mcp.Resource(nil), caps.Resources...),
 		Prompts:   append([]mcp.Prompt(nil), caps.Prompts...),
+		ListedAt:  listedAt(caps),
 	}
 	sess.servers[serverName] = stored
 

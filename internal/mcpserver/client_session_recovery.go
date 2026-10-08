@@ -162,5 +162,9 @@ func (b *baseMCPClient) recoverSession(ctx context.Context, generation uint64, e
 
 	b.reconnectPending = false
 	b.recoveryErr = nil
+	// The new process behind the address may serve another catalogue than
+	// the one that issued the lost session: whoever holds this client is
+	// told, so it can re-list (the aggregator does, issue #1440).
+	b.notifyRecovered()
 	return true, nil
 }
