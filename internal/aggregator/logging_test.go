@@ -88,8 +88,12 @@ func lastJSONLine(t *testing.T, buf *bytes.Buffer) map[string]any {
 	t.Helper()
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	require.NotEmpty(t, lines)
-	raw := lines[len(lines)-1]
+	return parseLogLine(t, lines[len(lines)-1])
+}
 
+// parseLogLine parses one captured log line into its fields.
+func parseLogLine(t *testing.T, raw string) map[string]any {
+	t.Helper()
 	// Try JSON first.
 	var m map[string]any
 	if err := json.Unmarshal([]byte(raw), &m); err == nil {
