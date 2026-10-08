@@ -2044,7 +2044,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			start := time.Now()
 			ctx := observability.AnnotateDownstreamCall(ctx, sessionServerName, toolName, originalName)
 			res, err := a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
-			a.downstreamMetrics.record(ctx, sessionServerName, toolName, start, res, err)
+			a.finishDispatch(ctx, sessionServerName, toolName, start, res, err)
 			return res, err
 		}
 	}
@@ -2164,7 +2164,7 @@ func (a *AggregatorServer) familyToolUnavailableError(ctx context.Context, toolN
 // branching that previously lived inline in CallToolInternal.
 func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (res *mcp.CallToolResult, err error) {
 	start := time.Now()
-	defer func() { a.downstreamMetrics.record(ctx, serverName, toolName, start, res, err) }()
+	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
 	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
@@ -2243,7 +2243,12 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 //
 // Returns the tool execution result converted to MCP format, or an error if
 // no appropriate handler is found or execution fails.
-func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
+//
+// A core tool reaches no backend, so its dispatch line names no server; it
+// is still one line per call, like a backend tool's.
+func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]any) (res *mcp.CallToolResult, err error) {
+	start := time.Now()
+	defer func() { logDispatch(ctx, "", toolName, start, res, err) }()
 	logging.DebugWithAttrs("Aggregator", "callCoreToolDirectly called",
 		slog.String("tool", toolName))
 

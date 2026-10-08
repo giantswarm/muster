@@ -189,6 +189,35 @@ msg=tool call subsystem=MCP-Tool tool=call_tool outcome=error duration_s=2.118 e
 
 The line carries the final post-handler outcome the client sees.
 
+A second line of the same subsystem is written once the call ran, by the
+dispatch layer that resolved it (`CallToolInternal`, or the handler of a
+core tool a client calls directly): who called which tool on which server.
+For an agent session the boundary line's `tool` is always `call_tool`, so
+this is the line an audit or a proof counts:
+
+```
+msg="tool dispatched" subsystem=MCP-Tool subject=CiQwOGE4... server=kubernetes tool=x_kubernetes_list_pods outcome=ok duration_s=0.041 transportSessionID=mcp-session-ffa8afa1-eb56-4692-98d2-...
+```
+
+`subject` is the caller's subject truncated to its first eight characters,
+like every identity in the log. `server` is the MCPServer the call reached;
+it is absent for muster's own core and workflow tools (`core_*`,
+`workflow_*`), which reach no backend. `tool` is the aggregator-exposed
+name, the one `list_tools` shows. A workflow's steps each write their own
+line; `call_tool` itself writes none, the tool it runs does. Arguments and
+results never appear on the line, nor does the error: the boundary line
+carries it, and a backend's error can quote what the call carried.
+
+It sits next to the connection line of the subsystem `Connection`, written
+once when a session connects a server:
+
+```
+msg="User CiQwOGE4... connected to kubernetes with 42 tools, 3 resources, 0 prompts" subsystem=Connection
+```
+
+Together they say which subject connected which server and what it ran
+there.
+
 When an OTLP endpoint is set, the log records go to the OTLP exporter and are also written as JSON to stderr, with `trace_id` and `span_id`. Thus `kubectl logs` shows the log, and the log stays available when the collector is down. `muster serve --silent` stops the stderr copy.
 
 ## Query catalog
@@ -237,6 +266,15 @@ would put every observation in the first bucket.
 ```
 {namespace="muster", container="muster"} | json | subsystem="MCP-Tool" | outcome=~"error.*"
 ```
+
+### Loki — one subject's calls on one server
+
+```
+{namespace="muster", container="muster"} | json | msg="tool dispatched" | subject="CiQwOGE4..." | server="kubernetes"
+```
+
+`count_over_time` of that stream is the number of calls the subject ran
+on the server.
 
 ## Verification on a real cluster
 

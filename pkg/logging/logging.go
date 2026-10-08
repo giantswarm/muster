@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	mcptoolkitlogging "github.com/giantswarm/mcp-toolkit/logging"
 	"github.com/go-logr/logr"
@@ -47,7 +48,10 @@ func (l LogLevel) SlogLevel() slog.Level {
 	}
 }
 
-var defaultLogger *slog.Logger
+// defaultLogger is the logger every log call reads. An Init swaps it while
+// other goroutines log, a test capturing the log for one, so the swap is
+// atomic.
+var defaultLogger atomic.Pointer[slog.Logger]
 
 // initControllerRuntimeLogger initializes the controller-runtime logger using the provided slog handler.
 // This must be called before any controller-runtime operations (informers, caches, etc.) are used,
@@ -86,7 +90,7 @@ func InitForCLI(filterLevel LogLevel, output io.Writer) {
 		mcptoolkitlogging.WithLevel(filterLevel.SlogLevel()),
 		mcptoolkitlogging.WithOutput(output),
 	)
-	defaultLogger = logger
+	defaultLogger.Store(logger)
 	slog.SetDefault(logger)
 	initControllerRuntimeLogger(logger.Handler())
 }
@@ -125,7 +129,7 @@ func Init(ctx context.Context, filterLevel LogLevel, output io.Writer, serviceNa
 	if err != nil {
 		return nil, fmt.Errorf("init toolkit logging: %w", err)
 	}
-	defaultLogger = logger
+	defaultLogger.Store(logger)
 	slog.SetDefault(logger)
 	initControllerRuntimeLogger(logger.Handler())
 	return Shutdown(shutdown), nil
@@ -142,7 +146,8 @@ func otlpLogsConfigured() bool {
 
 func logInternal(ctx context.Context, level LogLevel, subsystem string, err error, messageFmt string, args ...interface{}) {
 	// Check if the level is enabled by the configured handler before proceeding.
-	if defaultLogger == nil || !defaultLogger.Enabled(ctx, level.SlogLevel()) {
+	logger := defaultLogger.Load()
+	if logger == nil || !logger.Enabled(ctx, level.SlogLevel()) {
 		return
 	}
 
@@ -157,7 +162,7 @@ func logInternal(ctx context.Context, level LogLevel, subsystem string, err erro
 		slogAttrs = append(slogAttrs, slog.String("error", err.Error()))
 	}
 
-	defaultLogger.LogAttrs(ctx, level.SlogLevel(), msg, slogAttrs...)
+	logger.LogAttrs(ctx, level.SlogLevel(), msg, slogAttrs...)
 }
 
 // Debug logs a debug message.
@@ -233,13 +238,14 @@ func WarnWithAttrsCtx(ctx context.Context, subsystem string, msg string, attrs .
 }
 
 func logWithAttrs(ctx context.Context, level slog.Level, subsystem string, msg string, attrs ...slog.Attr) {
-	if defaultLogger == nil || !defaultLogger.Enabled(ctx, level) {
+	logger := defaultLogger.Load()
+	if logger == nil || !logger.Enabled(ctx, level) {
 		return
 	}
 	allAttrs := make([]slog.Attr, 0, len(attrs)+1)
 	allAttrs = append(allAttrs, slog.String("subsystem", subsystem))
 	allAttrs = append(allAttrs, attrs...)
-	defaultLogger.LogAttrs(ctx, level, msg, allAttrs...)
+	logger.LogAttrs(ctx, level, msg, allAttrs...)
 }
 
 // Error logs an error message.

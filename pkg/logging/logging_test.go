@@ -38,7 +38,7 @@ func TestInitForCLI(t *testing.T) {
 	InitForCLI(LevelInfo, &buf)
 
 	// Test that defaultLogger is set
-	if defaultLogger == nil {
+	if defaultLogger.Load() == nil {
 		t.Error("Expected defaultLogger to be set after InitForCLI")
 	}
 
@@ -150,8 +150,8 @@ func TestInfoCtx_PassesContextThroughToHandler(t *testing.T) {
 			seen = v
 		}
 	}}
-	defaultLogger = slog.New(rec)
-	t.Cleanup(func() { defaultLogger = nil })
+	defaultLogger.Store(slog.New(rec))
+	t.Cleanup(func() { defaultLogger.Store(nil) })
 
 	ctx := context.WithValue(context.Background(), probeKey, "carried")
 	InfoCtx(ctx, "Test", "hello")
