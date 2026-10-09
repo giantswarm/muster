@@ -29,7 +29,7 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 						Host: "localhost",
 					},
 				},
-				ConfigPath: config.GetDefaultConfigPathOrPanic(),
+				ConfigPath: config.DefaultConfigPathFlag(),
 			},
 			expectError: false,
 			errorReason: "valid config should succeed",
@@ -45,7 +45,7 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 						Host: "localhost",
 					},
 				},
-				ConfigPath: config.GetDefaultConfigPathOrPanic(),
+				ConfigPath: config.DefaultConfigPathFlag(),
 			},
 			expectError: false,
 			errorReason: "default config should work",
@@ -61,7 +61,7 @@ func TestNewApplication_ConfigValidation(t *testing.T) {
 						Host: "localhost",
 					},
 				},
-				ConfigPath: config.GetDefaultConfigPathOrPanic(),
+				ConfigPath: config.DefaultConfigPathFlag(),
 			},
 			expectError: false,
 			errorReason: "minimal config should work",
@@ -172,7 +172,7 @@ func TestConfigureLogging(t *testing.T) {
 						Host: "localhost",
 					},
 				},
-				ConfigPath: config.GetDefaultConfigPathOrPanic(),
+				ConfigPath: config.DefaultConfigPathFlag(),
 			}
 
 			// Verify debug flag is set correctly

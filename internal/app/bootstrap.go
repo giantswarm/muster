@@ -39,7 +39,8 @@ type Application struct {
 //
 // Configuration Loading Behavior:
 //   - If cfg.ConfigPath is set: loads from the specified directory only
-//   - If cfg.ConfigPath is empty: uses layered loading (defaults + user + project)
+//   - If cfg.ConfigPath is empty: loads from the default directory (~/.config/muster),
+//     or fails without a home directory
 //
 // The function returns an error if any critical initialization step fails,
 // including configuration loading or service initialization failures.
@@ -64,8 +65,9 @@ func NewApplication(cfg *Config) (*Application, error) {
 	var musterCfg config.MusterConfig
 	var err error
 
-	if cfg.ConfigPath == "" {
-		panic("Logic error: empty ConfigPath")
+	cfg.ConfigPath, err = config.ResolveConfigPath(cfg.ConfigPath)
+	if err != nil {
+		return nil, err
 	}
 
 	musterCfg, err = config.LoadConfig(cfg.ConfigPath)

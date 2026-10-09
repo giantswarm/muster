@@ -261,10 +261,6 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 		}
 	} else {
 		// Fall back to config-based endpoint resolution
-		if options.ConfigPath == "" {
-			return nil, fmt.Errorf("Logic error: empty tool executor ConfigPath") //nolint:staticcheck
-		}
-
 		cfg, err := config.LoadConfig(options.ConfigPath)
 		if err != nil {
 			return nil, err

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 
@@ -48,6 +49,13 @@ func NewAgentTokenStore(serverURL string, tokenStore *TokenStore) *AgentTokenSto
 // GetToken returns the current OAuth token from the file-based store.
 // Returns transport.ErrNoToken when no token is available, which signals
 // mcp-go to initiate the OAuth authorization flow.
+//
+// The expiry handed to mcp-go is the store's own: the stored one less
+// tokenExpiryBuffer. mcp-go refreshes only a token it sees as expired, while
+// the store calls a token invalid tokenExpiryBuffer earlier; with the stored
+// expiry, a connection in that last minute went out with the old token
+// unrefreshed and the store then answered auth_required for a grant the
+// person still holds.
 func (s *AgentTokenStore) GetToken(ctx context.Context) (*transport.Token, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -71,8 +79,17 @@ func (s *AgentTokenStore) GetToken(ctx context.Context) (*transport.Token, error
 		AccessToken:  storedToken.AccessToken,
 		TokenType:    storedToken.TokenType,
 		RefreshToken: storedToken.RefreshToken,
-		ExpiresAt:    storedToken.Expiry,
+		ExpiresAt:    validUntil(storedToken.Expiry),
 	}, nil
+}
+
+// validUntil is the moment the store stops calling a token with this expiry
+// valid (isTokenValid); zero, no expiry, stays zero.
+func validUntil(expiry time.Time) time.Time {
+	if expiry.IsZero() {
+		return expiry
+	}
+	return expiry.Add(-tokenExpiryBuffer)
 }
 
 // SaveToken persists a refreshed token to the file-based store.

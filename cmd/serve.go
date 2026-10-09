@@ -178,7 +178,7 @@ func init() {
 	// Register command flags
 	serveCmd.Flags().BoolVar(&serveDebug, "debug", false, "Enable general debug logging")
 	serveCmd.Flags().BoolVar(&serveSilent, "silent", false, "Disable console log output. Does not silence OTLP — unset OTEL_EXPORTER_OTLP_* or set OTEL_SDK_DISABLED=true for that.")
-	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	serveCmd.Flags().StringVar(&serveConfigPath, "config-path", config.DefaultConfigPathFlag(), "Configuration directory")
 
 	// OAuth MCP Client/Proxy flags (for authenticating TO remote MCP servers - ADR 004)
 	// These configure muster as an OAuth client when connecting to remote MCP servers
