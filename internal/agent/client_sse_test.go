@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/giantswarm/muster/v5/internal/ssetransport/ssetest"
+	"github.com/giantswarm/muster/v5/internal/ssetest"
 )
 
 // TestClientCallReturnsAfterAHeldStream proves a muster agent tool call
