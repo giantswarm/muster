@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && envtest
 
 package testing
 
@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -94,4 +96,27 @@ func (cp *envtestControlPlane) stop() error {
 	err := cp.env.Stop()
 	cp.env = nil
 	return err
+}
+
+// crdChartDir is the CRD chart whose CRDs the envtest API server gets, relative
+// to the repository root.
+var crdChartDir = filepath.Join("helm", "muster-crds", "files", "crds")
+
+// findCRDDirectory locates the CRD chart's CRDs from the working directory
+// upwards: muster test runs from the repository (make test, a checkout) and
+// the API server needs the CRDs of the code under test, not a released copy.
+func findCRDDirectory() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current directory: %w", err)
+	}
+	for dir := cwd; ; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, crdChartDir)
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate, nil
+		}
+		if filepath.Dir(dir) == dir {
+			return "", fmt.Errorf("no %s found between %s and the filesystem root; run muster test from a muster checkout", crdChartDir, cwd)
+		}
+	}
 }

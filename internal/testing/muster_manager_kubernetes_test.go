@@ -61,6 +61,9 @@ func TestValidateModeConfig(t *testing.T) {
 }
 
 func TestKubernetesModeUnavailableReason(t *testing.T) {
+	if !kubernetesModeSupported {
+		t.Skip("built without the envtest tag")
+	}
 	t.Setenv("KUBEBUILDER_ASSETS", "")
 	require.Contains(t, kubernetesModeUnavailableReason(), "KUBEBUILDER_ASSETS is not set")
 
@@ -163,6 +166,9 @@ func TestKubernetesToolsRefuseAFilesystemInstance(t *testing.T) {
 }
 
 func TestStartKubernetesWithoutAssetsFailsNamingTheReason(t *testing.T) {
+	if !kubernetesModeSupported {
+		t.Skip("built without the envtest tag")
+	}
 	t.Setenv("KUBEBUILDER_ASSETS", "")
 	m := newStorageTestManager(t)
 	err := m.startKubernetes(context.Background(), "inst", t.TempDir(), &MusterPreConfiguration{Mode: ModeKubernetes}, m.logger)

@@ -537,11 +537,12 @@ Where `KUBEBUILDER_ASSETS` is not set, every Kubernetes-mode scenario is
 reported as **skipped** with that reason -- never as passed. `make test`
 (the go-build CI job) runs the suite without the binaries; `make test-envtest`
 (the test-envtest CI job) provisions them with setup-envtest and runs
-`muster test --mode kubernetes`. Locally:
+`muster test --mode kubernetes`. The control plane is compiled in only with the `envtest` build tag, because controller-runtime's envtest package creates a cache directory at start-up and would stop the release binary, and its scratch image, from running without a writable `/tmp`. Locally:
 
 ```bash
 export KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)"
-PATH="$PWD:$PATH" ./muster test --mode kubernetes --parallel 8 --base-port 31000
+go build -tags envtest -o muster-envtest .
+./muster-envtest test --mode kubernetes --parallel 8 --base-port 31000
 ```
 
 Three test tools act on the CRs and the API server while a scenario runs:
