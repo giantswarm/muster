@@ -17,18 +17,47 @@ const (
 	configFileName = "config.yaml"
 )
 
-func GetDefaultConfigPathOrPanic() string {
+// DefaultConfigPath returns the default configuration directory,
+// ~/.config/muster. Without a home directory (HOME unset) it returns an error
+// that tells the caller to pass --config-path.
+func DefaultConfigPath() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		panic(fmt.Errorf("could not determine user config directory: %w", err))
+		return "", fmt.Errorf("cannot determine the default configuration directory (%w): set HOME or pass --config-path", err)
 	}
 
-	return filepath.Join(homeDir, userConfigDir)
+	return filepath.Join(homeDir, userConfigDir), nil
+}
+
+// DefaultConfigPathFlag returns the default of a --config-path flag: the
+// default configuration directory, or "" without a home directory, so that
+// the binary starts and only a command that needs the directory fails, with
+// the error of ResolveConfigPath.
+func DefaultConfigPathFlag() string {
+	path, err := DefaultConfigPath()
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
+// ResolveConfigPath returns configPath, or the default configuration
+// directory when configPath is empty.
+func ResolveConfigPath(configPath string) (string, error) {
+	if configPath != "" {
+		return configPath, nil
+	}
+	return DefaultConfigPath()
 }
 
 // LoadConfig loads configuration from a single specified directory.
 // The directory should contain config.yaml and subdirectories for other configuration types.
+// An empty configPath means the default configuration directory.
 func LoadConfig(configPath string) (MusterConfig, error) {
+	configPath, err := ResolveConfigPath(configPath)
+	if err != nil {
+		return MusterConfig{}, err
+	}
 	// Load main config.yaml from the specified path
 	configFilePath := filepath.Join(configPath, configFileName)
 	config := GetDefaultConfigWithRoles() // Start with default config

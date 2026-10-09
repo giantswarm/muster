@@ -85,8 +85,9 @@
 //
 // # Usage Examples
 //
-//	// Load configuration from default location
-//	cfg, err := config.LoadConfig(config.GetDefaultConfigPathOrPanic())
+//	// Load configuration from the default location (~/.config/muster);
+//	// without a home directory this returns an error naming --config-path
+//	cfg, err := config.LoadConfig("")
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

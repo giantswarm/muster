@@ -168,7 +168,10 @@ func (a *ConfigAdapter) ExecuteTool(ctx context.Context, toolName string, args m
 func (a *ConfigAdapter) saveConfig() error {
 	if a.configPath == "" {
 		// Use the standard user configuration path
-		userConfigDir := config.GetDefaultConfigPathOrPanic()
+		userConfigDir, err := config.DefaultConfigPath()
+		if err != nil {
+			return err
+		}
 
 		// Create directory if it doesn't exist
 		if err := os.MkdirAll(userConfigDir, 0755); err != nil { //nolint:gosec

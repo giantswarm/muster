@@ -23,7 +23,7 @@ func TestConfigValidation(t *testing.T) {
 				MusterConfig: &config.MusterConfig{
 					Aggregator: config.AggregatorConfig{},
 				},
-				ConfigPath: config.GetDefaultConfigPathOrPanic(),
+				ConfigPath: config.DefaultConfigPathFlag(),
 			},
 			wantError: false,
 		},
@@ -37,7 +37,7 @@ func TestConfigValidation(t *testing.T) {
 						Host: "localhost",
 					},
 				},
-				ConfigPath: config.GetDefaultConfigPathOrPanic(),
+				ConfigPath: config.DefaultConfigPathFlag(),
 			},
 			wantError: false,
 		},
@@ -68,7 +68,7 @@ func TestConfigDefaults(t *testing.T) {
 				Host: "",
 			},
 		},
-		ConfigPath: config.GetDefaultConfigPathOrPanic(),
+		ConfigPath: config.DefaultConfigPathFlag(),
 	}
 
 	// Verify the config structure is valid
