@@ -117,3 +117,35 @@ func TestLoadConfigFromPath_InvalidYAML(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "error loading config")
 }
+
+func TestDefaultConfigPathWithoutHome(t *testing.T) {
+	t.Setenv("HOME", "")
+
+	_, err := DefaultConfigPath()
+	assert.ErrorContains(t, err, "--config-path")
+	assert.Empty(t, DefaultConfigPathFlag())
+
+	_, err = ResolveConfigPath("")
+	assert.ErrorContains(t, err, "--config-path")
+
+	_, err = LoadConfig("")
+	assert.ErrorContains(t, err, "--config-path")
+
+	path, err := ResolveConfigPath("/etc/muster")
+	assert.NoError(t, err)
+	assert.Equal(t, "/etc/muster", path)
+}
+
+func TestDefaultConfigPathWithHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	path, err := DefaultConfigPath()
+	assert.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, userConfigDir), path)
+	assert.Equal(t, path, DefaultConfigPathFlag())
+
+	resolved, err := ResolveConfigPath("")
+	assert.NoError(t, err)
+	assert.Equal(t, path, resolved)
+}

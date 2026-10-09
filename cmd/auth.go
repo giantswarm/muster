@@ -116,7 +116,7 @@ func init() {
 	// Common flags for auth commands (shared across subcommands)
 	authCmd.PersistentFlags().StringVar(&authEndpoint, "endpoint", "", "Specific endpoint URL to authenticate to")
 	authCmd.PersistentFlags().StringVar(&authContext, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
-	authCmd.PersistentFlags().StringVar(&authConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	authCmd.PersistentFlags().StringVar(&authConfigPath, "config-path", config.DefaultConfigPathFlag(), "Configuration directory")
 	authCmd.PersistentFlags().BoolVarP(&authQuiet, "quiet", "q", false, "Suppress non-essential output")
 
 	// Logout-specific flags (only on logout subcommand)

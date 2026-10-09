@@ -49,7 +49,7 @@ func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
 	cmd.PersistentFlags().BoolVar(&flags.NoHeaders, "no-headers", false, "Suppress header row in table output")
 	cmd.PersistentFlags().BoolVarP(&flags.Quiet, "quiet", "q", false, "Suppress non-essential output")
 	cmd.PersistentFlags().BoolVar(&flags.Debug, "debug", false, "Enable debug logging (show MCP protocol messages)")
-	cmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	cmd.PersistentFlags().StringVar(&flags.ConfigPath, "config-path", config.DefaultConfigPathFlag(), "Configuration directory")
 	cmd.PersistentFlags().StringVar(&flags.Endpoint, "endpoint", GetDefaultEndpoint(), "Remote muster aggregator endpoint URL (env: MUSTER_ENDPOINT)")
 	cmd.PersistentFlags().StringVar(&flags.Context, "context", "", "Use a specific context (env: MUSTER_CONTEXT)")
 	cmd.PersistentFlags().StringVar(&flags.AuthMode, "auth", "", "Authentication mode: none (default: fail with auth_required), prompt, or auto (env: MUSTER_AUTH_MODE)")
