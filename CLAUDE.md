@@ -66,7 +66,7 @@ All inter-package communication goes through `internal/api`. This is the most cr
 
 ## Conventions
 
-- **Go version**: 1.25.0 (toolchain 1.26.1)
+- **Go version**: 1.26.0 (toolchain 1.27.2)
 - **Error handling**: Wrap with `fmt.Errorf("context: %w", err)`
 - **File size**: Keep under 400 lines, refactor larger files
 - **Package docs**: Every package must have a `doc.go`
