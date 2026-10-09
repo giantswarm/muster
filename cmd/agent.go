@@ -99,7 +99,7 @@ func init() {
 	agentCmd.Flags().BoolVar(&agentREPL, "repl", false, "Start interactive REPL mode")
 	agentCmd.Flags().BoolVar(&agentMCPServer, "mcp-server", false, "Run as MCP server (stdio transport)")
 	agentCmd.Flags().StringVar(&agentTransport, "transport", string(agent.TransportStreamableHTTP), "Transport to use (streamable-http, sse)")
-	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.GetDefaultConfigPathOrPanic(), "Configuration directory")
+	agentCmd.Flags().StringVar(&agentConfigPath, "config-path", config.DefaultConfigPathFlag(), "Configuration directory")
 	agentCmd.Flags().BoolVar(&agentDisableAutoSSO, "disable-auto-sso", false, "Disable automatic authentication with remote MCP servers after muster auth")
 	agentCmd.Flags().StringVar(&agentAuthMode, "auth", "", "Authentication mode: none (default: fail with auth_required), prompt, or auto (env: MUSTER_AUTH_MODE)")
 	agentCmd.Flags().BoolVar(&agentLogin, cli.LoginFlag, false, "Open the browser to sign in when authentication is required (same as --auth auto)")

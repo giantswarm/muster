@@ -17,12 +17,7 @@ func TestVersionRunsWithoutAWritableTmp(t *testing.T) {
 		t.Skip("builds the binary")
 	}
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "muster")
-	build := exec.Command("go", "build", "-o", binary, ".")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
+	binary := buildMuster(t)
 
 	// A regular file as HOME and TMPDIR makes every mkdir below them fail, root included.
 	notADir := filepath.Join(dir, "not-a-dir")
@@ -38,4 +33,17 @@ func TestVersionRunsWithoutAWritableTmp(t *testing.T) {
 	if !strings.HasPrefix(string(out), "muster version ") {
 		t.Fatalf("unexpected output:\n%s", out)
 	}
+}
+
+// buildMuster builds the release binary (CGO disabled, like the image) into a
+// temporary directory and returns its path.
+func buildMuster(t *testing.T) string {
+	t.Helper()
+	binary := filepath.Join(t.TempDir(), "muster")
+	build := exec.Command("go", "build", "-o", binary, ".")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	return binary
 }

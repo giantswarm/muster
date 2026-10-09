@@ -10,7 +10,7 @@ import (
 )
 
 func TestNewStorage(t *testing.T) {
-	ds := NewStorageWithPath(GetDefaultConfigPathOrPanic())
+	ds := NewStorageWithPath(DefaultConfigPathFlag())
 	if ds == nil {
 		t.Fatal("NewStorage returned nil")
 	}
@@ -410,7 +410,7 @@ func TestStorage_DefaultBehavior(t *testing.T) {
 }
 
 func TestStorage_sanitizeFilename(t *testing.T) {
-	ds := NewStorageWithPath(GetDefaultConfigPathOrPanic())
+	ds := NewStorageWithPath(DefaultConfigPathFlag())
 
 	tests := []struct {
 		name  string
