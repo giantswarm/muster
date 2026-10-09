@@ -4,3 +4,4 @@ CVE-2026-33815 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
 CVE-2026-33816 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
 CVE-2026-41889 until=2026-10-30 # github.com/jackc/pgx/v5@v5.8.0
 CVE-2021-43668 until=2026-10-30 # github.com/syndtr/goleveldb@v1.0.1-0.20220721030215-126854af5e6d
+CVE-2026-84445 until=2026-11-09 # google.golang.org/grpc@v1.84.0, OSS Index range error, fixed per GHSA-2v4p-qf9q-27wj; https://github.com/giantswarm/muster/issues/1453
