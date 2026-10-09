@@ -138,6 +138,8 @@ github.com/fsnotify/fsnotify v1.10.1 h1:b0/UzAf9yR5rhf3RPm9gf3ehBPpf0oZKIjtpKrx5
 github.com/fsnotify/fsnotify v1.10.1/go.mod h1:TLheqan6HD6GBK6PrDWyDPBaEV8LspOxvPSjC+bVfgo=
 github.com/fxamacker/cbor/v2 v2.9.1 h1:2rWm8B193Ll4VdjsJY28jxs70IdDsHRWgQYAI80+rMQ=
 github.com/fxamacker/cbor/v2 v2.9.1/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
+github.com/giantswarm/mcp-go v1.1.2-0.20261009114411-06e142aa0009 h1:vdEO5NzfNeVe2oU0OiYMM/WHSvn5GpwGUUqdQmz8J0U=
+github.com/giantswarm/mcp-go v1.1.2-0.20261009114411-06e142aa0009/go.mod h1:r2fW4o3wsoJ7IMsx1Wuq5xeP8PRGXPDfNveoGAYbb/s=
 github.com/giantswarm/mcp-oauth v1.7.0 h1:6tgm7OLs8Eo3iksAFrhuFHfdha7hxJqwMq06fDsqUZs=
 github.com/giantswarm/mcp-oauth v1.7.0/go.mod h1:/qsorGcyP82HF68pxavC0slW5Cru0ziIRZ9C8DcS/eg=
 github.com/giantswarm/mcp-toolkit v0.2.15 h1:d1kXCAdeaQEgMe2Bd6B/zn6HSawoAwDira+/6J/ZZm8=
@@ -307,8 +309,6 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/letsencrypt/boulder v0.20260309.0 h1:kZynrxK3QfqLGx6hhoz+Rfs3hgltJs1p9Mp+4+VwnY0=
 github.com/letsencrypt/boulder v0.20260309.0/go.mod h1:yG8lj8pNPZ8taq3oNdTpfBS+eC74IaEuiewqzVpXiWE=
-github.com/mark3labs/mcp-go v1.2.0 h1:ivQVs9Eb6Cs1ufChpfMCF9+dPrDC6ZxFBKqLwcxp1a4=
-github.com/mark3labs/mcp-go v1.2.0/go.mod h1:r2fW4o3wsoJ7IMsx1Wuq5xeP8PRGXPDfNveoGAYbb/s=
 github.com/mark3labs/mcp-go/otel v0.54.0 h1:ZRr8iC9skLwLGXOscFEsbdbIn3f1RdX8O292S5SU7P4=
 github.com/mark3labs/mcp-go/otel v0.54.0/go.mod h1:P16AS19jEeF6qI1yVQ06yxK8aMc5y6dP46apwGnZzKg=
 github.com/mattn/go-colorable v0.1.14 h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=
