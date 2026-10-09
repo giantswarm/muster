@@ -24,8 +24,8 @@ func TestNewMCPToolInfo(t *testing.T) {
 		},
 		{
 			name:       "server name wins over a divergent tool prefix",
-			entry:      metatools.ToolInfo{Name: "x_pro_issues", Summary: "List issues.", Server: "gazelle-mcp-pro", Kind: "tool"},
-			wantServer: "gazelle-mcp-pro",
+			entry:      metatools.ToolInfo{Name: "x_pro_issues", Summary: "List issues.", Server: "mcp-pro", Kind: "tool"},
+			wantServer: "mcp-pro",
 			wantText:   "List issues.",
 		},
 		{

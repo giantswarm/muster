@@ -10,7 +10,7 @@ import (
 
 // MCPToolInfo is a tool as list_tools reports it: the MCP tool plus the server
 // it belongs to. The exposed name does not encode the server reliably -- a
-// server named "gazelle-mcp-pro" with toolPrefix "pro" exposes x_pro_<tool> --
+// server named "mcp-pro" with toolPrefix "pro" exposes x_pro_<tool> --
 // so the attribution the aggregator recorded is carried alongside the tool.
 type MCPToolInfo struct {
 	MCPTool

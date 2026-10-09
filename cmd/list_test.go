@@ -578,14 +578,14 @@ func TestMatchesServer(t *testing.T) {
 		{
 			name:     "prefix-divergent server by its name",
 			toolName: "x_pro_issues",
-			server:   "gazelle-mcp-pro",
-			filter:   "gazelle-mcp-pro",
+			server:   "mcp-pro",
+			filter:   "mcp-pro",
 			expected: true,
 		},
 		{
 			name:     "prefix-divergent server is not found by its exposed prefix",
 			toolName: "x_pro_issues",
-			server:   "gazelle-mcp-pro",
+			server:   "mcp-pro",
 			filter:   "x_pro",
 			expected: false,
 		},
@@ -615,7 +615,7 @@ func TestMatchesServer(t *testing.T) {
 		{
 			name:     "prefix-divergent server is not found by the bare prefix",
 			toolName: "x_pro_issues",
-			server:   "gazelle-mcp-pro",
+			server:   "mcp-pro",
 			filter:   "pro",
 			expected: false,
 		},
@@ -751,7 +751,7 @@ func TestFilterMCPToolsByServer(t *testing.T) {
 		{MCPTool: cli.MCPTool{Name: "workflow_deploy", Description: "Deploy"}, Server: "workflow"},
 		{MCPTool: cli.MCPTool{Name: "x_files_list_directory", Description: "List a directory"}, Server: "files"},
 		{MCPTool: cli.MCPTool{Name: "x_files_read_file", Description: "Read a file"}, Server: "files"},
-		{MCPTool: cli.MCPTool{Name: "x_pro_issues", Description: "List issues"}, Server: "gazelle-mcp-pro"},
+		{MCPTool: cli.MCPTool{Name: "x_pro_issues", Description: "List issues"}, Server: "mcp-pro"},
 	}
 
 	names := func(tools []cli.MCPToolInfo) []string {
@@ -794,7 +794,7 @@ func TestFilterMCPToolsByServer(t *testing.T) {
 		},
 		{
 			name:     "--server names a server whose toolPrefix differs from its name",
-			opts:     MCPFilterOptions{Server: "gazelle-mcp-pro"},
+			opts:     MCPFilterOptions{Server: "mcp-pro"},
 			expected: []string{"x_pro_issues"},
 		},
 		{
