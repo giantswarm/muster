@@ -1267,6 +1267,7 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 			a.handleNonOAuthCapabilityChanged(registration.Name)
 		}
 	})
+	a.observeSharedRecovery(registration.Name, client)
 
 	if err := a.registry.Register(ctx, registration, client); err != nil {
 		return err
@@ -1285,7 +1286,9 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 
 // wirePoolNotificationCallback sets up a notification callback on the
 // connection pool so that whenever a new client is pooled for the given
-// authenticated server, OnNotification is wired to listen for capability-change notifications.
+// authenticated server, OnNotification is wired to listen for
+// capability-change notifications, and a recovered MCP session re-lists the
+// session (observeSessionRecovery).
 func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 	if a.connPool == nil {
 		return
@@ -1296,6 +1299,7 @@ func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 				a.handleSessionCapabilityChanged(serverName, sessionID, client)
 			}
 		})
+		a.observeSessionRecovery(serverName, sessionID, client)
 	})
 }
 
@@ -1868,22 +1872,24 @@ func (a *AggregatorServer) GetTools() []mcp.Tool {
 }
 
 // GetToolsForSession returns a session-specific view of all available tools.
-// For OAuth servers, tools are read from the CapabilityStore keyed by session ID.
-// For non-OAuth servers, tools are read from ServerInfo (same as GetAllTools).
+// For OAuth servers, tools are read from the CapabilityStore keyed by session
+// ID, re-listed first when they predate a change seen on their server
+// (sessionView). For non-OAuth servers, tools are read from ServerInfo (same
+// as GetAllTools).
 func (a *AggregatorServer) GetToolsForSession(ctx context.Context, sessionID string) []mcp.Tool {
-	return a.registry.GetAllToolsForSession(ctx, a.capabilityStore, sessionID)
+	return a.registry.ToolsForSessionView(a.sessionView(ctx, sessionID))
 }
 
 // GetResourcesForSession returns a session-specific view of all available resources.
 // For OAuth servers, resources are read from the CapabilityStore keyed by session ID.
 func (a *AggregatorServer) GetResourcesForSession(ctx context.Context, sessionID string) []api.ResourceOrigin {
-	return a.registry.GetAllResourcesForSession(ctx, a.capabilityStore, sessionID)
+	return a.registry.ResourcesForSessionView(a.sessionView(ctx, sessionID))
 }
 
 // GetPromptsForSession returns a session-specific view of all available prompts.
 // For OAuth servers, prompts are read from the CapabilityStore keyed by session ID.
 func (a *AggregatorServer) GetPromptsForSession(ctx context.Context, sessionID string) []api.PromptOrigin {
-	return a.registry.GetAllPromptsForSession(ctx, a.capabilityStore, sessionID)
+	return a.registry.PromptsForSessionView(a.sessionView(ctx, sessionID))
 }
 
 // sessionToolFilter is the WithToolFilter callback for MCP tools/list.
@@ -2044,7 +2050,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			start := time.Now()
 			ctx := observability.AnnotateDownstreamCall(ctx, sessionServerName, toolName, originalName)
 			res, err := a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
-			a.downstreamMetrics.record(ctx, sessionServerName, toolName, start, res, err)
+			a.finishDispatch(ctx, sessionServerName, toolName, start, res, err)
 			return res, err
 		}
 	}
@@ -2164,7 +2170,7 @@ func (a *AggregatorServer) familyToolUnavailableError(ctx context.Context, toolN
 // branching that previously lived inline in CallToolInternal.
 func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (res *mcp.CallToolResult, err error) {
 	start := time.Now()
-	defer func() { a.downstreamMetrics.record(ctx, serverName, toolName, start, res, err) }()
+	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
 	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
@@ -2174,7 +2180,7 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 	if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
 		logging.DebugWithAttrs("Aggregator", "Using global client",
 			slog.String("server", serverName))
-		return serverInfo.Client.CallTool(ctx, originalName, args)
+		return a.callSharedTool(ctx, serverInfo.Client, serverName, originalName, args)
 	}
 
 	if serverInfo.RequiresSessionAuth() {
@@ -2194,7 +2200,18 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 		return nil, fmt.Errorf("server not connected: %s (status: %s)", serverName, serverInfo.GetStatus())
 	}
 
-	return serverInfo.Client.CallTool(ctx, originalName, args)
+	return a.callSharedTool(ctx, serverInfo.Client, serverName, originalName, args)
+}
+
+// callSharedTool calls a tool through a server's shared client. Arguments
+// the backend refuses as invalid re-list the server first: the caller may
+// have followed the schema of a process that is gone (refusedSharedArguments).
+func (a *AggregatorServer) callSharedTool(ctx context.Context, client MCPClient, serverName, originalName string, args map[string]any) (*mcp.CallToolResult, error) {
+	result, err := client.CallTool(ctx, originalName, args)
+	if err != nil && invalidParams(err) {
+		return nil, a.refusedSharedArguments(serverName, originalName, err)
+	}
+	return result, err
 }
 
 // isCoreToolByName checks if a tool name matches the pattern of core tools
@@ -2243,7 +2260,12 @@ func (a *AggregatorServer) isCoreToolByName(toolName string) bool {
 //
 // Returns the tool execution result converted to MCP format, or an error if
 // no appropriate handler is found or execution fails.
-func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]any) (*mcp.CallToolResult, error) {
+//
+// A core tool reaches no backend, so its dispatch line names no server; it
+// is still one line per call, like a backend tool's.
+func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName string, args map[string]any) (res *mcp.CallToolResult, err error) {
+	start := time.Now()
+	defer func() { logDispatch(ctx, "", toolName, start, res, err) }()
 	logging.DebugWithAttrs("Aggregator", "callCoreToolDirectly called",
 		slog.String("tool", toolName))
 
@@ -3367,6 +3389,9 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
 			slog.String("server", serverName))
 	}
+	// The session's cached entry came from an earlier connection; the
+	// backend behind this one may be another process.
+	a.relistOnConnect(ctx, serverName, sessionID, client)
 
 	return client, func() {}, nil
 }
@@ -3412,6 +3437,9 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	result, callErr := client.CallTool(ctx, originalToolName, args)
 	if callErr == nil {
 		return result, nil
+	}
+	if invalidParams(callErr) {
+		return nil, a.refusedSessionArguments(ctx, serverName, sessionID, originalToolName, client, callErr)
 	}
 
 	serverInfo, exists := a.registry.GetServerInfo(serverName)

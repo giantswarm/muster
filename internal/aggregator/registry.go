@@ -1596,8 +1596,13 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 // who is authenticated against multiple instances of the same family sees a
 // single deduplicated tool with the "server" enum.
 func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []mcp.Tool {
-	caps := sessionCapabilities(ctx, store, sessionID)
+	return r.ToolsForSessionView(sessionCapabilities(ctx, store, sessionID))
+}
 
+// ToolsForSessionView is GetAllToolsForSession over a session's view of its
+// servers read already (sessionCapabilities), for a caller that brought the
+// view up to date first (AggregatorServer.sessionView).
+func (r *ServerRegistry) ToolsForSessionView(caps map[string]*oauthstore.Capabilities) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -1708,8 +1713,12 @@ func (r *ServerRegistry) FamilyMembersForSession(ctx context.Context, store oaut
 // when they carry a scheme, so the URI alone does not identify where the
 // resource came from, and two servers may expose the same one.
 func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []api.ResourceOrigin {
-	caps := sessionCapabilities(ctx, store, sessionID)
+	return r.ResourcesForSessionView(sessionCapabilities(ctx, store, sessionID))
+}
 
+// ResourcesForSessionView is GetAllResourcesForSession over a session's view
+// read already, like ToolsForSessionView.
+func (r *ServerRegistry) ResourcesForSessionView(caps map[string]*oauthstore.Capabilities) []api.ResourceOrigin {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -1757,8 +1766,12 @@ func (r *ServerRegistry) GetAllResourcesForSession(ctx context.Context, store oa
 // the whole session).
 // For non-OAuth servers, prompts are read from ServerInfo.Prompts.
 func (r *ServerRegistry) GetAllPromptsForSession(ctx context.Context, store oauthstore.CapabilityStore, sessionID string) []api.PromptOrigin {
-	caps := sessionCapabilities(ctx, store, sessionID)
+	return r.PromptsForSessionView(sessionCapabilities(ctx, store, sessionID))
+}
 
+// PromptsForSessionView is GetAllPromptsForSession over a session's view read
+// already, like ToolsForSessionView.
+func (r *ServerRegistry) PromptsForSessionView(caps map[string]*oauthstore.Capabilities) []api.PromptOrigin {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

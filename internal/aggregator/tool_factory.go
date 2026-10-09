@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/metatools"
@@ -83,8 +84,18 @@ func (a *AggregatorServer) createMetaToolsFromProvider(provider api.ToolProvider
 
 // createMetaToolHandler creates an MCP handler for a meta-tool.
 // Meta-tools are executed directly through the provider without name prefixing.
+//
+// A core tool a client calls directly, not through call_tool, runs here and
+// never reaches CallToolInternal, so this is where its dispatch line is
+// written; the meta-tools themselves (call_tool, list_tools, …) get none,
+// the tool they run writes its own.
 func (a *AggregatorServer) createMetaToolHandler(provider api.ToolProvider, toolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req mcp.CallToolRequest) (res *mcp.CallToolResult, err error) {
+		if a.isCoreToolByName(toolName) {
+			start := time.Now()
+			defer func() { logDispatch(ctx, "", toolName, start, res, err) }()
+		}
+
 		// Extract arguments from MCP request format
 		args := make(map[string]any)
 		if req.Params.Arguments != nil {

@@ -104,6 +104,6 @@ func timingEnv(timing instanceTiming) []string {
 		// both schedules: shortened, it would re-list every mock of every
 		// scenario every few seconds and count against the outage gates and
 		// request budgets scenarios arm. A scenario about it advances the
-		// clock (mcpserver-capability-poll-after-silent-redeploy).
+		// clock (mcpserver-capability-poll-after-silent-redeploy-sso).
 	)
 }

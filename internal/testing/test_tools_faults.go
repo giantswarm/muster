@@ -33,8 +33,8 @@ type mockServerRedeployer interface {
 // Args:
 //   - server: Required. Name of the mock MCP server to redeploy.
 //   - add_tools: Optional. Tools the new process offers that the old one did
-//     not, each {name, description}; a tool of a name already served is
-//     replaced.
+//     not, each {name, description, input_schema}; a tool of a name already
+//     served is replaced, which is how a redeploy changes a tool's schema.
 //   - remove_tools: Optional. Names of tools the new process no longer serves.
 func (h *TestToolsHandler) handleRedeployMockServer(_ context.Context, args map[string]interface{}) (interface{}, error) {
 	serverName, ok := args["server"].(string)
@@ -97,9 +97,11 @@ func toolSetChangeFromArgs(args map[string]interface{}) (mock.ToolSetChange, err
 				return change, fmt.Errorf("every add_tools entry needs a name")
 			}
 			description, _ := spec["description"].(string)
+			inputSchema, _ := spec["input_schema"].(map[string]interface{})
 			change.Add = append(change.Add, mock.ToolConfig{
 				Name:        name,
 				Description: description,
+				InputSchema: inputSchema,
 				Responses: []mock.ToolResponse{
 					{Response: map[string]interface{}{api.FieldStatus: "ok", "tool": name}},
 				},

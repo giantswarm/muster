@@ -103,10 +103,36 @@ type baseMCPClient struct {
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
+	// recoveredHandler is told, from a goroutine of its own, every time a
+	// lost MCP session was re-established by a fresh handshake
+	// (OnSessionRecovered).
+	recoveredHandler func()
 
 	// progress routes the server's notifications/progress to the callers of
 	// the tool calls in flight (see progress.go).
 	progress progressRouter
+}
+
+// OnSessionRecovered registers a handler called after the client lost its
+// MCP session and re-established it with a fresh handshake (session
+// recovery, client_session_recovery.go). A backend forgets a session when a
+// new process took over behind its address: the handler is where a caller
+// re-reads what that process serves. It runs on a goroutine of its own, so it
+// may use the client. Transports without a session to lose never call it.
+func (b *baseMCPClient) OnSessionRecovered(handler func()) {
+	b.notifMu.Lock()
+	b.recoveredHandler = handler
+	b.notifMu.Unlock()
+}
+
+// notifyRecovered hands a successful recovery to the registered handler.
+func (b *baseMCPClient) notifyRecovered() {
+	b.notifMu.Lock()
+	handler := b.recoveredHandler
+	b.notifMu.Unlock()
+	if handler != nil {
+		go handler()
+	}
 }
 
 // setTimeout sets the budget every operation on the client runs under (see

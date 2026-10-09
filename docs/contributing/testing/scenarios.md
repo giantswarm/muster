@@ -537,11 +537,12 @@ Where `KUBEBUILDER_ASSETS` is not set, every Kubernetes-mode scenario is
 reported as **skipped** with that reason -- never as passed. `make test`
 (the go-build CI job) runs the suite without the binaries; `make test-envtest`
 (the test-envtest CI job) provisions them with setup-envtest and runs
-`muster test --mode kubernetes`. Locally:
+`muster test --mode kubernetes`. The control plane is compiled in only with the `envtest` build tag, because controller-runtime's envtest package creates a cache directory at start-up and would stop the release binary, and its scratch image, from running without a writable `/tmp`. Locally:
 
 ```bash
 export KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)"
-PATH="$PWD:$PATH" ./muster test --mode kubernetes --parallel 8 --base-port 31000
+go build -tags envtest -o muster-envtest .
+./muster-envtest test --mode kubernetes --parallel 8 --base-port 31000
 ```
 
 Three test tools act on the CRs and the API server while a scenario runs:
@@ -576,7 +577,7 @@ while `muster serve` runs untouched:
 | Fault | Step or setting | What muster sees |
 |-------|-----------------|------------------|
 | Backend gone | `test_stop_mock_server` / `test_start_mock_server` | Connections refused for a while, then a fresh process on the same port |
-| Backend redeployed | `test_redeploy_mock_server: {server, add_tools, remove_tools}` | The port never refuses; a fresh process that knows no session -- the next call with the old session id is answered 404 (a rolled pod behind the same Service). `add_tools` (`[{name, description}]`) and `remove_tools` (`[name]`) give the new process another tool set, the roll of a new image; it announces the change to nobody, having never seen muster's session |
+| Backend redeployed | `test_redeploy_mock_server: {server, add_tools, remove_tools}` | The port never refuses; a fresh process that knows no session -- the next call with the old session id is answered 404 (a rolled pod behind the same Service). `add_tools` (`[{name, description, input_schema}]`, a tool of a name already served is replaced: a redeploy that changes a tool's schema) and `remove_tools` (`[name]`) give the new process another tool set, the roll of a new image; it announces the change to nobody, having never seen muster's session |
 | Gateway in front of the backend failing | `test_set_mock_server_outage: {server, requests, status, retry_after, pings}` | An HTTP status (504 by default) for the next `requests` connection attempts, then normal service; `retry_after` seconds (default 0, none) adds a `Retry-After` header, the way a 429 or 503 names when to come back |
 | Backend rolled over between anonymous and OAuth | `test_set_mock_server_auth: {server, required: true\|false}` | The same process answering anonymously, or 401 with the RFC 9728 challenge and resource metadata. The mock needs a token validator (`oauth.mock_oauth_server_ref` or `oauth.trust_issuer_ref`); `oauth.required` is its state at start |
 | Backend suspended in its definition | `mcp_servers[].config.suspended: true`, `test_patch_cr` / `core_mcpserver_update` | A server muster boots with but must keep down |

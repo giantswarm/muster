@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 	"github.com/giantswarm/muster/v5/pkg/logging"
@@ -21,9 +22,10 @@ func (a *AggregatorServer) refreshContext() context.Context {
 }
 
 // refreshTrigger names what asked for a capability re-fetch: a list_changed
-// notification from the server, or the capability poller
-// (capability_poller.go). It is in the log lines, so what changed a server's
-// tools can be told from the log.
+// notification from the server, the capability poller
+// (capability_poller.go), or one of the signs of a redeployed backend
+// (catalogue_freshness.go). It is in the log lines, so what changed a
+// server's tools can be told from the log.
 type refreshTrigger string
 
 const (
@@ -32,6 +34,20 @@ const (
 	// refreshByRetry is muster's own re-listing of a session whose fresh
 	// forwarded token the backend refused (relistSession).
 	refreshByRetry refreshTrigger = "retry"
+	// refreshByRecovery re-lists a connection whose MCP session the backend
+	// had forgotten and that was re-established with a fresh handshake: a new
+	// process answers behind the address.
+	refreshByRecovery refreshTrigger = "recovery"
+	// refreshByConnect re-lists a per-session server through the connection
+	// a tool call just opened for the session, whose cached entry came from
+	// an earlier connection.
+	refreshByConnect refreshTrigger = "connect"
+	// refreshByRefusal re-lists a server that refused a call's arguments as
+	// invalid: the schema the caller read may be the old process's.
+	refreshByRefusal refreshTrigger = "refusal"
+	// refreshByRead re-lists a session's entry that predates the change last
+	// seen on the server, before the session's catalogue is served.
+	refreshByRead refreshTrigger = "read"
 )
 
 // nonOAuthRefreshKey is the singleflight key of a shared-client server's
@@ -130,9 +146,16 @@ func (a *AggregatorServer) notifySubjectMethods(sub string, methods []string) {
 // from a non-OAuth server. Concurrent re-fetches for the same server are
 // deduplicated via singleflight.
 func (a *AggregatorServer) handleNonOAuthCapabilityChanged(serverName string) {
+	a.refreshSharedServer(serverName, refreshByNotification)
+}
+
+// refreshSharedServer re-lists a shared-client server in the background,
+// coalesced with every other re-listing of it in flight (one re-fetch per
+// server at a time, whatever asked for it).
+func (a *AggregatorServer) refreshSharedServer(serverName string, trigger refreshTrigger) {
 	go func() {
 		_, _, _ = a.notifRefreshGroup.Do(nonOAuthRefreshKey(serverName), func() (any, error) {
-			a.refreshNonOAuthCapabilities(serverName, refreshByNotification)
+			a.refreshNonOAuthCapabilities(serverName, trigger)
 			return nil, nil
 		})
 	}()
@@ -225,9 +248,16 @@ func (a *AggregatorServer) refreshNonOAuthCapabilities(serverName string, trigge
 // from an authenticated server for a specific session. Concurrent re-fetches
 // for the same (sessionID, serverName) pair are deduplicated via singleflight.
 func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID string, client MCPClient) {
+	a.refreshSessionServer(serverName, sessionID, client, refreshByNotification)
+}
+
+// refreshSessionServer re-lists a per-session server through the session's
+// client in the background, coalesced with every other re-listing of the
+// pair in flight.
+func (a *AggregatorServer) refreshSessionServer(serverName, sessionID string, client MCPClient, trigger refreshTrigger) {
 	go func() {
 		_, _, _ = a.notifRefreshGroup.Do(sessionRefreshKey(sessionID, serverName), func() (any, error) {
-			a.relistSession(serverName, sessionID, client, refreshByNotification, 0)
+			a.relistSession(serverName, sessionID, client, trigger, 0)
 			return nil, nil
 		})
 	}()
@@ -237,6 +267,14 @@ func (a *AggregatorServer) handleSessionCapabilityChanged(serverName, sessionID 
 // using that session's own client, and updates the CapabilityStore if anything
 // changed. A listing that fails leaves the session's entry as it is and is
 // returned for the caller to judge (relistSession).
+//
+// A listing that answers differently from an entry listed after the change
+// last seen on the server is itself the sign of a change: the server is
+// marked rolled, so every other session's entry from before is re-listed on
+// its next read (catalogue_freshness.go). An entry that already predates the
+// mark is expected to differ and marks nothing: the sessions re-listing after
+// one roll must not keep each other re-listing. An unchanged listing of such
+// an entry stamps it as listed now, so the next read does not list it again.
 func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serverName, sessionID string, client MCPClient, trigger refreshTrigger) error {
 	newTools, newResources, newPrompts, err := relistDeclared(ctx, client,
 		serverName+" (session "+logging.TruncateIdentifier(sessionID)+")", trigger)
@@ -244,6 +282,7 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 		return err
 	}
 
+	info, _ := a.registry.GetServerInfo(serverName)
 	toolsChanged, resourcesChanged, promptsChanged := true, true, true
 	cached, _ := a.capabilityStore.Get(ctx, sessionID, serverName)
 	if cached != nil {
@@ -251,7 +290,18 @@ func (a *AggregatorServer) refreshSessionCapabilities(ctx context.Context, serve
 		resourcesChanged = newResources != nil && !resourceListsEqual(cached.Resources, newResources)
 		promptsChanged = newPrompts != nil && !promptListsEqual(cached.Prompts, newPrompts)
 		if !toolsChanged && !resourcesChanged && !promptsChanged {
+			if info != nil && info.PredatesRoll(cached.ListedAt) {
+				cached.ListedAt = time.Time{}
+				if err := a.capabilityStore.Set(ctx, sessionID, serverName, cached); err != nil {
+					logging.Warn("Aggregator", "Session capability refresh (%s): failed to stamp the entry of %s (session %s): %v",
+						trigger, serverName, logging.TruncateIdentifier(sessionID), err)
+				}
+			}
 			return nil
+		}
+		if info != nil && !info.PredatesRoll(cached.ListedAt) && info.MarkRolled() {
+			logging.Info("Aggregator", "Backend of %s changed (%s, session %s listed it differently): entries listed before are re-listed on their next read",
+				serverName, trigger, logging.TruncateIdentifier(sessionID))
 		}
 	}
 

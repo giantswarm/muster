@@ -112,6 +112,36 @@ func newRecoveryHarness(first *sessionFakeClient, next ...*sessionFakeClient) *r
 
 var errSessionGone = fmt.Errorf("failed to send request: %w", transport.ErrSessionTerminated)
 
+// The holder of the client learns of every recovered session, on a goroutine
+// of its own, so it can re-list what the new process serves (issue #1440); a
+// handshake that failed is no recovery.
+func TestSessionRecovery_TellsTheObserverAfterTheHandshake(t *testing.T) {
+	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
+	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
+	recovered := make(chan struct{}, 1)
+	h.base.OnSessionRecovered(func() { recovered <- struct{}{} })
+
+	_, err := h.base.callTool(t.Context(), "echo", nil)
+
+	require.NoError(t, err)
+	select {
+	case <-recovered:
+	case <-t.Context().Done():
+		t.Fatal("the observer was not told of the recovered session")
+	}
+
+	failing := &sessionFakeClient{sessionID: "s3", callErrs: []error{errSessionGone}}
+	h = newRecoveryHarness(failing)
+	h.reconnectErrs = []error{errors.New("connection refused")}
+	told := atomic.Int32{}
+	h.base.OnSessionRecovered(func() { told.Add(1) })
+
+	_, err = h.base.callTool(t.Context(), "echo", nil)
+
+	require.Error(t, err)
+	assert.Equal(t, int32(0), told.Load(), "a failed handshake recovers nothing")
+}
+
 func TestSessionRecovery_ReinitializesOnceAfterSessionTerminated(t *testing.T) {
 	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
 	fresh := &sessionFakeClient{sessionID: "s2"}
