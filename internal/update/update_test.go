@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/creativeprojects/go-selfupdate"
+	"github.com/giantswarm/go-selfupdate"
 )
 
 // fakeSource stands in for GitHub: the releases it lists, how it fails, and

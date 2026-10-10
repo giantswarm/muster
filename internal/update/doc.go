@@ -1,6 +1,6 @@
 // Package update keeps the muster binary current. `muster self-update`
 // installs the newest GitHub release over the running executable
-// (creativeprojects/go-selfupdate against the repository's releases; a
+// (giantswarm/go-selfupdate against the repository's releases; a
 // development build is refused) -- and only after the release's cosign
 // Sigstore bundle verifies: architect signs every binary it publishes in
 // CircleCI, keyless, and the shared validator

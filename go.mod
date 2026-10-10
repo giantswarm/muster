@@ -13,8 +13,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4
 	github.com/briandowns/spinner v1.23.2
 	github.com/chzyer/readline v1.5.1
-	github.com/creativeprojects/go-selfupdate v1.6.0
 	github.com/fsnotify/fsnotify v1.10.1
+	github.com/giantswarm/go-selfupdate v1.6.1
 	github.com/giantswarm/mcp-oauth v1.7.0
 	github.com/giantswarm/mcp-toolkit v0.2.15
 	github.com/go-jose/go-jose/v4 v4.1.5
@@ -111,7 +111,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/giantswarm/selfupdate-cosign v0.3.3
+	github.com/giantswarm/selfupdate-cosign v0.3.4
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v1.0.1 // indirect
@@ -213,8 +213,3 @@ replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
 // bump leaves the line and the progress tests show whether upstream carries
 // the fixes; moving the pin follows FORK.md "Moving the pin".
 replace github.com/mark3labs/mcp-go v1.2.0 => github.com/giantswarm/mcp-go v1.1.2-0.20261009114411-06e142aa0009
-
-// The Giant Swarm line of go-selfupdate: v1.6.0 without the unmaintained
-// golang.org/x/crypto/openpgp (GO-2026-5932) in the reachable graph;
-// selfupdate-cosign verifies releases with cosign, not PGP.
-replace github.com/creativeprojects/go-selfupdate v1.6.0 => github.com/giantswarm/go-selfupdate v1.6.1-0.20261010124654-6140e1a08030
