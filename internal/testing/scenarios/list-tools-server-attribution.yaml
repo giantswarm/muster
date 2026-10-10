@@ -8,12 +8,12 @@ timeout: "5m"
 # Regression guard for #1248:
 #
 # Given: A server registered as "files", whose tools are exposed as
-#        "x_files_<tool>", and a server named "gazelle-mcp-pro" configured with
+#        "x_files_<tool>", and a server named "mcp-pro" configured with
 #        toolPrefix "pro", whose tools are exposed as "x_pro_<tool>" -- the
 #        server name appears nowhere in the exposed name.
 # When:  The catalogue is listed through list_tools and filter_tools.
 # Then:  Every aggregated tool names its server as it was registered ("files",
-#        "gazelle-mcp-pro"), and a core tool carries kind "core" and no server.
+#        "mcp-pro"), and a core tool carries kind "core" and no server.
 #
 # `muster list tool --server <name>` matched the name against the start of the
 # exposed tool name, which for the server "files" is "x_files_...", and printed
@@ -30,7 +30,7 @@ pre_configuration:
           - name: "list_directory"
             description: "List the entries of a directory."
             responses: [{ response: { entries: [] } }]
-    - name: "gazelle-mcp-pro"
+    - name: "mcp-pro"
       config:
         toolPrefix: "pro"
         tools:
@@ -46,7 +46,7 @@ steps:
     expected:
       success: true
       wait_for_state: "30s"
-      contains: ["files", "gazelle-mcp-pro"]
+      contains: ["files", "mcp-pro"]
 
   # The server field is the registered name, which for "files" the exposed
   # prefix happens to repeat -- behind an "x_" the old CLI never looked past.
@@ -72,7 +72,7 @@ steps:
   # A configured toolPrefix lands in the name; the server field still carries
   # the server's name, so a listing can be scoped to the server as registered.
   - id: "prefix-divergent-server-is-named-not-prefixed"
-    description: "filter_tools attributes x_pro_* to gazelle-mcp-pro, not to pro"
+    description: "filter_tools attributes x_pro_* to mcp-pro, not to pro"
     tool: "test_call_meta_tool"
     args:
       tool: "filter_tools"
@@ -84,7 +84,7 @@ steps:
       json_path:
         total: 1
         tools.0.name: "x_pro_issues"
-        tools.0.server: "gazelle-mcp-pro"
+        tools.0.server: "mcp-pro"
         tools.0.kind: "tool"
       # A test_* tool's text is its Go rendering: "key:value".
       not_contains: ["server:pro"]
@@ -116,5 +116,5 @@ steps:
         limit: 200
     expected:
       success: true
-      contains: ["server:files", "server:gazelle-mcp-pro"]
+      contains: ["server:files", "server:mcp-pro"]
       not_contains: ["server:pro", "server:x"]

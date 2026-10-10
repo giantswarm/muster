@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/6bd76e24b11b67d6d99715b8f484f454e05abbd9/pkg/gen/input/workflows/internal/file/auto_release.yaml.template
+#    https://github.com/giantswarm/devctl/blob/d712a93893c8b9dfc099a157d3ebd2da8300d0d1/pkg/gen/input/workflows/internal/file/auto_release.yaml.template
 #
 # yamllint disable rule:truthy
 # Push-based release tagger + release-page publisher.
@@ -109,7 +109,7 @@ jobs:
         run: |
           set -euo pipefail
           # The same baseline as the decide step below.
-          last=$(git describe --tags --abbrev=0 --match='v*.*.*' --exclude='*-*' --exclude='*+*' 2>/dev/null || echo "")
+          last=${LINE_TAG:-$(git describe --tags --abbrev=0 --match='v*.*.*' --exclude='*-*' --exclude='*+*' 2>/dev/null || echo "")}
           # `--merged HEAD` keeps a candidate cut on another branch out;
           # `--no-merged` drops the candidates the last stable release already
           # contains. `sort -V` orders rc.10 after rc.9 and a moved target
@@ -214,7 +214,7 @@ jobs:
           # splits `last` from `NEXT`, the `NEXT = last` comparison below can
           # never be true again, and the job tags on every push even when
           # there is nothing to release.
-          last=$(git describe --tags --abbrev=0 --match='v*.*.*' --exclude='*-*' --exclude='*+*' 2>/dev/null || echo "")
+          last=${LINE_TAG:-$(git describe --tags --abbrev=0 --match='v*.*.*' --exclude='*-*' --exclude='*+*' 2>/dev/null || echo "")}
           echo "branch: ${GITHUB_REF_NAME}"
           echo "last reachable stable tag: ${last:-<none>}"
 
@@ -260,10 +260,18 @@ jobs:
             # followed by rc.10 rather than rc.2. `--merged HEAD` scopes the
             # search the way the describe baseline above is scoped: a candidate
             # for the same target cut on another branch must not shift the
-            # numbering on this one.
+            # numbering on this one. A re-pinned fork line is the exception:
+            # its earlier candidates for the same target are on the history
+            # the rebase left behind, unreachable but this branch's own, and
+            # their tags still exist, so the count takes every tag of the
+            # target or the push would try to cut a tag that already exists.
             # `|| true`: grep exits 1 on the first candidate of a series,
             # when no ${NEXT}-rc.* tag exists yet, and pipefail would abort.
-            n=$(git tag --list --merged HEAD "${NEXT}-rc.*" | sed 's/.*-rc\.//' | { grep -E '^[0-9]+$' || true; } | sort -n | tail -1)
+            scope=(--merged HEAD)
+            if [ "${LINE_REPINNED:-}" = true ]; then
+              scope=()
+            fi
+            n=$(git tag --list ${scope[@]+"${scope[@]}"} "${NEXT}-rc.*" | sed 's/.*-rc\.//' | { grep -E '^[0-9]+$' || true; } | sort -n | tail -1)
 
             # `NEXT` stays ahead of `last` until the stable release, so the
             # comparison above cannot stop a push that carries only commits
@@ -356,6 +364,13 @@ jobs:
           flags=()
           if [ "$PRERELEASE" = "true" ]; then
             flags+=(--prerelease)
+          fi
+          # GitHub marks a stable release as "Latest" by default. A release of
+          # a maintenance branch (release-v3.x) is an older line's: it must not
+          # take the marker from the release branch's newest stable, which
+          # `gh release view`, releases/latest and install scripts resolve to.
+          if [ "$GITHUB_REF_NAME" != 'main' ]; then
+            flags+=(--latest=false)
           fi
           gh release create "$TAG" \
             --title "$TAG" \

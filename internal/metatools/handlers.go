@@ -437,7 +437,7 @@ func (p *Provider) handleFilterResources(ctx context.Context, args map[string]an
 // The "server" argument matches the source server recorded on each prompt, not
 // the exposed name. A prompt name is prefixed with the server's *configured*
 // tool prefix (spec.toolPrefix) rather than its name -- a server named
-// "gazelle-mcp-pro" with prefix "pro" exposes "x_pro_<name>" -- so matching the
+// "mcp-pro" with prefix "pro" exposes "x_pro_<name>" -- so matching the
 // server name against the exposed name would find nothing for any server whose
 // prefix differs from its name. "pattern" still globs the exposed name.
 func (p *Provider) handleFilterPrompts(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {

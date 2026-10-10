@@ -288,7 +288,7 @@ type ResourceOrigin struct {
 // PromptOrigin pairs an aggregated prompt with the server exposing it.
 //
 // A prompt name is prefixed, but with the server's *configured* tool prefix
-// (spec.toolPrefix) rather than its name -- a server named "gazelle-mcp-pro"
+// (spec.toolPrefix) rather than its name -- a server named "mcp-pro"
 // with prefix "pro" exposes "x_pro_<name>". Deriving the source server by
 // matching the server name against the exposed name therefore fails for every
 // server whose prefix differs from its name, which is the common case. Carry
