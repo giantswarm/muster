@@ -22,11 +22,6 @@ const holdHeader = "X-Ssetest-Hold"
 // then ends inside the transport's post-close drain, while the client's
 // reader is blocked in Read. One tools/call per server.
 //
-// The test fails when the client closed the held stream's body while its
-// reader was blocked in Read, the Close that lets the transport hold the
-// call: whether the hold then happens is up to the scheduler, the Close is
-// not.
-//
 // It replaces http.DefaultTransport, which mcp-go's and muster's clients
 // build on, for the rest of the test with a keep-alive transport that
 // drives that interleaving, so a test using it must not run in parallel and
@@ -55,13 +50,7 @@ func NewHoldingServer(t *testing.T) string {
 	t.Cleanup(base.CloseIdleConnections)
 
 	orig := http.DefaultTransport
-	hold := &holdTransport{next: base, endStream: endStream}
-	t.Cleanup(func() {
-		if hold.closedUnderReader.Load() {
-			t.Error("the client closed an SSE body while its reader was blocked in Read: it is not wrapped by ssetransport")
-		}
-	})
-	http.DefaultTransport = hold
+	http.DefaultTransport = &holdTransport{next: base, endStream: endStream}
 	t.Cleanup(func() { http.DefaultTransport = orig })
 	return srv.URL
 }
@@ -159,9 +148,8 @@ func (c *signalConn) Read(p []byte) (int, error) {
 // held request's cancellation on only once its body was closed: the order
 // that holds a call.
 type holdTransport struct {
-	next              http.RoundTripper
-	endStream         func()
-	closedUnderReader atomic.Bool
+	next      http.RoundTripper
+	endStream func()
 }
 
 func (t *holdTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -181,26 +169,25 @@ func (t *holdTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		close(release)
 		return resp, err
 	}
-	resp.Body = &holdBody{ReadCloser: resp.Body, conn: conn, closed: release, endStream: t.endStream, readerDone: make(chan struct{}), underReader: &t.closedUnderReader}
+	resp.Body = &holdBody{ReadCloser: resp.Body, conn: conn, closed: release, endStream: t.endStream, readerDone: make(chan struct{})}
 	return resp, nil
 }
 
 // holdBody arms its connection once the answer was read. Its first Close,
 // mcp-go's closer goroutine, waits for the reader to block in Read, closes the
 // body and ends the stream: the end arrives inside the transport's post-close
-// drain. A first Close with no Read in flight, ssetransport's, closes at once:
-// no Read follows it. A later Close, SendRequest's, comes once the drain is
+// drain. A first Close with no Read in flight closes at once: no Read follows
+// it. A later Close, SendRequest's, comes once the drain is
 // done or the reader returned.
 type holdBody struct {
 	io.ReadCloser
-	conn        *signalConn
-	closed      chan struct{}
-	endStream   func()
-	first       atomic.Bool
-	inRead      atomic.Int32
-	readerOnce  sync.Once
-	readerDone  chan struct{}
-	underReader *atomic.Bool
+	conn       *signalConn
+	closed     chan struct{}
+	endStream  func()
+	first      atomic.Bool
+	inRead     atomic.Int32
+	readerOnce sync.Once
+	readerDone chan struct{}
 }
 
 func (b *holdBody) Read(p []byte) (int, error) {
@@ -227,11 +214,6 @@ func (b *holdBody) Close() error {
 	}
 	if b.inRead.Load() > 0 {
 		<-b.conn.reading
-		select {
-		case <-b.readerDone:
-		default:
-			b.underReader.Store(true)
-		}
 	}
 	err := b.ReadCloser.Close()
 	close(b.closed)

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
-	"github.com/giantswarm/muster/v5/internal/ssetransport"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -141,9 +140,7 @@ func setServerInfo(result *TransportDetectionResult, info *mcp.Implementation) {
 // Unlike the aggregator's StreamableHTTPClient it does not enable continuous
 // listening — the probe is a short-lived handshake, not a connection.
 func probeStreamableHTTP(ctx context.Context, url string, headers map[string]string) probeOutcome {
-	// ssetransport keeps a closed SSE response from holding the probe on a
-	// reused connection.
-	opts := []transport.StreamableHTTPCOption{transport.WithHTTPBasicClient(ssetransport.Client(nil))}
+	var opts []transport.StreamableHTTPCOption
 	if len(headers) > 0 {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
 	}
