@@ -139,6 +139,13 @@ running `muster serve`, or a remote muster, use `muster agent --mcp-server` inst
 }
 ```
 
+A remote muster protected by OAuth asks for a sign-in first. `muster auth login --endpoint <url>`
+opens a browser (the commands in `$BROWSER` before the platform default) and stores the session
+once the browser returns to `http://localhost:3000/callback`. Where the CLI cannot reach a browser
+(a remote shell, an agent's session), `muster auth login --no-browser` prints the sign-in URL to
+open by hand in a browser on the same machine and waits for the callback. [Authenticate the
+CLI](docs/how-to/authenticate-the-cli.md) covers both.
+
 The [quick start](docs/getting-started/quick-start.md) continues from here: exploring the
 catalogue in the REPL, toolsets and the first workflow.
 
