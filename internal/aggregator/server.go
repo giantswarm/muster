@@ -973,6 +973,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			mcpserver.WithKeepAlive(true),                    // Enable keep-alive for connection stability
 			mcpserver.WithKeepAliveInterval(30*time.Second),  // Keep-alive interval
 			mcpserver.WithSSEContextFunc(httpRequestContext), // Per-request toolset source (X-Muster-Toolset) and start time
+			mcpserver.WithSSEMaxRequestBodyBytes(maxRequestBodyBytes),
 		)
 
 		// Create a mux that routes to both MCP and OAuth handlers
@@ -1043,7 +1044,8 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		// evaluate X-Muster-Toolset per request — never per session — and
 		// the request's arrival time for the response log line.
 		a.streamableHTTPServer = mcpserver.NewStreamableHTTPServer(a.mcpServer,
-			mcpserver.WithHTTPContextFunc(httpRequestContext))
+			mcpserver.WithHTTPContextFunc(httpRequestContext),
+			mcpserver.WithMaxRequestBodyBytes(maxRequestBodyBytes))
 
 		// Create a mux that routes to both MCP and OAuth handlers
 		handler, err := a.createHTTPMux(a.streamableHTTPServer)

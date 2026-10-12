@@ -6,6 +6,12 @@ import "time"
 // headers. Bounds Slowloris-style request-header attacks.
 const httpReadHeaderTimeout = 30 * time.Second
 
+// maxRequestBodyBytes bounds a request body the MCP transports read
+// (CVE-2026-108859: mcp-go read a POST body whole before validating it). The
+// aggregator relays every backend's tool calls, so it is no tighter than the
+// largest backend bound: vm-manager's 8 MiB, which a VM's user_data needs.
+const maxRequestBodyBytes = 8 << 20
+
 // registerCapabilityAttemptTimeout bounds a single round of initial capability
 // queries (tools/resources/prompts) against a freshly registered downstream
 // server. Some transports can wedge on an individual request — an SSE server
