@@ -209,7 +209,8 @@ replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
 
 // The Giant Swarm line of mcp-go: v1.2.1 plus the two streamable-http fixes
 // that stop request notifications from being dropped or sent after the
-// response (giantswarm/mcp-go FORK.md). Pinned to v1.2.1 only, so an mcp-go
-// bump leaves the line and the progress tests show whether upstream carries
-// the fixes; moving the pin follows FORK.md "Moving the pin".
-replace github.com/mark3labs/mcp-go v1.2.1 => github.com/giantswarm/mcp-go v1.1.2-0.20261012034757-fff7ba81dc5a
+// response, and the request body bound of the HTTP transports
+// (CVE-2026-108859) (giantswarm/mcp-go FORK.md and fork/). Pinned to v1.2.1
+// only, so an mcp-go bump leaves the line and the progress tests show whether
+// upstream carries the fixes; moving the pin follows FORK.md "Moving the pin".
+replace github.com/mark3labs/mcp-go v1.2.1 => github.com/giantswarm/mcp-go v1.1.2-0.20261012161203-458027152b2b
