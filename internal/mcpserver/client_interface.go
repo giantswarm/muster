@@ -158,7 +158,7 @@ func (b *baseMCPClient) setMaxCallDuration(maxCallDuration time.Duration) {
 // Note: Caller must hold at least a read lock on mu.
 func (b *baseMCPClient) checkConnected() error {
 	if !b.connected || b.client == nil {
-		return fmt.Errorf("client not connected")
+		return errNotConnected
 	}
 	return nil
 }

@@ -142,6 +142,9 @@ func TestSessionRecovery_TellsTheObserverAfterTheHandshake(t *testing.T) {
 	assert.Equal(t, int32(0), told.Load(), "a failed handshake recovers nothing")
 }
 
+// ErrSessionTerminated proves the backend did not run the call: it answered
+// 404 for the unknown session, or the transport knew the session had ended
+// and did not send it. That call is sent once on the new session.
 func TestSessionRecovery_ReinitializesOnceAfterSessionTerminated(t *testing.T) {
 	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
 	fresh := &sessionFakeClient{sessionID: "s2"}
@@ -157,20 +160,43 @@ func TestSessionRecovery_ReinitializesOnceAfterSessionTerminated(t *testing.T) {
 	assert.Equal(t, uint64(1), h.base.sessionGeneration)
 }
 
-// The standalone GET listener meets the 404 first: mcp-go clears the session
-// id and the tool call then fails with whatever the server says about a
-// request that carries no session (the Python SDK: 400 "Missing session ID").
-func TestSessionRecovery_DetectsSessionClearedByListener(t *testing.T) {
-	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errors.New("request failed with status 400: Missing session ID")}}
-	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
-	old.mu.Lock()
-	old.sessionID = "" // cleared by the listener's 404
-	old.mu.Unlock()
+// ranThenLost is a tool call that reached the backend and ran there, while
+// the standalone GET listener met the 404 of the restarted process and
+// cleared the session id; the call's own answer was lost.
+func ranThenLost(f *sessionFakeClient) {
+	f.barrier = func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.sessionID = ""
+	}
+	f.callErrs = []error{errors.New("transport error: unexpected EOF")}
+}
 
-	_, err := h.base.callTool(t.Context(), "echo", nil)
+// A call that may have run on the backend is never sent again after the
+// session is recovered, a write as little as a read: the caller gets the
+// failure, marked ErrNotRepeated, and decides. The session itself is
+// re-established, so the next call goes to the new one.
+func TestSessionRecovery_CallThatMayHaveRunIsNotRepeated(t *testing.T) {
+	for _, tool := range []string{"create_incident", "list_incidents"} {
+		t.Run(tool, func(t *testing.T) {
+			old := &sessionFakeClient{sessionID: "s1"}
+			ranThenLost(old)
+			fresh := &sessionFakeClient{sessionID: "s2"}
+			h := newRecoveryHarness(old, fresh)
 
-	require.NoError(t, err)
-	assert.Equal(t, int32(1), h.reconnects.Load())
+			_, err := h.base.callTool(t.Context(), tool, nil)
+
+			require.ErrorIs(t, err, ErrNotRepeated)
+			assert.ErrorContains(t, err, "unexpected EOF", "the call's own failure is kept")
+			assert.Equal(t, 1, old.callCount(), "the call was sent once")
+			assert.Equal(t, 0, fresh.callCount(), "and not again on the new session")
+			assert.Equal(t, int32(1), h.reconnects.Load(), "the session is re-established")
+
+			_, err = h.base.callTool(t.Context(), tool, nil)
+			require.NoError(t, err, "the next call runs on the new session")
+			assert.Equal(t, 1, fresh.callCount())
+		})
+	}
 }
 
 func TestSessionRecovery_LeavesOtherErrorsAlone(t *testing.T) {
@@ -382,11 +408,14 @@ func TestSessionRecovery_PingReinitializes(t *testing.T) {
 // mcp-go stack: a stateful streamable-http server is replaced by a fresh
 // process that does not know the client's session, as a redeployed pod would
 // be. Before the fix every call after the swap failed until the service was
-// restarted (issue #999).
+// restarted (issue #999). The redeployed process refuses the call with 404,
+// so the call runs there once, after the new handshake, and never twice.
 func TestStreamableHTTPClient_RecoversSessionAfterBackendRedeploy(t *testing.T) {
+	var runs atomic.Int32
 	newBackend := func() *server.StreamableHTTPServer {
 		s := server.NewMCPServer("redeploy-test", "1.0.0")
 		s.AddTool(mcp.NewTool("echo"), func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			runs.Add(1)
 			return mcp.NewToolResultText("alive"), nil
 		})
 		return server.NewStreamableHTTPServer(s, server.WithStateful(true))
@@ -415,6 +444,7 @@ func TestStreamableHTTPClient_RecoversSessionAfterBackendRedeploy(t *testing.T) 
 	require.NoError(t, err, "the call after the redeploy re-initializes and succeeds")
 	require.Equal(t, "alive", res.Content[0].(mcp.TextContent).Text)
 	assert.Equal(t, uint64(1), c.sessionGeneration)
+	assert.Equal(t, int32(2), runs.Load(), "each of the two calls ran exactly once")
 
 	// Once recovered, the session is a normal one again.
 	require.NoError(t, c.Ping(t.Context()))
