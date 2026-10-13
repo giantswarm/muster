@@ -281,16 +281,17 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 	}
 
 	if err := o.registerPendingAuthWithRetry(api.PendingAuthRegistration{
-		Name:       definition.Name,
-		Namespace:  definition.Namespace,
-		URL:        definition.URL,
-		ToolPrefix: definition.ToolPrefix,
-		Family:     definition.Family,
-		AuthInfo:   authInfo,
-		AuthConfig: definition.Auth,
-		Meta:       definition.Meta,
-		Headers:    definition.Headers,
-		Timeout:    time.Duration(definition.Timeout) * time.Second,
+		Name:            definition.Name,
+		Namespace:       definition.Namespace,
+		URL:             definition.URL,
+		ToolPrefix:      definition.ToolPrefix,
+		Family:          definition.Family,
+		AuthInfo:        authInfo,
+		AuthConfig:      definition.Auth,
+		Meta:            definition.Meta,
+		Headers:         definition.Headers,
+		Timeout:         time.Duration(definition.Timeout) * time.Second,
+		MaxCallDuration: definition.ProgressMaxDuration(),
 	}); err != nil {
 		logging.Error("Orchestrator", err, "Failed to register pending auth server: %s", definition.Name)
 		return

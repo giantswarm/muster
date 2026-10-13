@@ -124,23 +124,32 @@ func progressReporterFrom(ctx context.Context) *ProgressReporter {
 }
 
 // progressRouter maps the progress tokens a client sent downstream to the
-// reporters of the calls in flight. The zero value is ready to use.
+// calls in flight. The zero value is ready to use.
 type progressRouter struct {
 	next   atomic.Uint64
 	mu     sync.Mutex
-	routes map[string]*ProgressReporter
+	routes map[string]progressRoute
+}
+
+// progressRoute is where one call's downstream progress goes: to the
+// caller's reporter, and to the call's budget, which every notification of
+// the call extends.
+type progressRoute struct {
+	reporter *ProgressReporter
+	budget   *callBudget
 }
 
 // open mints a downstream token for one call and routes its progress to
-// reporter until close is called.
-func (r *progressRouter) open(reporter *ProgressReporter) (token string, close func()) {
+// reporter, and to budget when the call runs under one, until close is
+// called.
+func (r *progressRouter) open(reporter *ProgressReporter, budget *callBudget) (token string, close func()) {
 	token = fmt.Sprintf("muster-%d", r.next.Add(1))
 
 	r.mu.Lock()
 	if r.routes == nil {
-		r.routes = make(map[string]*ProgressReporter)
+		r.routes = make(map[string]progressRoute)
 	}
-	r.routes[token] = reporter
+	r.routes[token] = progressRoute{reporter: reporter, budget: budget}
 	r.mu.Unlock()
 
 	return token, func() {
@@ -151,22 +160,24 @@ func (r *progressRouter) open(reporter *ProgressReporter) (token string, close f
 }
 
 // route hands a downstream notifications/progress to the reporter of the
-// call its token belongs to.
+// call its token belongs to, and extends that call's budget.
 func (r *progressRouter) route(notification mcp.JSONRPCNotification) {
 	ctx := context.Background()
 	fields := notification.Params.AdditionalFields
 
 	token, _ := fields["progressToken"].(string)
 	r.mu.Lock()
-	reporter := r.routes[token]
+	route, known := r.routes[token]
 	r.mu.Unlock()
 
 	progress, ok := fields["progress"].(float64)
-	if reporter == nil || !ok {
+	if !known || !ok {
 		countProgress(ctx, progressUnknownToken)
 		logging.Debug("MCPClient", "Dropping progress notification for unknown token %v", fields["progressToken"])
 		return
 	}
+	route.budget.extend()
+	reporter := route.reporter
 
 	var total *float64
 	if value, ok := fields["total"].(float64); ok {

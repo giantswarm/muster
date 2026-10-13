@@ -89,6 +89,14 @@ func (c *DynamicAuthClient) WithTimeout(timeout time.Duration) *DynamicAuthClien
 	return c
 }
 
+// WithMaxCallDuration sets how long progress may keep a tool call going, the
+// server's spec.progress.maxDuration (see baseMCPClient.maxCallDuration), and
+// returns the client so a construction site reads as one expression.
+func (c *DynamicAuthClient) WithMaxCallDuration(maxCallDuration time.Duration) *DynamicAuthClient {
+	c.setMaxCallDuration(maxCallDuration)
+	return c
+}
+
 // WithAuthLossHandler registers a function invoked once when the client's
 // authentication is observed lost: the token store no longer holds a token,
 // or the server keeps rejecting the held token with 401 (authLossThreshold

@@ -81,6 +81,10 @@ type MCPServer struct {
 	// the connect and the health probe (default 30).
 	Timeout int `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
+	// Progress configures how progress the server reports on a tool call
+	// affects that call's budget (see ProgressMaxDuration).
+	Progress *MCPServerProgress `yaml:"progress,omitempty" json:"progress,omitempty"`
+
 	// Error contains any error message from the most recent server operation.
 	// This is runtime information and not persisted to YAML files.
 	Error string `json:"error,omitempty" yaml:"-"`
@@ -438,6 +442,7 @@ func (i MCPServerInfo) ToMCPServer() *MCPServer {
 		Headers:     i.Headers,
 		Meta:        i.Meta,
 		Timeout:     i.Timeout,
+		Progress:    i.Progress,
 		Auth:        i.Auth,
 	}
 }
@@ -526,6 +531,54 @@ func ValidateMetaAllowed(serverType string, meta map[string]string) error {
 	if serverType == string(MCPServerTypeStdio) {
 		return fmt.Errorf("meta is only allowed when type is %q or %q, not %q: the entries are merged into params._meta by an HTTP transport, which a stdio server does not have",
 			MCPServerTypeStreamableHTTP, MCPServerTypeSSE, serverType)
+	}
+	return nil
+}
+
+// DefaultProgressMaxDurationSeconds is spec.progress.maxDuration when a
+// definition sets none, and its largest value. A call that runs longer
+// belongs in an MCP task, not a request held open on progress.
+const DefaultProgressMaxDurationSeconds = 3600
+
+// defaultTimeoutSeconds is spec.timeout when a definition sets none, the
+// CRD's default.
+const defaultTimeoutSeconds = 30
+
+// MCPServerProgress configures how progress the server reports on a tool
+// call affects that call's budget.
+type MCPServerProgress struct {
+	// MaxDuration bounds, in seconds, a tool call kept going by progress:
+	// up to it, each progress notification of a call whose caller asked for
+	// progress restarts Timeout. Zero means
+	// DefaultProgressMaxDurationSeconds.
+	MaxDuration int `yaml:"maxDuration,omitempty" json:"maxDuration,omitempty"`
+}
+
+// ProgressMaxDuration is how long progress may keep a tool call on the
+// server going: spec.progress.maxDuration, DefaultProgressMaxDurationSeconds
+// when unset.
+func (s *MCPServer) ProgressMaxDuration() time.Duration {
+	seconds := DefaultProgressMaxDurationSeconds
+	if s.Progress != nil && s.Progress.MaxDuration > 0 {
+		seconds = s.Progress.MaxDuration
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+// ValidateProgress reports whether spec.progress is usable with
+// spec.timeout: progress.maxDuration unset, or between the timeout and
+// DefaultProgressMaxDurationSeconds.
+//
+// The CRD states the same rule in CEL, which only runs in Kubernetes mode.
+func ValidateProgress(timeout int, progress *MCPServerProgress) error {
+	if progress == nil || progress.MaxDuration == 0 {
+		return nil
+	}
+	if timeout == 0 {
+		timeout = defaultTimeoutSeconds
+	}
+	if progress.MaxDuration < timeout || progress.MaxDuration > DefaultProgressMaxDurationSeconds {
+		return fmt.Errorf("progress.maxDuration must be between timeout (%d) and %d seconds, got %d", timeout, DefaultProgressMaxDurationSeconds, progress.MaxDuration)
 	}
 	return nil
 }
@@ -656,6 +709,10 @@ type MCPServerInfo struct {
 	// request, a tool call included, for every type; for a remote server also
 	// the connect and the health probe (default 30).
 	Timeout int `json:"timeout,omitempty"`
+
+	// Progress configures how progress the server reports on a tool call
+	// affects that call's budget.
+	Progress *MCPServerProgress `json:"progress,omitempty"`
 
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`

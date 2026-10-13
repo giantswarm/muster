@@ -133,10 +133,10 @@ func establishConnection(
 	// bearer: a server that selects what it serves by a header (a toolset
 	// selector) does so at the handshake of this very connection.
 	var meta, headers map[string]string
-	var timeout time.Duration
+	var timeout, maxCallDuration time.Duration
 	info := registeredServerInfo(a, serverName)
 	if info != nil {
-		meta, headers, timeout = info.Meta, internalmcp.DefinitionHeaders(info.Headers), info.Timeout
+		meta, headers, timeout, maxCallDuration = info.Meta, internalmcp.DefinitionHeaders(info.Headers), info.Timeout, info.MaxCallDuration
 	}
 
 	var client internalmcp.MCPClient
@@ -148,6 +148,7 @@ func establishConnection(
 			WithHeaderFunc(a.identityHeaderFunc(sessionID, info)).
 			WithMeta(meta).
 			WithTimeout(timeout).
+			WithMaxCallDuration(maxCallDuration).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
 		logging.Debug("Connection", "Using DynamicAuthClient for session %s, server %s (issuer=%s)",
 			logging.TruncateIdentifier(sessionID), serverName, issuer)
@@ -157,7 +158,7 @@ func establishConnection(
 			static[k] = v
 		}
 		static[pkgoauth.HeaderAuthorization] = pkgoauth.SchemeBearer + " " + accessToken
-		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, static).WithMeta(meta).WithTimeout(timeout)
+		client = internalmcp.NewStreamableHTTPClientWithHeaders(serverURL, static).WithMeta(meta).WithTimeout(timeout).WithMaxCallDuration(maxCallDuration)
 		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
 			logging.TruncateIdentifier(sessionID), serverName)
 	}
@@ -715,7 +716,7 @@ func EstablishConnectionWithTokenExchange(
 
 	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -1026,7 +1027,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 
 	presented := &atomic.Pointer[string]{}
 	headerFunc := presentingHeaderFunc(makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired), presented)
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 	return &tokenForwardingClient{StreamableHTTPClient: client, presented: presented}, token, nil
 }
 

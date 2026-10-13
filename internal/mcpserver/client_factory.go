@@ -32,6 +32,10 @@ type MCPClientConfig struct {
 	// tool call above all, and the handshake a session recovery performs on
 	// the way. Zero means DefaultTimeout.
 	Timeout time.Duration
+	// MaxCallDuration is the server's spec.progress.maxDuration: how long
+	// progress may keep a tool call going. Zero means DefaultMaxCallDuration;
+	// at or below Timeout, progress extends nothing.
+	MaxCallDuration time.Duration
 }
 
 // NewMCPClientFromType creates the appropriate MCP client based on the server type.
@@ -49,6 +53,7 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 	// The one place the server's budget reaches a client this factory
 	// builds, so no transport can be left on the default.
 	client.setTimeout(config.Timeout)
+	client.setMaxCallDuration(config.MaxCallDuration)
 	return client, nil
 }
 
@@ -57,6 +62,7 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 type budgetedClient interface {
 	MCPClient
 	setTimeout(time.Duration)
+	setMaxCallDuration(time.Duration)
 }
 
 func newClientOfType(serverType api.MCPServerType, config MCPClientConfig) (budgetedClient, error) {

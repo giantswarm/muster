@@ -30,18 +30,47 @@ import (
 // DefaultRemoteTimeout is derived from it.
 const DefaultTimeout = 30 * time.Second
 
+// DefaultMaxCallDuration bounds a tool call kept going by progress on a
+// server whose definition sets no spec.progress.maxDuration.
+const DefaultMaxCallDuration = time.Hour
+
 // operationContext bounds ctx by the client's timeout, DefaultTimeout when
 // unset, and returns the budget applied. Every operation runs under it,
 // the recovery handshake included: that one runs with the client's write
 // lock held, so every other operation on the client, Close included, waits
 // for it, and the caller's context alone may carry no deadline.
 func (b *baseMCPClient) operationContext(ctx context.Context) (context.Context, context.CancelFunc, time.Duration) {
-	timeout := b.timeout
-	if timeout <= 0 {
-		timeout = DefaultTimeout
-	}
+	timeout := b.effectiveTimeout()
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	return ctx, cancel, timeout
+}
+
+// callContext is operationContext for a tool call. When the caller asked for
+// progress and the server's progress.maxDuration exceeds its timeout, each
+// progress notification of the call restarts the timeout, up to
+// progress.maxDuration (see callBudget).
+func (b *baseMCPClient) callContext(ctx context.Context) (context.Context, context.CancelFunc, time.Duration) {
+	timeout := b.effectiveTimeout()
+	maxDuration := b.effectiveMaxCallDuration()
+	if maxDuration <= timeout || progressReporterFrom(ctx) == nil {
+		return b.operationContext(ctx)
+	}
+	ctx, cancel := withCallBudget(ctx, timeout, maxDuration)
+	return ctx, cancel, timeout
+}
+
+func (b *baseMCPClient) effectiveTimeout() time.Duration {
+	if b.timeout <= 0 {
+		return DefaultTimeout
+	}
+	return b.timeout
+}
+
+func (b *baseMCPClient) effectiveMaxCallDuration() time.Duration {
+	if b.maxCallDuration <= 0 {
+		return DefaultMaxCallDuration
+	}
+	return b.maxCallDuration
 }
 
 // sessionIDOf returns the session id the transport currently holds, or ""
@@ -72,7 +101,12 @@ func (b *baseMCPClient) sessionLostLocked(err error) bool {
 func withSessionRecovery[T any](b *baseMCPClient, ctx context.Context, op func(context.Context) (T, error)) (T, error) {
 	opCtx, cancel, timeout := b.operationContext(ctx)
 	defer cancel()
+	return recovering(b, opCtx, ctx, timeout, op)
+}
 
+// recovering is withSessionRecovery under a budget the caller already set
+// up on opCtx.
+func recovering[T any](b *baseMCPClient, opCtx, ctx context.Context, timeout time.Duration, op func(context.Context) (T, error)) (T, error) {
 	b.mu.RLock()
 	generation := b.sessionGeneration
 	b.mu.RUnlock()
@@ -86,7 +120,7 @@ func withSessionRecovery[T any](b *baseMCPClient, ctx context.Context, op func(c
 	} else {
 		err = rerr
 	}
-	return result, timedOut(opCtx, ctx, timeout, err)
+	return result, b.timedOut(opCtx, ctx, timeout, err)
 }
 
 // timedOut replaces err with the deadline error when the operation's own
@@ -95,11 +129,18 @@ func withSessionRecovery[T any](b *baseMCPClient, ctx context.Context, op func(c
 // reads as a network fault when the backend simply took longer than the
 // server's spec.timeout allows. A caller's context that ended first is left
 // as it is.
-func timedOut(opCtx, ctx context.Context, timeout time.Duration, err error) error {
-	if err == nil || !errors.Is(opCtx.Err(), context.DeadlineExceeded) || ctx.Err() != nil {
+func (b *baseMCPClient) timedOut(opCtx, ctx context.Context, timeout time.Duration, err error) error {
+	if err == nil || ctx.Err() != nil {
 		return err
 	}
-	return fmt.Errorf("no answer within the server's timeout of %s: %w", timeout, context.DeadlineExceeded)
+	switch cause := context.Cause(opCtx); {
+	case errors.Is(cause, errCallTooLong):
+		return fmt.Errorf("no answer within the server's progress.maxDuration of %s: %w", b.effectiveMaxCallDuration(), context.DeadlineExceeded)
+	case errors.Is(cause, errBudgetSpent), errors.Is(cause, context.DeadlineExceeded):
+		return fmt.Errorf("no answer within the server's timeout of %s: %w", timeout, context.DeadlineExceeded)
+	default:
+		return err
+	}
 }
 
 // recoverSession re-establishes the session after an operation started on

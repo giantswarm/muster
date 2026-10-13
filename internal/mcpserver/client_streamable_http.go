@@ -65,6 +65,14 @@ func (c *StreamableHTTPClient) WithTimeout(timeout time.Duration) *StreamableHTT
 	return c
 }
 
+// WithMaxCallDuration sets how long progress may keep a tool call going, the
+// server's spec.progress.maxDuration (see baseMCPClient.maxCallDuration), and
+// returns the client so a construction site reads as one expression.
+func (c *StreamableHTTPClient) WithMaxCallDuration(maxCallDuration time.Duration) *StreamableHTTPClient {
+	c.setMaxCallDuration(maxCallDuration)
+	return c
+}
+
 // NewStreamableHTTPClientWithHeaders creates a new StreamableHTTP-based MCP client with custom headers
 func NewStreamableHTTPClientWithHeaders(url string, headers map[string]string) *StreamableHTTPClient {
 	if headers == nil {

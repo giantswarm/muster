@@ -100,6 +100,11 @@ type baseMCPClient struct {
 	// so the CRD's value governs a tool call end to end; the caller's context
 	// alone may carry no deadline.
 	timeout time.Duration
+	// maxCallDuration bounds a tool call whose server keeps reporting
+	// progress: up to it, each progress notification restarts timeout (see
+	// callContext). Zero means DefaultMaxCallDuration; at or below timeout,
+	// progress extends nothing.
+	maxCallDuration time.Duration
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
@@ -139,6 +144,13 @@ func (b *baseMCPClient) notifyRecovered() {
 // timeout); the transports' WithTimeout setters and the factory go through it.
 func (b *baseMCPClient) setTimeout(timeout time.Duration) {
 	b.timeout = timeout
+}
+
+// setMaxCallDuration sets how long progress may keep a tool call going (see
+// maxCallDuration); the transports' WithMaxCallDuration setters and the
+// factory go through it.
+func (b *baseMCPClient) setMaxCallDuration(maxCallDuration time.Duration) {
+	b.maxCallDuration = maxCallDuration
 }
 
 // checkConnected verifies the client is connected and returns an error if not.
@@ -234,7 +246,9 @@ func (b *baseMCPClient) listToolsOnce(ctx context.Context) ([]mcp.Tool, error) {
 
 // callTool executes a specific tool and returns the result
 func (b *baseMCPClient) callTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
-	return withSessionRecovery(b, ctx, func(ctx context.Context) (*mcp.CallToolResult, error) { return b.callToolOnce(ctx, name, args) })
+	opCtx, cancel, timeout := b.callContext(ctx)
+	defer cancel()
+	return recovering(b, opCtx, ctx, timeout, func(ctx context.Context) (*mcp.CallToolResult, error) { return b.callToolOnce(ctx, name, args) })
 }
 
 func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
@@ -250,7 +264,7 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 		Arguments: args,
 	}
 	if reporter := progressReporterFrom(ctx); reporter != nil {
-		token, done := b.progress.open(reporter)
+		token, done := b.progress.open(reporter, callBudgetFrom(ctx))
 		defer done()
 		params.Meta = &mcp.Meta{ProgressToken: token}
 	}

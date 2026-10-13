@@ -650,6 +650,10 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: timeout changed from %d to %d", cur.Timeout, newDef.Timeout)
 		return true
 	}
+	if cur.ProgressMaxDuration() != newDef.ProgressMaxDuration() {
+		s.LogDebug("Config change detected: progress.maxDuration changed from %s to %s", cur.ProgressMaxDuration(), newDef.ProgressMaxDuration())
+		return true
+	}
 	if cur.ToolPrefix != newDef.ToolPrefix {
 		s.LogDebug("Config change detected: toolPrefix changed from %q to %q", cur.ToolPrefix, newDef.ToolPrefix)
 		return true
@@ -699,19 +703,20 @@ func normalizeAuthForComparison(auth *api.MCPServerAuth) *api.MCPServerAuth {
 // GetServiceData implements ServiceDataProvider
 func (s *Service) GetServiceData() map[string]interface{} {
 	data := map[string]interface{}{
-		"name":        s.definition.Name,
-		"type":        s.definition.Type,
-		"state":       s.GetState(),
-		"health":      s.GetHealth(),
-		"autoStart":   s.definition.AutoStart,
-		"command":     s.definition.Command,
-		"args":        s.definition.Args,
-		"url":         s.definition.URL,
-		"env":         s.definition.Env,
-		"headers":     s.definition.Headers,
-		"meta":        s.definition.Meta,
-		"timeout":     s.operationTimeout(),
-		"description": s.definition.Description,
+		"name":            s.definition.Name,
+		"type":            s.definition.Type,
+		"state":           s.GetState(),
+		"health":          s.GetHealth(),
+		"autoStart":       s.definition.AutoStart,
+		"command":         s.definition.Command,
+		"args":            s.definition.Args,
+		"url":             s.definition.URL,
+		"env":             s.definition.Env,
+		"headers":         s.definition.Headers,
+		"meta":            s.definition.Meta,
+		"timeout":         s.operationTimeout(),
+		"maxCallDuration": s.definition.ProgressMaxDuration(),
+		"description":     s.definition.Description,
 	}
 
 	// Include auth if configured (nil is handled as "no auth" in reconciler comparison)
@@ -1009,14 +1014,15 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	// Build client configuration from service definition
 	// Note: Headers can be nil - the factory and client constructors handle nil maps gracefully
 	config := mcpserver.MCPClientConfig{
-		Command: s.definition.Command,
-		Args:    s.definition.Args,
-		Env:     s.definition.Env,
-		URL:     s.definition.URL,
-		Headers: s.definition.Headers,
-		Meta:    s.definition.Meta,
-		Auth:    s.definition.Auth,
-		Timeout: s.operationTimeout(),
+		Command:         s.definition.Command,
+		Args:            s.definition.Args,
+		Env:             s.definition.Env,
+		URL:             s.definition.URL,
+		Headers:         s.definition.Headers,
+		Meta:            s.definition.Meta,
+		Auth:            s.definition.Auth,
+		Timeout:         s.operationTimeout(),
+		MaxCallDuration: s.definition.ProgressMaxDuration(),
 	}
 
 	// Use factory to create the appropriate client type

@@ -31,6 +31,24 @@ func convertCRDFamilyToAPI(src *musterv1alpha1.MCPServerFamily) *api.MCPServerFa
 	}
 }
 
+// convertCRDProgressToAPI converts a CRD MCPServerProgress to an API
+// MCPServerProgress. Returns nil if the input is nil.
+func convertCRDProgressToAPI(src *musterv1alpha1.MCPServerProgress) *api.MCPServerProgress {
+	if src == nil {
+		return nil
+	}
+	return &api.MCPServerProgress{MaxDuration: src.MaxDuration}
+}
+
+// convertAPIProgressToCRD converts an API MCPServerProgress to a CRD
+// MCPServerProgress. Returns nil if the input is nil.
+func convertAPIProgressToCRD(src *api.MCPServerProgress) *musterv1alpha1.MCPServerProgress {
+	if src == nil {
+		return nil
+	}
+	return &musterv1alpha1.MCPServerProgress{MaxDuration: src.MaxDuration}
+}
+
 // convertAPIFamilyToCRD converts an API MCPServerFamily to a CRD MCPServerFamily.
 // Returns nil if the input is nil.
 func convertAPIFamilyToCRD(src *api.MCPServerFamily) *musterv1alpha1.MCPServerFamily {
@@ -335,6 +353,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Headers:               server.Spec.Headers,
 		Meta:                  server.Spec.Meta,
 		Timeout:               server.Spec.Timeout,
+		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
 		Error:                 server.Status.LastError,
 		State:                 string(server.Status.State),
 		ConsecutiveFailures:   server.Status.ConsecutiveFailures,
@@ -504,6 +523,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			Headers:     req.Headers,
 			Meta:        req.Meta,
 			Timeout:     req.Timeout,
+			Progress:    convertAPIProgressToCRD(req.Progress),
 			Auth:        convertAPIAuthToCRD(req.Auth),
 		},
 	}
@@ -560,6 +580,16 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyDescription:          "Request metadata passthrough, for backends that read call-scoped configuration from params._meta instead of from tool arguments. A value already present in a request wins. Injection happens in the sigv4 signing transport, so it takes effect only when auth.type is sigv4.",
 		}},
 		{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Connection timeout in seconds"},
+		{Name: "progress", Type: api.ArgTypeObject, Required: false, Description: "How progress the server reports on a tool call affects that call's budget", Schema: map[string]interface{}{
+			api.SchemaKeyType:        string(api.ArgTypeObject),
+			api.SchemaKeyDescription: "Progress configuration",
+			api.SchemaKeyProperties: map[string]interface{}{
+				"maxDuration": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeInteger),
+					api.SchemaKeyDescription: "Seconds a tool call that reports progress may run in all; each progress notification restarts timeout up to it (at least timeout, at most 3600, default 3600)",
+				},
+			},
+		}},
 		{Name: "auth", Type: api.ArgTypeObject, Required: false, Description: "Authentication configuration for remote servers", Schema: map[string]interface{}{
 			api.SchemaKeyType:        string(api.ArgTypeObject),
 			api.SchemaKeyDescription: "Authentication configuration (oauth, none or sigv4)",
@@ -913,6 +943,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		Headers:     req.Headers,
 		Meta:        req.Meta,
 		Timeout:     req.Timeout,
+		Progress:    req.Progress,
 		Auth:        req.Auth,
 	})
 
@@ -1081,6 +1112,9 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	if req.Timeout > 0 {
 		existing.Spec.Timeout = req.Timeout
 	}
+	if req.Progress != nil {
+		existing.Spec.Progress = convertAPIProgressToCRD(req.Progress)
+	}
 	// Update auth configuration if provided
 	if req.Auth != nil {
 		existing.Spec.Auth = convertAPIAuthToCRD(req.Auth)
@@ -1195,6 +1229,9 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	// create/update agree with what the connect attempt would do. The CRD says
 	// the same in CEL, which does not run in filesystem mode.
 	if err := api.ValidateMetaAllowed(server.Spec.Type, server.Spec.Meta); err != nil {
+		return err
+	}
+	if err := api.ValidateProgress(server.Spec.Timeout, convertCRDProgressToAPI(server.Spec.Progress)); err != nil {
 		return err
 	}
 	auth := convertCRDAuthToAPI(server.Spec.Auth)
