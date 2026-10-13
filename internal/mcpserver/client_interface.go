@@ -250,7 +250,7 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 		Arguments: args,
 	}
 	if reporter := progressReporterFrom(ctx); reporter != nil {
-		token, done := b.progress.open(reporter)
+		token, done := b.progress.open(reporter, callBudgetFrom(ctx))
 		defer done()
 		params.Meta = &mcp.Meta{ProgressToken: token}
 	}

@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
 - **Examples and fixtures name the fleet MCP server `mcp-pro`.** The documentation comments, the CLI and `list` tests and the server-attribution scenario used the retired server name `gazelle-mcp-pro`; they now use `mcp-pro`. The tool prefix (`pro`) and the `x_pro_*` tool names are unchanged.
 - **The README names the CLI sign-in.** Its quick start now says that a remote muster behind OAuth is signed in to with `muster auth login`, that `muster auth login --no-browser` prints the URL where the CLI cannot reach a browser, and links the how-to guide on authenticating the CLI. ([#1470](https://github.com/giantswarm/muster/issues/1470))
 
+### Changed
+
+- **Progress keeps a tool call alive.** On a tool call whose caller sent a `progressToken`, every progress notification from the downstream server now restarts the server's `spec.timeout`, so the timeout bounds the wait for the next answer or notification instead of the whole call. Such a call ends after one hour in any case, with `no answer within 1h0m0s, the longest a call that reports progress may run`. A call without a `progressToken` keeps the `spec.timeout` as its whole budget. ([giantswarm/roadmap#4394](https://github.com/giantswarm/roadmap/issues/4394))
+
 ### Fixed
 
 - **The MCP endpoint refuses a request body over 8 MiB.** mcp-go through v1.2.1 read a Streamable HTTP POST body whole before validating it, and the SSE message endpoint decoded one without a bound (CVE-2026-108859, no fixed upstream release yet). The Giant Swarm line of mcp-go now bounds both and answers a larger body with 413 before reading it in full; muster sets the bound at 8 MiB, vm-manager's, the largest a backend takes. The scan ignores the CVE until 2026-11-12. ([#1481](https://github.com/giantswarm/muster/issues/1481))

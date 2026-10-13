@@ -540,7 +540,9 @@ spec:
                 description: |-
                   Timeout bounds every operation on the server in seconds, a tool call
                   included, for every type; for a remote server also the connect and the
-                  health probe.
+                  health probe. On a tool call whose caller asked for progress, each
+                  progress notification from the server restarts the timeout, and the
+                  call ends after one hour in any case.
                 maximum: 300
                 minimum: 1
                 type: integer

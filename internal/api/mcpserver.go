@@ -78,7 +78,9 @@ type MCPServer struct {
 
 	// Timeout bounds every operation on the server in seconds -- each
 	// request, a tool call included, for every type; for a remote server also
-	// the connect and the health probe (default 30).
+	// the connect and the health probe (default 30). On a tool call whose
+	// caller asked for progress, each progress notification from the server
+	// restarts the timeout, and the call ends after one hour in any case.
 	Timeout int `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 
 	// Error contains any error message from the most recent server operation.
@@ -654,7 +656,9 @@ type MCPServerInfo struct {
 
 	// Timeout bounds every operation on the server in seconds -- each
 	// request, a tool call included, for every type; for a remote server also
-	// the connect and the health probe (default 30).
+	// the connect and the health probe (default 30). On a tool call whose
+	// caller asked for progress, each progress notification from the server
+	// restarts the timeout, and the call ends after one hour in any case.
 	Timeout int `json:"timeout,omitempty"`
 
 	// ToolPrefix is an optional prefix for tool names.

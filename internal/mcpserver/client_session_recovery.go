@@ -34,13 +34,14 @@ const DefaultTimeout = 30 * time.Second
 // unset, and returns the budget applied. Every operation runs under it,
 // the recovery handshake included: that one runs with the client's write
 // lock held, so every other operation on the client, Close included, waits
-// for it, and the caller's context alone may carry no deadline.
+// for it, and the caller's context alone may carry no deadline. Progress
+// the server reports on a tool call restarts the timeout (see callBudget).
 func (b *baseMCPClient) operationContext(ctx context.Context) (context.Context, context.CancelFunc, time.Duration) {
 	timeout := b.timeout
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := withCallBudget(ctx, timeout)
 	return ctx, cancel, timeout
 }
 
@@ -96,10 +97,17 @@ func withSessionRecovery[T any](b *baseMCPClient, ctx context.Context, op func(c
 // server's spec.timeout allows. A caller's context that ended first is left
 // as it is.
 func timedOut(opCtx, ctx context.Context, timeout time.Duration, err error) error {
-	if err == nil || !errors.Is(opCtx.Err(), context.DeadlineExceeded) || ctx.Err() != nil {
+	if err == nil || ctx.Err() != nil {
 		return err
 	}
-	return fmt.Errorf("no answer within the server's timeout of %s: %w", timeout, context.DeadlineExceeded)
+	switch cause := context.Cause(opCtx); {
+	case errors.Is(cause, errBudgetSpent):
+		return fmt.Errorf("no answer within the server's timeout of %s: %w", timeout, context.DeadlineExceeded)
+	case errors.Is(cause, errCallTooLong):
+		return fmt.Errorf("no answer within %s, the longest a call that reports progress may run: %w", MaxProgressCallDuration, context.DeadlineExceeded)
+	default:
+		return err
+	}
 }
 
 // recoverSession re-establishes the session after an operation started on

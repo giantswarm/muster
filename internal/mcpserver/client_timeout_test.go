@@ -60,16 +60,20 @@ func TestOperationTimeout_CallBeyondTheBudgetFailsWithTheDeadline(t *testing.T) 
 }
 
 // A client built without a timeout -- a server whose definition sets no
-// spec.timeout -- runs every operation under the CRD's default of 30 s.
+// spec.timeout -- runs every operation under the CRD's default of 30 s,
+// within the bound of a call that reports progress.
 func TestOperationTimeout_DefaultsToThirtySeconds(t *testing.T) {
 	ctx, cancel, timeout := (&baseMCPClient{}).operationContext(t.Context())
 	defer cancel()
 
 	assert.Equal(t, 30*time.Second, timeout)
 	assert.Equal(t, DefaultTimeout, timeout)
+	budget := callBudgetFrom(ctx)
+	require.NotNil(t, budget)
+	assert.Equal(t, DefaultTimeout, budget.timeout)
 	deadline, ok := ctx.Deadline()
 	require.True(t, ok)
-	assert.WithinDuration(t, time.Now().Add(30*time.Second), deadline, time.Second)
+	assert.WithinDuration(t, time.Now().Add(MaxProgressCallDuration), deadline, time.Second)
 }
 
 // A caller whose own context ends before the server's timeout gets that

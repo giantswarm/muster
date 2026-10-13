@@ -185,7 +185,7 @@ func progressNotification(token any, progress float64) mcp.JSONRPCNotification {
 func TestProgressRouterDropsUnknownTokens(t *testing.T) {
 	var router progressRouter
 	rec := &progressRecorder{}
-	token, done := router.open(NewProgressReporter("caller", rec.send))
+	token, done := router.open(NewProgressReporter("caller", rec.send), nil)
 
 	router.route(progressNotification(token, 1))
 	router.route(progressNotification("made-up", 2))
