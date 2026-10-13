@@ -60,14 +60,36 @@ func ResolveHeaders(ctx context.Context, namespace string, headers map[string]st
 		ref := &api.ClientCredentialsSecretRef{Name: h.ValueFrom.Name}
 		value, err := secrets.LoadSecretKey(ctx, ref, h.ValueFrom.Key, namespace)
 		if err != nil {
-			return nil, fmt.Errorf("read header %s from its Secret: %w", h.Name, err)
+			return nil, &HeaderSecretError{Header: h.Name, Err: err}
 		}
 		for k := range out {
 			if strings.EqualFold(k, h.Name) {
 				delete(out, k)
 			}
 		}
-		out[h.Name] = string(value)
+		// A Secret written with a trailing newline (echo, a file from an
+		// editor) would put it into the header value, which net/http refuses.
+		v := string(value)
+		if trimmed, ok := strings.CutSuffix(v, "\n"); ok {
+			v = strings.TrimSuffix(trimmed, "\r")
+		}
+		out[h.Name] = v
 	}
 	return out, nil
 }
+
+// HeaderSecretError reports that the Secret of a spec.headersFrom entry could
+// not be read: it does not exist, is not readable or lacks the key. GitOps
+// applies an MCPServer and its Secret in any order, so the server is retried
+// with backoff until the Secret exists.
+type HeaderSecretError struct {
+	// Header is the name of the header the Secret's value is for.
+	Header string
+	Err    error
+}
+
+func (e *HeaderSecretError) Error() string {
+	return fmt.Sprintf("read header %s from its Secret: %v", e.Header, e.Err)
+}
+
+func (e *HeaderSecretError) Unwrap() error { return e.Err }

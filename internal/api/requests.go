@@ -86,7 +86,7 @@ type MCPServerCreateRequest struct {
 	Headers map[string]string `json:"headers,omitempty"`
 
 	// HeadersFrom lists headers whose values muster reads from a Secret in
-	// the server\'s own namespace when it connects.
+	// the server's own namespace when it connects.
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty"`
 
 	// Meta contains entries merged into the `params._meta` object of every
@@ -144,7 +144,7 @@ type MCPServerUpdateRequest struct {
 	Headers map[string]string `json:"headers,omitempty"`
 
 	// HeadersFrom lists headers whose values muster reads from a Secret in
-	// the server\'s own namespace when it connects.
+	// the server's own namespace when it connects.
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty"`
 
 	// Meta contains entries merged into the `params._meta` object of every
@@ -207,7 +207,7 @@ type MCPServerValidateRequest struct {
 	Headers map[string]string `json:"headers,omitempty"`
 
 	// HeadersFrom lists headers whose values muster reads from a Secret in
-	// the server\'s own namespace when it connects.
+	// the server's own namespace when it connects.
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty"`
 
 	// Meta contains entries merged into the `params._meta` object of every

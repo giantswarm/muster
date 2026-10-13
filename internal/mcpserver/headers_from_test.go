@@ -72,6 +72,25 @@ func TestResolveHeadersFailsOnAMissingKey(t *testing.T) {
 	_, err := ResolveHeaders(t.Context(), "org-acme", nil, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
 	require.ErrorContains(t, err, "Authorization")
 	require.ErrorContains(t, err, "org-acme/github-token")
+	var headerSecretErr *HeaderSecretError
+	require.ErrorAs(t, err, &headerSecretErr, "typed, so the service retries it")
+}
+
+// TestResolveHeadersTrimsOneTrailingNewline: a Secret written with echo or
+// from an editor's file ends in a newline, which is not part of the value.
+func TestResolveHeadersTrimsOneTrailingNewline(t *testing.T) {
+	for stored, want := range map[string]string{
+		"Bearer s3cr3t\n":   "Bearer s3cr3t",
+		"Bearer s3cr3t\r\n": "Bearer s3cr3t",
+		"Bearer s3cr3t\n\n": "Bearer s3cr3t\n",
+		"Bearer s3cr3t":     "Bearer s3cr3t",
+		"Bearer s3cr3t\r":   "Bearer s3cr3t\r",
+	} {
+		registerSecretKeyReader(t, &secretKeyReader{values: map[string]string{"org-acme/github-token/token": stored}})
+		got, err := ResolveHeaders(t.Context(), "org-acme", nil, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
+		require.NoError(t, err)
+		assert.Equal(t, want, got["Authorization"], "stored %q", stored)
+	}
 }
 
 // TestResolveHeadersWithoutHeadersFromNeedsNoSecretReader: filesystem mode

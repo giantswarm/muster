@@ -1061,9 +1061,17 @@ func registeredServerInfo(a *AggregatorServer, serverName string) *ServerInfo {
 // sessionHeaders is the set of headers a session-scoped client of a server
 // sends: its spec.headers and the values of its spec.headersFrom, read from
 // their Secrets now, at the connect, without Authorization, which is the
-// session's own credential (DefinitionHeaders).
+// session's own credential (DefinitionHeaders). An Authorization entry of
+// spec.headersFrom is skipped before the read, so its Secret is neither read
+// nor able to fail a session connect.
 func sessionHeaders(ctx context.Context, info *ServerInfo) (map[string]string, error) {
-	headers, err := internalmcp.ResolveHeaders(ctx, info.Namespace, info.Headers, info.HeadersFrom)
+	var headersFrom []api.MCPServerHeaderFrom
+	for _, h := range info.HeadersFrom {
+		if !strings.EqualFold(h.Name, "Authorization") {
+			headersFrom = append(headersFrom, h)
+		}
+	}
+	headers, err := internalmcp.ResolveHeaders(ctx, info.Namespace, info.Headers, headersFrom)
 	if err != nil {
 		return nil, fmt.Errorf("headers of %s: %w", info.Name, err)
 	}

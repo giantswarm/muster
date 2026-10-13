@@ -24,16 +24,21 @@ func (s *sessionHeaderSecrets) LoadClientCredentials(context.Context, *api.Clien
 
 func (s *sessionHeaderSecrets) LoadSecretKey(_ context.Context, _ *api.ClientCredentialsSecretRef, key, defaultNamespace string) ([]byte, error) {
 	s.namespaces = append(s.namespaces, defaultNamespace)
-	return []byte(s.values[key]), nil
+	value, ok := s.values[key]
+	if !ok {
+		return nil, errors.New("secret not found")
+	}
+	return []byte(value), nil
 }
 
 // TestSessionHeadersReadHeadersFromAtTheConnect: a session-scoped client
 // sends the values of spec.headersFrom, read from the server's namespace when
 // it connects, next to spec.headers; an Authorization entry stays out, as the
-// session's own credential is its Authorization header. The registry entry
-// keeps the references only.
+// session's own credential is its Authorization header, and its Secret is not
+// read, so a missing one does not fail the connect. The registry entry keeps
+// the references only.
 func TestSessionHeadersReadHeadersFromAtTheConnect(t *testing.T) {
-	secrets := &sessionHeaderSecrets{values: map[string]string{"api-key": "k3y", "token": "Bearer shared"}}
+	secrets := &sessionHeaderSecrets{values: map[string]string{"api-key": "k3y"}}
 	prev := api.GetSecretCredentialsHandler()
 	api.RegisterSecretCredentialsHandler(secrets)
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
@@ -44,7 +49,7 @@ func TestSessionHeadersReadHeadersFromAtTheConnect(t *testing.T) {
 		Headers:   map[string]string{"x-mcp-toolsets": "issues"},
 		HeadersFrom: []api.MCPServerHeaderFrom{
 			{Name: "X-API-Key", ValueFrom: api.MCPServerValueSource{Type: api.ValueSourceTypeSecret, Name: "jira", Key: "api-key"}},
-			{Name: "Authorization", ValueFrom: api.MCPServerValueSource{Type: api.ValueSourceTypeSecret, Name: "jira", Key: "token"}},
+			{Name: "authorization", ValueFrom: api.MCPServerValueSource{Type: api.ValueSourceTypeSecret, Name: "missing", Key: "token"}},
 		},
 	}
 
@@ -52,6 +57,6 @@ func TestSessionHeadersReadHeadersFromAtTheConnect(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, map[string]string{"X-Mcp-Toolsets": "issues", "X-Api-Key": "k3y"}, headers)
-	assert.Equal(t, []string{"org-acme", "org-acme"}, secrets.namespaces)
+	assert.Equal(t, []string{"org-acme"}, secrets.namespaces, "only the X-API-Key Secret is read")
 	assert.Equal(t, map[string]string{"x-mcp-toolsets": "issues"}, info.Headers, "the registry entry is not changed")
 }

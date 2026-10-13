@@ -286,7 +286,8 @@ func (s *Service) Start(ctx context.Context) error {
 // failStart settles a start attempt that did not reach a usable server:
 // the endpoint did not answer the initialize, answered with a status that is
 // not a 401, or -- for a server served per session through token exchange --
-// answered but its client credentials Secret cannot be loaded. A transient
+// answered but its client credentials Secret cannot be loaded -- or the
+// Secret of a spec.headersFrom entry cannot be read. A transient
 // failure of a remote server is put on the reconnect schedule; anything else
 // is Failed until a restart.
 func (s *Service) failStart(err error) error {
@@ -294,6 +295,8 @@ func (s *Service) failStart(err error) error {
 	// or any error while reconnecting after failed health probes)
 	if s.isRemoteServer() && (s.isTransientConnectivityError(err) || s.isReconnectingAfterProbe()) {
 		credentials := api.ClassifyTokenExchangeError(err) == api.TokenExchangeFailureCredentials
+		var headerSecretErr *mcpserver.HeaderSecretError
+		headerSecret := errors.As(err, &headerSecretErr)
 		var unavailableErr *api.TokenEndpointUnavailableError
 		tokenEndpoint := errors.As(err, &unavailableErr)
 		retryAfter := retryAfterFromError(err)
@@ -305,7 +308,7 @@ func (s *Service) failStart(err error) error {
 		failures := s.consecutiveFailures
 		outcome := s.httpOutcomeLocked()
 		switch {
-		case credentials:
+		case credentials, headerSecret:
 			outcome = "credentials Secret unavailable"
 		case tokenEndpoint:
 			outcome = s.tokenEndpointOutcomeLocked()
@@ -323,7 +326,7 @@ func (s *Service) failStart(err error) error {
 		// missing credentials Secret or a token endpoint that does not answer
 		// is not the MCP endpoint's fault: the server stays Failed, on the
 		// same schedule, and never reads unreachable.
-		if failures >= UnreachableThreshold && !credentials && !tokenEndpoint {
+		if failures >= UnreachableThreshold && !credentials && !headerSecret && !tokenEndpoint {
 			s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("server unreachable after %d consecutive failures (%s): %s", failures, schedule, err.Error()),
@@ -336,6 +339,10 @@ func (s *Service) failStart(err error) error {
 		case credentials:
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("token exchange fails for every caller until the credentials Secret exists (%s): %s", schedule, err.Error()),
+			})
+		case headerSecret:
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("the server cannot connect until its headersFrom Secret exists (%s): %s", schedule, err.Error()),
 			})
 		case tokenEndpoint:
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
@@ -1195,6 +1202,15 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	// backoff and reads Awaiting Session on its own once the Secret exists.
 	var credentialsErr *api.TokenExchangeCredentialsError
 	if errors.As(err, &credentialsErr) {
+		return true
+	}
+
+	// The Secret of a spec.headersFrom entry is missing or unreadable: Flux
+	// applies the MCPServer and its Secret in any order, and an ExternalSecret
+	// lands later, so the server is retried with backoff and connects on its
+	// own once the Secret exists.
+	var headerSecretErr *mcpserver.HeaderSecretError
+	if errors.As(err, &headerSecretErr) {
 		return true
 	}
 

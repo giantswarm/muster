@@ -253,6 +253,11 @@ refers to it in `headersFrom`. muster reads the value each time it connects; it
 never shows the value in the MCPServer, in `core_service_*` or in
 `core_mcpserver_*` output.
 
+muster's own connection to the server reads the Secret at the connect only. A
+rotated value reaches it at the next connect: set `restartRequestedAt`, or wait
+for a reconnect. A person's session connection reads the Secret each time it
+connects.
+
 ```bash
 kubectl create secret generic remote-api-token \
   --namespace <mcpserver-namespace> \

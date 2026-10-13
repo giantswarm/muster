@@ -210,6 +210,11 @@ func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo)
 	if err := api.ValidateStdioAllowed(mcpServerInfo.Type, o.kubernetesMode); err != nil {
 		return nil, err
 	}
+	// A definition written before the credential rule existed is refused the
+	// same way, so it never connects once with the credential inline.
+	if err := api.ValidateNoInlineCredential(mcpServerInfo.Type, mcpServerInfo.URL, mcpServerInfo.Headers, mcpServerInfo.Env, o.kubernetesMode); err != nil {
+		return nil, err
+	}
 
 	apiDef := mcpServerInfo.ToMCPServer()
 

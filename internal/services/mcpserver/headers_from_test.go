@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/services"
 )
 
 // headerSecret answers LoadSecretKey with one value and records the
@@ -90,4 +94,48 @@ func TestStartSendsHeadersFromAndKeepsTheValueOutOfServiceData(t *testing.T) {
 	definition, err := json.Marshal(svc.GetConfiguration())
 	require.NoError(t, err)
 	assert.NotContains(t, string(definition), "never-in-service-data")
+}
+
+// missingHeaderSecret answers every LoadSecretKey as a Secret that does not
+// exist yet.
+type missingHeaderSecret struct{}
+
+func (missingHeaderSecret) LoadClientCredentials(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
+	return nil, errors.New("not used")
+}
+
+func (missingHeaderSecret) LoadSecretKey(_ context.Context, ref *api.ClientCredentialsSecretRef, _ string, defaultNamespace string) ([]byte, error) {
+	return nil, fmt.Errorf("secret %s/%s not found", defaultNamespace, ref.Name)
+}
+
+// TestStartRetriesAMissingHeadersFromSecret: Flux applies an MCPServer and
+// its Secret in any order, so a headersFrom Secret that does not exist yet
+// puts the server on the reconnect schedule. It stays Failed, never reads
+// unreachable, and the orchestrator retries it once nextRetryAfter is due.
+func TestStartRetriesAMissingHeadersFromSecret(t *testing.T) {
+	prev := api.GetSecretCredentialsHandler()
+	api.RegisterSecretCredentialsHandler(missingHeaderSecret{})
+	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
+
+	svc, err := NewService(&api.MCPServer{
+		Name:      "github",
+		Namespace: "org-acme",
+		Type:      api.MCPServerTypeStreamableHTTP,
+		URL:       "http://127.0.0.1:1/mcp",
+		HeadersFrom: []api.MCPServerHeaderFrom{{
+			Name:      "Authorization",
+			ValueFrom: api.MCPServerValueSource{Type: api.ValueSourceTypeSecret, Name: "github-token", Key: "token"},
+		}},
+	})
+	require.NoError(t, err)
+
+	for attempt := 1; attempt <= UnreachableThreshold+1; attempt++ {
+		err := svc.Start(t.Context())
+		var headerSecretErr *mcpserver.HeaderSecretError
+		require.ErrorAs(t, err, &headerSecretErr, "attempt %d", attempt)
+	}
+
+	assert.Equal(t, services.StateFailed, svc.GetState(), "a missing Secret is not the endpoint's fault")
+	_, ok := svc.GetServiceData()[api.ServiceDataNextRetryAfter].(time.Time)
+	assert.True(t, ok, "nextRetryAfter is set, so the orchestrator retries the server")
 }
