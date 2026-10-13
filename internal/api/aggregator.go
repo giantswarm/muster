@@ -184,6 +184,11 @@ type PendingAuthRegistration struct {
 	// travels with the registration for the same reason Meta does.
 	Timeout time.Duration
 
+	// MaxCallDuration is the server's spec.maxCallDuration, how long progress
+	// may keep a tool call on a per-session client going. It travels with the
+	// registration for the same reason Timeout does.
+	MaxCallDuration time.Duration
+
 	// Headers carries MCPServer.Headers to the per-session clients: the HTTP
 	// headers the definition sends with every request to the server (a
 	// toolset selector, for one). They travel with the registration for the

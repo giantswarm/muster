@@ -47,8 +47,8 @@ func (f *progressingFakeClient) CallTool(ctx context.Context, req mcp.CallToolRe
 	}
 }
 
-func progressingClient(timeout time.Duration, reports int, every, silence time.Duration) *baseMCPClient {
-	base := &baseMCPClient{connected: true, timeout: timeout}
+func progressingClient(timeout, maxCallDuration time.Duration, reports int, every, silence time.Duration) *baseMCPClient {
+	base := &baseMCPClient{connected: true, timeout: timeout, maxCallDuration: maxCallDuration}
 	base.client = &progressingFakeClient{base: base, reports: reports, every: every, silence: silence}
 	return base
 }
@@ -61,7 +61,7 @@ func withCaller(ctx context.Context) context.Context {
 // every notification gives it the full timeout again.
 func TestCallBudget_ProgressKeepsTheCallAlive(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		base := progressingClient(30*time.Second, 6, 20*time.Second, 20*time.Second)
+		base := progressingClient(30*time.Second, 10*time.Minute, 6, 20*time.Second, 20*time.Second)
 		start := time.Now()
 
 		res, err := base.callTool(withCaller(t.Context()), "sweep", nil)
@@ -76,10 +76,25 @@ func TestCallBudget_ProgressKeepsTheCallAlive(t *testing.T) {
 // server's timeout bounds the whole call.
 func TestCallBudget_WithoutACallerProgressTheTimeoutHolds(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		base := progressingClient(30*time.Second, 6, 20*time.Second, 0)
+		base := progressingClient(30*time.Second, 10*time.Minute, 6, 20*time.Second, 0)
 		start := time.Now()
 
 		_, err := base.callTool(t.Context(), "sweep", nil)
+
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.EqualError(t, err, "no answer within the server's timeout of 30s: context deadline exceeded")
+		assert.Equal(t, 30*time.Second, time.Since(start))
+	})
+}
+
+// A server with no maxCallDuration is bounded by its timeout, whatever
+// progress it reports.
+func TestCallBudget_WithoutMaxCallDurationProgressExtendsNothing(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		base := progressingClient(30*time.Second, 0, 6, 20*time.Second, 0)
+		start := time.Now()
+
+		_, err := base.callTool(withCaller(t.Context()), "sweep", nil)
 
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.EqualError(t, err, "no answer within the server's timeout of 30s: context deadline exceeded")
@@ -91,7 +106,7 @@ func TestCallBudget_WithoutACallerProgressTheTimeoutHolds(t *testing.T) {
 // last notification.
 func TestCallBudget_SilenceAfterProgressIsCut(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		base := progressingClient(30*time.Second, 2, 20*time.Second, time.Hour)
+		base := progressingClient(30*time.Second, 10*time.Minute, 2, 20*time.Second, time.Hour)
 		start := time.Now()
 
 		_, err := base.callTool(withCaller(t.Context()), "sweep", nil)
@@ -102,24 +117,38 @@ func TestCallBudget_SilenceAfterProgressIsCut(t *testing.T) {
 	})
 }
 
-// A server that reports forever is cut at MaxProgressCallDuration.
-func TestCallBudget_ProgressDoesNotExtendACallForever(t *testing.T) {
+// A server that reports forever is cut at its maxCallDuration.
+func TestCallBudget_ProgressDoesNotExtendPastMaxCallDuration(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		base := progressingClient(30*time.Second, -1, 20*time.Second, 0)
+		base := progressingClient(30*time.Second, 10*time.Minute, -1, 20*time.Second, 0)
 		start := time.Now()
 
 		_, err := base.callTool(withCaller(t.Context()), "sweep", nil)
 
 		require.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.EqualError(t, err, "no answer within 1h0m0s, the longest a call that reports progress may run: context deadline exceeded")
-		assert.Equal(t, MaxProgressCallDuration, time.Since(start))
+		assert.EqualError(t, err, "no answer within the server's maxCallDuration of 10m0s: context deadline exceeded")
+		assert.Equal(t, 10*time.Minute, time.Since(start))
 	})
+}
+
+// Operations other than a tool call keep the plain timeout, so a cut reads
+// as the deadline it is even where nothing renames it (Initialize).
+func TestCallBudget_OnlyAToolCallRunsUnderIt(t *testing.T) {
+	base := &baseMCPClient{timeout: 30 * time.Second, maxCallDuration: 10 * time.Minute}
+
+	ctx, cancel, _ := base.operationContext(withCaller(t.Context()))
+	defer cancel()
+
+	assert.Nil(t, callBudgetFrom(ctx))
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	assert.WithinDuration(t, time.Now().Add(30*time.Second), deadline, time.Second)
 }
 
 // Progress for a call already cut does not revive it.
 func TestCallBudget_ExtendAfterTheCutChangesNothing(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := withCallBudget(t.Context(), time.Second)
+		ctx, cancel := withCallBudget(t.Context(), time.Second, time.Minute)
 		defer cancel()
 
 		time.Sleep(time.Second)

@@ -33,6 +33,7 @@ func (u IssuerURL) Normalize() string {
 }
 
 // MCPServerSpec defines the desired state of MCPServer
+// +kubebuilder:validation:XValidation:rule="!has(self.maxCallDuration) || self.maxCallDuration >= (has(self.timeout) ? self.timeout : 30)",message="maxCallDuration must be at least timeout"
 type MCPServerSpec struct {
 	// Type specifies how this MCP server should be executed.
 	// Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events.
@@ -126,13 +127,21 @@ type MCPServerSpec struct {
 
 	// Timeout bounds every operation on the server in seconds, a tool call
 	// included, for every type; for a remote server also the connect and the
-	// health probe. On a tool call whose caller asked for progress, each
-	// progress notification from the server restarts the timeout, and the
-	// call ends after one hour in any case.
+	// health probe. See MaxCallDuration for a tool call that reports
+	// progress.
 	// +kubebuilder:default=30
 	// +kubebuilder:validation:Minimum=1
 	// +kubebuilder:validation:Maximum=300
 	Timeout int `json:"timeout,omitempty" yaml:"timeout,omitempty"`
+
+	// MaxCallDuration bounds a tool call as a whole, in seconds. On a tool
+	// call whose caller asked for progress, each progress notification from
+	// the server restarts Timeout, up to MaxCallDuration; any other call and
+	// operation stays bounded by Timeout. Unset, progress extends nothing.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3600
+	// +optional
+	MaxCallDuration int `json:"maxCallDuration,omitempty" yaml:"maxCallDuration,omitempty"`
 
 	// Suspended declares the desired lifecycle state of this server's service.
 	// When true, the reconciler stops the service (and refuses to start it)

@@ -489,6 +489,15 @@ spec:
                   Headers contains HTTP headers to send with requests to remote MCP servers.
                   This field is only relevant when Type is "streamable-http" or "sse".
                 type: object
+              maxCallDuration:
+                description: |-
+                  MaxCallDuration bounds a tool call as a whole, in seconds. On a tool
+                  call whose caller asked for progress, each progress notification from
+                  the server restarts Timeout, up to MaxCallDuration; any other call and
+                  operation stays bounded by Timeout. Unset, progress extends nothing.
+                maximum: 3600
+                minimum: 1
+                type: integer
               meta:
                 additionalProperties:
                   type: string
@@ -541,9 +550,8 @@ spec:
                 description: |-
                   Timeout bounds every operation on the server in seconds, a tool call
                   included, for every type; for a remote server also the connect and the
-                  health probe. On a tool call whose caller asked for progress, each
-                  progress notification from the server restarts the timeout, and the
-                  call ends after one hour in any case.
+                  health probe. See MaxCallDuration for a tool call that reports
+                  progress.
                 maximum: 300
                 minimum: 1
                 type: integer
@@ -579,6 +587,10 @@ spec:
             required:
             - type
             type: object
+            x-kubernetes-validations:
+            - message: maxCallDuration must be at least timeout
+              rule: '!has(self.maxCallDuration) || self.maxCallDuration >= (has(self.timeout)
+                ? self.timeout : 30)'
           status:
             description: |-
               MCPServerStatus defines the observed state of MCPServer.

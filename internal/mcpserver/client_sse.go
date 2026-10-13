@@ -42,6 +42,14 @@ func (c *SSEClient) WithTimeout(timeout time.Duration) *SSEClient {
 	return c
 }
 
+// WithMaxCallDuration sets how long progress may keep a tool call going, the
+// server's spec.maxCallDuration (see baseMCPClient.maxCallDuration), and
+// returns the client so a construction site reads as one expression.
+func (c *SSEClient) WithMaxCallDuration(maxCallDuration time.Duration) *SSEClient {
+	c.setMaxCallDuration(maxCallDuration)
+	return c
+}
+
 // NewSSEClientWithHeaders creates a new SSE-based MCP client with custom headers
 func NewSSEClientWithHeaders(url string, headers map[string]string) *SSEClient {
 	if headers == nil {

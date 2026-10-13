@@ -7,23 +7,18 @@ import (
 	"time"
 )
 
-// MaxProgressCallDuration bounds a tool call whose server keeps reporting
-// progress. The server's timeout bounds the wait for an answer or the next
-// progress notification; this bounds the call as a whole, so a server that
-// reports forever still releases the caller.
-const MaxProgressCallDuration = time.Hour
-
 var (
-	// errBudgetSpent is the cause of an operation cut because the server's
+	// errBudgetSpent is the cause of a tool call cut because the server's
 	// timeout passed with neither an answer nor progress.
 	errBudgetSpent = errors.New("server timeout passed without an answer or progress")
-	// errCallTooLong is the cause of a call cut at MaxProgressCallDuration.
-	errCallTooLong = errors.New("call reached the longest a call may run")
+	// errCallTooLong is the cause of a tool call cut at the server's
+	// maxCallDuration.
+	errCallTooLong = errors.New("call reached the server's maxCallDuration")
 )
 
-// callBudget is the time an operation has left. It ends the operation when
-// the server's timeout passes with no progress from the server, and at
-// MaxProgressCallDuration in any case. A nil *callBudget extends nothing.
+// callBudget is the time a tool call has left. It ends the call when the
+// server's timeout passes with no progress from the server, and at the
+// server's maxCallDuration in any case. A nil *callBudget extends nothing.
 type callBudget struct {
 	timeout time.Duration
 
@@ -31,8 +26,8 @@ type callBudget struct {
 	timer *time.Timer
 }
 
-// extend gives the operation the full timeout again, counted from now. An
-// operation already cut stays cut.
+// extend gives the call the full timeout again, counted from now. A call
+// already cut stays cut.
 func (b *callBudget) extend() {
 	if b == nil {
 		return
@@ -52,9 +47,9 @@ func callBudgetFrom(ctx context.Context) *callBudget {
 }
 
 // withCallBudget bounds ctx by timeout, which progress extends, and by
-// MaxProgressCallDuration. cancel releases the timers.
-func withCallBudget(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
-	capped, cancelCap := context.WithTimeoutCause(ctx, MaxProgressCallDuration, errCallTooLong)
+// maxCallDuration. cancel releases the timers.
+func withCallBudget(ctx context.Context, timeout, maxCallDuration time.Duration) (context.Context, context.CancelFunc) {
+	capped, cancelCap := context.WithTimeoutCause(ctx, maxCallDuration, errCallTooLong)
 	opCtx, cancelOp := context.WithCancelCause(capped)
 	budget := &callBudget{timeout: timeout}
 	budget.timer = time.AfterFunc(timeout, func() { cancelOp(errBudgetSpent) })

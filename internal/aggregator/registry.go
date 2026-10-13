@@ -369,13 +369,14 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 	}
 
 	info := &ServerInfo{
-		Name:         registration.Name,
-		Namespace:    registration.Namespace,
-		Client:       client,
-		ToolPrefix:   registration.ToolPrefix,
-		Family:       cloneFamily(registration.Family),
-		Timeout:      registration.Timeout,
-		RegisteredAt: time.Now(),
+		Name:            registration.Name,
+		Namespace:       registration.Namespace,
+		Client:          client,
+		ToolPrefix:      registration.ToolPrefix,
+		Family:          cloneFamily(registration.Family),
+		Timeout:         registration.Timeout,
+		MaxCallDuration: registration.MaxCallDuration,
+		RegisteredAt:    time.Now(),
 	}
 
 	// Reserve the registry entry BEFORE fetching capabilities. The capability
@@ -1560,17 +1561,18 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 	}
 
 	info := &ServerInfo{
-		Name:         registration.Name,
-		Namespace:    registration.Namespace,
-		URL:          registration.URL,
-		ToolPrefix:   registration.ToolPrefix,
-		Family:       cloneFamily(registration.Family),
-		AuthInfo:     authInfo,
-		AuthConfig:   authConfig,
-		Meta:         registration.Meta,
-		Headers:      registration.Headers,
-		Timeout:      registration.Timeout,
-		RegisteredAt: time.Now(),
+		Name:            registration.Name,
+		Namespace:       registration.Namespace,
+		URL:             registration.URL,
+		ToolPrefix:      registration.ToolPrefix,
+		Family:          cloneFamily(registration.Family),
+		AuthInfo:        authInfo,
+		AuthConfig:      authConfig,
+		Meta:            registration.Meta,
+		Headers:         registration.Headers,
+		Timeout:         registration.Timeout,
+		MaxCallDuration: registration.MaxCallDuration,
+		RegisteredAt:    time.Now(),
 	}
 
 	r.applyServerRegistrationLocked(registration.Name, registration.ToolPrefix, registration.Family)

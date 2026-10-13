@@ -78,10 +78,13 @@ type MCPServer struct {
 
 	// Timeout bounds every operation on the server in seconds -- each
 	// request, a tool call included, for every type; for a remote server also
-	// the connect and the health probe (default 30). On a tool call whose
-	// caller asked for progress, each progress notification from the server
-	// restarts the timeout, and the call ends after one hour in any case.
+	// the connect and the health probe (default 30).
 	Timeout int `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+
+	// MaxCallDuration bounds a tool call as a whole, in seconds: up to it,
+	// each progress notification of a call whose caller asked for progress
+	// restarts Timeout. Zero means progress extends nothing.
+	MaxCallDuration int `yaml:"maxCallDuration,omitempty" json:"maxCallDuration,omitempty"`
 
 	// Error contains any error message from the most recent server operation.
 	// This is runtime information and not persisted to YAML files.
@@ -426,21 +429,22 @@ func ValidateStdioAllowed(serverType string, kubernetesMode bool) error {
 // through one path and was silently dropped by the other.
 func (i MCPServerInfo) ToMCPServer() *MCPServer {
 	return &MCPServer{
-		Name:        i.Name,
-		Namespace:   i.Namespace,
-		Type:        MCPServerType(i.Type),
-		Description: i.Description,
-		ToolPrefix:  i.ToolPrefix,
-		Family:      i.Family,
-		AutoStart:   i.AutoStart,
-		Command:     i.Command,
-		Args:        i.Args,
-		URL:         i.URL,
-		Env:         i.Env,
-		Headers:     i.Headers,
-		Meta:        i.Meta,
-		Timeout:     i.Timeout,
-		Auth:        i.Auth,
+		Name:            i.Name,
+		Namespace:       i.Namespace,
+		Type:            MCPServerType(i.Type),
+		Description:     i.Description,
+		ToolPrefix:      i.ToolPrefix,
+		Family:          i.Family,
+		AutoStart:       i.AutoStart,
+		Command:         i.Command,
+		Args:            i.Args,
+		URL:             i.URL,
+		Env:             i.Env,
+		Headers:         i.Headers,
+		Meta:            i.Meta,
+		Timeout:         i.Timeout,
+		MaxCallDuration: i.MaxCallDuration,
+		Auth:            i.Auth,
 	}
 }
 
@@ -528,6 +532,32 @@ func ValidateMetaAllowed(serverType string, meta map[string]string) error {
 	if serverType == string(MCPServerTypeStdio) {
 		return fmt.Errorf("meta is only allowed when type is %q or %q, not %q: the entries are merged into params._meta by an HTTP transport, which a stdio server does not have",
 			MCPServerTypeStreamableHTTP, MCPServerTypeSSE, serverType)
+	}
+	return nil
+}
+
+// MaxCallDurationLimit is the largest spec.maxCallDuration, in seconds. A
+// call that runs longer belongs in an MCP task, not a request held open on
+// progress.
+const MaxCallDurationLimit = 3600
+
+// defaultTimeoutSeconds is spec.timeout when a definition sets none, the
+// CRD's default.
+const defaultTimeoutSeconds = 30
+
+// ValidateMaxCallDuration reports whether spec.maxCallDuration is usable
+// with spec.timeout: unset, or between the timeout and MaxCallDurationLimit.
+//
+// The CRD states the same rule in CEL, which only runs in Kubernetes mode.
+func ValidateMaxCallDuration(timeout, maxCallDuration int) error {
+	if maxCallDuration == 0 {
+		return nil
+	}
+	if timeout == 0 {
+		timeout = defaultTimeoutSeconds
+	}
+	if maxCallDuration < timeout || maxCallDuration > MaxCallDurationLimit {
+		return fmt.Errorf("maxCallDuration must be between timeout (%d) and %d seconds, got %d", timeout, MaxCallDurationLimit, maxCallDuration)
 	}
 	return nil
 }
@@ -656,10 +686,13 @@ type MCPServerInfo struct {
 
 	// Timeout bounds every operation on the server in seconds -- each
 	// request, a tool call included, for every type; for a remote server also
-	// the connect and the health probe (default 30). On a tool call whose
-	// caller asked for progress, each progress notification from the server
-	// restarts the timeout, and the call ends after one hour in any case.
+	// the connect and the health probe (default 30).
 	Timeout int `json:"timeout,omitempty"`
+
+	// MaxCallDuration bounds a tool call as a whole, in seconds: up to it,
+	// each progress notification of a call whose caller asked for progress
+	// restarts Timeout. Zero means progress extends nothing.
+	MaxCallDuration int `json:"maxCallDuration,omitempty"`
 
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`

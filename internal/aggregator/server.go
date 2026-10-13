@@ -3199,7 +3199,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	)
 	headerFunc := makeTokenExchangeHeaderFunc(serverName, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 	return client, tokenExpiry, exchangedToken, nil
 }
 
@@ -3359,6 +3359,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			WithHeaderFunc(a.identityHeaderFunc(sessionID, serverInfo)).
 			WithMeta(serverInfo.Meta).
 			WithTimeout(serverInfo.Timeout).
+			WithMaxCallDuration(serverInfo.MaxCallDuration).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
 
 	} else {

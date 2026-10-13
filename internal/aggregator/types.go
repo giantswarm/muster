@@ -99,6 +99,10 @@ type ServerRegistration struct {
 	// Timeout is the server's spec.timeout, the budget every operation on a
 	// session-scoped client runs under; zero means the client's default.
 	Timeout time.Duration
+
+	// MaxCallDuration is the server's spec.maxCallDuration, how long progress
+	// may keep a tool call on a session-scoped client going.
+	MaxCallDuration time.Duration
 }
 
 // PendingAuthRegistration carries the configuration needed to register a
@@ -188,6 +192,10 @@ type ServerInfo struct {
 	// Timeout is the budget every operation on a session-scoped client of this
 	// server runs under: the server's spec.timeout, zero for the client's default.
 	Timeout time.Duration
+
+	// MaxCallDuration is the server's spec.maxCallDuration, how long progress
+	// may keep a tool call on a session-scoped client going.
+	MaxCallDuration time.Duration
 
 	// Cached capabilities - these are updated periodically to avoid
 	// repeated calls to the backend server for performance
