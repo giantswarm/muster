@@ -438,7 +438,7 @@ Create a new MCP server definition that can be started as a service.
 - `env` (object, optional) - Environment variables as key-value pairs
 - `headers` (object, optional) - HTTP headers (for streamable-http and sse servers)
 - `timeout` (integer, optional) - Connection timeout in seconds
-- `maxCallDuration` (integer, optional) - Seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it (at least `timeout`, at most 3600)
+- `progress` (object, optional) - `maxDuration` (integer): seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it (at least `timeout`, at most 3600, default 3600)
 - `autoStart` (boolean, optional) - Whether to start automatically on system startup
 
 **Returns:** Created MCP server definition

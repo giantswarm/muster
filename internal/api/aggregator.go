@@ -184,7 +184,7 @@ type PendingAuthRegistration struct {
 	// travels with the registration for the same reason Meta does.
 	Timeout time.Duration
 
-	// MaxCallDuration is the server's spec.maxCallDuration, how long progress
+	// MaxCallDuration is the server's spec.progress.maxDuration, how long progress
 	// may keep a tool call on a per-session client going. It travels with the
 	// registration for the same reason Timeout does.
 	MaxCallDuration time.Duration

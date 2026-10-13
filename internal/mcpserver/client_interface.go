@@ -102,7 +102,8 @@ type baseMCPClient struct {
 	timeout time.Duration
 	// maxCallDuration bounds a tool call whose server keeps reporting
 	// progress: up to it, each progress notification restarts timeout (see
-	// callContext). At or below timeout, progress extends nothing.
+	// callContext). Zero means DefaultMaxCallDuration; at or below timeout,
+	// progress extends nothing.
 	maxCallDuration time.Duration
 
 	notifMu      sync.Mutex

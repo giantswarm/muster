@@ -479,7 +479,7 @@ mcpservers:
 | `env` | `map[string]string` | ❌ | `{}` | Environment variables |
 | `url` | `string` | ✅* | - | Server URL (*required for streamable-http and sse) |
 | `timeout` | `integer` | ❌ | `30` | Connection timeout in seconds |
-| `maxCallDuration` | `integer` | ❌ | - | Seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it |
+| `progress.maxDuration` | `integer` | ❌ | `3600` | Seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it |
 | `headers` | `map[string]string` | ❌ | `{}` | HTTP headers (streamable-http and sse only) |
 
 ### Workflow Configuration

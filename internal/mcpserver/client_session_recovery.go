@@ -30,6 +30,10 @@ import (
 // DefaultRemoteTimeout is derived from it.
 const DefaultTimeout = 30 * time.Second
 
+// DefaultMaxCallDuration bounds a tool call kept going by progress on a
+// server whose definition sets no spec.progress.maxDuration.
+const DefaultMaxCallDuration = time.Hour
+
 // operationContext bounds ctx by the client's timeout, DefaultTimeout when
 // unset, and returns the budget applied. Every operation runs under it,
 // the recovery handshake included: that one runs with the client's write
@@ -42,15 +46,16 @@ func (b *baseMCPClient) operationContext(ctx context.Context) (context.Context, 
 }
 
 // callContext is operationContext for a tool call. When the caller asked for
-// progress and the server's maxCallDuration exceeds its timeout, each
+// progress and the server's progress.maxDuration exceeds its timeout, each
 // progress notification of the call restarts the timeout, up to
-// maxCallDuration (see callBudget).
+// progress.maxDuration (see callBudget).
 func (b *baseMCPClient) callContext(ctx context.Context) (context.Context, context.CancelFunc, time.Duration) {
 	timeout := b.effectiveTimeout()
-	if b.maxCallDuration <= timeout || progressReporterFrom(ctx) == nil {
+	maxDuration := b.effectiveMaxCallDuration()
+	if maxDuration <= timeout || progressReporterFrom(ctx) == nil {
 		return b.operationContext(ctx)
 	}
-	ctx, cancel := withCallBudget(ctx, timeout, b.maxCallDuration)
+	ctx, cancel := withCallBudget(ctx, timeout, maxDuration)
 	return ctx, cancel, timeout
 }
 
@@ -59,6 +64,13 @@ func (b *baseMCPClient) effectiveTimeout() time.Duration {
 		return DefaultTimeout
 	}
 	return b.timeout
+}
+
+func (b *baseMCPClient) effectiveMaxCallDuration() time.Duration {
+	if b.maxCallDuration <= 0 {
+		return DefaultMaxCallDuration
+	}
+	return b.maxCallDuration
 }
 
 // sessionIDOf returns the session id the transport currently holds, or ""
@@ -123,7 +135,7 @@ func (b *baseMCPClient) timedOut(opCtx, ctx context.Context, timeout time.Durati
 	}
 	switch cause := context.Cause(opCtx); {
 	case errors.Is(cause, errCallTooLong):
-		return fmt.Errorf("no answer within the server's maxCallDuration of %s: %w", b.maxCallDuration, context.DeadlineExceeded)
+		return fmt.Errorf("no answer within the server's progress.maxDuration of %s: %w", b.effectiveMaxCallDuration(), context.DeadlineExceeded)
 	case errors.Is(cause, errBudgetSpent), errors.Is(cause, context.DeadlineExceeded):
 		return fmt.Errorf("no answer within the server's timeout of %s: %w", timeout, context.DeadlineExceeded)
 	default:

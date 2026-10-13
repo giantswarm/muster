@@ -100,7 +100,7 @@ type ServerRegistration struct {
 	// session-scoped client runs under; zero means the client's default.
 	Timeout time.Duration
 
-	// MaxCallDuration is the server's spec.maxCallDuration, how long progress
+	// MaxCallDuration is the server's spec.progress.maxDuration, how long progress
 	// may keep a tool call on a session-scoped client going.
 	MaxCallDuration time.Duration
 }
@@ -193,7 +193,7 @@ type ServerInfo struct {
 	// server runs under: the server's spec.timeout, zero for the client's default.
 	Timeout time.Duration
 
-	// MaxCallDuration is the server's spec.maxCallDuration, how long progress
+	// MaxCallDuration is the server's spec.progress.maxDuration, how long progress
 	// may keep a tool call on a session-scoped client going.
 	MaxCallDuration time.Duration
 

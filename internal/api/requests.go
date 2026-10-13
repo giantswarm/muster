@@ -93,9 +93,9 @@ type MCPServerCreateRequest struct {
 	// included, for every type (default 30)
 	Timeout int `json:"timeout,omitempty"`
 
-	// MaxCallDuration bounds a tool call that reports progress, in seconds:
-	// up to it, each progress notification restarts Timeout.
-	MaxCallDuration int `json:"maxCallDuration,omitempty"`
+	// Progress configures how progress the server reports on a tool call
+	// affects that call's budget.
+	Progress *MCPServerProgress `json:"progress,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.
 	// This is only relevant for remote servers (streamable-http or sse).
@@ -147,9 +147,9 @@ type MCPServerUpdateRequest struct {
 	// included, for every type (default 30)
 	Timeout int `json:"timeout,omitempty"`
 
-	// MaxCallDuration bounds a tool call that reports progress, in seconds:
-	// up to it, each progress notification restarts Timeout.
-	MaxCallDuration int `json:"maxCallDuration,omitempty"`
+	// Progress configures how progress the server reports on a tool call
+	// affects that call's budget.
+	Progress *MCPServerProgress `json:"progress,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
@@ -206,9 +206,9 @@ type MCPServerValidateRequest struct {
 	// included, for every type (default 30)
 	Timeout int `json:"timeout,omitempty"`
 
-	// MaxCallDuration bounds a tool call that reports progress, in seconds:
-	// up to it, each progress notification restarts Timeout.
-	MaxCallDuration int `json:"maxCallDuration,omitempty"`
+	// Progress configures how progress the server reports on a tool call
+	// affects that call's budget.
+	Progress *MCPServerProgress `json:"progress,omitempty"`
 
 	// Description for validation and documentation.
 	Description string `json:"description,omitempty"`

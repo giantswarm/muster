@@ -12,13 +12,13 @@ var (
 	// timeout passed with neither an answer nor progress.
 	errBudgetSpent = errors.New("server timeout passed without an answer or progress")
 	// errCallTooLong is the cause of a tool call cut at the server's
-	// maxCallDuration.
-	errCallTooLong = errors.New("call reached the server's maxCallDuration")
+	// progress.maxDuration.
+	errCallTooLong = errors.New("call reached the server's progress.maxDuration")
 )
 
 // callBudget is the time a tool call has left. It ends the call when the
 // server's timeout passes with no progress from the server, and at the
-// server's maxCallDuration in any case. A nil *callBudget extends nothing.
+// server's progress.maxDuration in any case. A nil *callBudget extends nothing.
 type callBudget struct {
 	timeout time.Duration
 

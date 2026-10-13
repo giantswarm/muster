@@ -87,11 +87,11 @@ func TestCallBudget_WithoutACallerProgressTheTimeoutHolds(t *testing.T) {
 	})
 }
 
-// A server with no maxCallDuration is bounded by its timeout, whatever
-// progress it reports.
-func TestCallBudget_WithoutMaxCallDurationProgressExtendsNothing(t *testing.T) {
+// A server whose progress.maxDuration equals its timeout is bounded by its
+// timeout, whatever progress it reports.
+func TestCallBudget_MaxDurationAtTheTimeoutExtendsNothing(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		base := progressingClient(30*time.Second, 0, 6, 20*time.Second, 0)
+		base := progressingClient(30*time.Second, 30*time.Second, 6, 20*time.Second, 0)
 		start := time.Now()
 
 		_, err := base.callTool(withCaller(t.Context()), "sweep", nil)
@@ -99,6 +99,20 @@ func TestCallBudget_WithoutMaxCallDurationProgressExtendsNothing(t *testing.T) {
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		assert.EqualError(t, err, "no answer within the server's timeout of 30s: context deadline exceeded")
 		assert.Equal(t, 30*time.Second, time.Since(start))
+	})
+}
+
+// A server that sets no progress.maxDuration is cut at DefaultMaxCallDuration.
+func TestCallBudget_UnsetMaxDurationIsCappedAtTheDefault(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		base := progressingClient(30*time.Second, 0, -1, 20*time.Second, 0)
+		start := time.Now()
+
+		_, err := base.callTool(withCaller(t.Context()), "sweep", nil)
+
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		assert.EqualError(t, err, "no answer within the server's progress.maxDuration of 1h0m0s: context deadline exceeded")
+		assert.Equal(t, DefaultMaxCallDuration, time.Since(start))
 	})
 }
 
@@ -117,7 +131,7 @@ func TestCallBudget_SilenceAfterProgressIsCut(t *testing.T) {
 	})
 }
 
-// A server that reports forever is cut at its maxCallDuration.
+// A server that reports forever is cut at its progress.maxDuration.
 func TestCallBudget_ProgressDoesNotExtendPastMaxCallDuration(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		base := progressingClient(30*time.Second, 10*time.Minute, -1, 20*time.Second, 0)
@@ -126,7 +140,7 @@ func TestCallBudget_ProgressDoesNotExtendPastMaxCallDuration(t *testing.T) {
 		_, err := base.callTool(withCaller(t.Context()), "sweep", nil)
 
 		require.ErrorIs(t, err, context.DeadlineExceeded)
-		assert.EqualError(t, err, "no answer within the server's maxCallDuration of 10m0s: context deadline exceeded")
+		assert.EqualError(t, err, "no answer within the server's progress.maxDuration of 10m0s: context deadline exceeded")
 		assert.Equal(t, 10*time.Minute, time.Since(start))
 	})
 }

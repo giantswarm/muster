@@ -650,8 +650,8 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: timeout changed from %d to %d", cur.Timeout, newDef.Timeout)
 		return true
 	}
-	if cur.MaxCallDuration != newDef.MaxCallDuration {
-		s.LogDebug("Config change detected: maxCallDuration changed from %d to %d", cur.MaxCallDuration, newDef.MaxCallDuration)
+	if cur.ProgressMaxDuration() != newDef.ProgressMaxDuration() {
+		s.LogDebug("Config change detected: progress.maxDuration changed from %s to %s", cur.ProgressMaxDuration(), newDef.ProgressMaxDuration())
 		return true
 	}
 	if cur.ToolPrefix != newDef.ToolPrefix {
@@ -715,7 +715,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		"headers":         s.definition.Headers,
 		"meta":            s.definition.Meta,
 		"timeout":         s.operationTimeout(),
-		"maxCallDuration": time.Duration(s.definition.MaxCallDuration) * time.Second,
+		"maxCallDuration": s.definition.ProgressMaxDuration(),
 		"description":     s.definition.Description,
 	}
 
@@ -1022,7 +1022,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		Meta:            s.definition.Meta,
 		Auth:            s.definition.Auth,
 		Timeout:         s.operationTimeout(),
-		MaxCallDuration: time.Duration(s.definition.MaxCallDuration) * time.Second,
+		MaxCallDuration: s.definition.ProgressMaxDuration(),
 	}
 
 	// Use factory to create the appropriate client type

@@ -489,15 +489,6 @@ spec:
                   Headers contains HTTP headers to send with requests to remote MCP servers.
                   This field is only relevant when Type is "streamable-http" or "sse".
                 type: object
-              maxCallDuration:
-                description: |-
-                  MaxCallDuration bounds a tool call as a whole, in seconds. On a tool
-                  call whose caller asked for progress, each progress notification from
-                  the server restarts Timeout, up to MaxCallDuration; any other call and
-                  operation stays bounded by Timeout. Unset, progress extends nothing.
-                maximum: 3600
-                minimum: 1
-                type: integer
               meta:
                 additionalProperties:
                   type: string
@@ -525,6 +516,24 @@ spec:
                   the signing region — the two default to the same string but resolve
                   independently, endpoint-first for signing and config-first for operating.
                 type: object
+              progress:
+                description: |-
+                  Progress configures how progress the server reports on a tool call
+                  affects that call's budget. Unset, progress keeps a tool call going for
+                  up to 3600 seconds.
+                properties:
+                  maxDuration:
+                    default: 3600
+                    description: |-
+                      MaxDuration bounds, in seconds, a tool call kept going by progress. On
+                      a tool call whose caller asked for progress, each progress notification
+                      from the server restarts Timeout, up to MaxDuration; any other call and
+                      operation stays bounded by Timeout. A value equal to Timeout extends
+                      nothing. Unset, 3600.
+                    maximum: 3600
+                    minimum: 1
+                    type: integer
+                type: object
               restartRequestedAt:
                 description: |-
                   RestartRequestedAt requests a one-shot restart of this server's service.
@@ -550,8 +559,7 @@ spec:
                 description: |-
                   Timeout bounds every operation on the server in seconds, a tool call
                   included, for every type; for a remote server also the connect and the
-                  health probe. See MaxCallDuration for a tool call that reports
-                  progress.
+                  health probe. See Progress for a tool call that reports progress.
                 maximum: 300
                 minimum: 1
                 type: integer
@@ -588,9 +596,9 @@ spec:
             - type
             type: object
             x-kubernetes-validations:
-            - message: maxCallDuration must be at least timeout
-              rule: '!has(self.maxCallDuration) || self.maxCallDuration >= (has(self.timeout)
-                ? self.timeout : 30)'
+            - message: progress.maxDuration must be at least timeout
+              rule: '!has(self.progress) || !has(self.progress.maxDuration) || self.progress.maxDuration
+                >= (has(self.timeout) ? self.timeout : 30)'
           status:
             description: |-
               MCPServerStatus defines the observed state of MCPServer.

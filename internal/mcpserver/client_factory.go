@@ -32,9 +32,9 @@ type MCPClientConfig struct {
 	// tool call above all, and the handshake a session recovery performs on
 	// the way. Zero means DefaultTimeout.
 	Timeout time.Duration
-	// MaxCallDuration is the server's spec.maxCallDuration: how long progress
-	// may keep a tool call going. At or below Timeout, progress extends
-	// nothing.
+	// MaxCallDuration is the server's spec.progress.maxDuration: how long
+	// progress may keep a tool call going. Zero means DefaultMaxCallDuration;
+	// at or below Timeout, progress extends nothing.
 	MaxCallDuration time.Duration
 }
 
