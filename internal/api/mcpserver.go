@@ -58,14 +58,18 @@ type MCPServer struct {
 	// Examples: http://mcp-server:8080/mcp, https://api.example.com/mcp
 	URL string `yaml:"url,omitempty" json:"url,omitempty"`
 
-	// Env contains environment variables to set for the MCP server.
-	// For stdio servers, these are passed to the process when it is started.
-	// For remote servers, these can be used for authentication or configuration.
+	// Env contains environment variables to set for a stdio server's process
+	// when it is started. Refused on a remote server (ValidateNoInlineCredential).
 	Env map[string]string `yaml:"env,omitempty" json:"env,omitempty"`
 
 	// Headers contains HTTP headers to send with requests to remote MCP servers.
 	// This field is only relevant when Type is "streamable-http" or "sse".
 	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+
+	// HeadersFrom lists HTTP headers whose values muster reads from a Secret
+	// in the server's own namespace when it connects. Only the references are
+	// here: the values live in the connection's client alone.
+	HeadersFrom []MCPServerHeaderFrom `yaml:"headersFrom,omitempty" json:"headersFrom,omitempty"`
 
 	// Meta contains entries merged into the `params._meta` object of every
 	// outbound JSON-RPC request that carries `params`. Remote types only; see
@@ -440,6 +444,7 @@ func (i MCPServerInfo) ToMCPServer() *MCPServer {
 		URL:         i.URL,
 		Env:         i.Env,
 		Headers:     i.Headers,
+		HeadersFrom: i.HeadersFrom,
 		Meta:        i.Meta,
 		Timeout:     i.Timeout,
 		Progress:    i.Progress,
@@ -697,6 +702,10 @@ type MCPServerInfo struct {
 
 	// Headers contains HTTP headers to send with requests to remote MCP servers.
 	Headers map[string]string `json:"headers,omitempty"`
+
+	// HeadersFrom lists headers whose values muster reads from a Secret when
+	// it connects; references only.
+	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty"`
 
 	// Meta contains entries merged into the `params._meta` object of every
 	// outbound JSON-RPC request that carries `params`.

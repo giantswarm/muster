@@ -129,6 +129,10 @@ type PendingAuthRegistration struct {
 	// Headers carries MCPServer.Headers to the session-scoped clients. See
 	// api.PendingAuthRegistration.Headers.
 	Headers map[string]string
+
+	// HeadersFrom carries MCPServer.HeadersFrom to the session-scoped clients.
+	// See api.PendingAuthRegistration.HeadersFrom.
+	HeadersFrom []api.MCPServerHeaderFrom
 }
 
 // ServerInfo contains information about a registered MCP server.
@@ -188,6 +192,11 @@ type ServerInfo struct {
 	// of this server sends with each request, next to the session's own
 	// Authorization header. See api.PendingAuthRegistration.Headers.
 	Headers map[string]string
+
+	// HeadersFrom holds the MCPServer.HeadersFrom references. A session-scoped
+	// client reads their values from the Secrets when it connects
+	// (sessionHeaders); the values are never kept here.
+	HeadersFrom []api.MCPServerHeaderFrom
 
 	// Timeout is the budget every operation on a session-scoped client of this
 	// server runs under: the server's spec.timeout, zero for the client's default.

@@ -217,11 +217,12 @@ func (a *APIAdapter) RegisterServerPendingAuth(registration api.PendingAuthRegis
 			Timeout:         registration.Timeout,
 			MaxCallDuration: registration.MaxCallDuration,
 		},
-		URL:        registration.URL,
-		AuthInfo:   aggregatorAuthInfo,
-		AuthConfig: registration.AuthConfig,
-		Meta:       registration.Meta,
-		Headers:    registration.Headers,
+		URL:         registration.URL,
+		AuthInfo:    aggregatorAuthInfo,
+		AuthConfig:  registration.AuthConfig,
+		Meta:        registration.Meta,
+		Headers:     registration.Headers,
+		HeadersFrom: registration.HeadersFrom,
 	})
 }
 

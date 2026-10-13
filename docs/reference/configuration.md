@@ -476,7 +476,7 @@ mcpservers:
 | `autoStart` | `boolean` | ❌ | `false` | Auto-start server (stdio only) |
 | `command` | `[]string` | ✅* | - | Command and args (*required for stdio) |
 | `args` | `[]string` | ❌ | - | Command arguments (stdio only) |
-| `env` | `map[string]string` | ❌ | `{}` | Environment variables |
+| `env` | `map[string]string` | ❌ | `{}` | Environment variables (stdio only; refused on a remote server) |
 | `url` | `string` | ✅* | - | Server URL (*required for streamable-http and sse) |
 | `timeout` | `integer` | ❌ | `30` | Connection timeout in seconds |
 | `progress.maxDuration` | `integer` | ❌ | `3600` | Seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it |

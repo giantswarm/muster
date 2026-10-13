@@ -290,6 +290,7 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		AuthConfig:      definition.Auth,
 		Meta:            definition.Meta,
 		Headers:         definition.Headers,
+		HeadersFrom:     definition.HeadersFrom,
 		Timeout:         time.Duration(definition.Timeout) * time.Second,
 		MaxCallDuration: definition.ProgressMaxDuration(),
 	}); err != nil {

@@ -217,8 +217,12 @@ spec:
   type: streamable-http
   url: "https://api.example.com/mcp"
   timeout: 60
-  headers:
-    Authorization: "Bearer your-token-here"
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: remote-api-token
+        key: authorization
 ```
 
 #### Server-Sent Events (SSE) Transport
@@ -233,9 +237,34 @@ spec:
   type: sse
   url: "https://sse.example.com/mcp"
   timeout: 90
-  headers:
-    Authorization: "Bearer your-token-here"
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: sse-server-token
+        key: authorization
 ```
+
+#### Credentials come from a Secret
+
+Everyone who can read an MCPServer can read its `headers`, `url` and `env`, so
+a credential goes in a Secret in the MCPServer's own namespace and the server
+refers to it in `headersFrom`. muster reads the value each time it connects; it
+never shows the value in the MCPServer, in `core_service_*` or in
+`core_mcpserver_*` output.
+
+```bash
+kubectl create secret generic remote-api-token \
+  --namespace <mcpserver-namespace> \
+  --from-literal=authorization="Bearer <token>"
+```
+
+muster refuses a server with a value in an `Authorization`,
+`Proxy-Authorization`, `Cookie` or `X-API-Key` header, with a user name or
+password in its `url`, or with `env` on a remote server. A server written
+before this rule reconciles to `Failed` and names the field; move the value to
+a Secret. In filesystem mode muster has no Secret reader: there `headersFrom`
+fails the connect, and `headers` may still carry a credential.
 
 ## SSO Authentication
 
@@ -713,9 +742,14 @@ spec:
   type: streamable-http
   url: "https://secure-api.example.com/mcp"
   headers:
-    Authorization: "Bearer jwt-token-here"
     X-API-Version: "v2"
     Content-Type: "application/json"
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: authenticated-api-token
+        key: authorization
   timeout: 45
 ```
 

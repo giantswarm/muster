@@ -163,7 +163,12 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	// CR applied straight through the apiserver bypasses the tool handlers'
 	// admission gate, so the reconciler is where it has to fail visibly
 	// instead of spawning a subprocess in the muster pod (issue #1067).
-	if rejectErr := api.ValidateStdioAllowed(mcpServerInfo.Type, r.isKubernetesMode()); rejectErr != nil {
+	//
+	// The same holds for a credential written into the definition, which the
+	// CRD's CEL rule refuses at admission only for objects written after it
+	// shipped, and for a Secret reference of a server outside muster's
+	// namespace that names another namespace than the server's own.
+	if rejectErr := r.validateDefinition(mcpServerInfo); rejectErr != nil {
 		result := r.reconcileReject(req, rejectErr, exists)
 		r.syncStatus(ctx, req.Name, req.Namespace, result.Error, nil)
 		r.recordState(ctx, req, mcpServerInfo.Type, result.Error)
@@ -383,7 +388,7 @@ func (r *MCPServerReconciler) observedState(name, serverType string, reconcileEr
 	// A definition muster refuses to run will never start, so it reads as Failed
 	// rather than as a server merely not started yet (issue #1067). Transient
 	// reconcile errors keep the stopped / disconnected reading and are retried.
-	if reconcileErr != nil && errors.Is(reconcileErr, api.ErrStdioNotAllowedInKubernetesMode) {
+	if reconcileErr != nil && isRefusal(reconcileErr) {
 		return musterv1alpha1.MCPServerStateFailed
 	}
 	if serverType == "streamable-http" || serverType == "sse" {
@@ -714,6 +719,29 @@ func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt
 // (tests, filesystem-only setups) is treated as filesystem mode.
 func (r *MCPServerReconciler) isKubernetesMode() bool {
 	return r.StatusUpdater != nil && r.StatusUpdater.IsKubernetesMode()
+}
+
+// validateDefinition reports a definition muster refuses to run: a stdio
+// server in Kubernetes mode (ValidateStdioAllowed), a credential written into
+// the definition (ValidateNoInlineCredential), or a Secret reference of a
+// server outside muster's namespace that names another namespace than the
+// server's own (ValidateSecretNamespaces). r.Namespace is muster's namespace.
+func (r *MCPServerReconciler) validateDefinition(info *api.MCPServerInfo) error {
+	if err := api.ValidateStdioAllowed(info.Type, r.isKubernetesMode()); err != nil {
+		return err
+	}
+	if err := api.ValidateNoInlineCredential(info.Type, info.URL, info.Headers, info.Env, r.isKubernetesMode()); err != nil {
+		return err
+	}
+	return api.ValidateSecretNamespaces(info.Namespace, r.Namespace, info.Auth)
+}
+
+// isRefusal reports an error of validateDefinition: a definition muster
+// refuses to run, which reads as Failed rather than as not started yet.
+func isRefusal(err error) bool {
+	return errors.Is(err, api.ErrStdioNotAllowedInKubernetesMode) ||
+		errors.Is(err, api.ErrCredentialInDefinition) ||
+		errors.Is(err, api.ErrSecretOutsideNamespace)
 }
 
 // reconcileReject refuses a definition muster must not run in the current mode.

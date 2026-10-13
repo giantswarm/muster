@@ -61,8 +61,15 @@ spec:
   url: "https://api.example.com/mcp"
   timeout: 30
   headers:
-    Authorization: "Bearer your-token-here"
     Content-Type: "application/json"
+  # A credential comes from a Secret in the MCPServer's namespace; muster
+  # refuses one written into headers, url or env.
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: remote-api-tools-token
+        key: authorization
   description: "Remote MCP server providing API tools"
 
 ---
@@ -76,8 +83,12 @@ spec:
   type: sse
   url: "https://sse.example.com/mcp"
   timeout: 60
-  headers:
-    Authorization: "Bearer your-token-here"
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: remote-sse-tools-token
+        key: authorization
   toolPrefix: "remote_"
   description: "Remote MCP server with SSE transport"
 

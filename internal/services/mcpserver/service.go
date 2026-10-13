@@ -642,6 +642,10 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: headers changed")
 		return true
 	}
+	if !slices.Equal(cur.HeadersFrom, newDef.HeadersFrom) {
+		s.LogDebug("Config change detected: headersFrom changed")
+		return true
+	}
 	if !maps.Equal(cur.Meta, newDef.Meta) {
 		s.LogDebug("Config change detected: meta changed")
 		return true
@@ -713,6 +717,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		"url":             s.definition.URL,
 		"env":             s.definition.Env,
 		"headers":         s.definition.Headers,
+		"headersFrom":     s.definition.HeadersFrom,
 		"meta":            s.definition.Meta,
 		"timeout":         s.operationTimeout(),
 		"maxCallDuration": s.definition.ProgressMaxDuration(),
@@ -1011,14 +1016,22 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		return err
 	}
 
-	// Build client configuration from service definition
+	// The values of spec.headersFrom are read now, at the connect, into the
+	// client's configuration only: the definition and the service data keep
+	// the references.
 	// Note: Headers can be nil - the factory and client constructors handle nil maps gracefully
+	headers, err := mcpserver.ResolveHeaders(ctx, s.definition.Namespace, s.definition.Headers, s.definition.HeadersFrom)
+	if err != nil {
+		return err
+	}
+
+	// Build client configuration from service definition
 	config := mcpserver.MCPClientConfig{
 		Command:         s.definition.Command,
 		Args:            s.definition.Args,
 		Env:             s.definition.Env,
 		URL:             s.definition.URL,
-		Headers:         s.definition.Headers,
+		Headers:         headers,
 		Meta:            s.definition.Meta,
 		Auth:            s.definition.Auth,
 		Timeout:         s.operationTimeout(),
