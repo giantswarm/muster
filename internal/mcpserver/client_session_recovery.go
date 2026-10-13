@@ -94,10 +94,22 @@ func (b *baseMCPClient) sessionLostLocked(err error) bool {
 	return b.hadSession && sessionIDOf(b.client) == ""
 }
 
+// ErrNotRepeated marks an operation that failed while the MCP session was
+// lost but may have reached the backend: the session has been re-established
+// for the next operation, and this one is not sent again, since it may have
+// run already. Whether to repeat it -- a tool call may write -- is the
+// caller's decision.
+var ErrNotRepeated = errors.New("MCP session re-established; the request was not sent again, it may have run on the backend")
+
+// errNotConnected is checkConnected's answer: the operation never left muster.
+var errNotConnected = errors.New("client not connected")
+
 // withSessionRecovery runs op under the client's timeout and, when it failed
-// because the MCP session is gone, performs one fresh handshake and runs op
-// a second time within the same budget. Any other failure is returned as is,
-// except the budget running out, which is reported as the deadline it is.
+// because the MCP session is gone, performs one fresh handshake. op runs a
+// second time within the same budget only when the backend provably did not
+// run the first attempt (notSent); otherwise the failure is returned with
+// ErrNotRepeated. Any other failure is returned as is, except the budget
+// running out, which is reported as the deadline it is.
 func withSessionRecovery[T any](b *baseMCPClient, ctx context.Context, op func(context.Context) (T, error)) (T, error) {
 	opCtx, cancel, timeout := b.operationContext(ctx)
 	defer cancel()
@@ -115,12 +127,26 @@ func recovering[T any](b *baseMCPClient, opCtx, ctx context.Context, timeout tim
 	if err == nil {
 		return result, nil
 	}
-	if retry, rerr := b.recoverSession(opCtx, generation, err); retry {
-		result, err = op(opCtx)
-	} else {
+	recovered, rerr := b.recoverSession(opCtx, generation, err)
+	switch {
+	case !recovered:
 		err = rerr
+	case notSent(err):
+		result, err = op(opCtx)
+	default:
+		err = fmt.Errorf("%w: %w", ErrNotRepeated, err)
 	}
 	return result, b.timedOut(opCtx, ctx, timeout, err)
+}
+
+// notSent reports whether err proves the backend did not run the request:
+// it answered 404 for the unknown session, or the transport, knowing the
+// session ended, did not send it (both ErrSessionTerminated), or the client
+// was not connected. A request that failed any other way while the session
+// was lost -- the notification listener met the 404 while it was in flight --
+// may have run.
+func notSent(err error) bool {
+	return errors.Is(err, transport.ErrSessionTerminated) || errors.Is(err, errNotConnected)
 }
 
 // timedOut replaces err with the deadline error when the operation's own
