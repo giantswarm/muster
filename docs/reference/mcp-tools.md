@@ -198,9 +198,40 @@ workflow whose steps call only read-only tools stays read-only when one of them 
 | `core_events` | true | false | true | false | Read. |
 | `core_auth_login` | **true** | false | true | **true** | Issues a sign-in link for the caller and changes nothing on the platform; the grant that follows lands in the caller's own session. Reaches the server's authorization server. A read-only agent keeps the ability to connect SSO-protected servers as the person. |
 | `core_auth_logout` | false | false | true | false | Discards the caller's stored grant for a server — a write, nothing else is touched. |
+| `core_auth_status` | **true** | false | true | **true** | Reads the caller's state on every server; with `auth_urls` it issues the sign-in links `core_auth_login` would, which change nothing until the person completes them. |
 
 Workflow execution tools (`workflow_<name>`) declare nothing themselves; their `readOnlyHint` is
 [derived from their steps](toolsets.md#workflow-read-only-derivation).
+
+### `core_auth_status` — every server's sign-in state, and the links that start the missing grants
+
+A client that gets a person ready before the agent needs them (a chat front-end right after its
+sign-in) reads the person's state on every server in one call. The answer is the
+[`auth://status`](#resource-access) document — `servers[]` with `name`, `status`, `issuer`,
+`scope`, `auth_tool`, `error`, `suspended`, the SSO flags — plus, per server:
+
+- `kind`: `grant` (a grant of the person's own, started with `core_auth_login`), `sso` (the muster
+  sign-in, forwarded or exchanged; never a link) or `none`;
+- `grant_scope`: for a `grant` server, `subject` (the grant is the person's, every later session
+  reuses it) or `session` (the session that completed it);
+- `auth_url`, with `auth_urls: true`, for every `grant` server in `auth_required` or
+  `reauth_required` that is not suspended: the link `core_auth_login` would issue for it, with the
+  same expiry and the same `redirect` parameter on `/oauth/proxy/start`. A server whose grant the
+  person already holds is connected by the call and reported `connected`; one the login refuses
+  carries the reason in `error`.
+
+Issuing the links counts as one authentication attempt for the rate limit. Each link is a bearer
+link for the caller's session: show it to the person only.
+
+```json
+{"name": "core_auth_status", "arguments": {"auth_urls": true}}
+→ {"servers": [
+    {"name": "github", "status": "auth_required", "kind": "grant", "grant_scope": "subject",
+     "issuer": "https://github.com/login/oauth", "auth_tool": "core_auth_login",
+     "auth_url": "https://muster.example.com/oauth/proxy/start?state=…"},
+    {"name": "kubernetes", "status": "connected", "kind": "sso", "token_forwarding_enabled": true}
+  ]}
+```
 
 ### Additional Tool Types
 

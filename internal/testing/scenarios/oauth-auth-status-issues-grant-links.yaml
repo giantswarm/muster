@@ -1,0 +1,135 @@
+name: "oauth-auth-status-issues-grant-links"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  core_auth_status reads the person's state on every server in one call, and
+  with auth_urls issues the sign-in link that starts each missing grant, so a
+  front-end can show everything the person must connect before the agent
+  needs it.
+
+  A pinned GitHub-style server (`profile: github`: grants are the person's)
+  and a server without authentication. The person signs in to muster, then:
+
+    - core_auth_status names the pinned server auth_required, kind grant,
+      grant_scope subject, with core_auth_login and no link; the other server
+      kind none;
+    - with auth_urls the pinned server carries its auth_url, and completing
+      that very link in a browser connects it: the next core_auth_status
+      reports it connected, without a link, and its tool runs.
+tags: ["oauth", "auth-status", "subject-grant", "pinned-issuer", "github", "1507"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "github-as"
+      profile: "github"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+
+  mcp_servers:
+    - name: "gh-hosted"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+        tools:
+          - name: "whoami"
+            description: "Who the hosted server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "gh-hosted"
+
+    - name: "notes"
+      config:
+        tools:
+          - name: "list"
+            description: "List notes"
+            responses: [{ response: { notes: [] } }]
+
+steps:
+  - id: verify-servers-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["gh-hosted", "notes"]
+
+  - id: person-logs-into-muster
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: status-without-links
+    description: "Every server with its kind; the grant server waits, no link is issued"
+    tool: "core_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - '"name":"gh-hosted","status":"auth_required"'
+        - '"auth_tool":"core_auth_login","kind":"grant","grant_scope":"subject"'
+        - '"name":"notes"'
+        - '"kind":"none"'
+      not_contains:
+        - "auth_url"
+
+  - id: "status_with_links"
+    description: "auth_urls issues the grant server's sign-in link"
+    tool: "core_auth_status"
+    args:
+      auth_urls: true
+    expected:
+      success: true
+      contains:
+        - '"name":"gh-hosted","status":"auth_required","auth_url":"http'
+        - "/oauth/proxy/start?state="
+
+  - id: complete-the-issued-link
+    description: "The browser completes the link core_auth_status issued"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh-hosted"
+      auth_url: "{{ .status_with_links }}"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: status-after-grant
+    description: "The grant landed: connected, no link, no login tool"
+    tool: "core_auth_status"
+    args:
+      auth_urls: true
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains:
+        - '"name":"gh-hosted","status":"connected"'
+      not_contains:
+        - "auth_url"
+        - "auth_required"
+
+  - id: tool-runs-with-the-grant
+    tool: "x_gh-hosted_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["gh-hosted"]

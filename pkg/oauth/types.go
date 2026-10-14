@@ -411,6 +411,21 @@ const (
 	DisplayAuthRequired = "[AUTH REQUIRED]"
 )
 
+// ServerAuthKind says how a person comes to use an MCP server.
+type ServerAuthKind string
+
+// Server auth kinds for ServerAuthStatus.Kind.
+const (
+	// ServerAuthKindGrant is a server reached with a grant of the person's
+	// own, obtained through core_auth_login.
+	ServerAuthKindGrant ServerAuthKind = "grant"
+	// ServerAuthKindSSO is a server reached with the person's muster sign-in
+	// (token forwarding or RFC 8693 token exchange); it needs no grant.
+	ServerAuthKindSSO ServerAuthKind = "sso"
+	// ServerAuthKindNone is a server reached without the person's credential.
+	ServerAuthKindNone ServerAuthKind = "none"
+)
+
 // AuthStatusResponse is the structured response from the auth://status MCP resource.
 // It provides the AI with complete information about which servers need authentication.
 // This type is shared between the aggregator (producer) and agent (consumer).
@@ -427,11 +442,28 @@ type AuthStatusResponse struct {
 //   - Token Exchange: When TokenExchangeEnabled is true, muster exchanges its token
 //     for one valid on the remote cluster's IdP (for cross-cluster SSO).
 type ServerAuthStatus struct {
-	Name     string              `json:"name"`
-	Status   SessionServerStatus `json:"status"` // "connected", "auth_required", "reauth_required", "sso_pending", "disconnected", "error"
-	Issuer   string              `json:"issuer,omitempty"`
-	Scope    string              `json:"scope,omitempty"`
-	AuthTool string              `json:"auth_tool,omitempty"` // "core_auth_login" for non-SSO servers; empty for SSO servers (per ADR-008)
+	Name   string              `json:"name"`
+	Status SessionServerStatus `json:"status"` // "connected", "auth_required", "reauth_required", "sso_pending", "disconnected", "error"
+
+	// AuthURL is the sign-in link that starts the person's grant, set only by
+	// core_auth_status with auth_urls for a server in auth_required or
+	// reauth_required. It is a bearer link for this person and session,
+	// valid once and for a few minutes: show it to the person only.
+	AuthURL string `json:"auth_url,omitempty"`
+
+	Issuer   string `json:"issuer,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	AuthTool string `json:"auth_tool,omitempty"` // "core_auth_login" for non-SSO servers; empty for SSO servers (per ADR-008)
+
+	// Kind says how the person comes to use the server: "grant" (a grant of
+	// their own, started with core_auth_login), "sso" (their muster sign-in,
+	// forwarded or exchanged) or "none" (no credential).
+	Kind ServerAuthKind `json:"kind,omitempty"`
+
+	// GrantScope is whom a grant for a "grant" server belongs to: "subject"
+	// (the person, every session of theirs reuses it) or "session" (the
+	// session that completed it). Empty for other kinds.
+	GrantScope string `json:"grant_scope,omitempty"`
 
 	// Error says why the server is not connected for this session, when muster
 	// knows. For an SSO server whose attempt failed (SSOAttemptFailed) it is
