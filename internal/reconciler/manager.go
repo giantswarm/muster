@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -214,6 +215,9 @@ func (m *Manager) setupChangeDetector() error {
 		if err != nil {
 			return fmt.Errorf("failed to create Kubernetes detector: %w", err)
 		}
+		if m.config.MCPServersInAllNamespaces {
+			detector.WatchMCPServersInAllNamespaces()
+		}
 		m.changeDetector = detector
 
 	default:
@@ -297,11 +301,12 @@ func (m *Manager) resyncAll() {
 	m.mu.RUnlock()
 
 	for resourceType, lister := range listers {
-		for _, name := range lister.ResyncNames(m.ctx) {
+		for _, key := range lister.ResyncNames(m.ctx) {
+			namespace, name := api.SplitMCPServerKey(key)
 			m.queue.Add(ReconcileRequest{
 				Type:      resourceType,
 				Name:      name,
-				Namespace: m.namespaceOf(""),
+				Namespace: m.namespaceOf(namespace),
 				Attempt:   1,
 			})
 		}

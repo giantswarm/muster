@@ -48,6 +48,11 @@ type Orchestrator struct {
 	// are constructed knowing whether stdio is allowed at all (issue #1067).
 	kubernetesMode bool
 
+	// namespace is muster's namespace: a server in it may not take a
+	// tenant's prefix, a server outside it gets no identity from muster and
+	// reads Secrets of its own namespace only.
+	namespace string
+
 	// Service tracking
 	stopReasons map[string]StopReason
 
@@ -72,6 +77,9 @@ type Config struct {
 	// from the MusterClient rather than from the config flag, so a configured
 	// Kubernetes mode that fell back to the filesystem keeps stdio working.
 	KubernetesMode bool
+
+	// Namespace is muster's namespace (the configured namespace setting).
+	Namespace string
 }
 
 // New creates a new orchestrator.
@@ -82,6 +90,7 @@ func New(cfg Config) *Orchestrator {
 		registry:               registry,
 		aggregator:             cfg.Aggregator,
 		kubernetesMode:         cfg.KubernetesMode,
+		namespace:              cfg.Namespace,
 		stopReasons:            make(map[string]StopReason),
 		stateChangeSubscribers: make([]chan<- ServiceStateChangedEvent, 0),
 	}
@@ -152,20 +161,20 @@ func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 
 	for _, mcpServerInfo := range mcpServers {
 		if !mcpServerInfo.AutoStart {
-			logging.Debug("Orchestrator", "Skipping MCPServer %s: AutoStart=false", mcpServerInfo.Name)
+			logging.Debug("Orchestrator", "Skipping MCPServer %s: AutoStart=false", mcpServerInfo.ServerKey())
 			continue
 		}
 		if mcpServerInfo.Suspended {
-			logging.Debug("Orchestrator", "Skipping MCPServer %s: Suspended=true", mcpServerInfo.Name)
+			logging.Debug("Orchestrator", "Skipping MCPServer %s: Suspended=true", mcpServerInfo.ServerKey())
 			continue
 		}
 
 		if err := o.createMCPServerService(ctx, mcpServerInfo); err != nil {
 			if errors.Is(err, services.ErrServiceAlreadyRegistered) {
-				logging.Debug("Orchestrator", "MCPServer %s was registered through StartService while the boot pass ran; that caller starts it", mcpServerInfo.Name)
+				logging.Debug("Orchestrator", "MCPServer %s was registered through StartService while the boot pass ran; that caller starts it", mcpServerInfo.ServerKey())
 				continue
 			}
-			logging.Error("Orchestrator", err, "Failed to create MCPServer service: %s", mcpServerInfo.Name)
+			logging.Error("Orchestrator", err, "Failed to create MCPServer service: %s", mcpServerInfo.ServerKey())
 		}
 	}
 
@@ -175,7 +184,7 @@ func (o *Orchestrator) processAutoStartMCPServers(ctx context.Context) error {
 // createMCPServerService creates an MCPServer service from MCPServerInfo,
 // registers it, and starts it asynchronously.
 func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo api.MCPServerInfo) error {
-	logging.Info("Orchestrator", "Creating MCPServer service: %s", mcpServerInfo.Name)
+	logging.Info("Orchestrator", "Creating MCPServer service: %s", mcpServerInfo.ServerKey())
 
 	mcpService, err := o.registerMCPServerService(mcpServerInfo)
 	if err != nil {
@@ -190,13 +199,13 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 				// Pending auth registration happens in the auth-required hook.
 				return
 			}
-			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.Name)
+			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.ServerKey())
 		} else {
-			logging.Info("Orchestrator", "Started MCPServer service: %s", mcpServerInfo.Name)
+			logging.Info("Orchestrator", "Started MCPServer service: %s", mcpServerInfo.ServerKey())
 		}
 	}()
 
-	logging.Info("Orchestrator", "Successfully created and registered MCPServer service: %s", mcpServerInfo.Name)
+	logging.Info("Orchestrator", "Successfully created and registered MCPServer service: %s", mcpServerInfo.ServerKey())
 	return nil
 }
 
@@ -213,6 +222,16 @@ func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo)
 	// A definition written before the credential rule existed is refused the
 	// same way, so it never connects once with the credential inline.
 	if err := api.ValidateNoInlineCredential(mcpServerInfo.Type, mcpServerInfo.URL, mcpServerInfo.Headers, mcpServerInfo.Env, o.kubernetesMode); err != nil {
+		return nil, err
+	}
+	// The reconciler refuses the same definitions; the boot pass and a lazy
+	// registration run before its first pass, so they check too. Otherwise a
+	// server outside muster's namespace that asks for an identity, or that
+	// names a Secret of another namespace, would connect once.
+	if err := api.ValidateServerNamespace(mcpServerInfo.Namespace, o.namespace, mcpServerInfo.Name, mcpServerInfo.ToolPrefix, mcpServerInfo.Family, mcpServerInfo.Auth); err != nil {
+		return nil, err
+	}
+	if err := api.ValidateSecretNamespaces(mcpServerInfo.Namespace, o.namespace, mcpServerInfo.Auth); err != nil {
 		return nil, err
 	}
 

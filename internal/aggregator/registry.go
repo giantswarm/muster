@@ -192,7 +192,7 @@ func (r *ServerRegistry) recordResourceProviderLocked(exposedURI, serverName, or
 func (r *ServerRegistry) buildExposedNameLocked(serverName, name string) string {
 	prefix := r.serverPrefixes[serverName]
 	if prefix == "" {
-		prefix = serverName
+		prefix = api.MCPServerExposedPrefix(serverName, "")
 	}
 	if !strings.HasPrefix(name, prefix+"_") {
 		name = prefix + "_" + name
@@ -219,7 +219,7 @@ func (r *ServerRegistry) exposedToolPrefixLocked(serverName string, fallback map
 	}
 	prefix := r.serverPrefixes[serverName]
 	if prefix == "" {
-		prefix = serverName
+		prefix = api.MCPServerExposedPrefix(serverName, "")
 	}
 	return r.musterPrefix + "_" + prefix + "_"
 }
@@ -291,7 +291,9 @@ func (r *ServerRegistry) DeclaredOwnerOf(exposedName string, args map[string]any
 }
 
 // SetServerPrefix configures the prefix to use for a specific server.
-// If prefix is empty the server name itself is used.
+// If prefix is empty the server name itself is used. A server outside
+// muster's namespace (key "<namespace>/<name>") always carries its namespace
+// in front: api.MCPServerExposedPrefix.
 func (r *ServerRegistry) SetServerPrefix(serverName, prefix string) {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
@@ -300,10 +302,7 @@ func (r *ServerRegistry) SetServerPrefix(serverName, prefix string) {
 
 // setServerPrefixLocked sets the prefix for a server. Caller must hold nameMu.
 func (r *ServerRegistry) setServerPrefixLocked(serverName, prefix string) {
-	if prefix == "" {
-		prefix = serverName
-	}
-	r.serverPrefixes[serverName] = prefix
+	r.serverPrefixes[serverName] = api.MCPServerExposedPrefix(serverName, prefix)
 }
 
 // setServerFamilyLocked records the family declared by a server (or removes
@@ -1248,7 +1247,7 @@ func (r *ServerRegistry) ServersInNameSpaceOf(exposedName string, args map[strin
 	for name := range r.servers {
 		prefix := r.serverPrefixes[name]
 		if prefix == "" {
-			prefix = name
+			prefix = api.MCPServerExposedPrefix(name, "")
 		}
 		if strings.HasPrefix(exposedName, r.musterPrefix+"_"+prefix+"_") {
 			owners[name] = struct{}{}

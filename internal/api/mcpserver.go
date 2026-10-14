@@ -17,6 +17,8 @@ import (
 type MCPServer struct {
 	// Name is the unique identifier for this MCP server instance.
 	// This name is used for registration, lookup, and management operations.
+	// It is the server's key (MCPServerKey): the object's name in muster's
+	// namespace, "<namespace>/<name>" outside it.
 	Name string `yaml:"name" json:"name"`
 
 	// Namespace is the Kubernetes namespace of the MCPServer resource this
@@ -423,6 +425,15 @@ func ValidateStdioAllowed(serverType string, kubernetesMode bool) error {
 	return nil
 }
 
+// ServerKey returns the key muster registers the server's service under:
+// Key, or Name when the manager set no key (a server of muster's namespace).
+func (i MCPServerInfo) ServerKey() string {
+	if i.Key != "" {
+		return i.Key
+	}
+	return i.Name
+}
+
 // ToMCPServer converts the API/reconciler view of a server into the
 // service-layer configuration struct.
 //
@@ -432,7 +443,7 @@ func ValidateStdioAllowed(serverType string, kubernetesMode bool) error {
 // through one path and was silently dropped by the other.
 func (i MCPServerInfo) ToMCPServer() *MCPServer {
 	return &MCPServer{
-		Name:        i.Name,
+		Name:        i.ServerKey(),
 		Namespace:   i.Namespace,
 		Type:        MCPServerType(i.Type),
 		Description: i.Description,
@@ -660,6 +671,12 @@ type MCPServerInfo struct {
 	// Namespace is the Kubernetes namespace of the MCPServer resource.
 	// Empty in filesystem mode.
 	Namespace string `json:"namespace,omitempty"`
+
+	// Key is what muster registers, exposes and stores the server under
+	// (MCPServerKey): the name for a server of muster's namespace,
+	// "<namespace>/<name>" outside it. The MCPServer manager sets it; use
+	// ServerKey, which falls back to Name when it is empty.
+	Key string `json:"-"`
 
 	// Labels mirrors the MCPServer resource's metadata.labels in both storage
 	// modes. Toolset presets select servers by label (label: rules, #1168) —

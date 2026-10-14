@@ -30,6 +30,7 @@ func credentialReconcilerFixture(t *testing.T, namespace string, info *api.MCPSe
 	statusUpdater.AddMCPServer(crd)
 
 	info.Namespace = namespace
+	info.Key = api.MCPServerKey(namespace, info.Name, "muster")
 	info.AutoStart = true
 	mgr.AddMCPServer(info)
 
