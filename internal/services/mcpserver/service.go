@@ -1168,7 +1168,9 @@ func (s *Service) isRemoteServer() bool {
 //
 // Configuration errors (certificates, TLS) are NOT transient and should fail
 // immediately without counting towards unreachable threshold, as they won't
-// resolve without user intervention.
+// resolve without user intervention. This holds for an untyped error only: a
+// typed error below keeps its own answer, so a TokenEndpointUnavailableError
+// that wraps a certificate error is retried on the backoff.
 func (s *Service) isTransientConnectivityError(err error) bool {
 	if err == nil {
 		return false

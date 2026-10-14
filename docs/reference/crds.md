@@ -146,7 +146,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 | `valueFrom.name` | `string` | Yes | Name of the Secret, in the MCPServer's own namespace | There is no namespace field |
 | `valueFrom.key` | `string` | Yes | Key in the Secret's data that holds the value | |
 
-muster's ServiceAccount needs `get` on the Secret. A missing Secret or key fails the connect: the server is `Failed` and is retried on its reconnect backoff (`status.nextRetryAfter`) until the Secret exists. muster drops one trailing newline (`\n` or `\r\n`) of the value. A person's session connection sends its own `Authorization` and does not read the Secret of an `Authorization` entry.
+muster's ServiceAccount needs `get` on the Secret. The chart grants it in the release namespace and in each namespace listed in `rbac.additionalSecretNamespaces`; an MCPServer in another namespace needs that namespace listed there. A missing Secret or key fails the connect: the server is `Failed` and is retried on its reconnect backoff (`status.nextRetryAfter`) until the Secret exists. muster drops one trailing newline (`\n` or `\r\n`) of the value. A person's session connection sends its own `Authorization` and does not read the Secret of an `Authorization` entry.
 
 #### Credentials in the definition
 

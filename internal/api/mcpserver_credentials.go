@@ -86,8 +86,9 @@ func ValidateNoInlineCredential(serverType, rawURL string, headers, env map[stri
 }
 
 // ValidateHeadersFrom reports a spec.headersFrom that the CRD schema would
-// refuse: an entry on a stdio server, or an entry without a header name, a
-// Secret name or key, or with a type other than Secret.
+// refuse: an entry on a stdio server, an entry without a header name, a
+// Secret name or key, or with a type other than Secret, or two entries whose
+// header names differ only in case.
 func ValidateHeadersFrom(serverType string, headersFrom []MCPServerHeaderFrom) error {
 	if len(headersFrom) == 0 {
 		return nil
@@ -95,7 +96,15 @@ func ValidateHeadersFrom(serverType string, headersFrom []MCPServerHeaderFrom) e
 	if !MCPServerType(serverType).IsRemote() {
 		return fmt.Errorf("headersFrom is only allowed when type is %q or %q", MCPServerTypeStreamableHTTP, MCPServerTypeSSE)
 	}
+	seen := make(map[string]bool, len(headersFrom))
 	for _, h := range headersFrom {
+		// Header names are case-insensitive: of two entries, one would be
+		// dropped without a message when the headers are resolved.
+		name := strings.ToLower(h.Name)
+		if seen[name] {
+			return fmt.Errorf("headersFrom names the header %q twice: header names are case-insensitive", h.Name)
+		}
+		seen[name] = true
 		if h.Name == "" || h.ValueFrom.Name == "" || h.ValueFrom.Key == "" {
 			return fmt.Errorf("headersFrom entry %q needs a name, valueFrom.name and valueFrom.key", h.Name)
 		}

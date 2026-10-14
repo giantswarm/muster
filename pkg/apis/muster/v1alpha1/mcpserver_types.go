@@ -121,7 +121,11 @@ type MCPServerSpec struct {
 	// A connection that carries a person's own credential (an OAuth sign-in,
 	// a forwarded or exchanged token) sends its own Authorization header, so
 	// an Authorization entry here reaches only muster's own connection.
+	//
+	// Header names are case-insensitive, so two entries whose names differ
+	// only in case are refused.
 	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.exists_one(y, y.name.lowerAscii() == x.name.lowerAscii()))",message="headersFrom names a header twice: header names are case-insensitive"
 	// +listType=map
 	// +listMapKey=name
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty" yaml:"headersFrom,omitempty"`

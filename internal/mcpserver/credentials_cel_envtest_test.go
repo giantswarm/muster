@@ -18,7 +18,8 @@ import (
 // which also proves that its CEL rules pass the API server's cost check, and
 // applies MCPServers to it: a server with a value in a credential header (in
 // any case), with a user name or password in its URL, or with env on a remote
-// server is refused; a normal server and one with headersFrom are accepted.
+// server is refused, and so is a headersFrom that names one header twice in
+// two cases; a normal server and one with headersFrom are accepted.
 // api.ValidateNoInlineCredential is the same rule where muster loads a server
 // (TestValidateNoInlineCredential).
 //
@@ -47,7 +48,18 @@ func TestCredentialCELEnvtest(t *testing.T) {
 		inHeaders = "headers must not hold a credential"
 		inURL     = "url must not hold a user name or password"
 		inEnv     = "env field is only allowed when type is stdio"
+		twice     = "headersFrom names a header twice"
 	)
+	fromSecret := func(names ...string) []musterv1alpha1.MCPServerHeaderFrom {
+		entries := make([]musterv1alpha1.MCPServerHeaderFrom, 0, len(names))
+		for _, name := range names {
+			entries = append(entries, musterv1alpha1.MCPServerHeaderFrom{
+				Name:      name,
+				ValueFrom: musterv1alpha1.MCPServerValueSource{Type: "Secret", Name: "github-token", Key: "token"},
+			})
+		}
+		return entries
+	}
 
 	tests := []struct {
 		name     string
@@ -59,10 +71,9 @@ func TestCredentialCELEnvtest(t *testing.T) {
 	}{
 		{name: "plain", headers: map[string]string{"X-MCP-Toolsets": "repos"}},
 		{name: "empty-authorization", headers: map[string]string{"Authorization": ""}},
-		{name: "headers-from", from: []musterv1alpha1.MCPServerHeaderFrom{{
-			Name:      "Authorization",
-			ValueFrom: musterv1alpha1.MCPServerValueSource{Type: "Secret", Name: "github-token", Key: "token"},
-		}}},
+		{name: "headers-from", from: fromSecret("Authorization")},
+		{name: "headers-from-two-headers", from: fromSecret("Authorization", "X-Org")},
+		{name: "headers-from-same-header-in-two-cases", from: fromSecret("Authorization", "authorization"), rejected: twice},
 		{name: "at-in-path", url: "https://marge.example.com/users/@me"},
 		{name: "authorization", headers: map[string]string{"Authorization": "Bearer t"}, rejected: inHeaders},
 		{name: "authorization-lower-case", headers: map[string]string{"authorization": "Bearer t"}, rejected: inHeaders},

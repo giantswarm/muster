@@ -152,3 +152,24 @@ func TestStartRetriesAMissingHeadersFromSecret(t *testing.T) {
 		})
 	}
 }
+
+// TestTypedErrorsKeepTheirRetryAnswer pins the order of the classification:
+// a typed error is judged by its type before the certificate and TLS patterns
+// read its text. A missing token exchange Secret named like a certificate is
+// retried, and so is an unanswered token endpoint whose cause is a
+// certificate error; only an untyped certificate error fails at once.
+func TestTypedErrorsKeepTheirRetryAnswer(t *testing.T) {
+	svc, err := NewService(&api.MCPServer{Name: "typed", Type: api.MCPServerTypeStreamableHTTP, URL: "http://example.com/mcp"})
+	require.NoError(t, err)
+	certificateErr := errors.New("x509: certificate signed by unknown authority")
+
+	missingSecret := api.NewTokenExchangeCredentialsError(&api.ClientCredentialsSecretRef{Name: "tls-certificate-token"}, "muster", errors.New(`secrets "tls-certificate-token" not found`))
+	assert.Contains(t, missingSecret.Error(), "certificate", "the case is only meaningful if the text reads like a certificate error")
+	assert.True(t, svc.isTransientConnectivityError(fmt.Errorf("failed to start MCP server: %w", missingSecret)),
+		"a missing token exchange Secret is retried whatever its name")
+
+	unanswered := &api.TokenEndpointUnavailableError{Endpoint: "https://dex.example.com/token", Err: certificateErr}
+	assert.True(t, svc.isTransientConnectivityError(unanswered), "an unanswered token endpoint is retried whatever its cause")
+
+	assert.False(t, svc.isTransientConnectivityError(certificateErr), "an untyped certificate error fails at once")
+}

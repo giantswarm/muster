@@ -63,6 +63,13 @@ func TestValidateHeadersFrom(t *testing.T) {
 	configMap := valid
 	configMap.ValueFrom.Type = "ConfigMap"
 	require.ErrorContains(t, ValidateHeadersFrom(string(MCPServerTypeSSE), []MCPServerHeaderFrom{configMap}), `must be "Secret"`)
+
+	lower := valid
+	lower.Name = "authorization"
+	require.ErrorContains(t, ValidateHeadersFrom(string(MCPServerTypeSSE), []MCPServerHeaderFrom{valid, lower}), "case-insensitive")
+	other := valid
+	other.Name = "X-Org"
+	require.NoError(t, ValidateHeadersFrom(string(MCPServerTypeSSE), []MCPServerHeaderFrom{valid, other}))
 }
 
 // TestValidateSecretNamespaces: a server outside muster's namespace cannot

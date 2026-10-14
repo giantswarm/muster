@@ -515,6 +515,9 @@ spec:
                   A connection that carries a person's own credential (an OAuth sign-in,
                   a forwarded or exchanged token) sends its own Authorization header, so
                   an Authorization entry here reaches only muster's own connection.
+
+                  Header names are case-insensitive, so two entries whose names differ
+                  only in case are refused.
                 items:
                   description: |-
                     MCPServerHeaderFrom is an HTTP header whose value muster reads from a
@@ -558,6 +561,9 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: 'headersFrom names a header twice: header names are case-insensitive'
+                  rule: self.all(x, self.exists_one(y, y.name.lowerAscii() == x.name.lowerAscii()))
               meta:
                 additionalProperties:
                   type: string
