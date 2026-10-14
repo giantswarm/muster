@@ -344,10 +344,7 @@ func (eh *EventHandler) generateEvent(serviceName string, reason events.EventRea
 // namespace in its key, and its events are filed on its own object;
 // namespace is the namespace of a bare key.
 func mcpServerObjectRef(serverName, namespace string) api.ObjectReference {
-	keyNamespace, name := api.SplitMCPServerKey(serverName)
-	if keyNamespace != "" {
-		namespace = keyNamespace
-	}
+	namespace, name := api.MCPServerObject(serverName, namespace)
 	return api.ObjectReference{
 		Kind:      mcpServerKind,
 		Name:      name,

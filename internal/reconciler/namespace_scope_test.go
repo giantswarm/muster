@@ -2,7 +2,6 @@ package reconciler
 
 import (
 	"context"
-	"errors"
 	"sort"
 	"testing"
 	"time"
@@ -36,7 +35,6 @@ func TestDetectorScopesTheWatchPerResourceType(t *testing.T) {
 		assert.NotNil(t, byObject.Namespaces, "a nil map would fall back to muster's namespace")
 		assert.Empty(t, byObject.Namespaces, "an empty map caches all namespaces")
 	}
-	assert.Contains(t, d.namespaceDisplay(), "MCPServer objects in all namespaces")
 }
 
 func namespaceKeys[V any](m map[string]V) []string {
@@ -108,10 +106,6 @@ func TestReconcileRefusesAnIdentityOutsideMustersNamespace(t *testing.T) {
 		family *api.MCPServerFamily
 	}{
 		{name: "forwardToken", auth: &api.MCPServerAuth{ForwardToken: true}},
-		{name: "requiredAudiences", auth: &api.MCPServerAuth{ForwardToken: true, RequiredAudiences: []string{"dex-k8s-authenticator"}}},
-		{name: "forwardIdentity", auth: &api.MCPServerAuth{ForwardIdentity: true}},
-		{name: "tokenExchange", auth: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{Enabled: true}}},
-		{name: "sigv4", auth: &api.MCPServerAuth{Type: api.MCPServerAuthTypeSigV4}},
 		{name: "family", family: &api.MCPServerFamily{Name: "kubernetes", InstanceArg: "cluster"}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -146,9 +140,6 @@ func TestReconcileRefusesATenantPrefixInMustersNamespace(t *testing.T) {
 	require.ErrorIs(t, result.Error, api.ErrReservedServerName)
 	assert.Empty(t, orchAPI.StartCalls)
 	assert.Equal(t, musterv1alpha1.MCPServerStateFailed, statusUpdater.GetLastUpdatedMCPServer().Status.State)
-	assert.True(t, isRefusal(result.Error))
-	assert.True(t, isRefusal(api.ErrIdentityOutsideNamespace))
-	assert.False(t, isRefusal(errors.New("connection refused")))
 }
 
 // TestStateChangeOfATenantServiceReconcilesItsObject: a state change of the

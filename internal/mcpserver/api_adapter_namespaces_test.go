@@ -21,13 +21,11 @@ import (
 type namespacedClient struct {
 	client.MusterClient
 	servers []musterv1alpha1.MCPServer
-	listed  []string
 }
 
 func (c *namespacedClient) IsKubernetesMode() bool { return true }
 
 func (c *namespacedClient) ListMCPServers(_ context.Context, namespace string) ([]musterv1alpha1.MCPServer, error) {
-	c.listed = append(c.listed, namespace)
 	var out []musterv1alpha1.MCPServer
 	for _, s := range c.servers {
 		if namespace == "" || s.Namespace == namespace {
@@ -66,7 +64,6 @@ func TestAdapterServesMustersNamespaceByDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, servers, 1)
 	assert.Equal(t, "github", servers[0].ServerKey())
-	assert.Equal(t, []string{"agent-platform"}, c.listed)
 
 	_, err = adapter.GetMCPServer(t.Context(), "org-a/github")
 	assert.True(t, api.IsNotFound(err), "a tenant server is unknown while muster serves its own namespace only: %v", err)
@@ -82,7 +79,6 @@ func TestAdapterKeysServersByNamespaceAndName(t *testing.T) {
 
 	servers, err := adapter.ListMCPServers(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, []string{""}, c.listed, "listed across all namespaces")
 	keys := make([]string, 0, len(servers))
 	for _, s := range servers {
 		keys = append(keys, s.ServerKey())

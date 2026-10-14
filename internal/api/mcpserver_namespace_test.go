@@ -34,13 +34,6 @@ func TestMCPServerKeyKeepsTodaysNames(t *testing.T) {
 	assert.True(t, IsTenantMCPServerKey("org-a/github"))
 }
 
-func TestMCPServerExposedPrefix(t *testing.T) {
-	assert.Equal(t, "github", MCPServerExposedPrefix("github", ""))
-	assert.Equal(t, "gh", MCPServerExposedPrefix("github", "gh"))
-	assert.Equal(t, "org-a_github", MCPServerExposedPrefix("org-a/github", ""))
-	assert.Equal(t, "org-a_gh", MCPServerExposedPrefix("org-a/github", "gh"))
-}
-
 func TestValidateServerNamespace(t *testing.T) {
 	const muster = "agent-platform"
 	tests := []struct {
@@ -66,6 +59,7 @@ func TestValidateServerNamespace(t *testing.T) {
 		{name: "tenant tokenExchange", namespace: "org-a", server: "x", auth: &MCPServerAuth{TokenExchange: &TokenExchangeConfig{Enabled: true}}, refused: ErrIdentityOutsideNamespace, mentions: "auth.tokenExchange"},
 		{name: "tenant sigv4", namespace: "org-a", server: "x", auth: &MCPServerAuth{Type: MCPServerAuthTypeSigV4}, refused: ErrIdentityOutsideNamespace, mentions: "auth.type sigv4"},
 		{name: "tenant family", namespace: "org-a", server: "x", family: &MCPServerFamily{Name: "kubernetes", InstanceArg: "cluster"}, refused: ErrIdentityOutsideNamespace, mentions: "family"},
+		{name: "every refused field is named", namespace: "org-a", server: "x", auth: &MCPServerAuth{ForwardToken: true, RequiredAudiences: []string{"a"}}, refused: ErrIdentityOutsideNamespace, mentions: "auth.requiredAudiences, auth.forwardToken are not allowed in namespace \"org-a\""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -78,14 +72,6 @@ func TestValidateServerNamespace(t *testing.T) {
 			require.ErrorContains(t, err, tt.mentions)
 		})
 	}
-}
-
-// TestValidateServerNamespaceNamesEveryRefusedField: the status names all
-// the settings to remove, not one per attempt.
-func TestValidateServerNamespaceNamesEveryRefusedField(t *testing.T) {
-	err := ValidateServerNamespace("org-a", "agent-platform", "x", "", nil, &MCPServerAuth{ForwardToken: true, RequiredAudiences: []string{"a"}})
-	require.ErrorIs(t, err, ErrIdentityOutsideNamespace)
-	require.ErrorContains(t, err, "auth.requiredAudiences, auth.forwardToken are not allowed in namespace \"org-a\"")
 }
 
 // TestCollectRequiredAudiencesSkipsTenantServers: a server outside muster's

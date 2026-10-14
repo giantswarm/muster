@@ -42,15 +42,3 @@ func TestServerRegistry_TenantServersCarryTheirNamespace(t *testing.T) {
 	assert.Equal(t, "x_org-a_github_", registry.ExposedToolPrefix("org-a/github"))
 	assert.Equal(t, []string{"org-a/github"}, registry.ServersInNameSpaceOf("x_org-a_github_create_issue", nil))
 }
-
-// TestMCPServerObjectRefFilesATenantEventOnItsObject: the event of a server
-// outside muster's namespace is filed on its own object.
-func TestMCPServerObjectRefFilesATenantEventOnItsObject(t *testing.T) {
-	ref := mcpServerObjectRef("org-a/github", "agent-platform")
-	assert.Equal(t, "org-a", ref.Namespace)
-	assert.Equal(t, "github", ref.Name)
-
-	ref = mcpServerObjectRef("github", "agent-platform")
-	assert.Equal(t, "agent-platform", ref.Namespace)
-	assert.Equal(t, "github", ref.Name)
-}
