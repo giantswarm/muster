@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"time"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -58,6 +59,24 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // when the user first accesses tools, not during auth status reads.
 // This ensures auth://status is a pure read operation without side effects.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+	response := a.sessionAuthStatus(ctx)
+	data, err := json.Marshal(response)
+	if err != nil {
+		return nil, err
+	}
+
+	return []mcp.ResourceContents{
+		mcp.TextResourceContents{
+			URI:      AuthStatusResourceURI,
+			MIMEType: "application/json",
+			Text:     string(data),
+		},
+	}, nil
+}
+
+// sessionAuthStatus is the caller's state on every registered server, as
+// auth://status and core_auth_status report it.
+func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthStatusResponse {
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 	hasSession := sub != "" && sessionID != ""
@@ -96,6 +115,8 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 		status := pkgoauth.ServerAuthStatus{
 			Name:                   name,
 			Status:                 serverStatus,
+			Kind:                   serverAuthKind(info),
+			GrantScope:             serverGrantScope(info),
 			Suspended:              suspended[name],
 			TokenForwardingEnabled: usesTokenForwarding,
 			TokenExchangeEnabled:   usesTokenExchange,
@@ -109,38 +130,66 @@ func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request
 			status.Error = a.ssoTracker.SSOFailureReason(sub, name)
 		}
 
-		if info.AuthInfo != nil {
-			switch status.Status {
-			case pkgoauth.SessionServerStatusAuthRequired, pkgoauth.SessionServerStatusReauthRequired:
+		switch status.Status {
+		case pkgoauth.SessionServerStatusAuthRequired, pkgoauth.SessionServerStatusReauthRequired:
+			if info.AuthInfo != nil {
 				status.Issuer = info.AuthInfo.Issuer
 				status.Scope = info.AuthInfo.Scope
-				// core_auth_login refuses SSO servers in every state, so it is
-				// only advertised where it can succeed: an SSO server's
-				// reauth_required is fixed by re-authenticating to muster.
-				if !status.TokenForwardingEnabled && !status.TokenExchangeEnabled {
-					status.AuthTool = "core_auth_login"
-				}
+			} else {
+				status.Issuer = knownServerIssuer(info)
+			}
+			// core_auth_login refuses SSO servers in every state, so it is
+			// only advertised where it can succeed: an SSO server's
+			// reauth_required is fixed by re-authenticating to muster.
+			if status.Kind == pkgoauth.ServerAuthKindGrant {
+				status.AuthTool = "core_auth_login"
 			}
 		}
 
 		response.Servers = append(response.Servers, status)
 	}
 
-	data, err := json.Marshal(response)
-	if err != nil {
-		return nil, err
-	}
+	sort.Slice(response.Servers, func(i, j int) bool { return response.Servers[i].Name < response.Servers[j].Name })
 
 	logging.Debug("Aggregator", "Returning auth status for %d servers (sub=%s)",
 		len(response.Servers), sub)
 
-	return []mcp.ResourceContents{
-		mcp.TextResourceContents{
-			URI:      AuthStatusResourceURI,
-			MIMEType: "application/json",
-			Text:     string(data),
-		},
-	}, nil
+	return response
+}
+
+// serverAuthKind says how a person comes to use the server: with a grant of
+// their own (core_auth_login), with their muster sign-in (token forwarding or
+// exchange), or without any credential.
+func serverAuthKind(info *ServerInfo) pkgoauth.ServerAuthKind {
+	switch {
+	case ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info):
+		return pkgoauth.ServerAuthKindSSO
+	case needsGrant(info):
+		return pkgoauth.ServerAuthKindGrant
+	default:
+		return pkgoauth.ServerAuthKindNone
+	}
+}
+
+// needsGrant reports whether the server is reached with a grant the person
+// obtains through core_auth_login: a server registered for interactive
+// authentication (only those carry an AuthConfig) that neither forwards nor
+// exchanges the person's muster token.
+func needsGrant(info *ServerInfo) bool {
+	return info.RequiresSessionAuth() && !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info)
+}
+
+// serverGrantScope is whom a grant for the server belongs to: "subject" when
+// it is filed under the person (spec.auth.authorizationServer.grantScope:
+// subject), "session" for any other grant, empty for a server without one.
+func serverGrantScope(info *ServerInfo) string {
+	if !needsGrant(info) {
+		return ""
+	}
+	if info.AuthConfig.AuthorizationServer.SubjectScoped() {
+		return api.GrantScopeSubject
+	}
+	return "session"
 }
 
 // awaitGrantAdoptions waits for the session's fan-out to finish with the
@@ -197,8 +246,11 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 		}
 	}
 
-	// No cached capabilities - check infrastructure state
-	if info.RequiresSessionAuth() && info.AuthInfo != nil {
+	// No cached capabilities - check infrastructure state. A server that needs
+	// the person's grant needs it whether or not the registry entry learned
+	// its issuer yet: an entry rebuilt from the service's own data carries no
+	// AuthInfo until a login discovers it, and was reported disconnected.
+	if info.RequiresSessionAuth() && (info.AuthInfo != nil || needsGrant(info)) {
 		isSSO := ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)
 
 		// The session's fan-out is still connecting the SSO server (a sign-in

@@ -275,6 +275,26 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 			},
 		},
 		{
+			Name: corePrefix + "auth_status",
+			Description: "Your authentication state on every MCP server: whether it is connected, needs your grant or comes with your muster sign-in, " +
+				"and with auth_urls the sign-in link that starts each missing grant",
+			// Read-only like core_auth_login: the links it issues change
+			// nothing on the platform until the person completes them in
+			// their own session. Open world: it reaches the authorization
+			// servers.
+			Annotations: toolAnnotations(api.ReadOnlyAnnotations().OpenWorld(true)),
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					authURLsArg: map[string]any{
+						"type": "boolean",
+						api.FieldDescription: "Issue the sign-in link (auth_url) of every server in auth_required or reauth_required, as core_auth_login would; " +
+							"a server whose grant you already hold is connected instead. The links are yours alone and expire after a few minutes.",
+					},
+				},
+			},
+		},
+		{
 			Name:        corePrefix + "auth_logout",
 			Description: "Log out from an OAuth-protected MCP server",
 			// A write: it discards the caller's stored grant for the server

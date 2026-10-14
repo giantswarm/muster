@@ -2,7 +2,6 @@ package aggregator
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -184,16 +183,6 @@ func (f *logoutFixture) connected(t *testing.T, sessionID, server string) bool {
 			sessionID, server, authed, caps, pooled, closed)
 	}
 	return authed
-}
-
-func resultText(result *api.CallToolResult) string {
-	var parts []string
-	for _, c := range result.Content {
-		if s, ok := c.(string); ok {
-			parts = append(parts, s)
-		}
-	}
-	return strings.Join(parts, "\n")
 }
 
 func TestHandleAuthLogout_SubjectScopedIssuerRevokesTheGrantForThePerson(t *testing.T) {

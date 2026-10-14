@@ -97,8 +97,8 @@ steps:
       success: true
       wait_for_state: "20s"
       json_path:
-        # 2 server tools + 3 workflows + the 16 read-only core tools
-        total: 21
+        # 2 server tools + 3 workflows + the 17 read-only core tools
+        total: 22
       contains: ["x_k8s_get_pods", "x_gh_issues", "workflow_ro-triage", "workflow_nested-ro", "workflow_core-step", "core_workflow_list", "core_mcpserver_list", "core_auth_login"]
       not_contains: ["x_k8s_delete_pod", "x_k8s_restart", "workflow_rw-rollout", "workflow_core-write-step", "core_workflow_delete", "core_service_stop", "core_auth_logout", "toolset_unmatched"]
 
@@ -214,7 +214,7 @@ steps:
     expected:
       success: true
       json_path:
-        # the 21 read-only tools + the mutating workflow + the core write
-        total: 23
+        # the 22 read-only tools + the mutating workflow + the core write
+        total: 24
       contains: ["workflow_rw-rollout", "core_workflow_delete", "core_workflow_list", "x_k8s_get_pods"]
       not_contains: ["x_k8s_delete_pod", "core_auth_logout"]
