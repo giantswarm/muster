@@ -111,31 +111,44 @@ func (missingHeaderSecret) LoadSecretKey(_ context.Context, ref *api.ClientCrede
 // TestStartRetriesAMissingHeadersFromSecret: Flux applies an MCPServer and
 // its Secret in any order, so a headersFrom Secret that does not exist yet
 // puts the server on the reconnect schedule. It stays Failed, never reads
-// unreachable, and the orchestrator retries it once nextRetryAfter is due.
+// unreachable, and the orchestrator retries it once nextRetryAfter is due. A
+// Secret or header whose name contains "certificate" is retried too: the
+// name is in the error text, and it is not a TLS misconfiguration.
 func TestStartRetriesAMissingHeadersFromSecret(t *testing.T) {
 	prev := api.GetSecretCredentialsHandler()
 	api.RegisterSecretCredentialsHandler(missingHeaderSecret{})
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
 
-	svc, err := NewService(&api.MCPServer{
-		Name:      "github",
-		Namespace: "org-acme",
-		Type:      api.MCPServerTypeStreamableHTTP,
-		URL:       "http://127.0.0.1:1/mcp",
-		HeadersFrom: []api.MCPServerHeaderFrom{{
-			Name:      "Authorization",
-			ValueFrom: api.MCPServerValueSource{Type: api.ValueSourceTypeSecret, Name: "github-token", Key: "token"},
-		}},
-	})
-	require.NoError(t, err)
-
-	for attempt := 1; attempt <= UnreachableThreshold+1; attempt++ {
-		err := svc.Start(t.Context())
-		var headerSecretErr *mcpserver.HeaderSecretError
-		require.ErrorAs(t, err, &headerSecretErr, "attempt %d", attempt)
+	cases := []struct {
+		name, header, secret string
+	}{
+		{name: "plain names", header: "Authorization", secret: "github-token"},
+		{name: "a Secret named like a certificate", header: "Authorization", secret: "tls-certificate-token"},
+		{name: "a header named like a certificate", header: "X-Client-Certificate", secret: "github-token"},
 	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, err := NewService(&api.MCPServer{
+				Name:      "github",
+				Namespace: "org-acme",
+				Type:      api.MCPServerTypeStreamableHTTP,
+				URL:       "http://127.0.0.1:1/mcp",
+				HeadersFrom: []api.MCPServerHeaderFrom{{
+					Name:      tc.header,
+					ValueFrom: api.MCPServerValueSource{Type: api.ValueSourceTypeSecret, Name: tc.secret, Key: "token"},
+				}},
+			})
+			require.NoError(t, err)
 
-	assert.Equal(t, services.StateFailed, svc.GetState(), "a missing Secret is not the endpoint's fault")
-	_, ok := svc.GetServiceData()[api.ServiceDataNextRetryAfter].(time.Time)
-	assert.True(t, ok, "nextRetryAfter is set, so the orchestrator retries the server")
+			for attempt := 1; attempt <= UnreachableThreshold+1; attempt++ {
+				err := svc.Start(t.Context())
+				var headerSecretErr *mcpserver.HeaderSecretError
+				require.ErrorAs(t, err, &headerSecretErr, "attempt %d", attempt)
+			}
+
+			assert.Equal(t, services.StateFailed, svc.GetState(), "a missing Secret is not the endpoint's fault")
+			_, ok := svc.GetServiceData()[api.ServiceDataNextRetryAfter].(time.Time)
+			assert.True(t, ok, "nextRetryAfter is set, so the orchestrator retries the server")
+		})
+	}
 }

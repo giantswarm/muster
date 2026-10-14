@@ -1174,10 +1174,10 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 		return false
 	}
 
-	// Configuration errors should fail fast, not count towards unreachable
-	if s.isConfigurationError(err) {
-		return false
-	}
+	// The typed errors below are checked before the configuration error
+	// patterns: their text carries names chosen by the user (a Secret, a key,
+	// a header), and a name such as "tls-certificate-token" must not read as
+	// a TLS misconfiguration and stop the retry.
 
 	// A credential that could not be resolved is retryable: the causes are all
 	// external and fixable while muster keeps running (a projected token not
@@ -1234,6 +1234,11 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	var refusedErr *mcpserver.InitializeRefusedError
 	if errors.As(err, &refusedErr) || errors.Is(err, transport.ErrLegacySSEServer) {
 		return true
+	}
+
+	// Configuration errors should fail fast, not count towards unreachable
+	if s.isConfigurationError(err) {
+		return false
 	}
 
 	errStr := strings.ToLower(err.Error())
