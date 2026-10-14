@@ -1337,10 +1337,16 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		return err
 	}
 	auth := convertCRDAuthToAPI(server.Spec.Auth)
-	if err := api.ValidateServerNamespace(server.Namespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth); err != nil {
+	// Filesystem mode has no namespaces: its store gives every definition
+	// "default", whatever muster's namespace is.
+	serverNamespace := ""
+	if a.client != nil && a.client.IsKubernetesMode() {
+		serverNamespace = server.Namespace
+	}
+	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth); err != nil {
 		return err
 	}
-	if err := api.ValidateSecretNamespaces(server.Namespace, a.namespace, auth); err != nil {
+	if err := api.ValidateSecretNamespaces(serverNamespace, a.namespace, auth); err != nil {
 		return err
 	}
 	if err := api.ValidateAuthorizationServer(auth); err != nil {

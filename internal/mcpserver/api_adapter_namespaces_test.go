@@ -147,6 +147,11 @@ func TestFilesystemModeKeepsBareNames(t *testing.T) {
 	assert.Empty(t, servers[0].Key)
 	assert.Equal(t, "github", servers[0].ServerKey())
 	assert.Equal(t, "github", servers[0].ToMCPServer().Name)
+
+	// An SSO server of the store's "default" namespace is muster's own.
+	sso := c.servers[0].DeepCopy()
+	sso.Spec.Auth = &musterv1alpha1.MCPServerAuth{ForwardToken: true}
+	require.NoError(t, adapter.validateMCPServer(sso))
 }
 
 // TestCoreWritesRefuseATenantKey: core_mcpserver_update and delete write in
