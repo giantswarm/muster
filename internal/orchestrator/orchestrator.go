@@ -228,10 +228,16 @@ func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo)
 	// registration run before its first pass, so they check too. Otherwise a
 	// server outside muster's namespace that asks for an identity, or that
 	// names a Secret of another namespace, would connect once.
-	if err := api.ValidateServerNamespace(mcpServerInfo.Namespace, o.namespace, mcpServerInfo.Name, mcpServerInfo.ToolPrefix, mcpServerInfo.Family, mcpServerInfo.Auth); err != nil {
+	// Filesystem mode has no namespaces: its store gives every definition
+	// "default", whatever muster's namespace is.
+	serverNamespace := ""
+	if o.kubernetesMode {
+		serverNamespace = mcpServerInfo.Namespace
+	}
+	if err := api.ValidateServerNamespace(serverNamespace, o.namespace, mcpServerInfo.Name, mcpServerInfo.ToolPrefix, mcpServerInfo.Family, mcpServerInfo.Auth); err != nil {
 		return nil, err
 	}
-	if err := api.ValidateSecretNamespaces(mcpServerInfo.Namespace, o.namespace, mcpServerInfo.Auth); err != nil {
+	if err := api.ValidateSecretNamespaces(serverNamespace, o.namespace, mcpServerInfo.Auth); err != nil {
 		return nil, err
 	}
 

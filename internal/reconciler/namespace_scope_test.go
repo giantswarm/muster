@@ -203,3 +203,19 @@ func drain(t *testing.T, m *Manager, n int) []ReconcileRequest {
 	}
 	return got
 }
+
+// TestFilesystemModeHasNoTenants: the filesystem store gives every
+// definition the namespace "default"; with muster's namespace set to another
+// value, an SSO server is still muster's own and starts under its name.
+func TestFilesystemModeHasNoTenants(t *testing.T) {
+	mgr := NewMockMCPServerManager()
+	mgr.AddMCPServer(&api.MCPServerInfo{Name: "kubernetes", Namespace: "default", Type: "streamable-http", URL: "https://mcp.example.com/mcp", AutoStart: true, Auth: &api.MCPServerAuth{ForwardToken: true}})
+	orchAPI := NewMockOrchestratorAPI()
+	statusUpdater := NewMockStatusUpdater()
+	r := NewMCPServerReconciler(orchAPI, mgr, NewMockServiceRegistry()).WithStatusUpdater(statusUpdater, "team-alpha")
+	t.Cleanup(func() { _ = r.Close() })
+
+	result := r.Reconcile(context.Background(), ReconcileRequest{Type: ResourceTypeMCPServer, Name: "kubernetes", Namespace: "team-alpha", Attempt: 1})
+	require.NoError(t, result.Error)
+	assert.True(t, orchAPI.StartedServices["kubernetes"])
+}

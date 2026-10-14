@@ -240,8 +240,9 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 
 // ServeAllNamespaces makes the adapter list MCPServer objects of every
 // namespace, and get a server outside muster's namespace by its key
-// ("<namespace>/<name>", api.MCPServerKey). Workflows and the core tools'
-// writes stay in muster's namespace.
+// ("<namespace>/<name>", api.MCPServerKey). core_mcpserver_create, update and
+// delete still write in muster's namespace only; the lifecycle tools
+// (core_service_start, stop, restart) write on the server's own object.
 func (a *Adapter) ServeAllNamespaces() {
 	a.allNamespaces = true
 }
@@ -263,12 +264,29 @@ func (a *Adapter) object(key string) (namespace, name string, ok bool) {
 	return namespace, name, namespace == a.namespace || a.allNamespaces
 }
 
-// toInfo converts an MCPServer object into the API view, with its key.
+// toInfo converts an MCPServer object into the API view, with the key of a
+// server outside muster's namespace. Filesystem mode has no namespaces (its
+// store gives every object "default", whatever muster's namespace is), so
+// there every server keeps its bare name.
 func (a *Adapter) toInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info := convertCRDToInfo(server)
-	info.Key = api.MCPServerKey(server.Namespace, server.Name, a.namespace)
-	info.ProtocolVersion = serviceProtocolVersion(info.Key)
+	if a.client != nil && a.client.IsKubernetesMode() {
+		if key := api.MCPServerKey(server.Namespace, server.Name, a.namespace); key != server.Name {
+			info.Key = key
+		}
+	}
+	info.ProtocolVersion = serviceProtocolVersion(info.ServerKey())
 	return info
+}
+
+// refuseTenantKey answers a core_mcpserver_* write that names a server outside
+// muster's namespace: those tools write in muster's namespace only.
+func refuseTenantKey(name, verb string) *api.CallToolResult {
+	if !api.IsTenantMCPServerKey(name) {
+		return nil
+	}
+	result, _ := simpleError(fmt.Sprintf("Cannot %s MCP server '%s': core_mcpserver_%s writes servers of muster's namespace only; the server is declared in its own namespace", verb, name, verb))
+	return result
 }
 
 // EnableWritesAsCaller switches session-initiated mutations to
@@ -1127,6 +1145,10 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		return errResult, nil
 	}
 
+	if refused := refuseTenantKey(req.Name, "update"); refused != nil {
+		return refused, nil
+	}
+
 	// Get existing server first. The read stays on the SA client — only the
 	// spec mutation itself switches to the caller's identity.
 	existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
@@ -1221,6 +1243,9 @@ func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]int
 	name, ok := args["name"].(string)
 	if !ok || name == "" {
 		return simpleError("name argument is required")
+	}
+	if refused := refuseTenantKey(name, "delete"); refused != nil {
+		return refused, nil
 	}
 
 	writer, errResult := a.mutationWriter(ctx)

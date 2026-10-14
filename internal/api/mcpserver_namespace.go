@@ -26,8 +26,9 @@ var ErrReservedServerName = errors.New("an MCPServer in muster's namespace may n
 var ErrIdentityOutsideNamespace = errors.New("an MCPServer outside muster's namespace gets no identity from muster")
 
 // MCPServerKey returns the key muster registers, exposes and stores a server
-// under. A server in muster's namespace, or one without a namespace
-// (filesystem mode), keeps its bare name, so no tool name, toolset, workflow,
+// under. A server in muster's namespace, or one without a namespace, keeps
+// its bare name (in filesystem mode every server does: the caller passes no
+// namespace there), so no tool name, toolset, workflow,
 // skill or stored sign-in changes. A server outside muster's namespace always
 // carries its namespace: "<namespace>/<name>".
 func MCPServerKey(namespace, name, musterNamespace string) string {

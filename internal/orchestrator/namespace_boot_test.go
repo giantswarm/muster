@@ -91,3 +91,21 @@ func TestBootRegistersATenantServerUnderItsKey(t *testing.T) {
 		assert.Equal(t, key, svc.GetName())
 	}
 }
+
+// TestFilesystemModeBootHasNoTenants: in filesystem mode every definition
+// carries the namespace "default"; with muster's namespace set to another
+// value, an SSO server is muster's own and is registered.
+func TestFilesystemModeBootHasNoTenants(t *testing.T) {
+	info := api.MCPServerInfo{Name: "kubernetes", Namespace: "default", Type: "streamable-http", URL: "https://mcp.example.invalid/mcp", Auth: &api.MCPServerAuth{ForwardToken: true}}
+	manager := &mockMCPServerManager{servers: map[string]api.MCPServerInfo{"kubernetes": info}}
+	api.RegisterMCPServerManager(manager)
+	t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
+
+	o := New(Config{Aggregator: config.AggregatorConfig{}, Namespace: "team-alpha"})
+	require.NoError(t, o.Start(context.Background()))
+	t.Cleanup(func() { _ = o.Stop() })
+
+	svc, err := o.registerMCPServerFromDefinition("kubernetes")
+	require.NoError(t, err)
+	assert.Equal(t, "kubernetes", svc.GetName())
+}

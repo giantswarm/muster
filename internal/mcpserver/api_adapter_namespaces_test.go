@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,4 +119,44 @@ func TestValidateMCPServerRefusesATenantPrefix(t *testing.T) {
 	require.NoError(t, adapter.validateMCPServer(server("github", "gh")))
 	require.ErrorIs(t, adapter.validateMCPServer(server("org-a-github", "")), api.ErrReservedServerName)
 	require.ErrorIs(t, adapter.validateMCPServer(server("github", "org-a")), api.ErrReservedServerName)
+}
+
+// filesystemClient is the filesystem store: it gives every object the
+// namespace "default", whatever muster's namespace is.
+type filesystemClient struct{ namespacedClient }
+
+func (c *filesystemClient) IsKubernetesMode() bool { return false }
+
+// ListMCPServers ignores the namespace, as the filesystem store does.
+func (c *filesystemClient) ListMCPServers(context.Context, string) ([]musterv1alpha1.MCPServer, error) {
+	return c.servers, nil
+}
+
+// TestFilesystemModeKeepsBareNames: in filesystem mode with a namespace
+// setting other than "default", every server keeps its bare name as its key.
+func TestFilesystemModeKeepsBareNames(t *testing.T) {
+	c := &filesystemClient{namespacedClient{servers: []musterv1alpha1.MCPServer{{
+		ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: "default"},
+		Spec:       musterv1alpha1.MCPServerSpec{Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
+	}}}}
+	adapter := NewAdapterWithClient(c, "team-alpha")
+
+	servers, err := adapter.ListMCPServers(t.Context())
+	require.NoError(t, err)
+	require.Len(t, servers, 1)
+	assert.Empty(t, servers[0].Key)
+	assert.Equal(t, "github", servers[0].ServerKey())
+	assert.Equal(t, "github", servers[0].ToMCPServer().Name)
+}
+
+// TestCoreWritesRefuseATenantKey: core_mcpserver_update and delete write in
+// muster's namespace only, and say so for a tenant server's key.
+func TestCoreWritesRefuseATenantKey(t *testing.T) {
+	adapter := NewAdapterWithClient(twoGitHubs(), "agent-platform")
+	for _, tool := range []string{"mcpserver_update", "mcpserver_delete"} {
+		result, err := adapter.ExecuteTool(t.Context(), tool, map[string]interface{}{"name": "org-a/github", "type": "streamable-http", "url": "https://mcp.example.com/mcp"})
+		require.NoError(t, err)
+		require.True(t, result.IsError, tool)
+		assert.Contains(t, fmt.Sprint(result.Content...), "writes servers of muster's namespace only", tool)
+	}
 }

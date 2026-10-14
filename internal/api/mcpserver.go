@@ -672,11 +672,12 @@ type MCPServerInfo struct {
 	// Empty in filesystem mode.
 	Namespace string `json:"namespace,omitempty"`
 
-	// Key is what muster registers, exposes and stores the server under
-	// (MCPServerKey): the name for a server of muster's namespace,
-	// "<namespace>/<name>" outside it. The MCPServer manager sets it; use
-	// ServerKey, which falls back to Name when it is empty.
-	Key string `json:"-"`
+	// Key is what muster registers, exposes and stores a server outside
+	// muster's namespace under (MCPServerKey): "<namespace>/<name>". It is
+	// empty for a server of muster's namespace and in filesystem mode, whose
+	// key is its name. The MCPServer manager sets it; use ServerKey. The
+	// core_service_*, core_mcpserver_get and core_auth_* tools take the key.
+	Key string `json:"key,omitempty"`
 
 	// Labels mirrors the MCPServer resource's metadata.labels in both storage
 	// modes. Toolset presets select servers by label (label: rules, #1168) —

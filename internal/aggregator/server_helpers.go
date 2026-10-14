@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -128,11 +127,9 @@ func (a *AggregatorServer) enrichServerEntry(ctx context.Context, sub, sessionID
 		return entry
 	}
 	// The registry and the stores key a server outside muster's namespace as
-	// "<namespace>/<name>" (api.MCPServerKey); the listing names the object.
-	if namespace, _ := entry["namespace"].(string); namespace != "" {
-		if eventManager := api.GetEventManager(); eventManager != nil {
-			serverName = api.MCPServerKey(namespace, serverName, eventManager.DefaultNamespace())
-		}
+	// "<namespace>/<name>" (api.MCPServerKey), which the listing carries as key.
+	if key, _ := entry["key"].(string); key != "" {
+		serverName = key
 	}
 
 	info, found := a.registry.GetServerInfo(serverName)

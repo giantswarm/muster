@@ -745,10 +745,16 @@ func (r *MCPServerReconciler) validateDefinition(info *api.MCPServerInfo) error 
 	if err := api.ValidateNoInlineCredential(info.Type, info.URL, info.Headers, info.Env, r.isKubernetesMode()); err != nil {
 		return err
 	}
-	if err := api.ValidateServerNamespace(info.Namespace, r.Namespace, info.Name, info.ToolPrefix, info.Family, info.Auth); err != nil {
+	// Filesystem mode has no namespaces: its store gives every definition
+	// "default", whatever muster's namespace is.
+	serverNamespace := ""
+	if r.isKubernetesMode() {
+		serverNamespace = info.Namespace
+	}
+	if err := api.ValidateServerNamespace(serverNamespace, r.Namespace, info.Name, info.ToolPrefix, info.Family, info.Auth); err != nil {
 		return err
 	}
-	return api.ValidateSecretNamespaces(info.Namespace, r.Namespace, info.Auth)
+	return api.ValidateSecretNamespaces(serverNamespace, r.Namespace, info.Auth)
 }
 
 // isRefusal reports an error of validateDefinition: a definition muster
