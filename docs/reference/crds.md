@@ -57,13 +57,23 @@ spec:
   # For remote servers: Server endpoint (required when type: streamable-http or sse)
   url: "https://api.example.com/mcp"
 
-  # Optional: Environment variables (stdio servers) or headers (remote servers)
-  env:        # For stdio servers
+  # Optional: Environment variables (stdio servers only)
+  env:
     KEY1: "value1"
     KEY2: "value2"
-  headers:    # For remote servers
-    Authorization: "Bearer token"
-    Content-Type: "application/json"
+
+  # Optional: headers (remote servers). No credential: see headersFrom
+  headers:
+    X-MCP-Toolsets: "repos"
+
+  # Optional: headers whose values muster reads from a Secret in the
+  # MCPServer's own namespace when it connects (remote servers)
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: "<secret-name>"
+        key: "<key>"
 
   # Optional: budget of every operation in seconds, a tool call included (all types)
   timeout: 30
@@ -117,14 +127,33 @@ the MCP server as its own workload and register it with `streamable-http` or
 | `autoStart` | `boolean` | No | Auto-start when system initializes | Default: `false`, only for stdio servers |
 | `command` | `string` | Yes* | Executable path for stdio servers | Required when `type` is `stdio` |
 | `args` | `[]string` | No | Command line arguments for stdio servers | Only for stdio servers |
-| `url` | `string` | Yes* | Endpoint URL for remote servers | Required when `type` is `streamable-http` or `sse` |
-| `env` | `map[string]string` | No | Environment variables for stdio servers | Only for stdio servers |
-| `headers` | `map[string]string` | No | HTTP headers sent with every request to a remote server, by the server-level client and by every person's session connection (their `Authorization` stays the session's) | Only for streamable-http and sse servers |
+| `url` | `string` | Yes* | Endpoint URL for remote servers | Required when `type` is `streamable-http` or `sse`; max 2048 characters; a user name or password in it is refused |
+| `env` | `map[string]string` | No | Environment variables for stdio servers | Only for stdio servers; refused on a remote server |
+| `headers` | `map[string]string` | No | HTTP headers sent with every request to a remote server, by the server-level client and by every person's session connection (their `Authorization` stays the session's). Everyone who can read the MCPServer can read them, so they hold no credential | Only for streamable-http and sse servers; max 32 entries; a non-empty `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` (any case) is refused |
+| `headersFrom` | `[]MCPServerHeaderFrom` | No | HTTP headers whose values muster reads from a Secret in the MCPServer's own namespace each time it connects; the place for a credential. The value never enters the MCPServer, muster's service data or a core tool's output. An entry wins over a `headers` entry of the same name. A person's session connection sends its own `Authorization`, so an `Authorization` entry reaches only muster's own connection | Only for streamable-http and sse servers; max 32 entries; Kubernetes mode only (filesystem mode has no Secret reader) |
 | `timeout` | `integer` | No | Budget of every operation in seconds, a tool call included, for every type; for a remote server also the connect and the health probe | Min: 1, Max: 300, Default: 30 |
 | `progress.maxDuration` | `integer` | No | Budget of a whole tool call in seconds. On a call whose caller asked for progress, each progress notification from the server restarts `timeout`, up to this; every other call and operation stays bounded by `timeout`. Equal to `timeout`, progress extends nothing | Min: `timeout`, Max: 3600, Default: 3600 |
 | `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
 | `suspended` | `boolean` | No | Desired lifecycle state: `true` stops the server's service and keeps it stopped; setting it back to `false` resumes it | Default: `false` |
 | `restartRequestedAt` | `timestamp` | No | Requests a one-shot restart; processed by the reconciler's first attempt, whatever its outcome, which mirrors the value into `status.lastRestartedAt`. A failed attempt is not repeated by the reconciler: the service retries on its reconnect backoff (`status.nextRetryAfter`) | RFC 3339 timestamp |
+
+#### MCPServerHeaderFrom Fields
+
+| Field | Type | Required | Description | Constraints |
+|-------|------|----------|-------------|-------------|
+| `name` | `string` | Yes | HTTP header name, for example `Authorization` | 1 to 256 characters; unique in the list |
+| `valueFrom.type` | `string` | Yes | Kind of object that holds the value | `Secret` |
+| `valueFrom.name` | `string` | Yes | Name of the Secret, in the MCPServer's own namespace | There is no namespace field |
+| `valueFrom.key` | `string` | Yes | Key in the Secret's data that holds the value | |
+
+muster's ServiceAccount needs `get` on the Secret. The chart grants it in the release namespace and in each namespace listed in `rbac.additionalSecretNamespaces`; an MCPServer in another namespace needs that namespace listed there. A missing Secret or key fails the connect: the server is `Failed` and is retried on its reconnect backoff (`status.nextRetryAfter`) until the Secret exists. muster drops one trailing newline (`\n` or `\r\n`) of the value. A person's session connection sends its own `Authorization` and does not read the Secret of an `Authorization` entry.
+
+#### Credentials in the definition
+
+A person who can read an MCPServer can read every field of it. So a credential goes in a Secret that `headersFrom` refers to, never in `headers`, `url` or `env`:
+
+- The CRD refuses a non-empty value in an `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` header (any case), a user name or password in `url`, and `env` on a remote server.
+- muster makes the same check where it loads a server: `mcpserver_validate`, `mcpserver_create` and `mcpserver_update` fail, and a server written before the rule reconciles to `status.state: Failed` with the reason in `status.lastError`. Filesystem mode refuses only `env` on a remote server: its definitions are the files of the person who runs muster, and it has no Secret reader for `headersFrom`.
 
 #### MCPServerAuth Fields
 
@@ -180,13 +209,13 @@ See [Connecting to MCP servers that don't publish RFC 9728 metadata](../how-to/c
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `name` | `string` | Yes | Name of the Kubernetes Secret | Must exist in the specified namespace |
-| `namespace` | `string` | No | Namespace of the secret | Default: same as MCPServer |
+| `namespace` | `string` | No | Namespace of the secret | Default: same as MCPServer. An MCPServer outside muster's namespace may name only its own namespace; muster refuses the server otherwise |
 | `clientIdKey` | `string` | No | Key in secret for client ID | Default: `client-id` |
 | `clientSecretKey` | `string` | No | Key in secret for client secret | Default: `client-secret` |
 
 **Usage Note**: Client credentials are required when the remote Dex's token exchange endpoint requires client authentication. The secret should be created before the MCPServer and should contain the OAuth client ID and secret registered on the remote Dex.
 
-**RBAC Requirements**: muster's service account requires `get` permission on `secrets` resources in the namespace where credentials are stored. For cross-namespace access (when `namespace` differs from the MCPServer's namespace), ensure RBAC policies explicitly grant access. Cross-namespace secret access is logged as a warning to aid security auditing.
+**RBAC Requirements**: muster's service account requires `get` permission on `secrets` resources in the namespace where credentials are stored. Cross-namespace access (when `namespace` differs from the MCPServer's namespace) is allowed only for an MCPServer in muster's own namespace; ensure RBAC policies explicitly grant access. Cross-namespace secret access is logged as a warning to aid security auditing. For an MCPServer outside muster's namespace, muster refuses a `namespace` other than the server's own (in `tokenExchange` and in `authorizationServer`), so such a server cannot have muster read a Secret of muster's namespace and send it to a host the server names.
 
 Example RBAC configuration for secret access:
 
@@ -362,8 +391,13 @@ spec:
   url: "https://api.example.com/mcp"
   timeout: 30
   headers:
-    Authorization: "Bearer your-api-token"
     X-API-Version: "v1"
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: api-tools-token   # holds "Bearer <token>" under the key "authorization"
+        key: authorization
 ```
 
 #### SSE Remote Server (Remote)
@@ -380,8 +414,13 @@ spec:
   url: "https://mcp.example.com/sse"
   timeout: 60
   headers:
-    Authorization: "Bearer sse-token"
     Accept: "text/event-stream"
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: sse-tools-token
+        key: authorization
 ```
 
 #### OAuth-Protected Server with SSO Token Forwarding

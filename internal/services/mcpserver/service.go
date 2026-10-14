@@ -286,7 +286,8 @@ func (s *Service) Start(ctx context.Context) error {
 // failStart settles a start attempt that did not reach a usable server:
 // the endpoint did not answer the initialize, answered with a status that is
 // not a 401, or -- for a server served per session through token exchange --
-// answered but its client credentials Secret cannot be loaded. A transient
+// answered but its client credentials Secret cannot be loaded -- or the
+// Secret of a spec.headersFrom entry cannot be read. A transient
 // failure of a remote server is put on the reconnect schedule; anything else
 // is Failed until a restart.
 func (s *Service) failStart(err error) error {
@@ -294,6 +295,8 @@ func (s *Service) failStart(err error) error {
 	// or any error while reconnecting after failed health probes)
 	if s.isRemoteServer() && (s.isTransientConnectivityError(err) || s.isReconnectingAfterProbe()) {
 		credentials := api.ClassifyTokenExchangeError(err) == api.TokenExchangeFailureCredentials
+		var headerSecretErr *mcpserver.HeaderSecretError
+		headerSecret := errors.As(err, &headerSecretErr)
 		var unavailableErr *api.TokenEndpointUnavailableError
 		tokenEndpoint := errors.As(err, &unavailableErr)
 		retryAfter := retryAfterFromError(err)
@@ -305,7 +308,7 @@ func (s *Service) failStart(err error) error {
 		failures := s.consecutiveFailures
 		outcome := s.httpOutcomeLocked()
 		switch {
-		case credentials:
+		case credentials, headerSecret:
 			outcome = "credentials Secret unavailable"
 		case tokenEndpoint:
 			outcome = s.tokenEndpointOutcomeLocked()
@@ -323,7 +326,7 @@ func (s *Service) failStart(err error) error {
 		// missing credentials Secret or a token endpoint that does not answer
 		// is not the MCP endpoint's fault: the server stays Failed, on the
 		// same schedule, and never reads unreachable.
-		if failures >= UnreachableThreshold && !credentials && !tokenEndpoint {
+		if failures >= UnreachableThreshold && !credentials && !headerSecret && !tokenEndpoint {
 			s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("server unreachable after %d consecutive failures (%s): %s", failures, schedule, err.Error()),
@@ -336,6 +339,10 @@ func (s *Service) failStart(err error) error {
 		case credentials:
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("token exchange fails for every caller until the credentials Secret exists (%s): %s", schedule, err.Error()),
+			})
+		case headerSecret:
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("the server cannot connect until its headersFrom Secret exists (%s): %s", schedule, err.Error()),
 			})
 		case tokenEndpoint:
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
@@ -642,6 +649,10 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: headers changed")
 		return true
 	}
+	if !slices.Equal(cur.HeadersFrom, newDef.HeadersFrom) {
+		s.LogDebug("Config change detected: headersFrom changed")
+		return true
+	}
 	if !maps.Equal(cur.Meta, newDef.Meta) {
 		s.LogDebug("Config change detected: meta changed")
 		return true
@@ -713,6 +724,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		"url":             s.definition.URL,
 		"env":             s.definition.Env,
 		"headers":         s.definition.Headers,
+		"headersFrom":     s.definition.HeadersFrom,
 		"meta":            s.definition.Meta,
 		"timeout":         s.operationTimeout(),
 		"maxCallDuration": s.definition.ProgressMaxDuration(),
@@ -1011,14 +1023,22 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		return err
 	}
 
-	// Build client configuration from service definition
+	// The values of spec.headersFrom are read now, at the connect, into the
+	// client's configuration only: the definition and the service data keep
+	// the references.
 	// Note: Headers can be nil - the factory and client constructors handle nil maps gracefully
+	headers, err := mcpserver.ResolveHeaders(ctx, s.definition.Namespace, s.definition.Headers, s.definition.HeadersFrom)
+	if err != nil {
+		return err
+	}
+
+	// Build client configuration from service definition
 	config := mcpserver.MCPClientConfig{
 		Command:         s.definition.Command,
 		Args:            s.definition.Args,
 		Env:             s.definition.Env,
 		URL:             s.definition.URL,
-		Headers:         s.definition.Headers,
+		Headers:         headers,
 		Meta:            s.definition.Meta,
 		Auth:            s.definition.Auth,
 		Timeout:         s.operationTimeout(),
@@ -1148,16 +1168,18 @@ func (s *Service) isRemoteServer() bool {
 //
 // Configuration errors (certificates, TLS) are NOT transient and should fail
 // immediately without counting towards unreachable threshold, as they won't
-// resolve without user intervention.
+// resolve without user intervention. This holds for an untyped error only: a
+// typed error below keeps its own answer, so a TokenEndpointUnavailableError
+// that wraps a certificate error is retried on the backoff.
 func (s *Service) isTransientConnectivityError(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	// Configuration errors should fail fast, not count towards unreachable
-	if s.isConfigurationError(err) {
-		return false
-	}
+	// The typed errors below are checked before the configuration error
+	// patterns: their text carries names chosen by the user (a Secret, a key,
+	// a header), and a name such as "tls-certificate-token" must not read as
+	// a TLS misconfiguration and stop the retry.
 
 	// A credential that could not be resolved is retryable: the causes are all
 	// external and fixable while muster keeps running (a projected token not
@@ -1185,6 +1207,15 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 		return true
 	}
 
+	// The Secret of a spec.headersFrom entry is missing or unreadable: Flux
+	// applies the MCPServer and its Secret in any order, and an ExternalSecret
+	// lands later, so the server is retried with backoff and connects on its
+	// own once the Secret exists.
+	var headerSecretErr *mcpserver.HeaderSecretError
+	if errors.As(err, &headerSecretErr) {
+		return true
+	}
+
 	// The token endpoint of a token exchange did not answer its probe: the
 	// MCP endpoint is up, the authorization server is not reachable yet, so
 	// the probe is repeated with backoff and the server reads Awaiting
@@ -1205,6 +1236,11 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	var refusedErr *mcpserver.InitializeRefusedError
 	if errors.As(err, &refusedErr) || errors.Is(err, transport.ErrLegacySSEServer) {
 		return true
+	}
+
+	// Configuration errors should fail fast, not count towards unreachable
+	if s.isConfigurationError(err) {
+		return false
 	}
 
 	errStr := strings.ToLower(err.Error())

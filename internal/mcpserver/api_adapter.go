@@ -351,6 +351,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		URL:                   server.Spec.URL,
 		Env:                   server.Spec.Env,
 		Headers:               server.Spec.Headers,
+		HeadersFrom:           convertCRDHeadersFromToAPI(server.Spec.HeadersFrom),
 		Meta:                  server.Spec.Meta,
 		Timeout:               server.Spec.Timeout,
 		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
@@ -521,6 +522,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			URL:         req.URL,
 			Env:         req.Env,
 			Headers:     req.Headers,
+			HeadersFrom: convertAPIHeadersFromToCRD(req.HeadersFrom),
 			Meta:        req.Meta,
 			Timeout:     req.Timeout,
 			Progress:    convertAPIProgressToCRD(req.Progress),
@@ -564,15 +566,35 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyDescription: "Command line arguments for stdio servers",
 		}},
 		{Name: "url", Type: api.ArgTypeString, Required: false, Description: "Server endpoint URL (required for streamable-http and sse)"},
-		{Name: "env", Type: api.ArgTypeObject, Required: false, Description: "Environment variables", Schema: map[string]interface{}{
+		{Name: "env", Type: api.ArgTypeObject, Required: false, Description: "Environment variables (stdio only)", Schema: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 			api.SchemaKeyDescription:          "Environment variables for the server",
 		}},
-		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http and sse only)", Schema: map[string]interface{}{
+		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom", Schema: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 			api.SchemaKeyDescription:          "HTTP headers for remote servers",
+		}},
+		{Name: "headersFrom", Type: api.ArgTypeArray, Required: false, Description: "HTTP headers whose values muster reads from a Secret in the server's namespace when it connects (streamable-http and sse only)", Schema: map[string]interface{}{
+			api.SchemaKeyType: string(api.ArgTypeArray),
+			api.SchemaKeyItems: map[string]interface{}{
+				api.SchemaKeyType: string(api.ArgTypeObject),
+				api.SchemaKeyProperties: map[string]interface{}{
+					"name": map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString), api.SchemaKeyDescription: "HTTP header name"},
+					"valueFrom": map[string]interface{}{
+						api.SchemaKeyType: string(api.ArgTypeObject),
+						api.SchemaKeyProperties: map[string]interface{}{
+							"type": map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString), api.SchemaKeyEnum: []string{api.ValueSourceTypeSecret}},
+							"name": map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString), api.SchemaKeyDescription: "Secret name"},
+							"key":  map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString), api.SchemaKeyDescription: "Key in the Secret's data"},
+						},
+						api.SchemaKeyRequired: []string{"type", "name", "key"},
+					},
+				},
+				api.SchemaKeyRequired: []string{"name", "valueFrom"},
+			},
+			api.SchemaKeyDescription: "Secret references for header values, such as a shared token",
 		}},
 		{Name: "meta", Type: api.ArgTypeObject, Required: false, Description: "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)", Schema: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),
@@ -941,6 +963,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		URL:         req.URL,
 		Env:         req.Env,
 		Headers:     req.Headers,
+		HeadersFrom: req.HeadersFrom,
 		Meta:        req.Meta,
 		Timeout:     req.Timeout,
 		Progress:    req.Progress,
@@ -1106,6 +1129,9 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	if req.Headers != nil {
 		existing.Spec.Headers = req.Headers
 	}
+	if req.HeadersFrom != nil {
+		existing.Spec.HeadersFrom = convertAPIHeadersFromToCRD(req.HeadersFrom)
+	}
 	if req.Meta != nil {
 		existing.Spec.Meta = req.Meta
 	}
@@ -1231,10 +1257,19 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	if err := api.ValidateMetaAllowed(server.Spec.Type, server.Spec.Meta); err != nil {
 		return err
 	}
+	if err := api.ValidateNoInlineCredential(server.Spec.Type, server.Spec.URL, server.Spec.Headers, server.Spec.Env, a.client != nil && a.client.IsKubernetesMode()); err != nil {
+		return err
+	}
+	if err := api.ValidateHeadersFrom(server.Spec.Type, convertCRDHeadersFromToAPI(server.Spec.HeadersFrom)); err != nil {
+		return err
+	}
 	if err := api.ValidateProgress(server.Spec.Timeout, convertCRDProgressToAPI(server.Spec.Progress)); err != nil {
 		return err
 	}
 	auth := convertCRDAuthToAPI(server.Spec.Auth)
+	if err := api.ValidateSecretNamespaces(server.Namespace, a.namespace, auth); err != nil {
+		return err
+	}
 	if err := api.ValidateAuthorizationServer(auth); err != nil {
 		return err
 	}

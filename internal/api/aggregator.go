@@ -195,6 +195,11 @@ type PendingAuthRegistration struct {
 	// same reason Meta does. A session's Authorization header is its own
 	// credential, never an entry of the definition.
 	Headers map[string]string
+
+	// HeadersFrom carries MCPServer.HeadersFrom, the references of headers
+	// whose values a per-session client reads from a Secret when it connects.
+	// The values never travel with the registration.
+	HeadersFrom []MCPServerHeaderFrom
 }
 
 // CallTool implements the ToolCaller interface by delegating to the aggregator handler.

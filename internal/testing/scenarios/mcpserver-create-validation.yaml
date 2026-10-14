@@ -62,7 +62,13 @@ steps:
     url: "http://localhost:8080/mcp"
     timeout: 30
     headers:
-      Authorization: "Bearer test-token"
+      X-MCP-Toolsets: "repos"
+    headersFrom:
+      - name: "Authorization"
+        valueFrom:
+          type: "Secret"
+          name: "valid-http-server-token"
+          key: "token"
   expected:
     success: true
 

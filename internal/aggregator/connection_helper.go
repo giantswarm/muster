@@ -136,7 +136,10 @@ func establishConnection(
 	var timeout, maxCallDuration time.Duration
 	info := registeredServerInfo(a, serverName)
 	if info != nil {
-		meta, headers, timeout, maxCallDuration = info.Meta, internalmcp.DefinitionHeaders(info.Headers), info.Timeout, info.MaxCallDuration
+		meta, timeout, maxCallDuration = info.Meta, info.Timeout, info.MaxCallDuration
+		if headers, err = sessionHeaders(ctx, info); err != nil {
+			return nil, err
+		}
 	}
 
 	var client internalmcp.MCPClient
@@ -716,7 +719,11 @@ func EstablishConnectionWithTokenExchange(
 
 	headerFunc := makeTokenExchangeHeaderFunc(serverInfo.Name, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
+	headers, err := sessionHeaders(ctx, serverInfo)
+	if err != nil {
+		return nil, err
+	}
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -1025,9 +1032,13 @@ func (a *AggregatorServer) newTokenForwardingClient(
 		return nil, "", fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
 	}
 
+	headers, err := sessionHeaders(ctx, serverInfo)
+	if err != nil {
+		return nil, "", err
+	}
 	presented := &atomic.Pointer[string]{}
 	headerFunc := presentingHeaderFunc(makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired), presented)
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 	return &tokenForwardingClient{StreamableHTTPClient: client, presented: presented}, token, nil
 }
 
@@ -1045,6 +1056,26 @@ func registeredServerInfo(a *AggregatorServer, serverName string) *ServerInfo {
 		return nil
 	}
 	return serverInfo
+}
+
+// sessionHeaders is the set of headers a session-scoped client of a server
+// sends: its spec.headers and the values of its spec.headersFrom, read from
+// their Secrets now, at the connect, without Authorization, which is the
+// session's own credential (DefinitionHeaders). An Authorization entry of
+// spec.headersFrom is skipped before the read, so its Secret is neither read
+// nor able to fail a session connect.
+func sessionHeaders(ctx context.Context, info *ServerInfo) (map[string]string, error) {
+	var headersFrom []api.MCPServerHeaderFrom
+	for _, h := range info.HeadersFrom {
+		if !strings.EqualFold(h.Name, "Authorization") {
+			headersFrom = append(headersFrom, h)
+		}
+	}
+	headers, err := internalmcp.ResolveHeaders(ctx, info.Namespace, info.Headers, headersFrom)
+	if err != nil {
+		return nil, fmt.Errorf("headers of %s: %w", info.Name, err)
+	}
+	return internalmcp.DefinitionHeaders(headers), nil
 }
 
 // ssoTransportError marks an SSO connect that failed before the backend judged

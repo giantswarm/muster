@@ -85,17 +85,50 @@ type MCPServerSpec struct {
 	// URL is the endpoint where the remote MCP server can be reached
 	// This field is required when Type is "streamable-http" or "sse".
 	// Examples: http://mcp-server:8080/mcp, https://api.example.com/mcp
+	//
+	// The URL holds no credential: a user name or password in it is refused.
+	// Put the credential in a Secret and send it with HeadersFrom. The rule is
+	// a regex, because CEL's URL library has no accessor for the user info.
 	// +kubebuilder:validation:Pattern=`^https?://[^\s/$.?#].[^\s]*$`
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="!self.matches('^[^:/?#]+://[^/?#]*@')",message="url must not hold a user name or password: put the credential in a Secret and refer to it in headersFrom"
 	URL string `json:"url,omitempty" yaml:"url,omitempty"`
 
-	// Env contains environment variables to set for the MCP server.
-	// For stdio servers, these are passed to the process when it is started.
-	// For remote servers, these can be used for authentication or configuration.
+	// Env contains environment variables to set for a stdio server's process
+	// when it is started. Only allowed when Type is "stdio": a remote server
+	// has no process to receive them. A remote server that needs a credential
+	// reads it from a Secret through HeadersFrom.
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 
 	// Headers contains HTTP headers to send with requests to remote MCP servers.
 	// This field is only relevant when Type is "streamable-http" or "sse".
+	//
+	// Everyone who can read the MCPServer can read these values, so they hold
+	// no credential: a value in an Authorization, Proxy-Authorization, Cookie
+	// or X-API-Key header (in any case) is refused. Send a credential with
+	// HeadersFrom instead.
+	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, self[k] == '' || !k.matches('^(?i)(authorization|proxy-authorization|cookie|x-api-key)$'))",message="headers must not hold a credential (Authorization, Proxy-Authorization, Cookie, X-API-Key): put it in a Secret and refer to it in headersFrom"
 	Headers map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+
+	// HeadersFrom lists HTTP headers whose values muster reads from a Secret
+	// in the MCPServer's own namespace, each time it connects to the server.
+	// It is the place for a credential such as an Authorization header: the
+	// value never enters the MCPServer, muster's service data or the output
+	// of a core tool. An entry wins over a Headers entry of the same name.
+	// Only relevant when Type is "streamable-http" or "sse".
+	//
+	// A connection that carries a person's own credential (an OAuth sign-in,
+	// a forwarded or exchanged token) sends its own Authorization header, so
+	// an Authorization entry here reaches only muster's own connection.
+	//
+	// Header names are case-insensitive, so two entries whose names differ
+	// only in case are refused.
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:XValidation:rule="self.all(x, self.exists_one(y, y.name.lowerAscii() == x.name.lowerAscii()))",message="headersFrom names a header twice: header names are case-insensitive"
+	// +listType=map
+	// +listMapKey=name
+	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty" yaml:"headersFrom,omitempty"`
 
 	// Meta contains entries merged into the `params._meta` object of every
 	// outbound JSON-RPC request that carries `params`. It carries call-scoped
@@ -155,6 +188,40 @@ type MCPServerSpec struct {
 	// into status — repeated reconciles of an already-processed request are
 	// no-ops (issue #1055).
 	RestartRequestedAt *metav1.Time `json:"restartRequestedAt,omitempty" yaml:"restartRequestedAt,omitempty"`
+}
+
+// MCPServerHeaderFrom is an HTTP header whose value muster reads from a
+// Secret, in the shape of kagent's RemoteMCPServer headersFrom.
+type MCPServerHeaderFrom struct {
+	// Name is the HTTP header name, for example Authorization.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=256
+	Name string `json:"name" yaml:"name"`
+
+	// ValueFrom names the Secret key that holds the header's value.
+	// +kubebuilder:validation:Required
+	ValueFrom MCPServerValueSource `json:"valueFrom" yaml:"valueFrom"`
+}
+
+// MCPServerValueSource names a key of a Secret in the MCPServer's own
+// namespace. It has no namespace field: a server reads no Secret of another
+// namespace.
+type MCPServerValueSource struct {
+	// Type is the kind of object that holds the value. Only Secret.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=Secret
+	Type string `json:"type" yaml:"type"`
+
+	// Name is the name of the Secret.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name" yaml:"name"`
+
+	// Key is the key in the Secret's data that holds the value.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Key string `json:"key" yaml:"key"`
 }
 
 // MCPServerProgress configures how progress the server reports on a tool
@@ -500,7 +567,9 @@ type ClientCredentialsSecretRef struct {
 	Name string `json:"name" yaml:"name"`
 
 	// Namespace is the Kubernetes namespace where the secret is located.
-	// If not specified, defaults to the MCPServer's namespace.
+	// If not specified, defaults to the MCPServer's namespace. An MCPServer
+	// outside muster's own namespace may name only its own namespace here;
+	// muster refuses the server otherwise.
 	Namespace string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 
 	// ClientIDKey is the key in the secret data that contains the client ID.
@@ -694,6 +763,8 @@ type MCPServerStatus struct {
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || !has(self.spec.args)",message="args field is only allowed when type is stdio"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.headers)",message="headers field is only allowed when type is streamable-http or sse"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.meta)",message="meta field is only allowed when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.headersFrom)",message="headersFrom field is only allowed when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || !has(self.spec.env)",message="env field is only allowed when type is stdio: put a remote server's credential in a Secret and refer to it in headersFrom"
 // +kubebuilder:validation:XValidation:rule="!has(self.spec.auth) || !has(self.spec.auth.sigv4) || self.spec.type == 'streamable-http'",message="auth.sigv4 is only allowed when type is streamable-http"
 
 // MCPServer is the Schema for the mcpservers API

@@ -82,3 +82,25 @@ func TestFilesystemModeStillRegistersStdio(t *testing.T) {
 	_, exists := o.registry.Get("stdio-mcp")
 	assert.True(t, exists, "filesystem mode must keep registering stdio services")
 }
+
+// TestKubernetesModeRefusesAnInlineCredentialAtBoot: a definition written
+// before the credential rule existed is not registered at boot, so it never
+// connects once with the credential inline.
+func TestKubernetesModeRefusesAnInlineCredentialAtBoot(t *testing.T) {
+	manager := &mockMCPServerManager{servers: map[string]api.MCPServerInfo{"github": {
+		Name:      "github",
+		Type:      "streamable-http",
+		URL:       "http://127.0.0.1:1/mcp",
+		Headers:   map[string]string{"Authorization": "Bearer inline"},
+		AutoStart: true,
+	}}}
+	api.RegisterMCPServerManager(manager)
+	t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
+
+	o := New(Config{Aggregator: config.AggregatorConfig{}, KubernetesMode: true})
+	require.NoError(t, o.Start(context.Background()))
+	t.Cleanup(func() { _ = o.Stop() })
+
+	_, exists := o.registry.Get("github")
+	assert.False(t, exists, "a definition with an inline credential must not be registered as a service")
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -405,10 +406,12 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	// the new one is applied.
 	var previousAuth *api.MCPServerAuth
 	var previousHeaders map[string]string
+	var previousHeadersFrom []api.MCPServerHeaderFrom
 	previouslyRegistered := false
 	if previous, ok := am.aggregatorServer.GetRegistry().GetServerInfo(registration.Name); ok {
 		previousAuth = previous.AuthConfig
 		previousHeaders = previous.Headers
+		previousHeadersFrom = previous.HeadersFrom
 		previouslyRegistered = true
 	}
 
@@ -439,7 +442,7 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	// an unchanged configuration (a restart, a retry) leave the sessions be.
 	if invalidated, changed := sessionAuthInvalidated(previousAuth, registration.AuthConfig); invalidated {
 		am.aggregatorServer.resetSessionAuth(context.Background(), registration.Name, changed)
-	} else if previouslyRegistered && !maps.Equal(previousHeaders, registration.Headers) {
+	} else if previouslyRegistered && (!maps.Equal(previousHeaders, registration.Headers) || !slices.Equal(previousHeadersFrom, registration.HeadersFrom)) {
 		// The connections live sessions hold were opened with the previous
 		// spec.headers, and a server that reads them at the handshake (a
 		// toolset selector) answered them accordingly: they go the same way,
@@ -830,6 +833,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 	namespace, _ := serviceData["namespace"].(string)
 	meta, _ := serviceData["meta"].(map[string]string)
 	headers, _ := serviceData["headers"].(map[string]string)
+	headersFrom, _ := serviceData["headersFrom"].([]api.MCPServerHeaderFrom)
 	authConfig, _ := serviceData["auth"].(*api.MCPServerAuth)
 	timeout, _ := serviceData["timeout"].(time.Duration)
 	maxCallDuration, _ := serviceData["maxCallDuration"].(time.Duration)
@@ -849,9 +853,10 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 			Timeout:         timeout,
 			MaxCallDuration: maxCallDuration,
 		},
-		URL:        url,
-		AuthConfig: authConfig,
-		Meta:       meta,
-		Headers:    headers,
+		URL:         url,
+		AuthConfig:  authConfig,
+		Meta:        meta,
+		Headers:     headers,
+		HeadersFrom: headersFrom,
 	})
 }

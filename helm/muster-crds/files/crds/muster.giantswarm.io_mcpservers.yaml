@@ -132,7 +132,9 @@ spec:
                           namespace:
                             description: |-
                               Namespace is the Kubernetes namespace where the secret is located.
-                              If not specified, defaults to the MCPServer's namespace.
+                              If not specified, defaults to the MCPServer's namespace. An MCPServer
+                              outside muster's own namespace may name only its own namespace here;
+                              muster refuses the server otherwise.
                             type: string
                         required:
                         - name
@@ -347,7 +349,9 @@ spec:
                           namespace:
                             description: |-
                               Namespace is the Kubernetes namespace where the secret is located.
-                              If not specified, defaults to the MCPServer's namespace.
+                              If not specified, defaults to the MCPServer's namespace. An MCPServer
+                              outside muster's own namespace may name only its own namespace here;
+                              muster refuses the server otherwise.
                             type: string
                         required:
                         - name
@@ -445,9 +449,10 @@ spec:
                 additionalProperties:
                   type: string
                 description: |-
-                  Env contains environment variables to set for the MCP server.
-                  For stdio servers, these are passed to the process when it is started.
-                  For remote servers, these can be used for authentication or configuration.
+                  Env contains environment variables to set for a stdio server's process
+                  when it is started. Only allowed when Type is "stdio": a remote server
+                  has no process to receive them. A remote server that needs a credential
+                  reads it from a Secret through HeadersFrom.
                 type: object
               family:
                 description: |-
@@ -487,7 +492,78 @@ spec:
                 description: |-
                   Headers contains HTTP headers to send with requests to remote MCP servers.
                   This field is only relevant when Type is "streamable-http" or "sse".
+
+                  Everyone who can read the MCPServer can read these values, so they hold
+                  no credential: a value in an Authorization, Proxy-Authorization, Cookie
+                  or X-API-Key header (in any case) is refused. Send a credential with
+                  HeadersFrom instead.
+                maxProperties: 32
                 type: object
+                x-kubernetes-validations:
+                - message: 'headers must not hold a credential (Authorization, Proxy-Authorization,
+                    Cookie, X-API-Key): put it in a Secret and refer to it in headersFrom'
+                  rule: self.all(k, self[k] == '' || !k.matches('^(?i)(authorization|proxy-authorization|cookie|x-api-key)$'))
+              headersFrom:
+                description: |-
+                  HeadersFrom lists HTTP headers whose values muster reads from a Secret
+                  in the MCPServer's own namespace, each time it connects to the server.
+                  It is the place for a credential such as an Authorization header: the
+                  value never enters the MCPServer, muster's service data or the output
+                  of a core tool. An entry wins over a Headers entry of the same name.
+                  Only relevant when Type is "streamable-http" or "sse".
+
+                  A connection that carries a person's own credential (an OAuth sign-in,
+                  a forwarded or exchanged token) sends its own Authorization header, so
+                  an Authorization entry here reaches only muster's own connection.
+
+                  Header names are case-insensitive, so two entries whose names differ
+                  only in case are refused.
+                items:
+                  description: |-
+                    MCPServerHeaderFrom is an HTTP header whose value muster reads from a
+                    Secret, in the shape of kagent's RemoteMCPServer headersFrom.
+                  properties:
+                    name:
+                      description: Name is the HTTP header name, for example Authorization.
+                      maxLength: 256
+                      minLength: 1
+                      type: string
+                    valueFrom:
+                      description: ValueFrom names the Secret key that holds the header's
+                        value.
+                      properties:
+                        key:
+                          description: Key is the key in the Secret's data that holds
+                            the value.
+                          minLength: 1
+                          type: string
+                        name:
+                          description: Name is the name of the Secret.
+                          minLength: 1
+                          type: string
+                        type:
+                          description: Type is the kind of object that holds the value.
+                            Only Secret.
+                          enum:
+                          - Secret
+                          type: string
+                      required:
+                      - key
+                      - name
+                      - type
+                      type: object
+                  required:
+                  - name
+                  - valueFrom
+                  type: object
+                maxItems: 32
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: 'headersFrom names a header twice: header names are case-insensitive'
+                  rule: self.all(x, self.exists_one(y, y.name.lowerAscii() == x.name.lowerAscii()))
               meta:
                 additionalProperties:
                   type: string
@@ -589,8 +665,17 @@ spec:
                   URL is the endpoint where the remote MCP server can be reached
                   This field is required when Type is "streamable-http" or "sse".
                   Examples: http://mcp-server:8080/mcp, https://api.example.com/mcp
+
+                  The URL holds no credential: a user name or password in it is refused.
+                  Put the credential in a Secret and send it with HeadersFrom. The rule is
+                  a regex, because CEL's URL library has no accessor for the user info.
+                maxLength: 2048
                 pattern: ^https?://[^\s/$.?#].[^\s]*$
                 type: string
+                x-kubernetes-validations:
+                - message: 'url must not hold a user name or password: put the credential
+                    in a Secret and refer to it in headersFrom'
+                  rule: '!self.matches(''^[^:/?#]+://[^/?#]*@'')'
             required:
             - type
             type: object
@@ -769,6 +854,12 @@ spec:
           rule: self.spec.type != 'stdio' || !has(self.spec.headers)
         - message: meta field is only allowed when type is streamable-http or sse
           rule: self.spec.type != 'stdio' || !has(self.spec.meta)
+        - message: headersFrom field is only allowed when type is streamable-http
+            or sse
+          rule: self.spec.type != 'stdio' || !has(self.spec.headersFrom)
+        - message: 'env field is only allowed when type is stdio: put a remote server''s
+            credential in a Secret and refer to it in headersFrom'
+          rule: self.spec.type == 'stdio' || !has(self.spec.env)
         - message: auth.sigv4 is only allowed when type is streamable-http
           rule: '!has(self.spec.auth) || !has(self.spec.auth.sigv4) || self.spec.type
             == ''streamable-http'''

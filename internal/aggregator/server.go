@@ -3199,7 +3199,11 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	)
 	headerFunc := makeTokenExchangeHeaderFunc(serverName, exchangedToken, tokenExpiry, reexchange, onStaleToken)
 
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
+	headers, err := sessionHeaders(ctx, serverInfo)
+	if err != nil {
+		return nil, time.Time{}, "", err
+	}
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 	return client, tokenExpiry, exchangedToken, nil
 }
 
@@ -3346,6 +3350,10 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		if issuer == "" {
 			return nil, nil, fmt.Errorf("unable to determine auth method for server %s: its OAuth issuer is unknown (no RFC 9728 metadata, no spec.auth.authorizationServer pin)", serverName)
 		}
+		headers, err := sessionHeaders(ctx, serverInfo)
+		if err != nil {
+			return nil, nil, err
+		}
 		tokenStore := internalmcp.NewMusterTokenStore(sessionID, sub, issuer, oauthHandler)
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
 		// The same client establishConnection builds at login: the server's
@@ -3355,7 +3363,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 		// authenticated -- and whose pooled connection is gone -- would run
 		// its calls under the defaults the login path does not.
 		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope, clientID, clientSecret).
-			WithHeaders(internalmcp.DefinitionHeaders(serverInfo.Headers)).
+			WithHeaders(headers).
 			WithHeaderFunc(a.identityHeaderFunc(sessionID, serverInfo)).
 			WithMeta(serverInfo.Meta).
 			WithTimeout(serverInfo.Timeout).

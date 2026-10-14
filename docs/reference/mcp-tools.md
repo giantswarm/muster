@@ -435,8 +435,9 @@ Create a new MCP server definition that can be started as a service.
 - `command` (array of strings, optional) - Command executable and arguments (for stdio servers)
 - `args` (array of strings, optional) - Command line arguments (for stdio servers)
 - `url` (string, optional) - Server endpoint URL (for streamable-http and sse servers)
-- `env` (object, optional) - Environment variables as key-value pairs
-- `headers` (object, optional) - HTTP headers (for streamable-http and sse servers)
+- `env` (object, optional) - Environment variables as key-value pairs (for stdio servers; refused on a remote server)
+- `headers` (object, optional) - HTTP headers (for streamable-http and sse servers). In Kubernetes mode a value in `Authorization`, `Proxy-Authorization`, `Cookie` or `X-API-Key` is refused, as is a user name or password in `url`
+- `headersFrom` (array, optional) - Headers whose values muster reads from a Secret in the server's namespace when it connects, each `{"name": "Authorization", "valueFrom": {"type": "Secret", "name": "<secret>", "key": "<key>"}}` (for streamable-http and sse servers, Kubernetes mode). Output of the core tools shows the reference, never the value
 - `timeout` (integer, optional) - Connection timeout in seconds
 - `progress` (object, optional) - `maxDuration` (integer): seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it (at least `timeout`, at most 3600, default 3600)
 - `autoStart` (boolean, optional) - Whether to start automatically on system startup
