@@ -563,7 +563,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 		}},
 		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Human-friendly name UIs show for the server, stored in the ui.giantswarm.io/display-name annotation; on update an empty string removes it"},
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
-		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start"},
+		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start; on update, omitted keeps the current value"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
 		{Name: "args", Type: api.ArgTypeArray, Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
 			api.SchemaKeyType:        string(api.ArgTypeArray),
@@ -1126,7 +1126,10 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 			existing.Annotations[api.DisplayNameAnnotation] = *req.DisplayName
 		}
 	}
-	existing.Spec.AutoStart = req.AutoStart
+	// Tri-state: an omitted autoStart keeps the current value.
+	if req.AutoStart != nil {
+		existing.Spec.AutoStart = *req.AutoStart
+	}
 	// Tri-state: only an explicit suspended value changes the lifecycle state,
 	// so unrelated updates don't silently resume a stopped server (issue #1057).
 	if req.Suspended != nil {

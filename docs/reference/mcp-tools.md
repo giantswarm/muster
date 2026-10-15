@@ -544,7 +544,7 @@ Update an existing MCP server definition. Only provided fields are updated.
 - `description` (string, optional) - Updated description
 - `command` (array of strings, optional) - New command and arguments
 - `env` (object, optional) - Updated environment variables (replaces existing)
-- `autoStart` (boolean, optional) - Auto-start setting
+- `autoStart` (boolean, optional) - Auto-start setting; omitting it keeps the current one
 - `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` (or omitted) resumes it
 - `restartRequestedAt` (string, optional) - RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler
 

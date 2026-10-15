@@ -133,8 +133,9 @@ type MCPServerUpdateRequest struct {
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
-	// AutoStart determines whether this MCP server should be automatically started
-	AutoStart bool `json:"autoStart,omitempty"`
+	// AutoStart determines whether this MCP server should be automatically
+	// started. Tri-state: omitting it keeps the current value.
+	AutoStart *bool `json:"autoStart,omitempty"`
 
 	// Command specifies the executable path for stdio type servers.
 	Command string `json:"command,omitempty"`

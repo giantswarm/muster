@@ -6,13 +6,13 @@ description: |
   ui.giantswarm.io/display-name annotation, exposed as displayName on
   core_mcpserver_get and core_mcpserver_list, and that core_mcpserver_update
   keeps it when displayName is omitted, replaces it with a new value and
-  removes it with an empty string.
+  removes it with an empty string. An update that omits autoStart keeps it.
 tags: ["mcpserver", "create", "update", "annotations", "core-api"]
 timeout: "2m"
 
 steps:
   - id: "create-mcpserver"
-    description: "Create an MCP server with a display name"
+    description: "Create an MCP server with a display name and autoStart"
     tool: "core_mcpserver_create"
     args:
       name: "kagi-search"
@@ -20,7 +20,7 @@ steps:
       type: "stdio"
       command: "echo"
       args: ["kagi"]
-      autoStart: false
+      autoStart: true
     expected:
       success: true
 
@@ -34,6 +34,7 @@ steps:
       json_path:
         name: "kagi-search"
         displayName: "Kagi"
+        autoStart: true
 
   - id: "verify-display-name-on-list"
     description: "core_mcpserver_list carries the display name"
@@ -52,7 +53,7 @@ steps:
       success: true
 
   - id: "verify-display-name-kept"
-    description: "The display name survives an update that omits it"
+    description: "The display name and autoStart survive an update that omits them"
     tool: "core_mcpserver_get"
     args:
       name: "kagi-search"
@@ -61,6 +62,7 @@ steps:
       json_path:
         displayName: "Kagi"
         description: "web search"
+        autoStart: true
 
   - id: "update-display-name"
     description: "An update that sets a new display name"
@@ -72,7 +74,7 @@ steps:
       success: true
 
   - id: "verify-display-name-replaced"
-    description: "The new display name replaces the old one"
+    description: "The new display name replaces the old one, and autoStart stays on"
     tool: "core_mcpserver_get"
     args:
       name: "kagi-search"
@@ -80,6 +82,7 @@ steps:
       success: true
       json_path:
         displayName: "Kagi Search"
+        autoStart: true
 
   - id: "clear-display-name"
     description: "An update with an empty displayName"
