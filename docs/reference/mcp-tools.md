@@ -462,6 +462,7 @@ Create a new MCP server definition that can be started as a service.
 **Arguments:**
 - `name` (string, required) - Unique server name (used as service identifier)
 - `type` (string, required) - Server type (`stdio`, `streamable-http`, or `sse`)
+- `displayName` (string, optional) - Human-friendly name UIs show for the server, stored in the `ui.giantswarm.io/display-name` annotation next to the `registered-by` annotations muster stamps
 - `description` (string, optional) - Human-readable description of server purpose
 - `command` (array of strings, optional) - Command executable and arguments (for stdio servers)
 - `args` (array of strings, optional) - Command line arguments (for stdio servers)
@@ -481,6 +482,7 @@ Create a new MCP server definition that can be started as a service.
   "name": "core_mcpserver_create",
   "arguments": {
     "name": "my-tools",
+    "displayName": "My Tools",
     "type": "stdio",
     "description": "Custom tool server for project management",
     "command": ["my-mcp-server", "--port", "3000", "--verbose"],
@@ -504,7 +506,7 @@ Get detailed information about a specific MCP server definition.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to retrieve
 
-**Returns:** Complete MCP server definition object
+**Returns:** Complete MCP server definition object. `displayName`, `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server
 
 **Example Request:**
 ```json
@@ -520,6 +522,7 @@ Get detailed information about a specific MCP server definition.
 ```json
 {
   "name": "my-tools",
+  "displayName": "My Tools",
   "type": "stdio",
   "autoStart": true,
   "description": "Custom tool server for project management",
@@ -537,6 +540,7 @@ Update an existing MCP server definition. Only provided fields are updated.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to update
 - `type` (string, optional) - Server type
+- `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation; an empty string removes it, and omitting it keeps the current one
 - `description` (string, optional) - Updated description
 - `command` (array of strings, optional) - New command and arguments
 - `env` (object, optional) - Updated environment variables (replaces existing)

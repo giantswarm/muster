@@ -6,7 +6,8 @@ description: |
   ui.giantswarm.io/registered-by annotation server-side (issue #1021) and the
   token's email claim into ui.giantswarm.io/registered-by-email (issue #1048),
   exposed as registeredBy/registeredByEmail on core_mcpserver_get, and that
-  core_mcpserver_update preserves both. Registration is open (no authorization
+  core_mcpserver_update preserves both. A displayName given on create is kept
+  alongside the stamped annotations. Registration is open (no authorization
   on mcpserver mutation tools), so the server-side stamp is the only durable
   attribution for who changed the shared tool surface — client-side stamping
   is spoofable. The subject is the stable identifier; the email is display
@@ -57,6 +58,7 @@ steps:
     tool: "core_mcpserver_create"
     args:
       name: "stamped-server"
+      displayName: "Stamped Server"
       type: "stdio"
       command: "echo"
       args: ["stamped"]
@@ -65,7 +67,7 @@ steps:
       success: true
 
   - id: "verify-registered-by-stamped"
-    description: "registeredBy carries the subject, registeredByEmail the email claim"
+    description: "registeredBy carries the subject, registeredByEmail the email claim, next to the display name"
     tool: "core_mcpserver_get"
     args:
       name: "stamped-server"
@@ -73,6 +75,7 @@ steps:
       success: true
       json_path:
         name: "stamped-server"
+        displayName: "Stamped Server"
         registeredBy: "registrar-user"
         registeredByEmail: "test@example.com"
 
@@ -93,6 +96,7 @@ steps:
     expected:
       success: true
       json_path:
+        displayName: "Stamped Server"
         registeredBy: "registrar-user"
         registeredByEmail: "test@example.com"
 

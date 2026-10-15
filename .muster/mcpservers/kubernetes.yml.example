@@ -3,6 +3,8 @@ kind: MCPServer
 metadata:
   name: kubernetes
   namespace: default
+  annotations:
+    ui.giantswarm.io/display-name: "Kubernetes"
 spec:
   type: stdio
   autoStart: true

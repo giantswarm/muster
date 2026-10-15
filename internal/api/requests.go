@@ -60,6 +60,10 @@ type MCPServerCreateRequest struct {
 	// equivalent servers, sharing exposed tool names with siblings.
 	Family *MCPServerFamily `json:"family,omitempty"`
 
+	// DisplayName is the human-friendly name UIs show for the server, stored
+	// in the DisplayNameAnnotation. Optional; empty sets no annotation.
+	DisplayName string `json:"displayName,omitempty"`
+
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
@@ -121,6 +125,10 @@ type MCPServerUpdateRequest struct {
 	// Family declares that this MCP server is an instance of a family of
 	// equivalent servers, sharing exposed tool names with siblings.
 	Family *MCPServerFamily `json:"family,omitempty"`
+
+	// DisplayName sets the DisplayNameAnnotation. Tri-state: omitting it
+	// keeps the current annotation, an empty string removes it.
+	DisplayName *string `json:"displayName,omitempty"`
 
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
@@ -221,6 +229,9 @@ type MCPServerValidateRequest struct {
 	// Progress configures how progress the server reports on a tool call
 	// affects that call's budget.
 	Progress *MCPServerProgress `json:"progress,omitempty"`
+
+	// DisplayName for validation, as on create.
+	DisplayName string `json:"displayName,omitempty"`
 
 	// Description for validation and documentation.
 	Description string `json:"description,omitempty"`

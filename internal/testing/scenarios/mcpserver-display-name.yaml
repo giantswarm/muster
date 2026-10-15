@@ -1,0 +1,109 @@
+name: "mcpserver-display-name"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Verify that displayName on core_mcpserver_create sets the
+  ui.giantswarm.io/display-name annotation, exposed as displayName on
+  core_mcpserver_get and core_mcpserver_list, and that core_mcpserver_update
+  keeps it when displayName is omitted, replaces it with a new value and
+  removes it with an empty string.
+tags: ["mcpserver", "create", "update", "annotations", "core-api"]
+timeout: "2m"
+
+steps:
+  - id: "create-mcpserver"
+    description: "Create an MCP server with a display name"
+    tool: "core_mcpserver_create"
+    args:
+      name: "kagi-search"
+      displayName: "Kagi"
+      type: "stdio"
+      command: "echo"
+      args: ["kagi"]
+      autoStart: false
+    expected:
+      success: true
+
+  - id: "verify-display-name-on-get"
+    description: "core_mcpserver_get carries the display name"
+    tool: "core_mcpserver_get"
+    args:
+      name: "kagi-search"
+    expected:
+      success: true
+      json_path:
+        name: "kagi-search"
+        displayName: "Kagi"
+
+  - id: "verify-display-name-on-list"
+    description: "core_mcpserver_list carries the display name"
+    tool: "core_mcpserver_list"
+    expected:
+      success: true
+      contains: ["\"displayName\":\"Kagi\""]
+
+  - id: "update-without-display-name"
+    description: "An update that omits displayName"
+    tool: "core_mcpserver_update"
+    args:
+      name: "kagi-search"
+      description: "web search"
+    expected:
+      success: true
+
+  - id: "verify-display-name-kept"
+    description: "The display name survives an update that omits it"
+    tool: "core_mcpserver_get"
+    args:
+      name: "kagi-search"
+    expected:
+      success: true
+      json_path:
+        displayName: "Kagi"
+        description: "web search"
+
+  - id: "update-display-name"
+    description: "An update that sets a new display name"
+    tool: "core_mcpserver_update"
+    args:
+      name: "kagi-search"
+      displayName: "Kagi Search"
+    expected:
+      success: true
+
+  - id: "verify-display-name-replaced"
+    description: "The new display name replaces the old one"
+    tool: "core_mcpserver_get"
+    args:
+      name: "kagi-search"
+    expected:
+      success: true
+      json_path:
+        displayName: "Kagi Search"
+
+  - id: "clear-display-name"
+    description: "An update with an empty displayName"
+    tool: "core_mcpserver_update"
+    args:
+      name: "kagi-search"
+      displayName: ""
+    expected:
+      success: true
+
+  - id: "verify-display-name-removed"
+    description: "An empty displayName removes the annotation"
+    tool: "core_mcpserver_get"
+    args:
+      name: "kagi-search"
+    expected:
+      success: true
+      not_contains: ["displayName"]
+
+cleanup:
+  - id: "delete-mcpserver"
+    description: "Delete the test MCP server"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "kagi-search"
+    expected:
+      success: true

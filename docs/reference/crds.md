@@ -24,6 +24,9 @@ kind: MCPServer
 metadata:
   name: <server-name>
   namespace: <namespace>
+  annotations:
+    # Optional: Human-friendly name shown by UIs in place of metadata.name
+    ui.giantswarm.io/display-name: "<Display Name>"
 spec:
   # Required: Server execution type
   type: stdio|streamable-http|sse
@@ -113,6 +116,16 @@ the MCP server as its own workload and register it with `streamable-http` or
 `sse`.
 
 ### Field Reference
+
+#### Annotations
+
+| Annotation | Set by | Description |
+|------------|--------|-------------|
+| `ui.giantswarm.io/display-name` | The author, or `displayName` on `core_mcpserver_create` / `_update` | Human-friendly name UIs show in place of `metadata.name` (e.g. `Kagi Search` for `kagi-search`). Returned as `displayName` by `core_mcpserver_get` and `_list` |
+| `ui.giantswarm.io/registered-by` | muster, on `core_mcpserver_create` | Subject of the authenticated caller that created the server. Returned as `registeredBy` |
+| `ui.giantswarm.io/registered-by-email` | muster, on `core_mcpserver_create` | Email claim of that caller, when the token carried one. Returned as `registeredByEmail` |
+
+`core_mcpserver_update` changes no annotation but the display name, and that only when `displayName` is given, so an annotation set with `kubectl` or GitOps survives an update.
 
 #### Spec Fields
 
@@ -348,6 +361,8 @@ kind: MCPServer
 metadata:
   name: git-tools
   namespace: default
+  annotations:
+    ui.giantswarm.io/display-name: "Git Tools"
 spec:
   type: stdio
   description: "Git tools MCP server for repository operations"

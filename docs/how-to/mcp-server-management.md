@@ -472,6 +472,29 @@ Rules:
   transport can inject the entries, and muster refuses the definition instead of
   accepting the map and dropping it.
 
+## Display name
+
+UIs such as the developer portal show an MCPServer by the
+`ui.giantswarm.io/display-name` annotation when it is set, and by
+`metadata.name` otherwise.
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: kagi-search
+  annotations:
+    ui.giantswarm.io/display-name: "Kagi Search"
+spec:
+  type: streamable-http
+  url: "https://mcp.example.com/kagi"
+```
+
+Through the core tools, pass `displayName` to `core_mcpserver_create` or
+`core_mcpserver_update`. On update, omitting `displayName` keeps the annotation
+and an empty string removes it. `core_mcpserver_get` and `core_mcpserver_list`
+return it as `displayName`.
+
 ## Using the CLI
 
 ### Creating Servers via CLI

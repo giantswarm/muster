@@ -386,6 +386,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	// Generate user-friendly status message based on state and error
 	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name, info.Auth)
 
+	info.DisplayName = server.Annotations[api.DisplayNameAnnotation]
 	info.RegisteredBy = server.Annotations[api.RegisteredByAnnotation]
 	info.RegisteredByEmail = server.Annotations[api.RegisteredByEmailAnnotation]
 
@@ -529,6 +530,9 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			Auth:        convertAPIAuthToCRD(req.Auth),
 		},
 	}
+	if req.DisplayName != "" {
+		crd.Annotations = map[string]string{api.DisplayNameAnnotation: req.DisplayName}
+	}
 
 	return crd
 }
@@ -557,6 +561,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			},
 			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
+		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Human-friendly name UIs show for the server, stored in the ui.giantswarm.io/display-name annotation; on update an empty string removes it"},
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
@@ -956,6 +961,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		Type:        req.Type,
 		ToolPrefix:  req.ToolPrefix,
 		Family:      req.Family,
+		DisplayName: req.DisplayName,
 		Description: req.Description,
 		AutoStart:   req.AutoStart,
 		Command:     req.Command,
@@ -1033,7 +1039,10 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	// alongside as display metadata (issue #1048) — the subject stays the
 	// stable identifier.
 	if subject := subjectFromContext(ctx); subject != "" {
-		serverCRD.Annotations = map[string]string{api.RegisteredByAnnotation: subject}
+		if serverCRD.Annotations == nil {
+			serverCRD.Annotations = map[string]string{}
+		}
+		serverCRD.Annotations[api.RegisteredByAnnotation] = subject
 		if email := emailFromContext(ctx); email != "" {
 			serverCRD.Annotations[api.RegisteredByEmailAnnotation] = email
 		}
@@ -1104,6 +1113,18 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	}
 	if req.Description != "" {
 		existing.Spec.Description = req.Description
+	}
+	// Tri-state: an omitted displayName keeps the annotation, an empty one
+	// removes it.
+	if req.DisplayName != nil {
+		if *req.DisplayName == "" {
+			delete(existing.Annotations, api.DisplayNameAnnotation)
+		} else {
+			if existing.Annotations == nil {
+				existing.Annotations = map[string]string{}
+			}
+			existing.Annotations[api.DisplayNameAnnotation] = *req.DisplayName
+		}
 	}
 	existing.Spec.AutoStart = req.AutoStart
 	// Tri-state: only an explicit suspended value changes the lifecycle state,
