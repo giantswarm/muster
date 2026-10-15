@@ -61,7 +61,7 @@ type MCPServerCreateRequest struct {
 	Family *MCPServerFamily `json:"family,omitempty"`
 
 	// DisplayName is the human-friendly name UIs show for the server, stored
-	// in the DisplayNameAnnotation. Optional; empty sets no annotation.
+	// trimmed in the DisplayNameAnnotation. Optional; blank sets no annotation.
 	DisplayName string `json:"displayName,omitempty"`
 
 	// Description for the MCP server
@@ -126,8 +126,8 @@ type MCPServerUpdateRequest struct {
 	// equivalent servers, sharing exposed tool names with siblings.
 	Family *MCPServerFamily `json:"family,omitempty"`
 
-	// DisplayName sets the DisplayNameAnnotation. Tri-state: omitting it
-	// keeps the current annotation, an empty string removes it.
+	// DisplayName sets the DisplayNameAnnotation, trimmed. Tri-state: omitting
+	// it keeps the current annotation, a blank value removes it.
 	DisplayName *string `json:"displayName,omitempty"`
 
 	// Description for the MCP server

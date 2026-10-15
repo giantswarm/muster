@@ -38,6 +38,7 @@ Examples:
   muster create mcpserver my-stdio-server --type=stdio --command=npx --args="@modelcontextprotocol/server-git" --autoStart=true
   muster create mcpserver my-http-server --type=streamable-http --url=https://api.example.com/mcp --timeout=30
   muster create mcpserver my-sse-server --type=sse --url=https://sse.example.com/mcp --timeout=60
+  muster create mcpserver kagi-search --type=streamable-http --url=https://mcp.example.com/kagi --display-name="Kagi Search" --description="Web search"
 
 Authentication (remote server types only):
   --auth-type oauth                    Enable OAuth 2.0/OIDC authentication
@@ -192,6 +193,10 @@ func processMCPServerFlag(args map[string]interface{}, flagName, flagValue strin
 	case "tool-prefix", "toolPrefix":
 		if hasValue {
 			args["toolPrefix"] = flagValue
+		}
+	case "display-name", "displayName":
+		if hasValue {
+			args["displayName"] = flagValue
 		}
 	case "description":
 		if hasValue {

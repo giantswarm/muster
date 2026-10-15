@@ -491,8 +491,10 @@ spec:
 ```
 
 Through the core tools, pass `displayName` to `core_mcpserver_create` or
-`core_mcpserver_update`. On update, omitting `displayName` keeps the annotation
-and an empty string removes it. `core_mcpserver_get` and `core_mcpserver_list`
+`core_mcpserver_update`, or `--display-name` to `muster create mcpserver`.
+Surrounding whitespace is trimmed, and on create a blank value sets no
+annotation. On update, omitting `displayName` keeps the annotation and an empty
+or blank value removes it. `core_mcpserver_get` and `core_mcpserver_list`
 return it as `displayName`.
 
 ## Using the CLI
@@ -517,6 +519,7 @@ muster create mcpserver remote-api \
   --url "https://api.example.com/mcp" \
   --timeout 60 \
   --tool-prefix api \
+  --display-name "Remote API" \
   --description "Remote API tools"
 ```
 

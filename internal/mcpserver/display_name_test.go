@@ -88,14 +88,32 @@ func TestCreateMergesDisplayNameWithRegisteredBy(t *testing.T) {
 	})
 }
 
-func TestCreateWithoutDisplayNameSetsNoAnnotation(t *testing.T) {
-	c := &recordingClient{}
-	adapter := NewAdapterWithClient(c, "test-ns")
+func TestCreateTrimsDisplayName(t *testing.T) {
+	tests := []struct {
+		name        string
+		displayName string
+		want        map[string]string
+	}{
+		{name: "empty sets no annotation", displayName: ""},
+		{name: "blank sets no annotation", displayName: " \t "},
+		{name: "a padded value is stored trimmed", displayName: "  Kagi Search\n", want: map[string]string{api.DisplayNameAnnotation: "Kagi Search"}},
+	}
 
-	executeOK(t, adapter, context.Background(), "mcpserver_create", remoteServerArgs(map[string]interface{}{"displayName": ""}))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &recordingClient{}
+			adapter := NewAdapterWithClient(c, "test-ns")
 
-	require.Len(t, c.createdObjs, 1)
-	assert.Empty(t, c.createdObjs[0].Annotations)
+			executeOK(t, adapter, context.Background(), "mcpserver_create", remoteServerArgs(map[string]interface{}{"displayName": tt.displayName}))
+
+			require.Len(t, c.createdObjs, 1)
+			if tt.want == nil {
+				assert.Empty(t, c.createdObjs[0].Annotations)
+			} else {
+				assert.Equal(t, tt.want, c.createdObjs[0].Annotations)
+			}
+		})
+	}
 }
 
 func TestUpdateDisplayName(t *testing.T) {
@@ -131,6 +149,18 @@ func TestUpdateDisplayName(t *testing.T) {
 			existing:    existingAnnotations,
 			displayName: "",
 			want:        map[string]string{api.RegisteredByAnnotation: "alice"},
+		},
+		{
+			name:        "a blank value removes it",
+			existing:    existingAnnotations,
+			displayName: "  ",
+			want:        map[string]string{api.RegisteredByAnnotation: "alice"},
+		},
+		{
+			name:        "a padded value is stored trimmed",
+			existing:    existingAnnotations,
+			displayName: " Kagi Search ",
+			want:        map[string]string{api.DisplayNameAnnotation: "Kagi Search", api.RegisteredByAnnotation: "alice"},
 		},
 	}
 
@@ -201,7 +231,9 @@ func TestGetAndListSurfaceDisplayName(t *testing.T) {
 
 func TestValidateAcceptsDisplayName(t *testing.T) {
 	adapter := NewAdapterWithClient(&recordingClient{}, "test-ns")
-	executeOK(t, adapter, context.Background(), "mcpserver_validate", remoteServerArgs(map[string]interface{}{"displayName": "Kagi Search"}))
+	for _, displayName := range []string{"Kagi Search", "  "} {
+		executeOK(t, adapter, context.Background(), "mcpserver_validate", remoteServerArgs(map[string]interface{}{"displayName": displayName}))
+	}
 }
 
 func TestMutationToolsDeclareDisplayName(t *testing.T) {

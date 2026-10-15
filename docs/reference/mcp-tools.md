@@ -462,7 +462,7 @@ Create a new MCP server definition that can be started as a service.
 **Arguments:**
 - `name` (string, required) - Unique server name (used as service identifier)
 - `type` (string, required) - Server type (`stdio`, `streamable-http`, or `sse`)
-- `displayName` (string, optional) - Human-friendly name UIs show for the server, stored in the `ui.giantswarm.io/display-name` annotation next to the `registered-by` annotations muster stamps
+- `displayName` (string, optional) - Human-friendly name UIs show for the server, stored in the `ui.giantswarm.io/display-name` annotation next to the `registered-by` annotations muster stamps. Surrounding whitespace is trimmed; a blank value sets no annotation
 - `description` (string, optional) - Human-readable description of server purpose
 - `command` (array of strings, optional) - Command executable and arguments (for stdio servers)
 - `args` (array of strings, optional) - Command line arguments (for stdio servers)
@@ -540,7 +540,7 @@ Update an existing MCP server definition. Only provided fields are updated.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to update
 - `type` (string, optional) - Server type
-- `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation; an empty string removes it, and omitting it keeps the current one
+- `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation, trimmed; an empty or blank string removes it, and omitting it keeps the current one
 - `description` (string, optional) - Updated description
 - `command` (array of strings, optional) - New command and arguments
 - `env` (object, optional) - Updated environment variables (replaces existing)
@@ -602,6 +602,7 @@ Validate MCP server configuration without creating or modifying the server.
 **Arguments:**
 - `name` (string, required) - Server name to validate
 - `type` (string, required) - Server type to validate
+- `displayName` (string, optional) - Display name to validate, as on create
 - `description` (string, optional) - Description to validate
 - `command` (array of strings, optional) - Command to validate
 - `env` (object, optional) - Environment variables to validate
