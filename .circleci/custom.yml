@@ -82,7 +82,7 @@ jobs:
             helm version --short && promtool --version && yq --version
       - run:
           name: Run chart tests
-          command: make helm-test
+          command: make helm-test-all
 
   # Tells the Homebrew tap (giantswarm/homebrew-muster) that a release's
   # binaries are on the GitHub Release: its "Update formula" workflow verifies
