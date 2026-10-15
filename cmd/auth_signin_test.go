@@ -109,7 +109,7 @@ func TestSignIn_LocallyValidTokenRejectedByServer(t *testing.T) {
 		RefreshToken: "dropped-refresh-token",
 		Expiry:       time.Now().Add(time.Hour),
 	}
-	if err := store.StoreToken(pkgoauth.NormalizeServerURL(endpoint), "https://dex.example.com", token); err != nil {
+	if err := store.StoreToken(pkgoauth.NormalizeServerURL(endpoint), "https://dex.example.com", oauth.DefaultAgentClientID, token); err != nil {
 		t.Fatalf("failed to store token: %v", err)
 	}
 

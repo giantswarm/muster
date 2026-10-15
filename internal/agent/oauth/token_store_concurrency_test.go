@@ -56,7 +56,7 @@ func TestTokenStore_ConcurrentProcessesDifferentEndpoints(t *testing.T) {
 		go func(store *TokenStore, endpoint, name string) {
 			defer wg.Done()
 			for i := 1; i <= rounds; i++ {
-				if err := store.StoreToken(endpoint, testDexURL, numberedToken(name, i)); err != nil {
+				if err := store.StoreToken(endpoint, testDexURL, DefaultAgentClientID, numberedToken(name, i)); err != nil {
 					errs <- err
 				}
 			}
@@ -91,7 +91,7 @@ func TestTokenStore_RewriteNeverExposesPartialFile(t *testing.T) {
 	writer := newFileStore(t, dir)
 	reader := newFileStore(t, dir)
 	const endpoint = "https://muster.gazelle.example/mcp"
-	if err := writer.StoreToken(endpoint, testDexURL, numberedToken("gazelle", 0)); err != nil {
+	if err := writer.StoreToken(endpoint, testDexURL, DefaultAgentClientID, numberedToken("gazelle", 0)); err != nil {
 		t.Fatalf("StoreToken: %v", err)
 	}
 	key := reader.tokenKey(endpoint)
@@ -100,7 +100,7 @@ func TestTokenStore_RewriteNeverExposesPartialFile(t *testing.T) {
 	go func() {
 		defer close(written)
 		for i := 1; i <= 500; i++ {
-			if err := writer.StoreToken(endpoint, testDexURL, numberedToken("gazelle", i)); err != nil {
+			if err := writer.StoreToken(endpoint, testDexURL, DefaultAgentClientID, numberedToken("gazelle", i)); err != nil {
 				written <- err
 				return
 			}
@@ -170,13 +170,13 @@ func TestTokenStore_ChangesAreLoggedWithPidAndCommand(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
 	store := newFileStore(t, t.TempDir())
-	if err := store.StoreToken(testMusterURL, testDexURL, numberedToken("a", 1)); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, numberedToken("a", 1)); err != nil {
 		t.Fatalf("StoreToken: %v", err)
 	}
 	if err := store.DeleteToken(testMusterURL); err != nil {
 		t.Fatalf("DeleteToken: %v", err)
 	}
-	if err := store.StoreToken(testMusterURL, testDexURL, numberedToken("a", 2)); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, numberedToken("a", 2)); err != nil {
 		t.Fatalf("StoreToken: %v", err)
 	}
 	if err := store.Clear(); err != nil {

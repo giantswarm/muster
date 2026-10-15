@@ -214,7 +214,7 @@ func TestReadStoredIDToken_TokenFileOnly(t *testing.T) {
 		if idToken != "" {
 			token = token.WithExtra(map[string]interface{}{"id_token": idToken})
 		}
-		if err := store.StoreToken(pkgoauth.NormalizeServerURL(endpoint), "https://dex.example.com", token); err != nil {
+		if err := store.StoreToken(pkgoauth.NormalizeServerURL(endpoint), "https://dex.example.com", oauth.DefaultAgentClientID, token); err != nil {
 			t.Fatalf("failed to store token: %v", err)
 		}
 		return newTestAuthAdapter(t, dir)
