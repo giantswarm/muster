@@ -141,30 +141,30 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	// Before starting the browser flow, try connecting via mcp-go.
 	// If the access token expired but a valid refresh token exists,
 	// mcp-go's transport refreshes it transparently -- no browser needed.
-	if err := tryMCPConnection(ctx, handler, endpoint); err == nil {
+	connect := func() error { return tryMCPConnection(ctx, handler, endpoint) }
+	force := loginForce
+	if err := connect(); err == nil {
 		// The session is valid, but its refresh renews the stored ID token
 		// only once the access token has expired; a person who hands that
 		// token to another client needs a current one now, so a missing or
 		// expired one (or --force) signs in again. The decision reads the token file alone -- the connection
 		// just proved the session, so neither the CLI's own view of the
 		// access token nor a probe of the server may stand in its way.
-		if renew, reason := idTokenRenewal(readStoredIDToken(handler, endpoint), loginForce, time.Now()); renew {
-			authPrint("Signing in to %s again: %s\n", endpoint, reason)
-			if err := handler.Relogin(ctx, endpoint); err != nil {
-				return err
-			}
+		renew, reason := idTokenRenewal(readStoredIDToken(handler, endpoint), loginForce, time.Now())
+		if !renew {
+			authPrint("Already authenticated to %s\n", endpoint)
+			// The connection triggered proactive SSO -- wait for it to complete
 			return waitAndPrintSSOSummary(ctx, handler, endpoint)
 		}
-		authPrint("Already authenticated to %s\n", endpoint)
-		// The connection triggered proactive SSO -- wait for it to complete
-		return waitAndPrintSSOSummary(ctx, handler, endpoint)
+		authPrint("Signing in to %s again: %s\n", endpoint, reason)
+		force = true
 	}
 
-	if err := handler.Login(ctx, endpoint); err != nil {
+	if err := signIn(ctx, handler, endpoint, force, connect); err != nil {
 		return err
 	}
 
-	// After login, create a connection (triggers proactive SSO) and wait
+	// The verifying connection triggered proactive SSO -- wait for it
 	return waitAndPrintSSOSummary(ctx, handler, endpoint)
 }
 
