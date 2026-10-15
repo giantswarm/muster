@@ -287,6 +287,28 @@ func (e *AuthFailedError) Is(target error) bool {
 	return ok
 }
 
+// RevocationFailedError reports a sign-out whose local state was cleared but
+// whose tokens the server did not confirm as revoked: the server-side session
+// may stay valid until its tokens expire.
+type RevocationFailedError struct {
+	// Endpoints are the servers whose revocation failed.
+	Endpoints []string
+	// Reason is the underlying error.
+	Reason error
+}
+
+// Error returns a user-friendly error message.
+func (e *RevocationFailedError) Error() string {
+	return fmt.Sprintf(`Signed out locally, but the server did not revoke the session for %s: %v
+
+The server-side session stays valid until its tokens expire.`, strings.Join(e.Endpoints, ", "), e.Reason)
+}
+
+// Unwrap returns the underlying error.
+func (e *RevocationFailedError) Unwrap() error {
+	return e.Reason
+}
+
 // ServerStatus represents the connectivity and auth status of a server.
 type ServerStatus struct {
 	// Endpoint is the URL of the server.
