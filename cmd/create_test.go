@@ -122,3 +122,39 @@ func TestProcessMCPServerFlagAuth(t *testing.T) {
 		})
 	}
 }
+
+func TestProcessMCPServerFlagDisplayName(t *testing.T) {
+	tests := []struct {
+		name     string
+		flags    [][3]string // flagName, flagValue, hasValue ("1" = true)
+		expected map[string]interface{}
+	}{
+		{
+			name:     "display-name next to description",
+			flags:    [][3]string{{"display-name", "Kagi Search", "1"}, {"description", "Web search", "1"}},
+			expected: map[string]interface{}{"displayName": "Kagi Search", "description": "Web search"},
+		},
+		{
+			name:     "camelCase alias",
+			flags:    [][3]string{{"displayName", "Kagi Search", "1"}},
+			expected: map[string]interface{}{"displayName": "Kagi Search"},
+		},
+		{
+			name:     "without a value sends nothing",
+			flags:    [][3]string{{"display-name", "", ""}},
+			expected: map[string]interface{}{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := map[string]interface{}{}
+			for _, f := range tt.flags {
+				processMCPServerFlag(args, f[0], f[1], f[2] == "1")
+			}
+			if !reflect.DeepEqual(args, tt.expected) {
+				t.Errorf("got %#v, want %#v", args, tt.expected)
+			}
+		})
+	}
+}
