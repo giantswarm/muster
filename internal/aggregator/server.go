@@ -3146,7 +3146,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
 	if expired, err := pkgoauth.IsExpired(idToken); expired {
-		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh: %w", serverName, err)
+		return nil, time.Time{}, "", expiredTokenError("ID token", serverName, err)
 	}
 
 	userID, err := pkgoauth.Subject(idToken)
