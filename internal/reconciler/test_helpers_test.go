@@ -190,11 +190,12 @@ func (m *MockMCPServerManager) GetMCPServer(_ context.Context, name string) (*ap
 	return server, nil
 }
 
-// AddMCPServer adds an MCPServer to the mock (for test setup).
+// AddMCPServer adds an MCPServer to the mock (for test setup), under its key
+// (Key, or Name for a server of muster's namespace) like the real manager.
 func (m *MockMCPServerManager) AddMCPServer(server *api.MCPServerInfo) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.mcpServers[server.Name] = server
+	m.mcpServers[server.ServerKey()] = server
 }
 
 // RemoveMCPServer removes an MCPServer from the mock (for test setup).

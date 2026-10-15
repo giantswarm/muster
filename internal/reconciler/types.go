@@ -151,7 +151,8 @@ type Reconciler interface {
 // resources that should be reconciled on each resync tick: both resources
 // that currently have a definition (heals lost create/update events) and
 // resources whose runtime state still exists without a definition (heals
-// lost delete events).
+// lost delete events). A resource outside the manager's namespace is named
+// "<namespace>/<name>" (api.MCPServerKey).
 type ResyncLister interface {
 	ResyncNames(ctx context.Context) []string
 }
@@ -209,9 +210,13 @@ type ManagerConfig struct {
 	// Only used when Mode is WatchModeFilesystem.
 	FilesystemPath string
 
-	// Namespace is the Kubernetes namespace to watch.
+	// Namespace is the Kubernetes namespace to watch: muster's namespace.
 	// Only used when Mode is WatchModeKubernetes.
 	Namespace string
+
+	// MCPServersInAllNamespaces widens the watch of MCPServer objects to every
+	// namespace. Workflow objects stay in Namespace.
+	MCPServersInAllNamespaces bool
 
 	// WorkerCount is the number of concurrent reconciliation workers.
 	// Defaults to 2 if not specified.

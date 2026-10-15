@@ -364,6 +364,12 @@ func CollectRequiredAudiences(ctx context.Context) ([]string, error) {
 	audienceSet := make(map[string]struct{})
 
 	for _, server := range servers {
+		// A server outside muster's namespace adds no audience to any login:
+		// muster refuses its requiredAudiences (ValidateServerNamespace), and
+		// the refused definition is still listed here.
+		if IsTenantMCPServerKey(server.ServerKey()) {
+			continue
+		}
 		// Only consider servers the session's ID token is forwarded to
 		if server.Auth == nil || (!server.Auth.ForwardToken && !server.Auth.ForwardsIdentity()) {
 			continue

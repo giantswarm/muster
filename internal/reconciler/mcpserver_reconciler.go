@@ -104,7 +104,7 @@ func (r *MCPServerReconciler) GetResourceType() ResourceType {
 }
 
 // ResyncNames implements ResyncLister: the union of all MCPServer definition
-// names and all registered MCPServer service names. Including registry-only
+// keys and all registered MCPServer service names (both api.MCPServerKey). Including registry-only
 // names lets resync heal a lost delete event (service running without a
 // definition); definition names heal lost create/update events.
 //
@@ -117,7 +117,7 @@ func (r *MCPServerReconciler) ResyncNames(ctx context.Context) []string {
 		logging.Warn("MCPServerReconciler", "Failed to list MCPServer definitions for resync: %v", err)
 	}
 	for _, info := range definitions {
-		seen[info.Name] = struct{}{}
+		seen[info.ServerKey()] = struct{}{}
 	}
 	for _, svc := range r.serviceRegistry.GetAll() {
 		if svc.GetType() == api.TypeMCPServer {
@@ -141,10 +141,13 @@ func (r *MCPServerReconciler) ResyncNames(ctx context.Context) []string {
 // that reconciled every server twice per 30 s (and wrote its status twice) for
 // as long as muster ran.
 func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileRequest) ReconcileResult {
-	logging.Info("MCPServerReconciler", "Reconciling MCPServer: %s", req.Name)
+	// The service of a server outside muster's namespace is registered under
+	// "<namespace>/<name>"; the object itself is req.Namespace/req.Name.
+	key := r.serviceKey(req)
+	logging.Info("MCPServerReconciler", "Reconciling MCPServer: %s", key)
 
 	// Fetch the desired state from the definition source
-	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(ctx, req.Name)
+	mcpServerInfo, err := r.mcpServerManager.GetMCPServer(ctx, key)
 	if err != nil {
 		// If not found, this might be a delete operation
 		if IsNotFoundError(err) {
@@ -157,7 +160,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	}
 
 	// Check if service exists
-	existingService, exists := r.serviceRegistry.Get(req.Name)
+	existingService, exists := r.serviceRegistry.Get(key)
 
 	// A definition this mode must not run never reaches create/update: a stdio
 	// CR applied straight through the apiserver bypasses the tool handlers'
@@ -169,8 +172,8 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	// shipped, and for a Secret reference of a server outside muster's
 	// namespace that names another namespace than the server's own.
 	if rejectErr := r.validateDefinition(mcpServerInfo); rejectErr != nil {
-		result := r.reconcileReject(req, rejectErr, exists)
-		r.syncStatus(ctx, req.Name, req.Namespace, result.Error, nil)
+		result := r.reconcileReject(key, rejectErr, exists)
+		r.syncStatus(ctx, key, req.Name, req.Namespace, result.Error, nil)
 		r.recordState(ctx, req, mcpServerInfo.Type, result.Error)
 		return result
 	}
@@ -179,12 +182,12 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	var processedRestart *time.Time
 
 	if mcpServerInfo.Suspended {
-		result = r.reconcileSuspend(req, exists, existingService)
+		result = r.reconcileSuspend(key, exists, existingService)
 		// A restart requested while suspended is consumed without action:
 		// suspension wins. Leaving it pending would fire a surprise restart
 		// whenever the server is resumed later.
 		if pending := pendingRestart(mcpServerInfo); pending != nil && result.Error == nil {
-			logging.Info("MCPServerReconciler", "Ignoring restart request for suspended MCPServer %s", req.Name)
+			logging.Info("MCPServerReconciler", "Ignoring restart request for suspended MCPServer %s", key)
 			processedRestart = pending
 		}
 	} else {
@@ -193,16 +196,16 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 		// the outcome, so a pending restart request is consumed instead of
 		// bouncing the service a second time.
 		var attemptedThisPass bool
-		result, attemptedThisPass = r.reconcileResume(req, exists, existingService)
+		result, attemptedThisPass = r.reconcileResume(key, exists, existingService)
 
 		if result.Error == nil && result.RequeueAfter == 0 {
 			var attempted bool
 			if !exists {
 				// Service doesn't exist, create it
-				result, attempted = r.reconcileCreate(ctx, req, mcpServerInfo)
+				result, attempted = r.reconcileCreate(ctx, key, mcpServerInfo)
 			} else {
 				// Service exists, check if update is needed
-				result, attempted = r.reconcileUpdate(ctx, req, mcpServerInfo, existingService)
+				result, attempted = r.reconcileUpdate(ctx, key, mcpServerInfo, existingService)
 			}
 			attemptedThisPass = attemptedThisPass || attempted
 		}
@@ -221,11 +224,11 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 		if pending := pendingRestart(mcpServerInfo); pending != nil {
 			switch {
 			case attemptedThisPass:
-				logging.Info("MCPServerReconciler", "Consuming restart request for MCPServer %s: a start was attempted in this pass", req.Name)
+				logging.Info("MCPServerReconciler", "Consuming restart request for MCPServer %s: a start was attempted in this pass", key)
 				processedRestart = pending
 			case result.Error == nil && result.RequeueAfter == 0:
 				var processed bool
-				result, processed = r.reconcileRestart(req, *pending)
+				result, processed = r.reconcileRestart(key, *pending)
 				if processed {
 					processedRestart = pending
 				}
@@ -234,7 +237,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	}
 
 	// Sync status back to CRD after reconciliation
-	r.syncStatus(ctx, req.Name, req.Namespace, result.Error, processedRestart)
+	r.syncStatus(ctx, key, req.Name, req.Namespace, result.Error, processedRestart)
 	r.recordState(ctx, req, mcpServerInfo.Type, result.Error)
 
 	return result
@@ -249,7 +252,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 // Status sync is a best-effort operation - failures are logged with backoff
 // to avoid log spam when a resource continuously fails. Failures are tracked
 // in metrics for monitoring.
-func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace string, reconcileErr error, processedRestart *time.Time) {
+func (r *MCPServerReconciler) syncStatus(ctx context.Context, key, name, namespace string, reconcileErr error, processedRestart *time.Time) {
 	if r.StatusUpdater == nil {
 		return
 	}
@@ -273,7 +276,7 @@ func (r *MCPServerReconciler) syncStatus(ctx context.Context, name, namespace st
 		}
 
 		// Apply status from current service state
-		r.applyStatusFromService(server, name, reconcileErr, processedRestart)
+		r.applyStatusFromService(server, key, reconcileErr, processedRestart)
 
 		// Update the CRD status
 		if err := r.StatusUpdater.UpdateMCPServerStatus(ctx, server); err != nil {
@@ -405,7 +408,14 @@ func (r *MCPServerReconciler) observedState(name, serverType string, reconcileEr
 // (filesystem mode), where the metric is the only external view of state there
 // is.
 func (r *MCPServerReconciler) recordState(ctx context.Context, req ReconcileRequest, serverType string, reconcileErr error) {
-	r.stateMetrics.record(ctx, r.metricKey(req), r.observedState(req.Name, serverType, reconcileErr))
+	r.stateMetrics.record(ctx, r.metricKey(req), r.observedState(r.serviceKey(req), serverType, reconcileErr))
+}
+
+// serviceKey returns the key the service of the request's MCPServer is
+// registered under (api.MCPServerKey): its name in muster's namespace,
+// "<namespace>/<name>" outside it.
+func (r *MCPServerReconciler) serviceKey(req ReconcileRequest) string {
+	return api.MCPServerKey(req.Namespace, req.Name, r.GetNamespace(""))
 }
 
 // metricKey builds the metric identity for a reconcile request, falling back to
@@ -549,10 +559,10 @@ func (r *MCPServerReconciler) isSuspended(name string) bool {
 // so suspending a server whose endpoint is down ends its reconnect schedule:
 // the orchestrator retries only Failed and Unreachable services, and the stop
 // moves it to Disconnected.
-func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool, existingService api.ServiceInfo) ReconcileResult {
+func (r *MCPServerReconciler) reconcileSuspend(key string, exists bool, existingService api.ServiceInfo) ReconcileResult {
 	// Mark first: even when nothing is running, resume must know this server
 	// is held down by suspension rather than by autoStart=false.
-	r.markSuspended(req.Name)
+	r.markSuspended(key)
 
 	if !exists {
 		return ReconcileResult{}
@@ -563,8 +573,8 @@ func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool
 		return ReconcileResult{}
 	}
 
-	logging.Info("MCPServerReconciler", "Suspending MCPServer service %s (spec.suspended=true)", req.Name)
-	if err := r.orchestratorAPI.StopService(req.Name); err != nil {
+	logging.Info("MCPServerReconciler", "Suspending MCPServer service %s (spec.suspended=true)", key)
+	if err := r.orchestratorAPI.StopService(key); err != nil {
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to suspend service: %w", err),
 			Requeue: true,
@@ -586,8 +596,8 @@ func (r *MCPServerReconciler) reconcileSuspend(req ReconcileRequest, exists bool
 // orchestrator's (reconnect backoff); only when the start failed before
 // anything was registered does the marker stay and the requeue retry the
 // resume on the queue's own backoff.
-func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool, existingService api.ServiceInfo) (ReconcileResult, bool) {
-	if !r.isSuspended(req.Name) {
+func (r *MCPServerReconciler) reconcileResume(key string, exists bool, existingService api.ServiceInfo) (ReconcileResult, bool) {
+	if !r.isSuspended(key) {
 		return ReconcileResult{}, false
 	}
 
@@ -596,34 +606,34 @@ func (r *MCPServerReconciler) reconcileResume(req ReconcileRequest, exists bool,
 			// The suspend's stop is still completing; clearing the marker now
 			// would turn this resume into a silent no-op once the stop lands.
 			// Keep the marker and retry shortly.
-			logging.Debug("MCPServerReconciler", "Resume of MCPServer %s waiting for in-flight stop to settle", req.Name)
+			logging.Debug("MCPServerReconciler", "Resume of MCPServer %s waiting for in-flight stop to settle", key)
 			return ReconcileResult{RequeueAfter: 2 * time.Second}, false
 		}
 		// Already running or on its way up.
-		r.clearSuspended(req.Name)
+		r.clearSuspended(key)
 		return ReconcileResult{}, false
 	}
 
-	logging.Info("MCPServerReconciler", "Resuming MCPServer service %s (spec.suspended=false)", req.Name)
-	if err := r.orchestratorAPI.StartService(req.Name); err != nil {
+	logging.Info("MCPServerReconciler", "Resuming MCPServer service %s (spec.suspended=false)", key)
+	if err := r.orchestratorAPI.StartService(key); err != nil {
 		if api.IsAuthRequiredError(err) {
 			// Auth Required is a stable state, not a failure (see reconcileCreate).
 			// The start was attempted — a pending restart would hit the same wall.
-			r.clearSuspended(req.Name)
+			r.clearSuspended(key)
 			return ReconcileResult{}, true
 		}
 		result := ReconcileResult{
 			Error:   fmt.Errorf("failed to resume service: %w", err),
 			Requeue: true,
 		}
-		if !r.isRegistered(req.Name) {
+		if !r.isRegistered(key) {
 			return result, false
 		}
-		r.clearSuspended(req.Name)
-		r.logFailedAttempt(req.Name, fmt.Sprintf("Resume of MCPServer %s (spec.suspended=false)", req.Name), err)
+		r.clearSuspended(key)
+		r.logFailedAttempt(key, fmt.Sprintf("Resume of MCPServer %s (spec.suspended=false)", key), err)
 		return result, true
 	}
-	r.clearSuspended(req.Name)
+	r.clearSuspended(key)
 	return ReconcileResult{}, true
 }
 
@@ -670,41 +680,41 @@ func (r *MCPServerReconciler) retryScheduleHint(name string) string {
 // The request stays pending only when no service could be registered at all:
 // then there is no schedule to fall back on, no state-change event can
 // re-trigger the pass, and the queue's own backoff retries it.
-func (r *MCPServerReconciler) reconcileRestart(req ReconcileRequest, requestedAt time.Time) (ReconcileResult, bool) {
-	if !r.isRegistered(req.Name) {
+func (r *MCPServerReconciler) reconcileRestart(key string, requestedAt time.Time) (ReconcileResult, bool) {
+	if !r.isRegistered(key) {
 		// No service registered (autoStart=false and never started). A restart
 		// request is an explicit "make it run now" — the CR-driven
 		// core_service_start writes it for exactly this case (issue #1057) —
 		// so start the service; StartService registers definitions lazily
 		// (issue #680).
-		logging.Info("MCPServerReconciler", "Starting unregistered MCPServer service %s (restartRequestedAt=%s)", req.Name, requestedAt.Format(time.RFC3339))
-		if err := r.orchestratorAPI.StartService(req.Name); err != nil {
+		logging.Info("MCPServerReconciler", "Starting unregistered MCPServer service %s (restartRequestedAt=%s)", key, requestedAt.Format(time.RFC3339))
+		if err := r.orchestratorAPI.StartService(key); err != nil {
 			if api.IsAuthRequiredError(err) {
-				logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after requested start", req.Name)
+				logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after requested start", key)
 				return ReconcileResult{}, true
 			}
 			result := ReconcileResult{
 				Error:   fmt.Errorf("failed to start service for restart request: %w", err),
 				Requeue: true,
 			}
-			if !r.isRegistered(req.Name) {
+			if !r.isRegistered(key) {
 				logging.Warn("MCPServerReconciler", "Start of MCPServer %s requested at %s failed before a service was registered: %v; the request stays pending and is retried on the reconcile backoff",
-					req.Name, requestedAt.Format(time.RFC3339), err)
+					key, requestedAt.Format(time.RFC3339), err)
 				return result, false
 			}
-			r.logFailedAttempt(req.Name, fmt.Sprintf("Start of MCPServer %s requested at %s", req.Name, requestedAt.Format(time.RFC3339)), err)
+			r.logFailedAttempt(key, fmt.Sprintf("Start of MCPServer %s requested at %s", key, requestedAt.Format(time.RFC3339)), err)
 			return result, true
 		}
 		return ReconcileResult{}, true
 	}
 
-	logging.Info("MCPServerReconciler", "Restarting MCPServer service %s (restartRequestedAt=%s)", req.Name, requestedAt.Format(time.RFC3339))
-	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
+	logging.Info("MCPServerReconciler", "Restarting MCPServer service %s (restartRequestedAt=%s)", key, requestedAt.Format(time.RFC3339))
+	if err := r.orchestratorAPI.RestartService(key); err != nil {
 		if api.IsAuthRequiredError(err) {
-			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after requested restart", req.Name)
+			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after requested restart", key)
 			return ReconcileResult{}, true
 		}
-		r.logFailedAttempt(req.Name, fmt.Sprintf("Restart of MCPServer %s requested at %s", req.Name, requestedAt.Format(time.RFC3339)), err)
+		r.logFailedAttempt(key, fmt.Sprintf("Restart of MCPServer %s requested at %s", key, requestedAt.Format(time.RFC3339)), err)
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to restart service: %w", err),
 			Requeue: true,
@@ -723,9 +733,11 @@ func (r *MCPServerReconciler) isKubernetesMode() bool {
 
 // validateDefinition reports a definition muster refuses to run: a stdio
 // server in Kubernetes mode (ValidateStdioAllowed), a credential written into
-// the definition (ValidateNoInlineCredential), or a Secret reference of a
-// server outside muster's namespace that names another namespace than the
-// server's own (ValidateSecretNamespaces). r.Namespace is muster's namespace.
+// the definition (ValidateNoInlineCredential), an org- name or toolPrefix in
+// muster's namespace or an identity setting outside it
+// (ValidateServerNamespace), or a Secret reference of a server outside
+// muster's namespace that names another namespace than the server's own
+// (ValidateSecretNamespaces). r.Namespace is muster's namespace.
 func (r *MCPServerReconciler) validateDefinition(info *api.MCPServerInfo) error {
 	if err := api.ValidateStdioAllowed(info.Type, r.isKubernetesMode()); err != nil {
 		return err
@@ -733,7 +745,16 @@ func (r *MCPServerReconciler) validateDefinition(info *api.MCPServerInfo) error 
 	if err := api.ValidateNoInlineCredential(info.Type, info.URL, info.Headers, info.Env, r.isKubernetesMode()); err != nil {
 		return err
 	}
-	return api.ValidateSecretNamespaces(info.Namespace, r.Namespace, info.Auth)
+	// Filesystem mode has no namespaces: its store gives every definition
+	// "default", whatever muster's namespace is.
+	serverNamespace := ""
+	if r.isKubernetesMode() {
+		serverNamespace = info.Namespace
+	}
+	if err := api.ValidateServerNamespace(serverNamespace, r.Namespace, info.Name, info.ToolPrefix, info.Family, info.Auth); err != nil {
+		return err
+	}
+	return api.ValidateSecretNamespaces(serverNamespace, r.Namespace, info.Auth)
 }
 
 // isRefusal reports an error of validateDefinition: a definition muster
@@ -741,7 +762,9 @@ func (r *MCPServerReconciler) validateDefinition(info *api.MCPServerInfo) error 
 func isRefusal(err error) bool {
 	return errors.Is(err, api.ErrStdioNotAllowedInKubernetesMode) ||
 		errors.Is(err, api.ErrCredentialInDefinition) ||
-		errors.Is(err, api.ErrSecretOutsideNamespace)
+		errors.Is(err, api.ErrSecretOutsideNamespace) ||
+		errors.Is(err, api.ErrReservedServerName) ||
+		errors.Is(err, api.ErrIdentityOutsideNamespace)
 }
 
 // reconcileReject refuses a definition muster must not run in the current mode.
@@ -751,12 +774,12 @@ func isRefusal(err error) bool {
 // The error is returned for the CRD status; no requeue is requested because the
 // rejection is terminal until the spec changes, which triggers a fresh
 // reconcile on its own.
-func (r *MCPServerReconciler) reconcileReject(req ReconcileRequest, rejectErr error, exists bool) ReconcileResult {
-	logging.Warn("MCPServerReconciler", "Refusing MCPServer %s: %v", req.Name, rejectErr)
+func (r *MCPServerReconciler) reconcileReject(key string, rejectErr error, exists bool) ReconcileResult {
+	logging.Warn("MCPServerReconciler", "Refusing MCPServer %s: %v", key, rejectErr)
 
 	if exists {
-		if err := r.orchestratorAPI.RemoveService(req.Name); err != nil && !IsNotFoundError(err) {
-			logging.Error("MCPServerReconciler", err, "Failed to remove refused MCPServer service %s", req.Name)
+		if err := r.orchestratorAPI.RemoveService(key); err != nil && !IsNotFoundError(err) {
+			logging.Error("MCPServerReconciler", err, "Failed to remove refused MCPServer service %s", key)
 		}
 	}
 
@@ -767,54 +790,54 @@ func (r *MCPServerReconciler) reconcileReject(req ReconcileRequest, rejectErr er
 // whether a start was attempted in this pass, whatever its outcome: a failed
 // start registered the service, whose reconnect backoff owns the retries, so
 // a pending restart request is consumed rather than attempted on top (#1166).
-func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo) (ReconcileResult, bool) {
-	logging.Info("MCPServerReconciler", "Creating MCPServer service: %s", req.Name)
+func (r *MCPServerReconciler) reconcileCreate(ctx context.Context, key string, info *api.MCPServerInfo) (ReconcileResult, bool) {
+	logging.Info("MCPServerReconciler", "Creating MCPServer service: %s", key)
 
 	// Only create if AutoStart is enabled
 	if !info.AutoStart {
-		logging.Debug("MCPServerReconciler", "Skipping MCPServer %s: AutoStart=false", req.Name)
+		logging.Debug("MCPServerReconciler", "Skipping MCPServer %s: AutoStart=false", key)
 		return ReconcileResult{}, false
 	}
 
 	// Start the service via orchestrator
-	if err := r.orchestratorAPI.StartService(req.Name); err != nil {
+	if err := r.orchestratorAPI.StartService(key); err != nil {
 		// Auth Required is a stable state, not a failure. The service is registered
 		// and will be activated via SSO when a user authenticates.
 		if api.IsAuthRequiredError(err) {
-			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication (Auth Required)", req.Name)
+			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication (Auth Required)", key)
 			return ReconcileResult{}, true
 		}
-		logging.Debug("MCPServerReconciler", "Failed to start service %s: %v", req.Name, err)
+		logging.Debug("MCPServerReconciler", "Failed to start service %s: %v", key, err)
 		return ReconcileResult{
 			Error:   fmt.Errorf("failed to start service: %w", err),
 			Requeue: true,
-		}, r.isRegistered(req.Name)
+		}, r.isRegistered(key)
 	}
 
-	logging.Info("MCPServerReconciler", "Successfully created MCPServer service: %s", req.Name)
+	logging.Info("MCPServerReconciler", "Successfully created MCPServer service: %s", key)
 	return ReconcileResult{}, true
 }
 
 // reconcileUpdate handles updating an existing MCPServer service. The bool
 // reports whether a restart was attempted in this pass, whatever its outcome
 // (see reconcileCreate).
-func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo, existingService api.ServiceInfo) (ReconcileResult, bool) {
-	logging.Debug("MCPServerReconciler", "Checking MCPServer service for updates: %s", req.Name)
+func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, key string, info *api.MCPServerInfo, existingService api.ServiceInfo) (ReconcileResult, bool) {
+	logging.Debug("MCPServerReconciler", "Checking MCPServer service for updates: %s", key)
 
 	newConfig := infoToMCPServer(info)
 
 	configurableService, ok := existingService.(api.ConfigurableService)
 	if !ok {
-		logging.Debug("MCPServerReconciler", "Service %s does not implement ConfigurableService, skipping update", req.Name)
+		logging.Debug("MCPServerReconciler", "Service %s does not implement ConfigurableService, skipping update", key)
 		return ReconcileResult{}, false
 	}
 
 	if !configurableService.ConfigurationChanged(newConfig) {
-		logging.Debug("MCPServerReconciler", "MCPServer %s is up to date", req.Name)
+		logging.Debug("MCPServerReconciler", "MCPServer %s is up to date", key)
 		return ReconcileResult{}, false
 	}
 
-	logging.Info("MCPServerReconciler", "MCPServer %s configuration changed, updating and restarting", req.Name)
+	logging.Info("MCPServerReconciler", "MCPServer %s configuration changed, updating and restarting", key)
 
 	if err := configurableService.UpdateConfiguration(newConfig); err != nil {
 		return ReconcileResult{
@@ -822,11 +845,11 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 			Requeue: true,
 		}, false
 	}
-	logging.Debug("MCPServerReconciler", "Updated configuration for MCPServer %s", req.Name)
+	logging.Debug("MCPServerReconciler", "Updated configuration for MCPServer %s", key)
 
-	if err := r.orchestratorAPI.RestartService(req.Name); err != nil {
+	if err := r.orchestratorAPI.RestartService(key); err != nil {
 		if api.IsAuthRequiredError(err) {
-			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after config update", req.Name)
+			logging.Info("MCPServerReconciler", "MCPServer %s requires authentication after config update", key)
 			return ReconcileResult{}, true
 		}
 		return ReconcileResult{
@@ -835,7 +858,7 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, req Reconcile
 		}, true
 	}
 
-	logging.Info("MCPServerReconciler", "Successfully updated MCPServer service: %s", req.Name)
+	logging.Info("MCPServerReconciler", "Successfully updated MCPServer service: %s", key)
 	return ReconcileResult{}, true
 }
 
@@ -847,9 +870,10 @@ func infoToMCPServer(info *api.MCPServerInfo) *api.MCPServer {
 
 // reconcileDelete handles deleting an MCPServer service.
 func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req ReconcileRequest) ReconcileResult {
-	logging.Info("MCPServerReconciler", "Deleting MCPServer service: %s", req.Name)
+	key := r.serviceKey(req)
+	logging.Info("MCPServerReconciler", "Deleting MCPServer service: %s", key)
 
-	r.clearSuspended(req.Name)
+	r.clearSuspended(key)
 
 	// Stop reporting state for a resource that no longer exists, so a Failed
 	// server that is deleted rather than fixed does not keep an alert firing.
@@ -858,16 +882,16 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 	r.stateMetrics.forget(r.metricKey(req))
 
 	// Check if service exists
-	_, exists := r.serviceRegistry.Get(req.Name)
+	_, exists := r.serviceRegistry.Get(key)
 	if !exists {
-		logging.Debug("MCPServerReconciler", "MCPServer service %s already deleted", req.Name)
+		logging.Debug("MCPServerReconciler", "MCPServer service %s already deleted", key)
 		return ReconcileResult{}
 	}
 
 	// Stop the service and remove it from the registry, so a later re-create
 	// with the same name is reconciled as a fresh service instead of matching
 	// the stale registry entry (which would leave it stopped forever).
-	if err := r.orchestratorAPI.RemoveService(req.Name); err != nil {
+	if err := r.orchestratorAPI.RemoveService(key); err != nil {
 		// If service not found, it's already removed
 		if IsNotFoundError(err) {
 			return ReconcileResult{}
@@ -878,6 +902,6 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 		}
 	}
 
-	logging.Info("MCPServerReconciler", "Successfully deleted MCPServer service: %s", req.Name)
+	logging.Info("MCPServerReconciler", "Successfully deleted MCPServer service: %s", key)
 	return ReconcileResult{}
 }

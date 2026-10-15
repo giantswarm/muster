@@ -180,13 +180,16 @@ func (b *StateChangeBridge) handleEvent(event api.ServiceStateChangedEvent) {
 	b.triggerReconcile(resourceType, event.Name)
 }
 
-// triggerReconcile triggers reconciliation for a resource.
-func (b *StateChangeBridge) triggerReconcile(resourceType ResourceType, name string) {
+// triggerReconcile triggers reconciliation for a resource. The service of a
+// server outside muster's namespace is named "<namespace>/<name>"
+// (api.MCPServerKey); every other name is an object of b.namespace.
+func (b *StateChangeBridge) triggerReconcile(resourceType ResourceType, serviceName string) {
+	namespace, name := api.MCPServerObject(serviceName, b.namespace)
 	// Create a change event for the state change
 	event := ChangeEvent{
 		Type:      resourceType,
 		Name:      name,
-		Namespace: b.namespace,
+		Namespace: namespace,
 		Operation: OperationUpdate,
 		Timestamp: time.Now(),
 		Source:    SourceServiceState,

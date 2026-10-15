@@ -200,8 +200,15 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 
 // Adapter provides MCP server management functionality using the unified client
 type Adapter struct {
-	client    client.MusterClient
+	client client.MusterClient
+
+	// namespace is muster's namespace: where the core tools write servers,
+	// and the namespace of a bare server key.
 	namespace string
+
+	// allNamespaces makes the adapter list and get MCPServer objects of every
+	// namespace, not only of namespace.
+	allNamespaces bool
 
 	// gate switches session-initiated spec mutations (create/update/delete)
 	// from the shared SA-backed client to a per-call client bearing the
@@ -229,6 +236,57 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 		namespace: namespace,
 		gate:      callerwrite.NewGate("MCP server changes"),
 	}
+}
+
+// ServeAllNamespaces makes the adapter list MCPServer objects of every
+// namespace, and get a server outside muster's namespace by its key
+// ("<namespace>/<name>", api.MCPServerKey). core_mcpserver_create, update and
+// delete still write in muster's namespace only; the lifecycle tools
+// (core_service_start, stop, restart) write on the server's own object.
+func (a *Adapter) ServeAllNamespaces() {
+	a.allNamespaces = true
+}
+
+// listNamespace is the namespace ListMCPServers reads: muster's, or every
+// namespace ("") when the adapter serves all of them.
+func (a *Adapter) listNamespace() string {
+	if a.allNamespaces {
+		return ""
+	}
+	return a.namespace
+}
+
+// object returns the namespace and name of the MCPServer object a key names.
+// ok is false for a key outside muster's namespace when the adapter does not
+// serve all namespaces: such a server is unknown to muster.
+func (a *Adapter) object(key string) (namespace, name string, ok bool) {
+	namespace, name = api.MCPServerObject(key, a.namespace)
+	return namespace, name, namespace == a.namespace || a.allNamespaces
+}
+
+// toInfo converts an MCPServer object into the API view, with the key of a
+// server outside muster's namespace. Filesystem mode has no namespaces (its
+// store gives every object "default", whatever muster's namespace is), so
+// there every server keeps its bare name.
+func (a *Adapter) toInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
+	info := convertCRDToInfo(server)
+	if a.client != nil && a.client.IsKubernetesMode() {
+		if key := api.MCPServerKey(server.Namespace, server.Name, a.namespace); key != server.Name {
+			info.Key = key
+		}
+	}
+	info.ProtocolVersion = serviceProtocolVersion(info.ServerKey())
+	return info
+}
+
+// refuseTenantKey answers a core_mcpserver_* write that names a server outside
+// muster's namespace: those tools write in muster's namespace only.
+func refuseTenantKey(name, verb string) *api.CallToolResult {
+	if !api.IsTenantMCPServerKey(name) {
+		return nil
+	}
+	result, _ := simpleError(fmt.Sprintf("Cannot %s MCP server '%s': core_mcpserver_%s writes servers of muster's namespace only; the server is declared in its own namespace", verb, name, verb))
+	return result
 }
 
 // EnableWritesAsCaller switches session-initiated mutations to
@@ -263,9 +321,10 @@ func (a *Adapter) mutationWriter(ctx context.Context) (mcpServerWriter, *api.Cal
 // caller-identity writes to actionable tool errors: 403 names the verb,
 // resource, and namespace; 401 asks for a re-login. Returns "" for every
 // other error so callers fall through to their existing handling.
-func (a *Adapter) describeWriteAuthError(err error, verb, name string) string {
+func (a *Adapter) describeWriteAuthError(err error, verb, key string) string {
+	namespace, name := api.MCPServerObject(key, a.namespace)
 	return callerwrite.DescribeWriteAuthError(err, verb,
-		"MCPServer", "mcpservers.muster.giantswarm.io", name, a.namespace, "mcpserver-editor")
+		"MCPServer", "mcpservers.muster.giantswarm.io", name, namespace, "mcpserver-editor")
 }
 
 // Register registers the adapter with the API
@@ -283,15 +342,14 @@ func (a *Adapter) Close() error {
 
 // ListMCPServers returns all MCP server definitions
 func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error) {
-	servers, err := a.client.ListMCPServers(ctx, a.namespace)
+	servers, err := a.client.ListMCPServers(ctx, a.listNamespace())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list MCPServers: %w", err)
 	}
 
 	result := make([]api.MCPServerInfo, len(servers))
-	for i, server := range servers {
-		result[i] = convertCRDToInfo(&server)
-		result[i].ProtocolVersion = serviceProtocolVersion(server.Name)
+	for i := range servers {
+		result[i] = a.toInfo(&servers[i])
 	}
 
 	return result, nil
@@ -319,18 +377,23 @@ func serviceProtocolVersion(name string) string {
 	return version
 }
 
-// GetMCPServer returns information about a specific MCP server
-func (a *Adapter) GetMCPServer(ctx context.Context, name string) (*api.MCPServerInfo, error) {
-	server, err := a.client.GetMCPServer(ctx, name, a.namespace)
+// GetMCPServer returns information about a specific MCP server. key is the
+// server's key (api.MCPServerKey): its name in muster's namespace,
+// "<namespace>/<name>" outside it.
+func (a *Adapter) GetMCPServer(ctx context.Context, key string) (*api.MCPServerInfo, error) {
+	namespace, name, ok := a.object(key)
+	if !ok {
+		return nil, api.NewMCPServerNotFoundError(key)
+	}
+	server, err := a.client.GetMCPServer(ctx, name, namespace)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			return nil, api.NewMCPServerNotFoundError(name)
+			return nil, api.NewMCPServerNotFoundError(key)
 		}
-		return nil, fmt.Errorf("failed to get MCPServer %s: %w", name, err)
+		return nil, fmt.Errorf("failed to get MCPServer %s: %w", key, err)
 	}
 
-	info := convertCRDToInfo(server)
-	info.ProtocolVersion = serviceProtocolVersion(name)
+	info := a.toInfo(server)
 	return &info, nil
 }
 
@@ -1082,6 +1145,10 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		return errResult, nil
 	}
 
+	if refused := refuseTenantKey(req.Name, "update"); refused != nil {
+		return refused, nil
+	}
+
 	// Get existing server first. The read stays on the SA client — only the
 	// spec mutation itself switches to the caller's identity.
 	existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
@@ -1177,6 +1244,9 @@ func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]int
 	if !ok || name == "" {
 		return simpleError("name argument is required")
 	}
+	if refused := refuseTenantKey(name, "delete"); refused != nil {
+		return refused, nil
+	}
 
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
@@ -1267,7 +1337,16 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		return err
 	}
 	auth := convertCRDAuthToAPI(server.Spec.Auth)
-	if err := api.ValidateSecretNamespaces(server.Namespace, a.namespace, auth); err != nil {
+	// Filesystem mode has no namespaces: its store gives every definition
+	// "default", whatever muster's namespace is.
+	serverNamespace := ""
+	if a.client != nil && a.client.IsKubernetesMode() {
+		serverNamespace = server.Namespace
+	}
+	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth); err != nil {
+		return err
+	}
+	if err := api.ValidateSecretNamespaces(serverNamespace, a.namespace, auth); err != nil {
 		return err
 	}
 	if err := api.ValidateAuthorizationServer(auth); err != nil {
@@ -1296,25 +1375,29 @@ func getClientMode(client client.MusterClient) string {
 	return "filesystem"
 }
 
-// generateCRDEvent creates a Kubernetes event for MCPServer CRD operations
-func (a *Adapter) generateCRDEvent(name string, reason events.EventReason, data events.EventData) {
+// generateCRDEvent creates a Kubernetes event for MCPServer CRD operations.
+// key is the server's key (api.MCPServerKey): the event is filed on the
+// object it names, in that object's namespace.
+func (a *Adapter) generateCRDEvent(key string, reason events.EventReason, data events.EventData) {
 	eventManager := api.GetEventManager()
 	if eventManager == nil {
 		// Event manager not available, skip event generation
 		return
 	}
 
+	namespace, name := api.MCPServerObject(key, a.namespace)
+
 	// Create an object reference for the MCPServer CRD
 	objectRef := api.ObjectReference{
 		Kind:      "MCPServer",
 		Name:      name,
-		Namespace: a.namespace,
+		Namespace: namespace,
 	}
 
 	// Populate event data
 	data.Name = name
 	if data.Namespace == "" {
-		data.Namespace = a.namespace
+		data.Namespace = namespace
 	}
 
 	err := eventManager.CreateEventWithData(context.Background(), objectRef, string(reason), data.ToAPI())
