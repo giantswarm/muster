@@ -637,3 +637,44 @@ func (a *AggregatorServer) awaitToolOwnersBootstrap(ctx context.Context, session
 	}
 	return waited
 }
+
+// connectToolOwnersOnCall connects the session, on a call whose tool name
+// resolves to nothing the session holds, to the servers that could own the
+// name, and reports how many it connected: the SSO servers among the owners
+// with no pooled connection for the session, then the person's subject-scoped
+// grants. A session's fan-out does not always cover such an SSO server -- one
+// registered after the session started, or one whose pending slot another
+// session of the person holds (the slot is the person's, the connection the
+// session's) -- and without this the call would answer "tool not found" for a
+// tool the session's identity reaches. An SSO server in failure backoff for
+// the person is left to its retry schedule.
+func (a *AggregatorServer) connectToolOwnersOnCall(ctx context.Context, sessionID, sub, exposedName string, args map[string]any) int {
+	if sessionID == "" || sub == "" {
+		return 0
+	}
+	connected := 0
+	if musterIssuer := a.getMusterIssuer(); musterIssuer != "" && a.connPool != nil {
+		for _, owner := range a.registry.ServersInNameSpaceOf(exposedName, args) {
+			info, ok := a.registry.GetServerInfo(owner)
+			if !ok || !info.RequiresSessionAuth() || (!ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info)) {
+				continue
+			}
+			if _, pooled := a.connPool.Get(sessionID, owner); pooled {
+				continue
+			}
+			if a.ssoTracker != nil {
+				if _, failing := a.ssoTracker.activeFailure(sub, owner); failing {
+					continue
+				}
+			}
+			if a.connectSSOServer(ctx, info, musterIssuer) == ssoConnected {
+				logging.InfoWithAttrs("Aggregator", "SSO: tool call connected the session to its server",
+					slog.String("tool", exposedName),
+					slog.String("server", owner),
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+				connected++
+			}
+		}
+	}
+	return connected + a.adoptSubjectGrants(ctx, sessionID, sub)
+}
