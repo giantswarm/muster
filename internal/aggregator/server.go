@@ -1999,7 +1999,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	// fall back to legacy single-server resolution). For non-family tools
 	// (including core tools that legitimately accept "server" as a regular
 	// argument), the value is passed through untouched.
-	if a.isFamilyToolForSession(ctx, toolName, sessionID, sub) {
+	if a.isFamilyToolForSession(ctx, toolName, args, sessionID, sub) {
 		instanceArg := a.registry.FamilyInstanceArgFor(toolName)
 		explicitServer, _ := args[instanceArg].(string)
 		if explicitServer == "" {
@@ -2037,12 +2037,13 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	if sessionID != "" {
 		sessionServerName, originalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 		if sessionErr != nil && sub != "" && !a.isCoreToolByName(toolName) {
-			// The tool may belong to a server no session of this process has
-			// connected yet, while the person already holds a subject-scoped
-			// grant for it (a restart with the grant persisted, a fresh CLI
-			// session). Connecting now fills the capability cache the lookup
-			// above reads from.
-			if a.adoptSubjectGrants(ctx, sessionID, sub) > 0 {
+			// The tool may belong to a server the session has not connected
+			// yet: an SSO server its fan-out did not cover, or one the person
+			// already holds a subject-scoped grant for (a restart with the
+			// grant persisted, a fresh CLI session). Connecting now fills the
+			// capability cache the lookup above reads from, so the session's
+			// first call resolves as its first listing would.
+			if a.connectToolOwnersOnCall(ctx, sessionID, sub, toolName, args) > 0 {
 				sessionServerName, originalName, sessionErr = a.resolveUserTool(sessionID, toolName)
 			}
 		}
@@ -2121,10 +2122,10 @@ func (a *AggregatorServer) answerSignedOutOwner(ctx context.Context, toolName st
 // index -- would otherwise be told "tool not found" for a family tool its
 // cached capabilities and its tokens still cover (#1204). So when the name
 // lies in a declared family's name space, the session's view is assembled the
-// way list_tools assembles it, adopting the person's subject-scoped grants
-// first when that alone does not resolve the name, as the per-server path in
-// CallToolInternal does.
-func (a *AggregatorServer) isFamilyToolForSession(ctx context.Context, toolName, sessionID, sub string) bool {
+// way list_tools assembles it, connecting the session to the members that
+// could own the name first when that alone does not resolve it, as the
+// per-server path in CallToolInternal does.
+func (a *AggregatorServer) isFamilyToolForSession(ctx context.Context, toolName string, args map[string]any, sessionID, sub string) bool {
 	if a.registry.IsFamilyTool(toolName) {
 		return true
 	}
@@ -2132,7 +2133,7 @@ func (a *AggregatorServer) isFamilyToolForSession(ctx context.Context, toolName,
 		return false
 	}
 	a.GetToolsForSession(ctx, sessionID)
-	if !a.registry.IsFamilyTool(toolName) && sub != "" && a.adoptSubjectGrants(ctx, sessionID, sub) > 0 {
+	if !a.registry.IsFamilyTool(toolName) && sub != "" && a.connectToolOwnersOnCall(ctx, sessionID, sub, toolName, args) > 0 {
 		a.GetToolsForSession(ctx, sessionID)
 	}
 	resolved := a.registry.IsFamilyTool(toolName)
