@@ -28,6 +28,11 @@ muster auth logout            # this endpoint
 muster auth logout --all      # every stored token
 ```
 
+A logout revokes the refresh and the access token at the revocation endpoint the server
+advertises in its OAuth metadata, then clears the stored token. When the server does not confirm
+the revocation, the stored token is cleared all the same and the command exits 1, saying that the
+server-side session stays valid until its tokens expire.
+
 Every command that talks to the aggregator (`list`, `get`, `call`, `create`, `start`, `stop`,
 `check`, `events`, `agent`) uses the stored token and refreshes it when it expires. When no
 valid token exists, the default behaviour is to start the login in the browser before running

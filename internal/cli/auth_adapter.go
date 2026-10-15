@@ -6,11 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -414,11 +412,13 @@ func (a *AuthAdapter) LoginWithIssuer(ctx context.Context, endpoint, issuerURL s
 }
 
 // Logout clears stored tokens for the endpoint.
-// It first revokes the refresh token via RFC 7009 (best-effort), then performs local cleanup.
+// It first revokes the refresh and the access token via RFC 7009, then
+// performs local cleanup. Local state is cleared either way; a failed
+// revocation is returned afterwards as a *RevocationFailedError.
 func (a *AuthAdapter) Logout(endpoint string) error {
 	normalizedEndpoint := normalizeEndpoint(endpoint)
 
-	// Read the stored refresh token before any cleanup so we can revoke it.
+	// Read the stored tokens before any cleanup so we can revoke them.
 	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
 		StorageDir: a.tokenStorageDir,
 		FileMode:   true,
@@ -427,11 +427,8 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 		return fmt.Errorf("failed to create token store: %w", err)
 	}
 
-	// Best-effort refresh token revocation via POST /oauth/revoke (RFC 7009).
 	// This must happen before local cleanup deletes the token file.
-	if storedToken := store.GetTokenIncludingExpiring(normalizedEndpoint); storedToken != nil && storedToken.RefreshToken != "" {
-		a.revokeRefreshToken(normalizedEndpoint, storedToken.RefreshToken)
-	}
+	revokeErr := a.revokeStoredToken(normalizedEndpoint, store.GetTokenIncludingExpiring(normalizedEndpoint))
 
 	// Remove manager from cache
 	a.mu.Lock()
@@ -448,12 +445,17 @@ func (a *AuthAdapter) Logout(endpoint string) error {
 		return fmt.Errorf("failed to clear token: %w", err)
 	}
 
+	if revokeErr != nil {
+		return &RevocationFailedError{Endpoints: []string{normalizedEndpoint}, Reason: revokeErr}
+	}
 	return nil
 }
 
 // LogoutAll clears all stored tokens.
-// It revokes each endpoint's refresh token via RFC 7009, then calls DELETE /user-tokens
-// to clear server-side downstream state.
+// It revokes each endpoint's refresh and access token via RFC 7009, then calls
+// DELETE /user-tokens to clear server-side downstream state. Local state is
+// cleared either way; failed revocations are returned afterwards as a
+// *RevocationFailedError.
 func (a *AuthAdapter) LogoutAll() error {
 	// Create a token store to read refresh tokens before cleanup.
 	store, err := oauth.NewTokenStore(oauth.TokenStoreConfig{
@@ -467,18 +469,16 @@ func (a *AuthAdapter) LogoutAll() error {
 	// Collect all known endpoints (from managers + token files) for revocation.
 	endpoints := a.collectAllEndpoints()
 
-	// Best-effort: revoke each endpoint's refresh token via POST /oauth/revoke.
-	// Also track a valid Bearer token + endpoint for the DELETE /user-tokens call.
+	// DELETE /user-tokens authenticates with the access token, so it runs
+	// before that token is revoked: remember the first one found.
 	var bearerToken, bearerEndpoint string
+	storedTokens := make(map[string]*oauth.StoredToken, len(endpoints))
 	for _, ep := range endpoints {
 		storedToken := store.GetTokenIncludingExpiring(ep)
 		if storedToken == nil {
 			continue
 		}
-		if storedToken.RefreshToken != "" {
-			a.revokeRefreshToken(ep, storedToken.RefreshToken)
-		}
-		// Use the first available access token for DELETE /user-tokens
+		storedTokens[ep] = storedToken
 		if bearerToken == "" && storedToken.AccessToken != "" {
 			bearerToken = storedToken.AccessToken
 			bearerEndpoint = ep
@@ -491,6 +491,15 @@ func (a *AuthAdapter) LogoutAll() error {
 		a.deleteUserTokens(bearerEndpoint, bearerToken)
 	}
 
+	var failedEndpoints []string
+	var revokeErrs []error
+	for _, ep := range endpoints {
+		if err := a.revokeStoredToken(ep, storedTokens[ep]); err != nil {
+			failedEndpoints = append(failedEndpoints, ep)
+			revokeErrs = append(revokeErrs, fmt.Errorf("%s: %w", ep, err))
+		}
+	}
+
 	// Close all managers
 	a.mu.Lock()
 	for endpoint, mgr := range a.managers {
@@ -501,39 +510,14 @@ func (a *AuthAdapter) LogoutAll() error {
 	a.managers = make(map[string]*oauth.AuthManager)
 	a.mu.Unlock()
 
-	return store.Clear()
-}
-
-// revokeRefreshToken revokes a refresh token at the endpoint's /oauth/revoke endpoint
-// per RFC 7009. This is best-effort: errors are logged but do not prevent local cleanup.
-func (a *AuthAdapter) revokeRefreshToken(endpoint, refreshToken string) {
-	revokeURL := endpoint + "/oauth/revoke"
-
-	v := url.Values{}
-	v.Set("token", refreshToken)
-	v.Set("token_type_hint", "refresh_token")
-	body := strings.NewReader(v.Encode())
-	req, err := http.NewRequest(http.MethodPost, revokeURL, body)
-	if err != nil {
-		logging.Warn("AuthAdapter", "Failed to create revoke request for %s: %v", endpoint, err)
-		return
+	if err := store.Clear(); err != nil {
+		return err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := &http.Client{Timeout: DefaultHTTPClientTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		logging.Warn("AuthAdapter", "Failed to revoke refresh token for %s (server may be unreachable): %v", endpoint, err)
-		return
+	if len(revokeErrs) > 0 {
+		return &RevocationFailedError{Endpoints: failedEndpoints, Reason: errors.Join(revokeErrs...)}
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// RFC 7009: server returns 200 regardless of whether the token was found.
-	if resp.StatusCode == http.StatusOK {
-		logging.Info("AuthAdapter", "Refresh token revoked for %s", endpoint)
-	} else {
-		logging.Warn("AuthAdapter", "Refresh token revocation returned status %d for %s", resp.StatusCode, endpoint)
-	}
+	return nil
 }
 
 // deleteUserTokens sends DELETE /user-tokens with a Bearer token to clear all

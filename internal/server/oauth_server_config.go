@@ -75,6 +75,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		MaxClientsPerIP:                       DefaultMaxClientsPerIP,
 		EnableClientIDMetadataDocuments:       cfg.EnableCIMD,
 		EnableIntrospectionEndpoint:           true,
+		EnableRevocationEndpoint:              true,
 		EnableUserInfoEndpoint:                true,
 		TrustedPublicRegistrationSchemes:      cfg.TrustedPublicRegistrationSchemes,
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,

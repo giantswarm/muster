@@ -159,6 +159,9 @@ type Metadata struct {
 	// RegistrationEndpoint is the URL for dynamic client registration.
 	RegistrationEndpoint string `json:"registration_endpoint,omitempty"`
 
+	// RevocationEndpoint is the URL of the RFC 7009 token revocation endpoint.
+	RevocationEndpoint string `json:"revocation_endpoint,omitempty"`
+
 	// ScopesSupported lists the OAuth 2.0 scope values supported.
 	ScopesSupported []string `json:"scopes_supported,omitempty"`
 

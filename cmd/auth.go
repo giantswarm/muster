@@ -3,12 +3,14 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/cli"
 	"github.com/giantswarm/muster/v5/internal/config"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
@@ -171,6 +173,9 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 		}
 
 		if err := handler.LogoutAll(); err != nil {
+			if isRevocationFailed(err) {
+				return err
+			}
 			return fmt.Errorf("failed to clear all tokens: %w", err)
 		}
 
@@ -196,11 +201,21 @@ func runAuthLogout(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := handler.Logout(endpoint); err != nil {
+		if isRevocationFailed(err) {
+			return err
+		}
 		return fmt.Errorf("failed to logout: %w", err)
 	}
 
 	authPrint("Logged out from %s\n", endpoint)
 	return nil
+}
+
+// isRevocationFailed reports a sign-out that cleared local state but whose
+// server-side revocation failed: its message already says so in full.
+func isRevocationFailed(err error) bool {
+	var revokeErr *cli.RevocationFailedError
+	return errors.As(err, &revokeErr)
 }
 
 func runAuthWhoami(cmd *cobra.Command, args []string) error {
