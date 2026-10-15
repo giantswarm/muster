@@ -1550,3 +1550,61 @@ func TestForwardedTokenDiagnostic(t *testing.T) {
 			forwardedTokenDiagnostic("opaque", &internalmcp.AuthRequiredError{Err: errors.New("401"), Challenge: &pkgoauth.AuthChallenge{Error: "invalid_token"}}))
 	})
 }
+
+// TestExpiredTokenError pins the message of a token pkgoauth.IsExpired refused:
+// a parsed, past-expiry token carries no cause (IsExpired returned (true, nil)),
+// an unparseable one wraps the parse error (muster#1511).
+func TestExpiredTokenError(t *testing.T) {
+	err := expiredTokenError("token", "srv", nil)
+	require.EqualError(t, err, "token has expired for srv, re-authenticate to refresh")
+
+	cause := errors.New("no exp claim")
+	err = expiredTokenError("ID token", "srv", cause)
+	require.EqualError(t, err, "ID token for srv is unusable, re-authenticate to refresh: no exp claim")
+	require.ErrorIs(t, err, cause)
+}
+
+// TestExpiredTokenCallSites pins every connect path that refuses an expired
+// token to the well-formed message: no "%!w(<nil>)" (muster#1511).
+func TestExpiredTokenCallSites(t *testing.T) {
+	var logBuf bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logBuf)
+
+	expiredID := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
+	api.RegisterOAuthHandler(&issuerMockOAuthHandler{
+		enabled: true,
+		getFullTokenFunc: func(string, string) *api.OAuthToken {
+			return &api.OAuthToken{IDToken: expiredID}
+		},
+	})
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	serverInfo := &ServerInfo{
+		Name: "srv",
+		URL:  "http://127.0.0.1:0",
+		AuthConfig: &api.MCPServerAuth{
+			TokenExchange: &api.TokenExchangeConfig{Enabled: true, DexTokenEndpoint: "https://dex.example/token"},
+		},
+	}
+	a := &AggregatorServer{
+		config: AggregatorConfig{
+			OAuthServer: OAuthServerConfig{
+				Enabled: true,
+				Config:  config.OAuthServerConfig{BaseURL: "https://muster.example.com"},
+			},
+		},
+	}
+	ctx := api.WithSessionID(api.WithSubject(context.Background(), "alice"), "sess-1")
+
+	_, err := EstablishConnectionWithTokenExchange(ctx, a, serverInfo, "https://muster.example.com")
+	require.EqualError(t, err, "ID token has expired for srv, re-authenticate to refresh")
+
+	_, _, _, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, "sess-1")
+	require.EqualError(t, err, "ID token has expired for srv, re-authenticate to refresh")
+
+	_, _, err = a.newTokenForwardingClient(ctx, "sess-1", "alice", "https://muster.example.com", serverInfo, nil)
+	require.EqualError(t, err, "token has expired for srv, re-authenticate to refresh")
+
+	assert.NotContains(t, logBuf.String(), "%!")
+	assert.NotContains(t, logBuf.String(), "<nil>")
+}

@@ -111,21 +111,21 @@ steps:
     expected:
       success: true
       json_path:
-        total: 29
+        total: 30
         tools.0.kind: "core"
-      # 29 = the 16 read-only tools the next step lists + the 13 writes it excludes:
+      # 30 = the 17 read-only tools the next step lists + the 13 writes it excludes:
       # every core tool is classified one way or the other.
       contains: ["core_auth_login", "core_auth_logout", "core_config_get", "core_config_save", "core_events", "core_mcpserver_detect", "core_service_restart", "core_workflow_execution_get"]
 
   - id: "read-only-preset-includes-read-only-core-tools"
-    description: "preset:read-only selects the 16 read-only core tools by their annotation, no tool: selector needed"
+    description: "preset:read-only selects the 17 read-only core tools by their annotation, no tool: selector needed"
     tool: "test_call_meta_tool"
     args: { tool: "filter_tools", arguments: { pattern: "core_*", limit: 100 } }
     headers: { X-Muster-Toolset: "preset:read-only" }
     expected:
       success: true
       json_path:
-        total: 16
+        total: 17
       contains:
         - "core_workflow_list"
         - "core_workflow_get"
@@ -143,6 +143,7 @@ steps:
         - "core_mcpserver_detect"
         - "core_events"
         - "core_auth_login"
+        - "core_auth_status"
       not_contains:
         - "core_workflow_create"
         - "core_workflow_update"

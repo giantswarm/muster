@@ -792,12 +792,18 @@ func authURLFromText(text string) (string, error) {
 	// Look for URL in the text
 	if strings.Contains(text, "http") {
 		// Find URL patterns in the text
+		// A stored structured result renders as a Go map, where the URL
+		// follows its key (auth_url:https://...).
 		for _, word := range strings.Fields(text) {
-			if strings.HasPrefix(word, "http://") || strings.HasPrefix(word, "https://") {
-				// Clean up any trailing punctuation
-				word = strings.TrimRight(word, ".,;:)")
-				return word, nil
+			if i := strings.Index(word, "http://"); i >= 0 {
+				word = word[i:]
+			} else if i := strings.Index(word, "https://"); i >= 0 {
+				word = word[i:]
+			} else {
+				continue
 			}
+			// Clean up any trailing punctuation
+			return strings.TrimRight(word, ".,;:)]"), nil
 		}
 	}
 
