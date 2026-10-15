@@ -423,41 +423,67 @@ func TestKubernetesDetectorHandleUpdateInvalidObjects(t *testing.T) {
 	}
 }
 
-// TestSendChangeEventChannelFull tests behavior when the change channel is full.
+// TestSendChangeEventChannelFull tests that an event sent while the change
+// channel is full is delivered once the channel has room, not dropped.
 func TestSendChangeEventChannelFull(t *testing.T) {
 	detector, err := NewKubernetesDetector(nil, "default")
 	if err != nil {
 		t.Fatalf("failed to create detector: %v", err)
 	}
 
-	// Set up with a channel that's already full
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	detector.ctx = ctx
 	detector.running = true
 	changeChan := make(chan ChangeEvent, 1)
 	detector.changeChan = changeChan
-
-	// Fill the channel
 	changeChan <- ChangeEvent{Name: "filler"}
 
-	// Send another event - should be dropped without blocking
-	event := ChangeEvent{
-		Type:      ResourceTypeMCPServer,
-		Name:      "test-server",
-		Operation: OperationCreate,
-		Timestamp: time.Now(),
-		Source:    SourceKubernetes,
+	done := make(chan struct{})
+	go func() {
+		detector.sendChangeEvent(ChangeEvent{Type: ResourceTypeMCPServer, Name: "test-server", Operation: OperationCreate})
+		close(done)
+	}()
+
+	if got := (<-changeChan).Name; got != "filler" {
+		t.Fatalf("first event = %q, want filler", got)
+	}
+	select {
+	case event := <-changeChan:
+		if event.Name != "test-server" {
+			t.Errorf("second event = %q, want test-server", event.Name)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("event sent into a full channel was not delivered once it had room")
+	}
+	<-done
+}
+
+// TestSendChangeEventReturnsWhenStopped tests that a send waiting on a full
+// channel returns once the detector's context ends.
+func TestSendChangeEventReturnsWhenStopped(t *testing.T) {
+	detector, err := NewKubernetesDetector(nil, "default")
+	if err != nil {
+		t.Fatalf("failed to create detector: %v", err)
 	}
 
-	// This should not block
-	done := make(chan bool, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	detector.ctx = ctx
+	detector.running = true
+	changeChan := make(chan ChangeEvent, 1)
+	detector.changeChan = changeChan
+	changeChan <- ChangeEvent{Name: "filler"}
+
+	done := make(chan struct{})
 	go func() {
-		detector.sendChangeEvent(event)
-		done <- true
+		detector.sendChangeEvent(ChangeEvent{Type: ResourceTypeMCPServer, Name: "test-server"})
+		close(done)
 	}()
+	cancel()
 
 	select {
 	case <-done:
-		// Good - event was dropped without blocking
-	case <-time.After(100 * time.Millisecond):
-		t.Error("sendChangeEvent blocked when channel was full")
+	case <-time.After(time.Second):
+		t.Fatal("sendChangeEvent still waiting after the detector's context ended")
 	}
 }
