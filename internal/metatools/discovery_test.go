@@ -104,6 +104,21 @@ func TestFilterTools_RankedQuery(t *testing.T) {
 	}
 }
 
+func TestFilterTools_RankedQueryMatchesDetails(t *testing.T) {
+	mock := &mockMetaToolsHandler{tools: []mcp.Tool{
+		{Name: "list_jobs", Description: "List background jobs.\nIncludes each retention policy job and its last run."},
+		{Name: "service_restart", Description: "Restart a running service."},
+	}}
+	defer registerMockHandler(mock)()
+
+	resp := filterResult(t, map[string]interface{}{"query": "retention policy"})
+
+	require.Len(t, resp.Tools, 1, "a match below the first line is returned")
+	assert.Equal(t, "list_jobs", resp.Tools[0].Name)
+	assert.Equal(t, "List background jobs.", resp.Tools[0].Summary, "the summary stays the first line")
+	assert.Empty(t, resp.Tools[0].Description)
+}
+
 func TestFilterTools_LabelFacets(t *testing.T) {
 	withLabels := func(name, desc string, labels map[string]string) mcp.Tool {
 		return mcp.Tool{

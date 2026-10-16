@@ -325,7 +325,8 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	if opts.query != "" {
 		docs := make([]rankDoc, len(matched))
 		for i, t := range matched {
-			docs[i] = rankDoc{name: t.Name, description: summarizeText(t.Description, 0)}
+			summary, details, _ := strings.Cut(t.Description, "\n")
+			docs[i] = rankDoc{name: t.Name, summary: summary, details: details}
 		}
 		for _, rd := range rankBM25(opts.query, docs) {
 			ordered = append(ordered, scoredTool{tool: matched[rd.index], score: rd.score, scored: true})

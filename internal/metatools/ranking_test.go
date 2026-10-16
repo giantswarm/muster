@@ -16,9 +16,9 @@ func TestTokenize(t *testing.T) {
 
 func TestRankBM25_OrdersByRelevance(t *testing.T) {
 	docs := []rankDoc{
-		{name: "core_service_restart", description: "restart a running service"},
-		{name: "prometheus_query_range", description: "query prometheus metrics over a time range"},
-		{name: "core_workflow_list", description: "list all workflows"},
+		{name: "core_service_restart", summary: "restart a running service"},
+		{name: "prometheus_query_range", summary: "query prometheus metrics over a time range"},
+		{name: "core_workflow_list", summary: "list all workflows"},
 	}
 
 	ranked := rankBM25("prometheus metrics query", docs)
@@ -30,13 +30,13 @@ func TestRankBM25_OrdersByRelevance(t *testing.T) {
 }
 
 func TestRankBM25_DropsNonMatching(t *testing.T) {
-	docs := []rankDoc{{name: "alpha", description: "beta"}, {name: "gamma", description: "delta"}}
+	docs := []rankDoc{{name: "alpha", summary: "beta"}, {name: "gamma", summary: "delta"}}
 	ranked := rankBM25("nonexistentterm", docs)
 	assert.Empty(t, ranked, "a query matching nothing returns nothing, not the whole corpus")
 }
 
 func TestRankBM25_EmptyInputs(t *testing.T) {
-	assert.Nil(t, rankBM25("", []rankDoc{{name: "a", description: "b"}}))
+	assert.Nil(t, rankBM25("", []rankDoc{{name: "a", summary: "b"}}))
 	assert.Nil(t, rankBM25("a", nil))
 }
 
@@ -51,13 +51,13 @@ func docName(docs []rankDoc, ranked []rankedDoc, pos int) string {
 // pagerduty *_list_* tools whose only match is the ubiquitous "list" verb.
 func TestRankBM25_IntentBeatsUbiquitousVerb(t *testing.T) {
 	docs := []rankDoc{
-		{name: "x_pd_list_services", description: "List PagerDuty services."},
-		{name: "x_pd_list_incidents", description: "List PagerDuty incidents."},
-		{name: "x_pd_list_schedules", description: "List PagerDuty on-call schedules."},
-		{name: "core_workflow_list", description: "List all workflows."},
-		{name: "x_kubernetes_list", description: "List Kubernetes resources such as pods, deployments and services."},
-		{name: "workflow_failing-pods", description: "Investigate failing pods in a cluster."},
-		{name: "workflow_pod-health", description: "Report health of pods across namespaces."},
+		{name: "x_pd_list_services", summary: "List PagerDuty services."},
+		{name: "x_pd_list_incidents", summary: "List PagerDuty incidents."},
+		{name: "x_pd_list_schedules", summary: "List PagerDuty on-call schedules."},
+		{name: "core_workflow_list", summary: "List all workflows."},
+		{name: "x_kubernetes_list", summary: "List Kubernetes resources such as pods, deployments and services."},
+		{name: "workflow_failing-pods", summary: "Investigate failing pods in a cluster."},
+		{name: "workflow_pod-health", summary: "Report health of pods across namespaces."},
 	}
 
 	ranked := rankBM25("list pods", docs)
@@ -87,14 +87,45 @@ func TestRankBM25_IntentBeatsUbiquitousVerb(t *testing.T) {
 // query term in the tool name outranks the same term buried in a description.
 func TestRankBM25_NameMatchBeatsDescriptionMatch(t *testing.T) {
 	docs := []rankDoc{
-		{name: "core_service_restart", description: "Restart a service. Useful when the prometheus exporter is stuck."},
-		{name: "prometheus_query", description: "Run a query."},
+		{name: "core_service_restart", summary: "Restart a service. Useful when the prometheus exporter is stuck."},
+		{name: "prometheus_query", summary: "Run a query."},
 	}
 
 	ranked := rankBM25("prometheus", docs)
 	require.Len(t, ranked, 2)
 	assert.Equal(t, "prometheus_query", docName(docs, ranked, 0),
 		"a name match should outrank a description-only match")
+}
+
+// TestRankBM25_DetailsOnlyMatchIsReturned verifies that words below the first
+// line of a description are searchable: a tool whose only match is in its
+// details is ranked, not dropped.
+func TestRankBM25_DetailsOnlyMatchIsReturned(t *testing.T) {
+	docs := []rankDoc{
+		{name: "list_jobs", summary: "List background jobs.", details: "Includes the retention policy jobs and their last run."},
+		{name: "service_restart", summary: "Restart a running service."},
+	}
+
+	ranked := rankBM25("retention policy", docs)
+	require.Len(t, ranked, 1)
+	assert.Equal(t, "list_jobs", docName(docs, ranked, 0))
+}
+
+// TestRankBM25_SummaryMatchBeatsDetailsMatch verifies the field weighting
+// across the description: the same match ranks a name above a summary, and a
+// summary above the details.
+func TestRankBM25_SummaryMatchBeatsDetailsMatch(t *testing.T) {
+	docs := []rankDoc{
+		{name: "details_tool", summary: "Run a check.", details: "Reads the hypertable catalogue."},
+		{name: "summary_tool", summary: "Run a hypertable check.", details: "Reads the catalogue."},
+		{name: "hypertable_tool", summary: "Run a check.", details: "Reads the catalogue."},
+	}
+
+	ranked := rankBM25("hypertable", docs)
+	require.Len(t, ranked, 3)
+	assert.Equal(t, "hypertable_tool", docName(docs, ranked, 0), "a name match ranks first")
+	assert.Equal(t, "summary_tool", docName(docs, ranked, 1), "a summary match beats a details match")
+	assert.Equal(t, "details_tool", docName(docs, ranked, 2))
 }
 
 func TestRoundScore_KeepsTinyPositiveScorePresent(t *testing.T) {

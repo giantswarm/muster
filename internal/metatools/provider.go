@@ -144,7 +144,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Name:        "query",
 					Type:        api.ArgTypeString,
 					Required:    false,
-					Description: "Natural-language query. When set, matching tools are relevance-ranked (lexical BM25 over name + summary) and returned best-first with a score; non-matching tools are dropped.",
+					Description: "Natural-language query. When set, matching tools are relevance-ranked (lexical BM25 over the name and the full description, name and first line weighted highest) and returned best-first with a score; non-matching tools are dropped.",
 				},
 				{
 					Name:        "labels",

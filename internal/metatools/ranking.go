@@ -9,7 +9,7 @@ import (
 
 // BM25 ranking parameters. The defaults (k1=1.5, b=0.75) are the textbook
 // Okapi BM25 values and are fine for the small, descriptive corpus muster
-// ranks (a few hundred tool names + one-line summaries).
+// ranks (a few hundred tool names and descriptions).
 const (
 	bm25K1 = 1.5
 	bm25B  = 0.75
@@ -19,8 +19,12 @@ const (
 	// prose description, so name matches are weighted higher. Without this, a
 	// discriminating term (e.g. "pods") buried in a description loses to a
 	// ubiquitous verb (e.g. "list") that happens to head many tool names.
-	bm25NameWeight = 3.0
-	bm25DescWeight = 1.0
+	// The description's first line is its summary; the lines below it are
+	// details, which still match but count for less than the same match in the
+	// summary.
+	bm25NameWeight    = 3.0
+	bm25SummaryWeight = 1.0
+	bm25DetailsWeight = 0.4
 
 	// stopVerbWeight down-weights the contribution of ubiquitous CRUD verbs so
 	// that the discriminating noun in a query drives ranking. "list pods" should
@@ -44,11 +48,13 @@ type rankedDoc struct {
 	score float64
 }
 
-// rankDoc is a tool projected into the two fields the ranker weighs separately:
-// the tool name and its (summarised) description.
+// rankDoc is a tool projected into the three fields the ranker weighs
+// separately: the tool name, the first line of its description (summary) and
+// the rest of the description (details).
 type rankDoc struct {
-	name        string
-	description string
+	name    string
+	summary string
+	details string
 }
 
 // rankBM25 scores docs against the query and returns their indices ordered by
@@ -57,9 +63,10 @@ type rankDoc struct {
 // whole catalogue.
 //
 // This is a self-contained lexical ranker using a BM25F-style field-weighted
-// extension: a term's frequency is normalised per field (name vs description)
-// against that field's average length, then combined with bm25NameWeight /
-// bm25DescWeight so name matches dominate. Ubiquitous CRUD verbs are
+// extension: a term's frequency is normalised per field (name, summary, details)
+// against that field's average length, then combined with bm25NameWeight,
+// bm25SummaryWeight and bm25DetailsWeight so name matches dominate and summary
+// matches beat details matches. Ubiquitous CRUD verbs are
 // down-weighted (see stopVerbs) so the discriminating noun drives ranking.
 // Tokenisation is lowercase alphanumeric runs (snake_case and kebab-case names
 // split naturally; camelCase boundaries are also split), IDF is computed over
@@ -76,22 +83,25 @@ func rankBM25(query string, docs []rankDoc) []rankedDoc {
 	queryTermSet := uniqueTerms(queryTerms)
 
 	nameTerms := make([][]string, len(docs))
-	descTerms := make([][]string, len(docs))
-	docFreq := make(map[string]int) // documents containing a term (in either field)
-	var totalNameLen, totalDescLen int
+	summaryTerms := make([][]string, len(docs))
+	detailsTerms := make([][]string, len(docs))
+	docFreq := make(map[string]int) // documents containing a term (in any field)
+	var totalNameLen, totalSummaryLen, totalDetailsLen int
 	for i, doc := range docs {
 		nt := tokenize(doc.name)
-		dt := tokenize(doc.description)
+		st := tokenize(doc.summary)
+		dt := tokenize(doc.details)
 		nameTerms[i] = nt
-		descTerms[i] = dt
+		summaryTerms[i] = st
+		detailsTerms[i] = dt
 		totalNameLen += len(nt)
-		totalDescLen += len(dt)
-		seen := make(map[string]struct{}, len(nt)+len(dt))
-		for _, t := range nt {
-			seen[t] = struct{}{}
-		}
-		for _, t := range dt {
-			seen[t] = struct{}{}
+		totalSummaryLen += len(st)
+		totalDetailsLen += len(dt)
+		seen := make(map[string]struct{}, len(nt)+len(st)+len(dt))
+		for _, field := range [][]string{nt, st, dt} {
+			for _, t := range field {
+				seen[t] = struct{}{}
+			}
 		}
 		for term := range seen {
 			docFreq[term]++
@@ -100,7 +110,8 @@ func rankBM25(query string, docs []rankDoc) []rankedDoc {
 
 	n := float64(len(docs))
 	avgNameLen := avgLen(totalNameLen, len(docs))
-	avgDescLen := avgLen(totalDescLen, len(docs))
+	avgSummaryLen := avgLen(totalSummaryLen, len(docs))
+	avgDetailsLen := avgLen(totalDetailsLen, len(docs))
 
 	// Precompute IDF per query term over the combined corpus.
 	idf := make(map[string]float64, len(queryTermSet))
@@ -113,16 +124,19 @@ func rankBM25(query string, docs []rankDoc) []rankedDoc {
 	ranked := make([]rankedDoc, 0, len(docs))
 	for i := range docs {
 		nameTf := termFreq(nameTerms[i])
-		descTf := termFreq(descTerms[i])
+		summaryTf := termFreq(summaryTerms[i])
+		detailsTf := termFreq(detailsTerms[i])
 		nameLen := float64(len(nameTerms[i]))
-		descLen := float64(len(descTerms[i]))
+		summaryLen := float64(len(summaryTerms[i]))
+		detailsLen := float64(len(detailsTerms[i]))
 		var score float64
 		for term := range queryTermSet {
 			// BM25F: normalise each field's raw frequency by its own length,
 			// then combine the weighted, length-normalised frequencies before
 			// the saturating BM25 term.
 			wtf := bm25NameWeight*normTf(float64(nameTf[term]), nameLen, avgNameLen) +
-				bm25DescWeight*normTf(float64(descTf[term]), descLen, avgDescLen)
+				bm25SummaryWeight*normTf(float64(summaryTf[term]), summaryLen, avgSummaryLen) +
+				bm25DetailsWeight*normTf(float64(detailsTf[term]), detailsLen, avgDetailsLen)
 			if wtf == 0 {
 				continue
 			}
