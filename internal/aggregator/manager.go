@@ -620,7 +620,7 @@ func (am *AggregatorManager) deregisterSingleServer(serverName string) error {
 // state=starting event is being processed (the "Server not found" answer from
 // core_auth_login right after startup). The registry decides under its lock.
 func (am *AggregatorManager) deregisterOnStateChange(serverName string) error {
-	removed, err := am.aggregatorServer.DeregisterServerOnStateChange(serverName)
+	removed, err := am.aggregatorServer.DeregisterServerOnStateChange(serverName, am.serviceReconnecting(serverName))
 	if err != nil {
 		return fmt.Errorf("failed to deregister server: %w", err)
 	}
@@ -631,6 +631,26 @@ func (am *AggregatorManager) deregisterOnStateChange(serverName string) error {
 
 	logging.Info("Aggregator-Manager", "Successfully deregistered MCP server %s", serverName)
 	return nil
+}
+
+// serviceReconnecting reports whether a server whose entry the state-change
+// handler removes is still alive and re-establishing its connection: its
+// service exists and was not stopped. A Failed server with failed health
+// probes has a reconnect due, and a Starting one is that reconnect; a
+// stopped, stopping or deleted one is gone until someone starts it.
+func (am *AggregatorManager) serviceReconnecting(serverName string) bool {
+	if am.serviceRegistry == nil {
+		return false
+	}
+	service, exists := am.serviceRegistry.Get(serverName)
+	if !exists || service == nil {
+		return false
+	}
+	switch service.GetState() {
+	case api.StateStopped, api.StateStopping:
+		return false
+	}
+	return true
 }
 
 // GetEndpoint returns the aggregator's MCP endpoint URL.
