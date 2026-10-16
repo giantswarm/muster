@@ -91,7 +91,27 @@ tests:
       - equal:
           path: spec.groups[0].rules[0].expr
           value: |-
-            max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (muster_mcpserver_state{state="Failed"}) == 1
+            max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (
+              label_replace(muster_mcpserver_state{state="Failed"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
+              unless on (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, management_cluster)
+              (
+                (
+                  count by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, management_cluster) (
+                    max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name, management_cluster) (
+                      label_replace(muster_mcpserver_state{state="Failed", mcpserver_name=~"(.+?)-mcp-.+"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
+                    )
+                  )
+                  ==
+                  count by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, management_cluster) (
+                    max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name, management_cluster) (
+                      label_replace(muster_mcpserver_state{mcpserver_name=~"(.+?)-mcp-.+"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
+                    )
+                  )
+                ) >= 2
+                unless on (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, management_cluster)
+                label_replace(group by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace) (muster_mcpserver_state), "management_cluster", "$1", "installation", "(.+)")
+              )
+            ) == 1
       - equal:
           path: spec.groups[0].rules[0].for
           value: 20m
@@ -125,7 +145,7 @@ tests:
     asserts:
       - matchRegex:
           path: spec.groups[0].rules[0].expr
-          pattern: '^max by \(cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name\) \(muster_mcpserver_state\{'
+          pattern: '^max by \(cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name\) \(\s*(label_replace\()?muster_mcpserver_state\{'
       - matchRegex:
           path: spec.groups[0].rules[1].expr
           pattern: '^sum by \(cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name\) \(increase\(muster_mcpserver_state_transitions_total\{'

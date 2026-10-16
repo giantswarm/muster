@@ -381,3 +381,169 @@ tests:
             exp_annotations:
               description: '75% of the tool calls muster dispatched to MCPServer kubernetes in the last 15m failed with a transport error or timeout, while the server is not Failed.'
               runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-tool-call-errors/?INSTALLATION=test&CLUSTER=test'
+
+  # A hub reaches a sibling installation's servers as <mc>-mcp-<type>. When the
+  # sibling goes down, all of them go Failed, one after another; the sibling's
+  # own heartbeat alerts its owners, and the hub stays silent for the outage.
+  # mcp-capi fails first, ten minutes before the other two: it is pending
+  # until then, and leaves the alert when the sibling counts as down, so it
+  # never reaches its 20m. The hub's own server is untouched.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="sibling-mcp-capi", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x60"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="sibling-mcp-kubernetes", mcpserver_namespace="agent-platform", state="Connected"}'
+        values: "1+0x9"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="sibling-mcp-kubernetes", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "_x10 1+0x50"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="sibling-mcp-prometheus", mcpserver_namespace="agent-platform", state="Connected"}'
+        values: "1+0x9"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="sibling-mcp-prometheus", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "_x10 1+0x50"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="hub-mcp-capi", mcpserver_namespace="agent-platform", state="Connected"}'
+        values: "1+0x60"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 25m
+        exp_alerts: []
+      - alertname: MusterMCPServerFailed
+        eval_time: 55m
+        exp_alerts: []
+
+  # A sibling that is up, one of whose servers fails: that server is broken,
+  # not the sibling, and it fires.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="sibling-mcp-capi", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x40"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="sibling-mcp-kubernetes", mcpserver_namespace="agent-platform", state="Connected"}'
+        values: "1+0x40"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="sibling-mcp-prometheus", mcpserver_namespace="agent-platform", state="Auth Required"}'
+        values: "1+0x40"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 25m
+        exp_alerts:
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: hub
+              installation: hub
+              mcpserver_name: sibling-mcp-capi
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/sibling-mcp-capi has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=hub&CLUSTER=hub'
+
+  # The installation's own servers (<installation>-mcp-<type>) fire even when
+  # all of them fail: that is the hub broken, not a sibling. So does a sibling
+  # with a single server, and a server outside the naming (github) beside
+  # another failing one.
+  - interval: 1m
+    input_series:
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="hub-mcp-capi", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x40"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="hub-mcp-kubernetes", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x40"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="solo-mcp-capi", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x40"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="github", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x40"
+      - series: 'muster_mcpserver_state{cluster_id="hub", installation="hub", pipeline="stable", provider="capa", namespace="agent-platform", pod="muster-a", mcpserver_name="agent-manager", mcpserver_namespace="agent-platform", state="Failed"}'
+        values: "1+0x40"
+    alert_rule_test:
+      - alertname: MusterMCPServerFailed
+        eval_time: 25m
+        exp_alerts:
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: hub
+              installation: hub
+              mcpserver_name: hub-mcp-capi
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/hub-mcp-capi has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=hub&CLUSTER=hub'
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: hub
+              installation: hub
+              mcpserver_name: hub-mcp-kubernetes
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/hub-mcp-kubernetes has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=hub&CLUSTER=hub'
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: hub
+              installation: hub
+              mcpserver_name: solo-mcp-capi
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/solo-mcp-capi has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=hub&CLUSTER=hub'
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: hub
+              installation: hub
+              mcpserver_name: github
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/github has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=hub&CLUSTER=hub'
+          - exp_labels:
+              area: platform
+              cancel_if_monitoring_agent_down: "true"
+              cancel_if_outside_working_hours: "false"
+              cluster_id: hub
+              installation: hub
+              mcpserver_name: agent-manager
+              mcpserver_namespace: agent-platform
+              namespace: agent-platform
+              pipeline: stable
+              provider: capa
+              severity: notify
+              team: bumblebee
+              topic: muster
+            exp_annotations:
+              description: 'MCPServer agent-platform/agent-manager has been in state Failed for 20m; the MCP backend is unreachable and its tools are unavailable to agents. The reason muster recorded is in the CR status.lastError field.'
+              runbook_url: 'https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION=hub&CLUSTER=hub'
