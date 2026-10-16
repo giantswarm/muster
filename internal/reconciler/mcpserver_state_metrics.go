@@ -29,6 +29,13 @@ const (
 	// included ("Auth Required"), so a label value can be compared against
 	// `kubectl get mcpserver` output without translation.
 	attrMCPServerState = "state"
+
+	// attrMCPServerRegistered is "true" for an MCPServer a person registered
+	// through muster (core_mcpserver_create stamps api.RegisteredByAnnotation)
+	// and "false" for one the platform ships (chart, GitOps). The alerts page
+	// the team operating the backend, which a person-registered server has
+	// none of: its owner sees the state where they registered it.
+	attrMCPServerRegistered = "registered"
 )
 
 // stateKey identifies one MCPServer.
@@ -37,14 +44,31 @@ type stateKey struct {
 	namespace string
 }
 
+// observation is what the reconciler last saw of one MCPServer.
+type observation struct {
+	state musterv1alpha1.MCPServerStateValue
+	// registered reports a person-registered MCPServer.
+	registered bool
+}
+
+// attributes are the metric attributes of one MCPServer in one observation.
+func (o observation) attributes(key stateKey) metric.MeasurementOption {
+	return metric.WithAttributes(
+		attribute.String(attrMCPServerName, key.name),
+		attribute.String(attrMCPServerNamespace, key.namespace),
+		attribute.String(attrMCPServerState, string(o.state)),
+		attribute.Bool(attrMCPServerRegistered, o.registered),
+	)
+}
+
 // mcpServerStateMetrics publishes the reconciler's view of
 // MCPServer.status.state as OpenTelemetry metrics:
 //
 //   - muster.mcpserver.state (observable gauge) — 1 for the current state of
 //     every MCPServer the reconciler has reconciled, with attributes
-//     mcpserver.name, mcpserver.namespace and state. Exported through the
-//     Prometheus exporter this becomes
-//     muster_mcpserver_state{mcpserver_name, mcpserver_namespace, state}.
+//     mcpserver.name, mcpserver.namespace, state and registered. Exported
+//     through the Prometheus exporter this becomes
+//     muster_mcpserver_state{mcpserver_name, mcpserver_namespace, state, registered}.
 //   - muster.mcpserver.state_transitions (counter) — one increment per state
 //     change, same attributes, where state is the state being entered.
 //     Becomes muster_mcpserver_state_transitions_total.
@@ -70,7 +94,7 @@ type mcpServerStateMetrics struct {
 	// mu guards states. It is taken by both the reconcile path (record,
 	// forget) and the metric collection callback (observe).
 	mu     sync.Mutex
-	states map[stateKey]musterv1alpha1.MCPServerStateValue
+	states map[stateKey]observation
 
 	// gauge and transitions are nil when instrument creation failed. Metrics
 	// are best effort: muster must reconcile MCPServers whether or not it can
@@ -95,7 +119,7 @@ type mcpServerStateMetrics struct {
 // succeeds cheaply.
 func newMCPServerStateMetrics(meter metric.Meter) *mcpServerStateMetrics {
 	m := &mcpServerStateMetrics{
-		states: make(map[stateKey]musterv1alpha1.MCPServerStateValue),
+		states: make(map[stateKey]observation),
 	}
 
 	transitions, err := meter.Int64Counter("muster.mcpserver.state_transitions",
@@ -134,18 +158,16 @@ func (m *mcpServerStateMetrics) observe(_ context.Context, observer metric.Obser
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for key, state := range m.states {
-		observer.ObserveInt64(m.gauge, 1, metric.WithAttributes(
-			attribute.String(attrMCPServerName, key.name),
-			attribute.String(attrMCPServerNamespace, key.namespace),
-			attribute.String(attrMCPServerState, string(state)),
-		))
+	for key, obs := range m.states {
+		observer.ObserveInt64(m.gauge, 1, obs.attributes(key))
 	}
 	return nil
 }
 
-// record stores the state the reconciler observed for one MCPServer and counts
-// a transition when it differs from the previous observation.
+// record stores what the reconciler observed of one MCPServer and counts a
+// transition when its state differs from the previous observation. A change of
+// origin alone (the annotation added or removed) relabels the gauge without
+// counting a transition.
 //
 // Safe to call repeatedly with an unchanged state — the periodic status resync
 // does exactly that, and the retry-on-conflict loop in syncStatus can re-derive
@@ -155,23 +177,19 @@ func (m *mcpServerStateMetrics) observe(_ context.Context, observer metric.Obser
 // state, so a server that comes up broken is visible in the counter and not
 // only in the gauge. One increment per server per muster restart is well below
 // any sensible flapping threshold.
-func (m *mcpServerStateMetrics) record(ctx context.Context, key stateKey, state musterv1alpha1.MCPServerStateValue) {
+func (m *mcpServerStateMetrics) record(ctx context.Context, key stateKey, obs observation) {
 	m.mu.Lock()
 	previous, known := m.states[key]
-	m.states[key] = state
+	m.states[key] = obs
 	m.mu.Unlock()
 
-	if known && previous == state {
+	if known && previous.state == obs.state {
 		return
 	}
 	if m.transitions == nil {
 		return
 	}
-	m.transitions.Add(ctx, 1, metric.WithAttributes(
-		attribute.String(attrMCPServerName, key.name),
-		attribute.String(attrMCPServerNamespace, key.namespace),
-		attribute.String(attrMCPServerState, string(state)),
-	))
+	m.transitions.Add(ctx, 1, obs.attributes(key))
 }
 
 // forget drops an MCPServer from the gauge, so a deleted resource stops
