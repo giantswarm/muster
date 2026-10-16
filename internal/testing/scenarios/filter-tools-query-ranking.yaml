@@ -12,6 +12,8 @@ timeout: "5m"
 # Then:  Tools matching at least one query term are returned best-first with a
 #        score, the most relevant tool ranks first, and tools matching no query
 #        term are dropped (the query narrows, it does not merely reorder).
+#        Words below the first line of a description are searchable too
+#        (#1534), while the summary stays the first line.
 
 pre_configuration:
   mcp_servers:
@@ -29,6 +31,11 @@ pre_configuration:
             responses: [{ response: { ok: true } }]
           - name: "grafana_dashboard"
             description: "Fetch a Grafana monitoring dashboard."
+            responses: [{ response: { ok: true } }]
+          - name: "list_jobs"
+            description: |-
+              List background jobs.
+              Includes each retention policy job and its last run.
             responses: [{ response: { ok: true } }]
 
 steps:
@@ -64,3 +71,20 @@ steps:
       not_contains:
         - "x_rank_service_restart"
         - "x_rank_grafana_dashboard"
+
+  - id: "details-query"
+    description: "A query matching only below a description's first line returns the tool, with the first line as its summary"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        query: "retention policy"
+        pattern: "x_rank_*"
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "x_rank_list_jobs"
+        tools.0.summary: "List background jobs."
+      not_contains:
+        - "x_rank_prometheus_query_range"
