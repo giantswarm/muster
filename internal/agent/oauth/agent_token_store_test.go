@@ -15,7 +15,7 @@ import (
 
 func TestAgentTokenStore_GetToken_NoToken(t *testing.T) {
 	store := createTestTokenStore(t)
-	agentStore := NewAgentTokenStore("https://example.com", store)
+	agentStore := NewAgentTokenStore("https://example.com", DefaultAgentClientID, store)
 
 	_, err := agentStore.GetToken(context.Background())
 	if err != transport.ErrNoToken {
@@ -38,11 +38,11 @@ func TestAgentTokenStore_GetToken_ReturnsStoredToken(t *testing.T) {
 		"id_token": "test-id-token",
 	})
 
-	if err := store.StoreToken(serverURL, issuerURL, token); err != nil {
+	if err := store.StoreToken(serverURL, issuerURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("StoreToken failed: %v", err)
 	}
 
-	agentStore := NewAgentTokenStore(serverURL, store)
+	agentStore := NewAgentTokenStore(serverURL, DefaultAgentClientID, store)
 
 	got, err := agentStore.GetToken(context.Background())
 	if err != nil {
@@ -77,11 +77,11 @@ func TestAgentTokenStore_GetToken_CachesIDToken(t *testing.T) {
 		"id_token": "test-id-token",
 	})
 
-	if err := store.StoreToken(serverURL, "https://issuer.example.com", token); err != nil {
+	if err := store.StoreToken(serverURL, "https://issuer.example.com", DefaultAgentClientID, token); err != nil {
 		t.Fatalf("StoreToken failed: %v", err)
 	}
 
-	agentStore := NewAgentTokenStore(serverURL, store)
+	agentStore := NewAgentTokenStore(serverURL, DefaultAgentClientID, store)
 
 	_, err := agentStore.GetToken(context.Background())
 	if err != nil {
@@ -104,11 +104,11 @@ func TestAgentTokenStore_SaveToken_Persists(t *testing.T) {
 		TokenType:    "Bearer",
 		Expiry:       time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL, "https://issuer.example.com", initialToken); err != nil {
+	if err := store.StoreToken(serverURL, "https://issuer.example.com", DefaultAgentClientID, initialToken); err != nil {
 		t.Fatalf("initial StoreToken failed: %v", err)
 	}
 
-	agentStore := NewAgentTokenStore(serverURL, store)
+	agentStore := NewAgentTokenStore(serverURL, DefaultAgentClientID, store)
 
 	// Read to populate the cached issuer
 	_, err := agentStore.GetToken(context.Background())
@@ -156,11 +156,11 @@ func TestAgentTokenStore_SaveToken_PreservesIDToken(t *testing.T) {
 	initialToken = initialToken.WithExtra(map[string]interface{}{
 		"id_token": "my-id-token",
 	})
-	if err := store.StoreToken(serverURL, "https://issuer.example.com", initialToken); err != nil {
+	if err := store.StoreToken(serverURL, "https://issuer.example.com", DefaultAgentClientID, initialToken); err != nil {
 		t.Fatalf("initial StoreToken failed: %v", err)
 	}
 
-	agentStore := NewAgentTokenStore(serverURL, store)
+	agentStore := NewAgentTokenStore(serverURL, DefaultAgentClientID, store)
 
 	// Read to populate the cached ID token
 	_, err := agentStore.GetToken(context.Background())
@@ -188,7 +188,7 @@ func TestAgentTokenStore_SaveToken_PreservesIDToken(t *testing.T) {
 
 func TestAgentTokenStore_GetToken_ContextCancelled(t *testing.T) {
 	store := createTestTokenStore(t)
-	agentStore := NewAgentTokenStore("https://example.com", store)
+	agentStore := NewAgentTokenStore("https://example.com", DefaultAgentClientID, store)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -256,7 +256,7 @@ func TestSetupOAuthConfig_RefreshKeepsTheNewIDToken(t *testing.T) {
 		TokenType:    "Bearer",
 		Expiry:       time.Now().Add(-time.Hour),
 	}).WithExtra(map[string]interface{}{"id_token": "old-id-token"})
-	if err := store.StoreToken(server.URL, server.URL, expired); err != nil {
+	if err := store.StoreToken(server.URL, server.URL, DefaultAgentClientID, expired); err != nil {
 		t.Fatalf("StoreToken failed: %v", err)
 	}
 
@@ -293,11 +293,11 @@ func TestAgentTokenStore_SaveToken_KeepsTheCachedIDTokenWithoutARefreshedOne(t *
 		AccessToken: "access", TokenType: "Bearer", RefreshToken: "refresh",
 		Expiry: time.Now().Add(time.Hour),
 	}).WithExtra(map[string]interface{}{"id_token": "cached-id-token"})
-	if err := store.StoreToken(serverURL, "https://issuer.example.com", stored); err != nil {
+	if err := store.StoreToken(serverURL, "https://issuer.example.com", DefaultAgentClientID, stored); err != nil {
 		t.Fatalf("StoreToken failed: %v", err)
 	}
 
-	agentStore := NewAgentTokenStore(serverURL, store)
+	agentStore := NewAgentTokenStore(serverURL, DefaultAgentClientID, store)
 	if _, err := agentStore.GetToken(context.Background()); err != nil {
 		t.Fatalf("GetToken failed: %v", err)
 	}
