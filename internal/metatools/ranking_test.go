@@ -15,6 +15,119 @@ func TestTokenize(t *testing.T) {
 	assert.Empty(t, tokenize("   "))
 }
 
+func TestFoldPlural_SingularAndPluralShareAKey(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"policy", "policies"},
+		{"query", "queries"},
+		{"version", "versions"},
+		{"pod", "pods"},
+		{"metric", "metrics"},
+		{"value", "values"},
+		{"cache", "caches"},
+		{"match", "matches"},
+		{"box", "boxes"},
+		{"process", "processes"},
+		{"status", "statuses"},
+		{"replica", "replicas"},
+		{"database", "databases"},
+		{"retry", "retries"},
+		{"key", "keys"},
+		{"cookie", "cookies"},
+		{"tie", "ties"},
+		{"use", "uses"},
+		{"id", "ids"},
+		{"api", "apis"},
+		{"cpu", "cpus"},
+		{"gpu", "gpus"},
+		{"menu", "menus"},
+		{"crd", "crds"},
+		{"vm", "vms"},
+		{"type", "types"},
+		{"size", "sizes"},
+		{"release", "releases"},
+		{"service", "services"},
+		{"namespace", "namespaces"},
+		{"alias", "aliases"},
+		{"bias", "biases"},
+		{"bus", "buses"},
+	} {
+		assert.Equal(t, foldPlural(pair[0]), foldPlural(pair[1]), "%q and %q", pair[0], pair[1])
+	}
+}
+
+func TestFoldPlural_KeepsWordsThatAreNotPlurals(t *testing.T) {
+	for _, word := range []string{"status", "access", "ingress", "analysis", "redis", "series", "news", "dns", "as", "k8s", "s3"} {
+		assert.Equal(t, word, foldPlural(word))
+	}
+}
+
+// TestFoldPlural_KeepsUnrelatedWordsApart verifies that folding a singular
+// does not merge it with a different word.
+func TestFoldPlural_KeepsUnrelatedWordsApart(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"plane", "plan"},
+		{"state", "stat"},
+		{"state", "stats"},
+		{"note", "not"},
+		{"core", "cors"},
+		{"side", "sid"},
+		{"here", "her"},
+		{"news", "new"},
+		{"lens", "len"},
+		{"gcs", "gc"},
+	} {
+		assert.NotEqual(t, foldPlural(pair[0]), foldPlural(pair[1]), "%q and %q", pair[0], pair[1])
+	}
+}
+
+// TestFoldPlural_StopVerbsFoldToThemselves guards the stopVerbs lookup, which
+// runs on folded query terms: a key that folded to something else would never
+// be found.
+func TestFoldPlural_StopVerbsFoldToThemselves(t *testing.T) {
+	for verb := range stopVerbs {
+		assert.Equal(t, verb, foldPlural(verb))
+	}
+}
+
+// TestRankBM25_PluralQueryMatchesSingular verifies that a query need not use
+// the same number as the tool: "policies" finds a tool described with
+// "policy", and "version" one described with "versions".
+func TestRankBM25_PluralQueryMatchesSingular(t *testing.T) {
+	docs := []rankDoc{
+		{name: "list_jobs", summary: "List jobs, such as the retention policy job."},
+		{name: "describe_table", summary: "Describe a table and its versions."},
+		{name: "service_restart", summary: "Restart a running service."},
+	}
+
+	ranked := rankBM25("retention policies", docs)
+	require.Len(t, ranked, 1)
+	assert.Equal(t, "list_jobs", docName(docs, ranked, 0))
+
+	ranked = rankBM25("version", docs)
+	require.Len(t, ranked, 1)
+	assert.Equal(t, "describe_table", docName(docs, ranked, 0))
+}
+
+// TestQueryTerms_DropsStopWordsBeforeFolding verifies that stop words are
+// recognised as typed: folded, "does" would become "doe" and stay in the query.
+func TestQueryTerms_DropsStopWordsBeforeFolding(t *testing.T) {
+	assert.Equal(t, []string{"restart", foldPlural("services")}, queryTerms("how does it restart the services"))
+	assert.Equal(t, []string{foldPlural("does")}, queryTerms("does"), "a query of only stop words keeps them, folded")
+}
+
+// TestRankBM25_PluralStopVerbStaysDownWeighted verifies that "lists" is
+// down-weighted like "list", so the noun still drives ranking.
+func TestRankBM25_PluralStopVerbStaysDownWeighted(t *testing.T) {
+	docs := []rankDoc{
+		{name: "x_pd_list_services", summary: "List PagerDuty services."},
+		{name: "workflow_failing-pods", summary: "Investigate failing pods in a cluster."},
+	}
+
+	ranked := rankBM25("lists pod", docs)
+	require.Len(t, ranked, 2)
+	assert.Equal(t, "workflow_failing-pods", docName(docs, ranked, 0))
+}
+
 func TestRankBM25_OrdersByRelevance(t *testing.T) {
 	docs := []rankDoc{
 		{name: "core_service_restart", summary: "restart a running service"},

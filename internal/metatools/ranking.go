@@ -95,7 +95,8 @@ func (d rankDoc) fields() [numRankFields]string {
 // stopVerbs) so the discriminating noun drives ranking, and function words are
 // dropped from the query (see stopWords).
 // Tokenisation is lowercase alphanumeric runs (snake_case and kebab-case names
-// split naturally; camelCase boundaries are also split), IDF is computed over
+// split naturally; camelCase boundaries are also split), each folded so that a
+// plural matches its singular (see foldPlural), IDF is computed over
 // the candidate corpus, and no embedding index or external dependency is
 // involved. Embeddings can replace this later if lexical recall proves
 // insufficient (see muster#868).
@@ -120,7 +121,7 @@ func rankBM25(query string, docs []rankDoc) []rankedDoc {
 	for i, doc := range docs {
 		seen := make(map[string]bool, len(terms))
 		for f, text := range doc.fields() {
-			tokens := tokenize(text)
+			tokens := rankTerms(text)
 			tf := make(map[string]int, len(terms))
 			for _, t := range tokens {
 				if isQueryTerm[t] {
@@ -232,19 +233,21 @@ func tokenize(s string) []string {
 	return tokens
 }
 
-// queryTerms returns the distinct terms of the query, sorted, without its
-// stopWords; a query of only stop words keeps them.
+// queryTerms returns the distinct terms of the query, folded (see foldPlural)
+// and sorted, without its stopWords; a query of only stop words keeps them.
+// Stop words are matched before folding, which turns "does" into "doe".
 func queryTerms(query string) []string {
 	var all, content []string
-	seen := make(map[string]bool)
+	inAll, inContent := make(map[string]bool), make(map[string]bool)
 	for _, t := range tokenize(query) {
-		if seen[t] {
-			continue
+		folded := foldPlural(t)
+		if !inAll[folded] {
+			inAll[folded] = true
+			all = append(all, folded)
 		}
-		seen[t] = true
-		all = append(all, t)
-		if _, isStopWord := stopWords[t]; !isStopWord {
-			content = append(content, t)
+		if _, isStopWord := stopWords[t]; !isStopWord && !inContent[folded] {
+			inContent[folded] = true
+			content = append(content, folded)
 		}
 	}
 	if len(content) == 0 {
@@ -252,4 +255,96 @@ func queryTerms(query string) []string {
 	}
 	sort.Strings(content)
 	return content
+}
+
+// rankTerms tokenises s and folds each token (see foldPlural): the terms the
+// ranker compares, for the query and for every document field alike.
+func rankTerms(s string) []string {
+	terms := tokenize(s)
+	for i, t := range terms {
+		terms[i] = foldPlural(t)
+	}
+	return terms
+}
+
+// singularsEndingInS are singular words that end in "s". foldPlural keeps them
+// rather than dropping the "s" as if they were plurals, which would leave
+// "news" meeting "new" and "status" never meeting "statuses", and folds their
+// "es" plural to them ("aliases" -> "alias").
+var singularsEndingInS = map[string]struct{}{
+	"alias": {}, "analysis": {}, "atlas": {}, "axis": {}, "basis": {}, "bias": {}, "bonus": {}, "bus": {},
+	"campus": {}, "canvas": {}, "census": {}, "consensus": {}, "corpus": {}, "dns": {}, "focus": {}, "gas": {},
+	"gcs": {}, "lens": {}, "news": {}, "nexus": {}, "plus": {}, "prometheus": {}, "radius": {}, "redis": {},
+	"series": {}, "species": {}, "status": {}, "tls": {}, "virus": {},
+}
+
+// foldPlural maps a lowercase token to a key it shares with its singular or
+// plural form, so that "policies" matches "policy" and "versions" matches
+// "version". The key is not always a word ("policy" and "policies" both become
+// "polici"); it only has to be the same for both forms, and the query is folded
+// the same way as the documents.
+//
+// The rules, in order:
+//   - a token with a digit ("k8s", "s3"), ending in "ss" ("access") or listed in
+//     singularsEndingInS ("status") is kept, and the "es" plural of a listed
+//     word becomes that word ("statuses" -> "status");
+//   - "ies" becomes "i" ("policies" -> "polici") when two letters stay before it;
+//   - otherwise a final "s" is dropped when two letters stay ("pods" -> "pod",
+//     "apis" -> "api", "vms" -> "vm");
+//   - then a final "e" is dropped when three letters stay, unless they end in
+//     consonant-vowel-consonant (Porter's rule), so that "caches" -> "cache"
+//     -> "cach" meets "cache" and "matches" -> "matche" -> "match" meets
+//     "match", while "plane" stays apart from "plan" and "state" from "stat";
+//   - or a final "y" after a consonant becomes "i", so that "policy" meets
+//     "policies" ("key" and "day" keep theirs, as their plurals do).
+//
+// It is a light, predictable fold rather than a full stemmer: it does not
+// conflate verb forms ("restarting", "restarted"), and so does not conflate
+// unrelated words that share a stem ("policy" and "police"). A singular in "s"
+// that is not listed loses its "s" ("lens" would, without the list).
+func foldPlural(t string) string {
+	if _, ok := singularsEndingInS[t]; ok || strings.HasSuffix(t, "ss") || strings.ContainsFunc(t, unicode.IsDigit) {
+		return t
+	}
+	if stem, ok := strings.CutSuffix(t, "es"); ok {
+		if _, ok := singularsEndingInS[stem]; ok {
+			return stem
+		}
+	}
+	// Every suffix handled below is ASCII, so the token is sliced as bytes.
+	switch {
+	case len(t) >= 5 && strings.HasSuffix(t, "ies"):
+		t = t[:len(t)-3] + "i"
+	case len(t) >= 3 && t[len(t)-1] == 's':
+		t = t[:len(t)-1]
+	}
+	switch n := len(t); {
+	case n >= 4 && t[n-1] == 'e' && !endsCVC(t[:n-1]):
+		t = t[:n-1]
+	case n >= 3 && t[n-1] == 'y' && !isVowelAt(t, n-2):
+		t = t[:n-1] + "i"
+	}
+	return t
+}
+
+// isVowelAt reports whether the byte at i is a vowel: a, e, i, o, u, or a "y"
+// after a consonant ("type", not "key").
+func isVowelAt(w string, i int) bool {
+	switch w[i] {
+	case 'a', 'e', 'i', 'o', 'u':
+		return true
+	case 'y':
+		return i > 0 && !isVowelAt(w, i-1)
+	}
+	return false
+}
+
+// endsCVC reports whether w ends in consonant-vowel-consonant, the last one not
+// w, x or y ("plan", "stat", but not "box").
+func endsCVC(w string) bool {
+	n := len(w)
+	if n < 3 || strings.ContainsRune("wxy", rune(w[n-1])) {
+		return false
+	}
+	return !isVowelAt(w, n-3) && isVowelAt(w, n-2) && !isVowelAt(w, n-1)
 }
