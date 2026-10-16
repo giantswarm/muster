@@ -87,6 +87,11 @@ type AggregatorServer struct {
 	registry  *ServerRegistry      // Registry of backend MCP servers
 	mcpServer *mcpserver.MCPServer // Core MCP server implementation
 
+	// reconnects remembers backends whose entry is removed while their
+	// connection is re-established, so a call in that window waits or is
+	// answered as retryable instead of "server not found".
+	reconnects reconnectTracker
+
 	errorCallback func(error) // Callback for propagating async errors in the aggregator upwards
 
 	// Transport-specific server instances for different communication protocols
@@ -1274,6 +1279,7 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 	if err := a.registry.Register(ctx, registration, client); err != nil {
 		return err
 	}
+	a.reconnects.settled(registration.Name)
 	if info, ok := a.registry.GetServerInfo(registration.Name); ok {
 		if err := pinAuthorizationServer(ctx, info); err != nil {
 			// Logins for this server retry the pin (auth_tools), so a Secret
@@ -1321,7 +1327,7 @@ func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 //
 // Returns an error if the server is not found or deregistration fails.
 func (a *AggregatorServer) DeregisterServer(name string) error {
-	_, err := a.deregisterServer(name, false)
+	_, err := a.deregisterServer(name, false, false)
 	return err
 }
 
@@ -1330,13 +1336,16 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 // per-session authentication, whatever the (possibly stale) event said. Such
 // entries are owned by the auth-required hook and the periodic pending-auth
 // heal, and removing one leaves core_auth_login answering "server not found"
-// and every session without the server until the next heal. Returns whether
-// an entry was removed.
-func (a *AggregatorServer) DeregisterServerOnStateChange(name string) (bool, error) {
-	return a.deregisterServer(name, true)
+// and every session without the server until the next heal. reconnecting
+// says the service is still alive and re-establishing its connection (failed
+// health probes, a reconnect due): calls in the window until it is registered
+// again wait for it or are answered as retryable (awaitServer). Returns
+// whether an entry was removed.
+func (a *AggregatorServer) DeregisterServerOnStateChange(name string, reconnecting bool) (bool, error) {
+	return a.deregisterServer(name, true, reconnecting)
 }
 
-func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (bool, error) {
+func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconnecting bool) (bool, error) {
 	logging.InfoWithAttrs("Aggregator", "DeregisterServer called",
 		slog.String("server", name))
 
@@ -1360,8 +1369,18 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (
 	// The entry's auth config, read before the delete: a removed server
 	// releases the authorization server it described.
 	var previousAuth *api.MCPServerAuth
-	if info, ok := a.registry.GetServerInfo(name); ok {
+	info, registered := a.registry.GetServerInfo(name)
+	if registered {
 		previousAuth = info.AuthConfig
+	}
+
+	// A reconnecting server is tracked before its entry goes, so no call
+	// finds it neither registered nor reconnecting. A later event of the same
+	// reconnect (starting, another failed attempt) finds no entry and leaves
+	// the tracking as it is; a stop or removal ends it.
+	tracked := reconnecting && registered
+	if tracked {
+		a.reconnects.lost(name)
 	}
 
 	removed := true
@@ -1375,6 +1394,9 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		a.releaseAuthorizationServerPin(releaseCtx, name, previousAuth)
 		cancel()
+	}
+	if !reconnecting || (tracked && (err != nil || !removed)) {
+		a.reconnects.settled(name)
 	}
 	return removed, err
 }
@@ -2177,7 +2199,9 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
-		return nil, fmt.Errorf("server not found: %s", serverName)
+		if serverInfo, err = a.awaitServer(ctx, serverName); err != nil {
+			return nil, err
+		}
 	}
 
 	if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
