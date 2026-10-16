@@ -325,7 +325,7 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	if opts.query != "" {
 		docs := make([]rankDoc, len(matched))
 		for i, t := range matched {
-			summary, details, _ := strings.Cut(t.Description, "\n")
+			summary, details := splitDescription(t.Description)
 			docs[i] = rankDoc{name: t.Name, summary: summary, details: details}
 		}
 		for _, rd := range rankBM25(opts.query, docs) {
@@ -495,23 +495,6 @@ func toolLabels(tool mcp.Tool) map[string]string {
 	default:
 		return nil
 	}
-}
-
-// summarizeText returns the first line of desc, trimmed, and capped to maxRunes
-// runes (maxRunes <= 0 means no cap). It is the cheap one-line excerpt the
-// discovery tier returns in place of a full description.
-func summarizeText(desc string, maxRunes int) string {
-	s := desc
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	s = strings.TrimSpace(s)
-	if maxRunes > 0 {
-		if r := []rune(s); len(r) > maxRunes {
-			s = strings.TrimSpace(string(r[:maxRunes])) + "..."
-		}
-	}
-	return s
 }
 
 // roundScore rounds a relevance score to 4 decimal places for stable, compact

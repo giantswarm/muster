@@ -119,6 +119,22 @@ func TestFilterTools_RankedQueryMatchesDetails(t *testing.T) {
 	assert.Empty(t, resp.Tools[0].Description)
 }
 
+func TestSplitDescription(t *testing.T) {
+	for _, tc := range []struct{ desc, summary, details string }{
+		{"One line.", "One line.", ""},
+		{"Summary.\nDetails.\nMore.", "Summary.", "Details.\nMore."},
+		{"\n  Search issues.\n  Supports filters.\n", "Search issues.", "  Supports filters.\n"},
+		{" \n\t\nSummary.", "Summary.", ""},
+		{"", "", ""},
+	} {
+		summary, details := splitDescription(tc.desc)
+		assert.Equal(t, tc.summary, summary, "summary of %q", tc.desc)
+		assert.Equal(t, tc.details, details, "details of %q", tc.desc)
+	}
+	assert.Equal(t, "Search issues.", summarizeText("\n  Search issues.\n  Supports filters.", summaryMaxLen),
+		"the displayed summary skips leading blank lines too")
+}
+
 func TestFilterTools_LabelFacets(t *testing.T) {
 	withLabels := func(name, desc string, labels map[string]string) mcp.Tool {
 		return mcp.Tool{

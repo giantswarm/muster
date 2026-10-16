@@ -1,6 +1,7 @@
 package metatools
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -126,6 +127,99 @@ func TestRankBM25_SummaryMatchBeatsDetailsMatch(t *testing.T) {
 	assert.Equal(t, "hypertable_tool", docName(docs, ranked, 0), "a name match ranks first")
 	assert.Equal(t, "summary_tool", docName(docs, ranked, 1), "a summary match beats a details match")
 	assert.Equal(t, "details_tool", docName(docs, ranked, 2))
+}
+
+// TestRankBM25_DetailsMatchCountsInAMixedCatalogue verifies that details keep
+// their weight when most tools have one-line descriptions: the details length
+// is averaged over the tools that have details, not over every tool, so a
+// tool matching both query terms in its details beats one matching the common
+// term in its summary however many one-line tools the catalogue holds.
+func TestRankBM25_DetailsMatchCountsInAMixedCatalogue(t *testing.T) {
+	for _, oneLine := range []int{0, 10, 100, 500} {
+		docs := []rankDoc{
+			{name: "list_jobs", summary: "List background jobs.", details: "Includes each retention policy job and its last run time and owner."},
+			{name: "describe_table", summary: "Describe a table and its policy."},
+		}
+		for i := 0; i < oneLine; i++ {
+			docs = append(docs, rankDoc{name: fmt.Sprintf("tool_%03d", i), summary: "Do something else."})
+		}
+
+		ranked := rankBM25("retention policy", docs)
+		require.Len(t, ranked, 2)
+		assert.Equal(t, "list_jobs", docName(docs, ranked, 0), "with %d one-line tools", oneLine)
+	}
+}
+
+// TestRankBM25_IntentSurvivesRealisticDetails is the "list pods" case from
+// #932 with details that mention pods in passing: the pod tools still outrank
+// the pagerduty list tools. The catalogue holds unrelated tools with
+// summaries and details of realistic length too, as a real one does; in the
+// seven tools alone "pods" is in six, which leaves it almost no weight
+// against "list".
+func TestRankBM25_IntentSurvivesRealisticDetails(t *testing.T) {
+	pdDetails := "Returns a list of results. Use limit and offset to page through them, including teams that run pods."
+	docs := []rankDoc{
+		{name: "x_pd_list_services", summary: "List PagerDuty services.", details: pdDetails},
+		{name: "x_pd_list_incidents", summary: "List PagerDuty incidents.", details: pdDetails},
+		{name: "x_pd_list_schedules", summary: "List PagerDuty on-call schedules.", details: pdDetails},
+		{name: "core_workflow_list", summary: "List all workflows."},
+		{name: "x_kubernetes_list", summary: "List Kubernetes resources.", details: "Resources such as pods, deployments and services, filtered by namespace and labels."},
+		{name: "workflow_failing-pods", summary: "Investigate failing pods in a cluster."},
+		{name: "workflow_pod-health", summary: "Report health of pods across namespaces."},
+	}
+	for i := 0; i < 50; i++ {
+		docs = append(docs, rankDoc{
+			name:    fmt.Sprintf("x_other_tool_%03d", i),
+			summary: "Return the stored record for an id, with its owner and state.",
+			details: "Takes an id and returns the record, with paging through a cursor and an optional filter by owner and state.",
+		})
+	}
+
+	ranked := rankBM25("list pods", docs)
+	pos := make(map[string]int, len(ranked))
+	for i := range ranked {
+		pos[docName(docs, ranked, i)] = i
+	}
+	for _, podTool := range []string{"workflow_failing-pods", "workflow_pod-health", "x_kubernetes_list"} {
+		for _, pdTool := range []string{"x_pd_list_services", "x_pd_list_incidents", "x_pd_list_schedules"} {
+			require.Contains(t, pos, podTool)
+			require.Contains(t, pos, pdTool)
+			assert.Less(t, pos[podTool], pos[pdTool], "%q must rank above %q for 'list pods'", podTool, pdTool)
+		}
+	}
+}
+
+// TestRankBM25_FunctionWordsDoNotMatch verifies that a natural-language query
+// narrows by its content words: "the" in every description matches nothing.
+func TestRankBM25_FunctionWordsDoNotMatch(t *testing.T) {
+	docs := []rankDoc{
+		{name: "service_restart", summary: "Restart a running service."},
+		{name: "list_jobs", summary: "List jobs.", details: "Shows the schedule of the job."},
+		{name: "grafana_dashboard", summary: "Fetch a dashboard.", details: "Returns the panels of the dashboard."},
+	}
+
+	ranked := rankBM25("how do I restart the service", docs)
+	require.Len(t, ranked, 1)
+	assert.Equal(t, "service_restart", docName(docs, ranked, 0))
+
+	ranked = rankBM25("the", docs)
+	assert.Len(t, ranked, 2, "a query of only function words still ranks by them")
+}
+
+// TestRankBM25_EqualDocsScoreEqually verifies that scoring does not depend on
+// map iteration order: two equally relevant tools get the same score on every
+// call and keep their input order.
+func TestRankBM25_EqualDocsScoreEqually(t *testing.T) {
+	docs := []rankDoc{
+		{name: "tool_a", summary: "Query prometheus metrics over a time range.", details: "Supports step and timeout."},
+		{name: "tool_b", summary: "Query prometheus metrics over a time range.", details: "Supports step and timeout."},
+	}
+	for i := 0; i < 50; i++ {
+		ranked := rankBM25("prometheus metrics time range step timeout query", docs)
+		require.Len(t, ranked, 2)
+		require.Equal(t, ranked[0].score, ranked[1].score)
+		require.Equal(t, "tool_a", docName(docs, ranked, 0))
+	}
 }
 
 func TestRoundScore_KeepsTinyPositiveScorePresent(t *testing.T) {
