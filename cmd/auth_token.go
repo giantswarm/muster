@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/spf13/cobra"
@@ -25,7 +26,8 @@ directly:
 
   curl -H "Authorization: Bearer $(muster auth token --id)" https://models.example.com/v1/models
 
-An expired access token is renewed through the session first. The ID token is
+A valid stored access token is printed without contacting the aggregator; an
+expired one is renewed through the session first. The ID token is
 never renewed that way: when it has expired the command fails and names
 'muster auth login', which signs in again.
 
@@ -69,17 +71,31 @@ func runAuthToken(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Connecting first lets the mcp-go transport renew an expired access token.
-	if err := tryMCPConnection(cmd.Context(), handler, endpoint); err != nil {
-		if pkgoauth.IsOAuthUnauthorizedError(err) {
-			return fmt.Errorf("not authenticated to %s; run 'muster auth login' first", endpoint)
-		}
-		return fmt.Errorf("failed to connect to %s: %w", endpoint, err)
-	}
-	accessToken, err := handler.GetAccessToken(endpoint)
+	accessToken, err := currentAccessToken(handler, endpoint, func() error {
+		return tryMCPConnection(cmd.Context(), handler, endpoint)
+	})
 	if err != nil {
 		return err
 	}
 	fmt.Println(accessToken)
 	return nil
+}
+
+// currentAccessToken is the stored access token of endpoint, renewed first when
+// it is no longer valid. A valid stored token is answered without a round trip
+// to the aggregator: a caller that asks for the token before every request
+// does not depend on the network or a gateway in front of muster for it. Only
+// a renewal connects, and the connection lets the mcp-go transport refresh the
+// token.
+func currentAccessToken(handler api.AuthHandler, endpoint string, renew func() error) (string, error) {
+	if token, err := handler.GetAccessToken(endpoint); err == nil {
+		return token, nil
+	}
+	if err := renew(); err != nil {
+		if pkgoauth.IsOAuthUnauthorizedError(err) {
+			return "", fmt.Errorf("not authenticated to %s; run 'muster auth login' first", endpoint)
+		}
+		return "", fmt.Errorf("failed to connect to %s: %w", endpoint, err)
+	}
+	return handler.GetAccessToken(endpoint)
 }
