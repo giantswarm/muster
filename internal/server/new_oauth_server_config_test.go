@@ -93,6 +93,7 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 	require.Equal(t, []string{"upstream-client-id"}, got.TrustedAudiences)
 	require.Equal(t, DefaultMaxClientsPerIP, got.MaxClientsPerIP)
 	require.Equal(t, int64(time.Hour/time.Second), got.RefreshTokenTTL)
+	require.True(t, got.EnableRevocationEndpoint, "clients find /oauth/revoke through revocation_endpoint in the AS metadata")
 }
 
 func TestNewOAuthServerConfig_AllowedOriginsSplitAndTrimmed(t *testing.T) {

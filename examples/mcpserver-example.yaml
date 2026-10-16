@@ -6,6 +6,9 @@ kind: MCPServer
 metadata:
   name: git-tools
   namespace: default
+  annotations:
+    # Optional: the name UIs show in place of metadata.name
+    ui.giantswarm.io/display-name: "Git Tools"
 spec:
   type: stdio
   autoStart: true

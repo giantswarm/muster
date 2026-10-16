@@ -183,13 +183,13 @@ func ensureAuthenticatedAndGetStatus(ctx context.Context, handler api.AuthHandle
 	}
 
 	authPrintln("Authenticating to aggregator first...")
-	if loginErr := handler.Login(ctx, endpoint); loginErr != nil {
-		return nil, fmt.Errorf("failed to authenticate to aggregator: %w", loginErr)
+	verify := func() error {
+		var err error
+		authStatus, err = getAuthStatusFromAggregator(ctx, handler, endpoint)
+		return err
 	}
-
-	authStatus, err = getAuthStatusFromAggregator(ctx, handler, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get auth status after login: %w", err)
+	if err := signIn(ctx, handler, endpoint, false, verify); err != nil {
+		return nil, fmt.Errorf("failed to authenticate to aggregator: %w", err)
 	}
 	return authStatus, nil
 }

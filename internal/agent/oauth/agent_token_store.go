@@ -30,6 +30,7 @@ import (
 type AgentTokenStore struct {
 	serverURL  string
 	issuerURL  string
+	clientID   string
 	tokenStore *TokenStore
 
 	mu               sync.RWMutex
@@ -38,10 +39,12 @@ type AgentTokenStore struct {
 }
 
 // NewAgentTokenStore creates a new token store that binds the given
-// server URL to the agent's file-based token store.
-func NewAgentTokenStore(serverURL string, tokenStore *TokenStore) *AgentTokenStore {
+// server URL to the agent's file-based token store. clientID is the client_id
+// mcp-go refreshes with; every token it saves is stored with it.
+func NewAgentTokenStore(serverURL, clientID string, tokenStore *TokenStore) *AgentTokenStore {
 	return &AgentTokenStore{
 		serverURL:  serverURL,
+		clientID:   clientID,
 		tokenStore: tokenStore,
 	}
 }
@@ -129,7 +132,7 @@ func (s *AgentTokenStore) SaveToken(ctx context.Context, token *transport.Token)
 		})
 	}
 
-	return s.tokenStore.StoreToken(s.serverURL, issuerURL, oauth2Token)
+	return s.tokenStore.StoreToken(s.serverURL, issuerURL, s.clientID, oauth2Token)
 }
 
 // GetIDToken returns the last cached ID token. mcp-go's transport.Token

@@ -649,6 +649,11 @@ const RegisteredByAnnotation = "ui.giantswarm.io/registered-by"
 // (issue #1048). The key is shared with the developer portal.
 const RegisteredByEmailAnnotation = "ui.giantswarm.io/registered-by-email"
 
+// DisplayNameAnnotation holds an MCPServer's human-friendly name, shown by UIs
+// in place of metadata.name. The key is shared with the developer portal and
+// the other Agent Platform resources.
+const DisplayNameAnnotation = "ui.giantswarm.io/display-name"
+
 // MCPServerInfo contains consolidated MCP server information for API responses.
 // This type is used when returning server information through the API, providing
 // a flattened view of server configuration and runtime state that is convenient
@@ -668,6 +673,10 @@ type MCPServerInfo struct {
 
 	// Type indicates the execution model for this server (stdio, streamable-http, or sse).
 	Type string `json:"type"`
+
+	// DisplayName is the server's human-friendly name, read from the
+	// DisplayNameAnnotation. Empty when the annotation is not set.
+	DisplayName string `json:"displayName,omitempty"`
 
 	// Description provides a human-readable description of the server's purpose and capabilities.
 	Description string `json:"description,omitempty"`

@@ -40,10 +40,16 @@ func SetupOAuthConfigWithDir(serverURL, tokenStorageDir string) (*transport.OAut
 	}
 
 	normalizedURL := pkgoauth.NormalizeServerURL(serverURL)
-	agentStore := NewAgentTokenStore(normalizedURL, tokenStore)
+
+	// A stored session refreshes with the client_id it was obtained with.
+	clientID := DefaultAgentClientID
+	if stored := tokenStore.GetTokenIncludingExpiring(normalizedURL); stored != nil {
+		clientID = stored.RefreshClientID()
+	}
+	agentStore := NewAgentTokenStore(normalizedURL, clientID, tokenStore)
 
 	config := &transport.OAuthConfig{
-		ClientID:    DefaultAgentClientID,
+		ClientID:    clientID,
 		TokenStore:  agentStore,
 		Scopes:      agentOAuthScopes,
 		PKCEEnabled: true,

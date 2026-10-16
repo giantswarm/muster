@@ -98,7 +98,7 @@ func TestAuthManager_CheckConnection_WithValidToken(t *testing.T) {
 
 	// Store directly via the client's token store
 	oauth2Token := token.ToOAuth2Token()
-	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, DefaultAgentClientID, oauth2Token)
 	if err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestAuthManager_HasValidTokenForEndpoint_WithValidToken(t *testing.T) {
 
 	// Store directly via the client's token store
 	oauth2Token := token.ToOAuth2Token()
-	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, DefaultAgentClientID, oauth2Token)
 	if err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestAuthManager_HasValidTokenForEndpoint_UpdatesFromPendingAuth(t *testing.
 		CreatedAt:   time.Now(),
 	}
 	oauth2Token := token.ToOAuth2Token()
-	err = mgr.client.tokenStore.StoreToken(server.URL, issuerURL, oauth2Token)
+	err = mgr.client.tokenStore.StoreToken(server.URL, issuerURL, DefaultAgentClientID, oauth2Token)
 	if err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestAuthManager_HasValidTokenForEndpoint_NormalizesURL(t *testing.T) {
 		CreatedAt:   time.Now(),
 	}
 	oauth2Token := token.ToOAuth2Token()
-	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, DefaultAgentClientID, oauth2Token)
 	if err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
@@ -475,7 +475,7 @@ func TestAuthManager_HasValidTokenForEndpoint_ExpiredToken(t *testing.T) {
 		CreatedAt:   time.Now().Add(-2 * time.Hour),
 	}
 	oauth2Token := token.ToOAuth2Token()
-	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+	err = mgr.client.tokenStore.StoreToken(serverURL, issuerURL, DefaultAgentClientID, oauth2Token)
 	if err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestAuthManager_GetStoredTokenForEndpoint(t *testing.T) {
 			CreatedAt:    time.Now().Add(-25 * time.Hour),
 		}
 		oauth2Token := expiredToken.ToOAuth2Token()
-		err := mgr.client.tokenStore.StoreToken(serverURL, issuerURL, oauth2Token)
+		err := mgr.client.tokenStore.StoreToken(serverURL, issuerURL, DefaultAgentClientID, oauth2Token)
 		if err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
@@ -578,7 +578,7 @@ func TestAuthManager_GetStoredTokenForEndpoint(t *testing.T) {
 			CreatedAt:   time.Now(),
 		}
 		oauth2Token := validToken.ToOAuth2Token()
-		err := mgr.client.tokenStore.StoreToken(validServerURL, issuerURL, oauth2Token)
+		err := mgr.client.tokenStore.StoreToken(validServerURL, issuerURL, DefaultAgentClientID, oauth2Token)
 		if err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
@@ -670,7 +670,7 @@ func TestAuthManager_RequireAuth_KeepsStoredToken(t *testing.T) {
 		IssuerURL:   issuerURL,
 		CreatedAt:   time.Now(),
 	}
-	if err := mgr.client.tokenStore.StoreToken(server.URL, issuerURL, token.ToOAuth2Token()); err != nil {
+	if err := mgr.client.tokenStore.StoreToken(server.URL, issuerURL, DefaultAgentClientID, token.ToOAuth2Token()); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 

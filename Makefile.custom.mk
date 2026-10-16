@@ -11,9 +11,14 @@ helm-lint: ## Run Helm linter
 HELM_UNITTEST_VERSION := 1.0.3
 YQ_VERSION := v4.44.6
 
-# What CI runs (the chart-test job in .circleci/custom.yml).
+# The chart checks that need helm only, which the generated chart-tests workflow runs
+# through `make helm-test` on a runner with no promtool. The chart-test job in
+# .circleci/custom.yml adds helm-promtool-test, which needs promtool and yq.
 .PHONY: helm-test
-helm-test: helm-lint helm-unittest helm-promtool-test ## Run every chart check (what CI runs).
+helm-test: helm-lint helm-unittest ## Run the helm-only chart checks: lint and unittest.
+
+.PHONY: helm-test-all
+helm-test-all: helm-test helm-promtool-test ## Run every chart check (what CircleCI runs).
 
 .PHONY: helm-alerting-test
 helm-alerting-test: ## Run only the PrometheusRule checks: its helm-unittest suite plus the promtool alert-rule tests.

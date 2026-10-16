@@ -386,6 +386,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	// Generate user-friendly status message based on state and error
 	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name, info.Auth)
 
+	info.DisplayName = server.Annotations[api.DisplayNameAnnotation]
 	info.RegisteredBy = server.Annotations[api.RegisteredByAnnotation]
 	info.RegisteredByEmail = server.Annotations[api.RegisteredByEmailAnnotation]
 
@@ -529,6 +530,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			Auth:        convertAPIAuthToCRD(req.Auth),
 		},
 	}
+	setDisplayName(crd, req.DisplayName)
 
 	return crd
 }
@@ -557,8 +559,9 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			},
 			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
+		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it"},
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
-		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start"},
+		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start; on update, omitted keeps the current value"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
 		{Name: "args", Type: api.ArgTypeArray, Required: false, Description: "Command arguments (stdio only)", Schema: map[string]interface{}{
 			api.SchemaKeyType:        string(api.ArgTypeArray),
@@ -956,6 +959,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		Type:        req.Type,
 		ToolPrefix:  req.ToolPrefix,
 		Family:      req.Family,
+		DisplayName: req.DisplayName,
 		Description: req.Description,
 		AutoStart:   req.AutoStart,
 		Command:     req.Command,
@@ -1033,7 +1037,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	// alongside as display metadata (issue #1048) — the subject stays the
 	// stable identifier.
 	if subject := subjectFromContext(ctx); subject != "" {
-		serverCRD.Annotations = map[string]string{api.RegisteredByAnnotation: subject}
+		metav1.SetMetaDataAnnotation(&serverCRD.ObjectMeta, api.RegisteredByAnnotation, subject)
 		if email := emailFromContext(ctx); email != "" {
 			serverCRD.Annotations[api.RegisteredByEmailAnnotation] = email
 		}
@@ -1105,7 +1109,11 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	if req.Description != "" {
 		existing.Spec.Description = req.Description
 	}
-	existing.Spec.AutoStart = req.AutoStart
+	updateDisplayName(existing, req.DisplayName)
+	// Tri-state: an omitted autoStart keeps the current value.
+	if req.AutoStart != nil {
+		existing.Spec.AutoStart = *req.AutoStart
+	}
 	// Tri-state: only an explicit suspended value changes the lifecycle state,
 	// so unrelated updates don't silently resume a stopped server (issue #1057).
 	if req.Suspended != nil {
