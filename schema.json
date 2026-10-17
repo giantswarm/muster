@@ -1,11 +1,2556 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "description": "Generated schema for muster core API tools for test scenario validation",
-  "generated_at": "2026-06-25T15:16:15+02:00",
   "properties": {
     "tools": {
       "description": "Core API tools available in muster serve",
-      "properties": {},
+      "properties": {
+        "core_auth_login": {
+          "description": "Arguments for core_auth_login tool",
+          "properties": {
+            "reset_client_registration": {
+              "description": "Discard muster's stored dynamic client registration (RFC 7591) with this server's authorization server and register anew before issuing the sign-in link. Use when sign-ins fail with invalid_client although muster reports a stored registration; other users' tokens from that authorization server may need a fresh sign-in afterwards.",
+              "type": "boolean"
+            },
+            "server": {
+              "description": "Name of the MCP server to authenticate to",
+              "type": "string"
+            }
+          },
+          "required": [
+            "server"
+          ],
+          "type": "object"
+        },
+        "core_auth_logout": {
+          "description": "Arguments for core_auth_logout tool",
+          "properties": {
+            "server": {
+              "description": "Name of the MCP server to log out from",
+              "type": "string"
+            }
+          },
+          "required": [
+            "server"
+          ],
+          "type": "object"
+        },
+        "core_auth_status": {
+          "description": "Arguments for core_auth_status tool",
+          "properties": {
+            "auth_urls": {
+              "description": "Issue the sign-in link (auth_url) of every server in auth_required or reauth_required, as core_auth_login would; a server whose grant you already hold is connected instead. The links are yours alone and expire after a few minutes.",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "core_config_get": {
+          "description": "Arguments for core_config_get tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_get_aggregator": {
+          "description": "Arguments for core_config_get_aggregator tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_reload": {
+          "description": "Arguments for core_config_reload tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_save": {
+          "description": "Arguments for core_config_save tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_config_update_aggregator": {
+          "description": "Arguments for core_config_update_aggregator tool",
+          "properties": {
+            "aggregator": {
+              "description": "Aggregator configuration",
+              "type": "object"
+            }
+          },
+          "required": [
+            "aggregator"
+          ],
+          "type": "object"
+        },
+        "core_events": {
+          "description": "Arguments for core_events tool",
+          "properties": {
+            "eventType": {
+              "description": "Filter by event type (Normal, Warning)",
+              "type": "string"
+            },
+            "follow": {
+              "default": false,
+              "description": "Stream new events as they occur (follow mode)",
+              "type": "boolean"
+            },
+            "limit": {
+              "default": 50,
+              "description": "Maximum number of events to return",
+              "type": "number"
+            },
+            "namespace": {
+              "description": "Filter by namespace",
+              "type": "string"
+            },
+            "resourceName": {
+              "description": "Filter by resource name",
+              "type": "string"
+            },
+            "resourceType": {
+              "description": "Filter by resource type (MCPServer, Workflow)",
+              "type": "string"
+            },
+            "since": {
+              "description": "Show events after this time (duration like '1h' or RFC3339 timestamp)",
+              "type": "string"
+            },
+            "until": {
+              "description": "Show events before this time (RFC3339 timestamp)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "core_mcpserver_create": {
+          "description": "Arguments for core_mcpserver_create tool",
+          "properties": {
+            "args": {
+              "description": "Command arguments (stdio only)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "auth": {
+              "description": "Authentication configuration for remote servers",
+              "properties": {
+                "authorizationServer": {
+                  "description": "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing. With authorizationEndpoint/tokenEndpoint, clientCredentialsSecretRef and grantScope it also describes an authorization server muster cannot discover or register with (GitHub).",
+                  "properties": {
+                    "authorizationEndpoint": {
+                      "description": "Authorization endpoint of an authorization server without an RFC 8414 discovery document; set together with tokenEndpoint (muster then performs no discovery and assumes S256 PKCE)",
+                      "type": "string"
+                    },
+                    "clientCredentialsSecretRef": {
+                      "description": "Secret holding a client registered with the authorization server out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+                      "properties": {
+                        "clientIdKey": {
+                          "description": "Secret key holding the client ID (default: client-id)",
+                          "type": "string"
+                        },
+                        "clientSecretKey": {
+                          "description": "Secret key holding the client secret (default: client-secret)",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Name of the Kubernetes Secret",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "Namespace of the Secret (defaults to the MCPServer's namespace)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "expectedIssuer": {
+                      "description": "Issuer identifier the authorization server puts in the RFC 9207 iss parameter of its authorization responses when that differs from issuer, which stays the identity the grants are filed under (two GitHub Apps: each pinned under https://github.com/apps/\u003cslug\u003e with expectedIssuer https://github.com/login/oauth); needs authorizationEndpoint and tokenEndpoint; default: issuer",
+                      "type": "string"
+                    },
+                    "grantScope": {
+                      "description": "Whom a token from this authorization server belongs to: session (default; bound to the login session that obtained it) or subject (filed under the person's identity too, so any later session of the same person reuses it until core_auth_logout on this server or sign out everywhere)",
+                      "enum": [
+                        "session",
+                        "subject"
+                      ],
+                      "type": "string"
+                    },
+                    "issuer": {
+                      "description": "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash) of the authorization server the sign-in runs against and the grants are filed under; takes precedence over the one the endpoint's RFC 9728 metadata names",
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "description": "OAuth scope parameter value (space-separated scope tokens)",
+                      "type": "string"
+                    },
+                    "tokenEndpoint": {
+                      "description": "Token endpoint of an authorization server without an RFC 8414 discovery document; set together with authorizationEndpoint",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "issuer"
+                  ],
+                  "type": "object"
+                },
+                "forwardIdentity": {
+                  "description": "Send the session's ID token in the X-Muster-Id-Token header next to the pinned grant (needs type oauth and authorizationServer); like forwardToken, the token is not audience-scoped to the server",
+                  "type": "boolean"
+                },
+                "forwardToken": {
+                  "description": "Enable SSO token forwarding (oauth only)",
+                  "type": "boolean"
+                },
+                "requiredAudiences": {
+                  "description": "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "sigv4": {
+                  "description": "AWS Signature Version 4 request signing, using muster's own machine identity. Required when type is sigv4, and rejected otherwise. Only valid with type streamable-http.",
+                  "properties": {
+                    "region": {
+                      "description": "SigV4 signing region; must match the region in the server URL",
+                      "type": "string"
+                    },
+                    "roleArn": {
+                      "description": "IAM role assumed from the pod's base credentials before signing; empty signs as the pod's own identity",
+                      "type": "string"
+                    },
+                    "service": {
+                      "description": "SigV4 signing service name; defaults to the first hostname label of the server URL",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "region"
+                  ],
+                  "type": "object"
+                },
+                "tokenExchange": {
+                  "description": "RFC 8693 Token Exchange for cross-cluster SSO; exchanges muster's local token for one issued by the remote cluster's IdP (takes precedence over forwardToken)",
+                  "properties": {
+                    "clientCredentialsSecretRef": {
+                      "description": "Kubernetes Secret with client credentials for the remote Dex token endpoint",
+                      "properties": {
+                        "clientIdKey": {
+                          "description": "Key in the secret containing the client ID (default: client-id)",
+                          "type": "string"
+                        },
+                        "clientSecretKey": {
+                          "description": "Key in the secret containing the client secret (default: client-secret)",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Secret name",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "Secret namespace (defaults to the MCPServer's namespace)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "connectorId": {
+                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex (required when enabled)",
+                      "type": "string"
+                    },
+                    "dexTokenEndpoint": {
+                      "description": "URL of the remote cluster's Dex token endpoint (required when enabled)",
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "description": "Whether token exchange should be attempted",
+                      "type": "boolean"
+                    },
+                    "expectedIssuer": {
+                      "description": "Expected issuer URL in the exchanged token's iss claim; derived from dexTokenEndpoint if not set",
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "description": "Scopes to request for the exchanged token (default: openid profile email groups)",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "description": "Authentication type: oauth, none or sigv4",
+                  "enum": [
+                    "oauth",
+                    "none",
+                    "sigv4"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "autoStart": {
+              "description": "Whether server should auto-start; on update, omitted keeps the current value",
+              "type": "boolean"
+            },
+            "command": {
+              "description": "Command executable path (required for stdio)",
+              "type": "string"
+            },
+            "description": {
+              "description": "MCP server description",
+              "type": "string"
+            },
+            "displayName": {
+              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "type": "string"
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Environment variables (stdio only)",
+              "type": "object"
+            },
+            "family": {
+              "description": "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)",
+              "properties": {
+                "instanceArg": {
+                  "description": "Name of the required parameter the LLM uses to select which family member handles a call (e.g. management_cluster, country, model)",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Family identifier shared across instances",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "instanceArg"
+              ],
+              "type": "object"
+            },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "type": "object"
+            },
+            "headersFrom": {
+              "description": "HTTP headers whose values muster reads from a Secret in the server's namespace when it connects (streamable-http and sse only)",
+              "items": {
+                "properties": {
+                  "name": {
+                    "description": "HTTP header name",
+                    "type": "string"
+                  },
+                  "valueFrom": {
+                    "properties": {
+                      "key": {
+                        "description": "Key in the Secret's data",
+                        "type": "string"
+                      },
+                      "name": {
+                        "description": "Secret name",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "Secret"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "name",
+                      "key"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name",
+                  "valueFrom"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "meta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)",
+              "type": "object"
+            },
+            "name": {
+              "description": "MCP server name",
+              "type": "string"
+            },
+            "progress": {
+              "description": "How progress the server reports on a tool call affects that call's budget",
+              "properties": {
+                "maxDuration": {
+                  "description": "Seconds a tool call that reports progress may run in all; each progress notification restarts timeout up to it (at least timeout, at most 3600, default 3600)",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "timeout": {
+              "description": "Connection timeout in seconds",
+              "type": "integer"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
+            "type": {
+              "description": "MCP server type (stdio, streamable-http, or sse)",
+              "type": "string"
+            },
+            "url": {
+              "description": "Server endpoint URL (required for streamable-http and sse)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_delete": {
+          "description": "Arguments for core_mcpserver_delete tool",
+          "properties": {
+            "name": {
+              "description": "Name of the MCP server to delete",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_detect": {
+          "description": "Arguments for core_mcpserver_detect tool",
+          "properties": {
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "HTTP headers to send with the probe requests",
+              "type": "object"
+            },
+            "timeout": {
+              "description": "Overall detection timeout in seconds (default 10)",
+              "type": "integer"
+            },
+            "url": {
+              "description": "Server endpoint URL to probe",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_get": {
+          "description": "Arguments for core_mcpserver_get tool",
+          "properties": {
+            "name": {
+              "description": "Name of the MCP server to retrieve",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_list": {
+          "description": "Arguments for core_mcpserver_list tool",
+          "properties": {
+            "showAll": {
+              "description": "Show all servers including unreachable ones (default: false)",
+              "type": "boolean"
+            },
+            "verbose": {
+              "description": "Show detailed error information for failed/unreachable servers (default: false)",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "core_mcpserver_update": {
+          "description": "Arguments for core_mcpserver_update tool",
+          "properties": {
+            "args": {
+              "description": "Command arguments (stdio only)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "auth": {
+              "description": "Authentication configuration for remote servers",
+              "properties": {
+                "authorizationServer": {
+                  "description": "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing. With authorizationEndpoint/tokenEndpoint, clientCredentialsSecretRef and grantScope it also describes an authorization server muster cannot discover or register with (GitHub).",
+                  "properties": {
+                    "authorizationEndpoint": {
+                      "description": "Authorization endpoint of an authorization server without an RFC 8414 discovery document; set together with tokenEndpoint (muster then performs no discovery and assumes S256 PKCE)",
+                      "type": "string"
+                    },
+                    "clientCredentialsSecretRef": {
+                      "description": "Secret holding a client registered with the authorization server out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+                      "properties": {
+                        "clientIdKey": {
+                          "description": "Secret key holding the client ID (default: client-id)",
+                          "type": "string"
+                        },
+                        "clientSecretKey": {
+                          "description": "Secret key holding the client secret (default: client-secret)",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Name of the Kubernetes Secret",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "Namespace of the Secret (defaults to the MCPServer's namespace)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "expectedIssuer": {
+                      "description": "Issuer identifier the authorization server puts in the RFC 9207 iss parameter of its authorization responses when that differs from issuer, which stays the identity the grants are filed under (two GitHub Apps: each pinned under https://github.com/apps/\u003cslug\u003e with expectedIssuer https://github.com/login/oauth); needs authorizationEndpoint and tokenEndpoint; default: issuer",
+                      "type": "string"
+                    },
+                    "grantScope": {
+                      "description": "Whom a token from this authorization server belongs to: session (default; bound to the login session that obtained it) or subject (filed under the person's identity too, so any later session of the same person reuses it until core_auth_logout on this server or sign out everywhere)",
+                      "enum": [
+                        "session",
+                        "subject"
+                      ],
+                      "type": "string"
+                    },
+                    "issuer": {
+                      "description": "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash) of the authorization server the sign-in runs against and the grants are filed under; takes precedence over the one the endpoint's RFC 9728 metadata names",
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "description": "OAuth scope parameter value (space-separated scope tokens)",
+                      "type": "string"
+                    },
+                    "tokenEndpoint": {
+                      "description": "Token endpoint of an authorization server without an RFC 8414 discovery document; set together with authorizationEndpoint",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "issuer"
+                  ],
+                  "type": "object"
+                },
+                "forwardIdentity": {
+                  "description": "Send the session's ID token in the X-Muster-Id-Token header next to the pinned grant (needs type oauth and authorizationServer); like forwardToken, the token is not audience-scoped to the server",
+                  "type": "boolean"
+                },
+                "forwardToken": {
+                  "description": "Enable SSO token forwarding (oauth only)",
+                  "type": "boolean"
+                },
+                "requiredAudiences": {
+                  "description": "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "sigv4": {
+                  "description": "AWS Signature Version 4 request signing, using muster's own machine identity. Required when type is sigv4, and rejected otherwise. Only valid with type streamable-http.",
+                  "properties": {
+                    "region": {
+                      "description": "SigV4 signing region; must match the region in the server URL",
+                      "type": "string"
+                    },
+                    "roleArn": {
+                      "description": "IAM role assumed from the pod's base credentials before signing; empty signs as the pod's own identity",
+                      "type": "string"
+                    },
+                    "service": {
+                      "description": "SigV4 signing service name; defaults to the first hostname label of the server URL",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "region"
+                  ],
+                  "type": "object"
+                },
+                "tokenExchange": {
+                  "description": "RFC 8693 Token Exchange for cross-cluster SSO; exchanges muster's local token for one issued by the remote cluster's IdP (takes precedence over forwardToken)",
+                  "properties": {
+                    "clientCredentialsSecretRef": {
+                      "description": "Kubernetes Secret with client credentials for the remote Dex token endpoint",
+                      "properties": {
+                        "clientIdKey": {
+                          "description": "Key in the secret containing the client ID (default: client-id)",
+                          "type": "string"
+                        },
+                        "clientSecretKey": {
+                          "description": "Key in the secret containing the client secret (default: client-secret)",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Secret name",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "Secret namespace (defaults to the MCPServer's namespace)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "connectorId": {
+                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex (required when enabled)",
+                      "type": "string"
+                    },
+                    "dexTokenEndpoint": {
+                      "description": "URL of the remote cluster's Dex token endpoint (required when enabled)",
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "description": "Whether token exchange should be attempted",
+                      "type": "boolean"
+                    },
+                    "expectedIssuer": {
+                      "description": "Expected issuer URL in the exchanged token's iss claim; derived from dexTokenEndpoint if not set",
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "description": "Scopes to request for the exchanged token (default: openid profile email groups)",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "description": "Authentication type: oauth, none or sigv4",
+                  "enum": [
+                    "oauth",
+                    "none",
+                    "sigv4"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "autoStart": {
+              "description": "Whether server should auto-start; on update, omitted keeps the current value",
+              "type": "boolean"
+            },
+            "command": {
+              "description": "Command executable path (required for stdio)",
+              "type": "string"
+            },
+            "description": {
+              "description": "MCP server description",
+              "type": "string"
+            },
+            "displayName": {
+              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "type": "string"
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Environment variables (stdio only)",
+              "type": "object"
+            },
+            "family": {
+              "description": "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)",
+              "properties": {
+                "instanceArg": {
+                  "description": "Name of the required parameter the LLM uses to select which family member handles a call (e.g. management_cluster, country, model)",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Family identifier shared across instances",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "instanceArg"
+              ],
+              "type": "object"
+            },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "type": "object"
+            },
+            "headersFrom": {
+              "description": "HTTP headers whose values muster reads from a Secret in the server's namespace when it connects (streamable-http and sse only)",
+              "items": {
+                "properties": {
+                  "name": {
+                    "description": "HTTP header name",
+                    "type": "string"
+                  },
+                  "valueFrom": {
+                    "properties": {
+                      "key": {
+                        "description": "Key in the Secret's data",
+                        "type": "string"
+                      },
+                      "name": {
+                        "description": "Secret name",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "Secret"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "name",
+                      "key"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name",
+                  "valueFrom"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "meta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)",
+              "type": "object"
+            },
+            "name": {
+              "description": "MCP server name",
+              "type": "string"
+            },
+            "progress": {
+              "description": "How progress the server reports on a tool call affects that call's budget",
+              "properties": {
+                "maxDuration": {
+                  "description": "Seconds a tool call that reports progress may run in all; each progress notification restarts timeout up to it (at least timeout, at most 3600, default 3600)",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "restartRequestedAt": {
+              "description": "RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler",
+              "type": "string"
+            },
+            "suspended": {
+              "description": "Desired lifecycle state: true stops the server's service and keeps it stopped; false resumes it; omitted keeps the current value",
+              "type": "boolean"
+            },
+            "timeout": {
+              "description": "Connection timeout in seconds",
+              "type": "integer"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
+            "type": {
+              "description": "MCP server type (stdio, streamable-http, or sse)",
+              "type": "string"
+            },
+            "url": {
+              "description": "Server endpoint URL (required for streamable-http and sse)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_validate": {
+          "description": "Arguments for core_mcpserver_validate tool",
+          "properties": {
+            "args": {
+              "description": "Command arguments (stdio only)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "auth": {
+              "description": "Authentication configuration for remote servers",
+              "properties": {
+                "authorizationServer": {
+                  "description": "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing. With authorizationEndpoint/tokenEndpoint, clientCredentialsSecretRef and grantScope it also describes an authorization server muster cannot discover or register with (GitHub).",
+                  "properties": {
+                    "authorizationEndpoint": {
+                      "description": "Authorization endpoint of an authorization server without an RFC 8414 discovery document; set together with tokenEndpoint (muster then performs no discovery and assumes S256 PKCE)",
+                      "type": "string"
+                    },
+                    "clientCredentialsSecretRef": {
+                      "description": "Secret holding a client registered with the authorization server out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+                      "properties": {
+                        "clientIdKey": {
+                          "description": "Secret key holding the client ID (default: client-id)",
+                          "type": "string"
+                        },
+                        "clientSecretKey": {
+                          "description": "Secret key holding the client secret (default: client-secret)",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Name of the Kubernetes Secret",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "Namespace of the Secret (defaults to the MCPServer's namespace)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "expectedIssuer": {
+                      "description": "Issuer identifier the authorization server puts in the RFC 9207 iss parameter of its authorization responses when that differs from issuer, which stays the identity the grants are filed under (two GitHub Apps: each pinned under https://github.com/apps/\u003cslug\u003e with expectedIssuer https://github.com/login/oauth); needs authorizationEndpoint and tokenEndpoint; default: issuer",
+                      "type": "string"
+                    },
+                    "grantScope": {
+                      "description": "Whom a token from this authorization server belongs to: session (default; bound to the login session that obtained it) or subject (filed under the person's identity too, so any later session of the same person reuses it until core_auth_logout on this server or sign out everywhere)",
+                      "enum": [
+                        "session",
+                        "subject"
+                      ],
+                      "type": "string"
+                    },
+                    "issuer": {
+                      "description": "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash) of the authorization server the sign-in runs against and the grants are filed under; takes precedence over the one the endpoint's RFC 9728 metadata names",
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "description": "OAuth scope parameter value (space-separated scope tokens)",
+                      "type": "string"
+                    },
+                    "tokenEndpoint": {
+                      "description": "Token endpoint of an authorization server without an RFC 8414 discovery document; set together with authorizationEndpoint",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "issuer"
+                  ],
+                  "type": "object"
+                },
+                "forwardIdentity": {
+                  "description": "Send the session's ID token in the X-Muster-Id-Token header next to the pinned grant (needs type oauth and authorizationServer); like forwardToken, the token is not audience-scoped to the server",
+                  "type": "boolean"
+                },
+                "forwardToken": {
+                  "description": "Enable SSO token forwarding (oauth only)",
+                  "type": "boolean"
+                },
+                "requiredAudiences": {
+                  "description": "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "sigv4": {
+                  "description": "AWS Signature Version 4 request signing, using muster's own machine identity. Required when type is sigv4, and rejected otherwise. Only valid with type streamable-http.",
+                  "properties": {
+                    "region": {
+                      "description": "SigV4 signing region; must match the region in the server URL",
+                      "type": "string"
+                    },
+                    "roleArn": {
+                      "description": "IAM role assumed from the pod's base credentials before signing; empty signs as the pod's own identity",
+                      "type": "string"
+                    },
+                    "service": {
+                      "description": "SigV4 signing service name; defaults to the first hostname label of the server URL",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "region"
+                  ],
+                  "type": "object"
+                },
+                "tokenExchange": {
+                  "description": "RFC 8693 Token Exchange for cross-cluster SSO; exchanges muster's local token for one issued by the remote cluster's IdP (takes precedence over forwardToken)",
+                  "properties": {
+                    "clientCredentialsSecretRef": {
+                      "description": "Kubernetes Secret with client credentials for the remote Dex token endpoint",
+                      "properties": {
+                        "clientIdKey": {
+                          "description": "Key in the secret containing the client ID (default: client-id)",
+                          "type": "string"
+                        },
+                        "clientSecretKey": {
+                          "description": "Key in the secret containing the client secret (default: client-secret)",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Secret name",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "Secret namespace (defaults to the MCPServer's namespace)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "connectorId": {
+                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex (required when enabled)",
+                      "type": "string"
+                    },
+                    "dexTokenEndpoint": {
+                      "description": "URL of the remote cluster's Dex token endpoint (required when enabled)",
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "description": "Whether token exchange should be attempted",
+                      "type": "boolean"
+                    },
+                    "expectedIssuer": {
+                      "description": "Expected issuer URL in the exchanged token's iss claim; derived from dexTokenEndpoint if not set",
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "description": "Scopes to request for the exchanged token (default: openid profile email groups)",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "description": "Authentication type: oauth, none or sigv4",
+                  "enum": [
+                    "oauth",
+                    "none",
+                    "sigv4"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "autoStart": {
+              "description": "Whether server should auto-start; on update, omitted keeps the current value",
+              "type": "boolean"
+            },
+            "command": {
+              "description": "Command executable path (required for stdio)",
+              "type": "string"
+            },
+            "description": {
+              "description": "MCP server description",
+              "type": "string"
+            },
+            "displayName": {
+              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "type": "string"
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Environment variables (stdio only)",
+              "type": "object"
+            },
+            "family": {
+              "description": "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)",
+              "properties": {
+                "instanceArg": {
+                  "description": "Name of the required parameter the LLM uses to select which family member handles a call (e.g. management_cluster, country, model)",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Family identifier shared across instances",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "instanceArg"
+              ],
+              "type": "object"
+            },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "type": "object"
+            },
+            "headersFrom": {
+              "description": "HTTP headers whose values muster reads from a Secret in the server's namespace when it connects (streamable-http and sse only)",
+              "items": {
+                "properties": {
+                  "name": {
+                    "description": "HTTP header name",
+                    "type": "string"
+                  },
+                  "valueFrom": {
+                    "properties": {
+                      "key": {
+                        "description": "Key in the Secret's data",
+                        "type": "string"
+                      },
+                      "name": {
+                        "description": "Secret name",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "Secret"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "name",
+                      "key"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name",
+                  "valueFrom"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "meta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)",
+              "type": "object"
+            },
+            "name": {
+              "description": "MCP server name",
+              "type": "string"
+            },
+            "progress": {
+              "description": "How progress the server reports on a tool call affects that call's budget",
+              "properties": {
+                "maxDuration": {
+                  "description": "Seconds a tool call that reports progress may run in all; each progress notification restarts timeout up to it (at least timeout, at most 3600, default 3600)",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "timeout": {
+              "description": "Connection timeout in seconds",
+              "type": "integer"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
+            "type": {
+              "description": "MCP server type (stdio, streamable-http, or sse)",
+              "type": "string"
+            },
+            "url": {
+              "description": "Server endpoint URL (required for streamable-http and sse)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        "core_service_list": {
+          "description": "Arguments for core_service_list tool",
+          "properties": {},
+          "type": "object"
+        },
+        "core_service_restart": {
+          "description": "Arguments for core_service_restart tool",
+          "properties": {
+            "name": {
+              "description": "Service name to restart",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_start": {
+          "description": "Arguments for core_service_start tool",
+          "properties": {
+            "name": {
+              "description": "Service name to start",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_status": {
+          "description": "Arguments for core_service_status tool",
+          "properties": {
+            "name": {
+              "description": "Service name to get status for",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_service_stop": {
+          "description": "Arguments for core_service_stop tool",
+          "properties": {
+            "name": {
+              "description": "Service name to stop",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_workflow_available": {
+          "description": "Arguments for core_workflow_available tool",
+          "properties": {
+            "name": {
+              "description": "Name of the workflow",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_workflow_create": {
+          "description": "Arguments for core_workflow_create tool",
+          "properties": {
+            "args": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Argument definition with validation rules",
+                "properties": {
+                  "default": {
+                    "description": "Default value if argument is not provided"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this argument",
+                    "type": "string"
+                  },
+                  "required": {
+                    "description": "Whether this argument is required",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "description": "Expected data type for validation",
+                    "enum": [
+                      "string",
+                      "integer",
+                      "boolean",
+                      "number",
+                      "object",
+                      "array"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              "description": "Workflow arguments definition",
+              "type": "object"
+            },
+            "description": {
+              "description": "Description of the workflow",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name of the workflow",
+              "type": "string"
+            },
+            "onFailure": {
+              "description": "Cleanup/rollback steps run when the workflow fails",
+              "items": {
+                "additionalProperties": false,
+                "description": "A tool-call sub-step",
+                "properties": {
+                  "allowFailure": {
+                    "description": "Whether this sub-step is allowed to fail",
+                    "type": "boolean"
+                  },
+                  "args": {
+                    "description": "Arguments to pass to the tool (supports templating)",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "additionalProperties": false,
+                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments for the condition tool",
+                        "type": "object"
+                      },
+                      "expect": {
+                        "description": "Expected results for condition evaluation",
+                        "properties": {
+                          "jsonPath": {
+                            "additionalProperties": {
+                              "description": "Expected value for the JSON path"
+                            },
+                            "description": "JSON path expressions to evaluate against tool result",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the tool call should succeed",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "expectNot": {
+                        "description": "Negated expected results for condition evaluation",
+                        "type": "object"
+                      },
+                      "fromStep": {
+                        "description": "Reference a previous step's result for condition evaluation",
+                        "type": "string"
+                      },
+                      "template": {
+                        "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                        "type": "string"
+                      },
+                      "tool": {
+                        "description": "Tool to call for condition evaluation",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this sub-step",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this sub-step",
+                    "type": "string"
+                  },
+                  "output": {
+                    "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                    "type": "boolean"
+                  },
+                  "store": {
+                    "description": "Deprecated alias for output; kept for backwards compatibility",
+                    "type": "boolean"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "output": {
+              "additionalProperties": true,
+              "description": "Optional output template that shapes the returned document",
+              "type": "object"
+            },
+            "steps": {
+              "description": "Workflow steps",
+              "items": {
+                "additionalProperties": false,
+                "description": "Individual workflow step configuration",
+                "properties": {
+                  "allowFailure": {
+                    "description": "Whether this step is allowed to fail without failing the workflow. On a forEach or parallel step this tolerates a failure of the whole group.",
+                    "type": "boolean"
+                  },
+                  "args": {
+                    "description": "Arguments to pass to the tool, supporting templating with {{.input.argName}} for workflow args and {{.results.stepId.field}} for stored step results",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "additionalProperties": false,
+                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments for the condition tool",
+                        "type": "object"
+                      },
+                      "expect": {
+                        "description": "Expected results for condition evaluation",
+                        "properties": {
+                          "jsonPath": {
+                            "additionalProperties": {
+                              "description": "Expected value for the JSON path"
+                            },
+                            "description": "JSON path expressions to evaluate against tool result",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the tool call should succeed",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "expectNot": {
+                        "description": "Negated expected results for condition evaluation",
+                        "type": "object"
+                      },
+                      "fromStep": {
+                        "description": "Reference a previous step's result for condition evaluation",
+                        "type": "string"
+                      },
+                      "template": {
+                        "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                        "type": "string"
+                      },
+                      "tool": {
+                        "description": "Tool to call for condition evaluation",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this step's purpose",
+                    "type": "string"
+                  },
+                  "forEach": {
+                    "additionalProperties": false,
+                    "description": "Run a body of sub-steps once per item of a list",
+                    "properties": {
+                      "as": {
+                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} (default \"item\")",
+                        "type": "string"
+                      },
+                      "items": {
+                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\"",
+                        "type": "string"
+                      },
+                      "steps": {
+                        "description": "Body executed for each item",
+                        "items": {
+                          "additionalProperties": false,
+                          "description": "A tool-call sub-step",
+                          "properties": {
+                            "allowFailure": {
+                              "description": "Whether this sub-step is allowed to fail",
+                              "type": "boolean"
+                            },
+                            "args": {
+                              "description": "Arguments to pass to the tool (supports templating)",
+                              "type": "object"
+                            },
+                            "condition": {
+                              "additionalProperties": false,
+                              "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                              "properties": {
+                                "args": {
+                                  "description": "Arguments for the condition tool",
+                                  "type": "object"
+                                },
+                                "expect": {
+                                  "description": "Expected results for condition evaluation",
+                                  "properties": {
+                                    "jsonPath": {
+                                      "additionalProperties": {
+                                        "description": "Expected value for the JSON path"
+                                      },
+                                      "description": "JSON path expressions to evaluate against tool result",
+                                      "type": "object"
+                                    },
+                                    "success": {
+                                      "description": "Whether the tool call should succeed",
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "expectNot": {
+                                  "description": "Negated expected results for condition evaluation",
+                                  "type": "object"
+                                },
+                                "fromStep": {
+                                  "description": "Reference a previous step's result for condition evaluation",
+                                  "type": "string"
+                                },
+                                "template": {
+                                  "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "description": "Tool to call for condition evaluation",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "description": {
+                              "description": "Human-readable documentation for this sub-step",
+                              "type": "string"
+                            },
+                            "id": {
+                              "description": "Unique identifier for this sub-step",
+                              "type": "string"
+                            },
+                            "output": {
+                              "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                              "type": "boolean"
+                            },
+                            "store": {
+                              "description": "Deprecated alias for output; kept for backwards compatibility",
+                              "type": "boolean"
+                            },
+                            "tool": {
+                              "description": "Name of the tool to execute",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "tool"
+                          ],
+                          "type": "object"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "items",
+                      "steps"
+                    ],
+                    "type": "object"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "output": {
+                    "description": "Whether this step's result is included in the workflow's returned document. Every step result is always referenceable by later steps via {{.results.stepId.field}} regardless of this flag.",
+                    "type": "boolean"
+                  },
+                  "parallel": {
+                    "description": "Sub-steps to execute concurrently (mutually exclusive with tool/forEach)",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A tool-call sub-step",
+                      "properties": {
+                        "allowFailure": {
+                          "description": "Whether this sub-step is allowed to fail",
+                          "type": "boolean"
+                        },
+                        "args": {
+                          "description": "Arguments to pass to the tool (supports templating)",
+                          "type": "object"
+                        },
+                        "condition": {
+                          "additionalProperties": false,
+                          "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                          "properties": {
+                            "args": {
+                              "description": "Arguments for the condition tool",
+                              "type": "object"
+                            },
+                            "expect": {
+                              "description": "Expected results for condition evaluation",
+                              "properties": {
+                                "jsonPath": {
+                                  "additionalProperties": {
+                                    "description": "Expected value for the JSON path"
+                                  },
+                                  "description": "JSON path expressions to evaluate against tool result",
+                                  "type": "object"
+                                },
+                                "success": {
+                                  "description": "Whether the tool call should succeed",
+                                  "type": "boolean"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "expectNot": {
+                              "description": "Negated expected results for condition evaluation",
+                              "type": "object"
+                            },
+                            "fromStep": {
+                              "description": "Reference a previous step's result for condition evaluation",
+                              "type": "string"
+                            },
+                            "template": {
+                              "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                              "type": "string"
+                            },
+                            "tool": {
+                              "description": "Tool to call for condition evaluation",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "description": {
+                          "description": "Human-readable documentation for this sub-step",
+                          "type": "string"
+                        },
+                        "id": {
+                          "description": "Unique identifier for this sub-step",
+                          "type": "string"
+                        },
+                        "output": {
+                          "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                          "type": "boolean"
+                        },
+                        "store": {
+                          "description": "Deprecated alias for output; kept for backwards compatibility",
+                          "type": "boolean"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to execute",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "store": {
+                    "description": "Deprecated alias for output; kept for backwards compatibility",
+                    "type": "boolean"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step (mutually exclusive with forEach/parallel)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "name",
+            "steps"
+          ],
+          "type": "object"
+        },
+        "core_workflow_delete": {
+          "description": "Arguments for core_workflow_delete tool",
+          "properties": {
+            "name": {
+              "description": "Name of the workflow to delete",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_workflow_execution_get": {
+          "description": "Arguments for core_workflow_execution_get tool",
+          "properties": {
+            "execution_id": {
+              "description": "ID of the execution",
+              "type": "string"
+            },
+            "include_steps": {
+              "default": true,
+              "description": "Include step details",
+              "type": "boolean"
+            },
+            "step_id": {
+              "description": "Get specific step details",
+              "type": "string"
+            }
+          },
+          "required": [
+            "execution_id"
+          ],
+          "type": "object"
+        },
+        "core_workflow_execution_list": {
+          "description": "Arguments for core_workflow_execution_list tool",
+          "properties": {
+            "limit": {
+              "default": 50,
+              "description": "Maximum number of executions to return",
+              "type": "number"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Number of executions to skip",
+              "type": "number"
+            },
+            "status": {
+              "description": "Filter by execution status",
+              "type": "string"
+            },
+            "workflow_name": {
+              "description": "Filter by workflow name",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "core_workflow_get": {
+          "description": "Arguments for core_workflow_get tool",
+          "properties": {
+            "name": {
+              "description": "Name of the workflow",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_workflow_list": {
+          "description": "Arguments for core_workflow_list tool",
+          "properties": {
+            "include_system": {
+              "default": true,
+              "description": "Include system-defined workflows",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "core_workflow_update": {
+          "description": "Arguments for core_workflow_update tool",
+          "properties": {
+            "args": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Argument definition with validation rules",
+                "properties": {
+                  "default": {
+                    "description": "Default value if argument is not provided"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this argument",
+                    "type": "string"
+                  },
+                  "required": {
+                    "description": "Whether this argument is required",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "description": "Expected data type for validation",
+                    "enum": [
+                      "string",
+                      "integer",
+                      "boolean",
+                      "number",
+                      "object",
+                      "array"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              "description": "Workflow arguments definition",
+              "type": "object"
+            },
+            "description": {
+              "description": "Description of the workflow",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name of the workflow to update",
+              "type": "string"
+            },
+            "onFailure": {
+              "description": "Cleanup/rollback steps run when the workflow fails",
+              "items": {
+                "additionalProperties": false,
+                "description": "A tool-call sub-step",
+                "properties": {
+                  "allowFailure": {
+                    "description": "Whether this sub-step is allowed to fail",
+                    "type": "boolean"
+                  },
+                  "args": {
+                    "description": "Arguments to pass to the tool (supports templating)",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "additionalProperties": false,
+                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments for the condition tool",
+                        "type": "object"
+                      },
+                      "expect": {
+                        "description": "Expected results for condition evaluation",
+                        "properties": {
+                          "jsonPath": {
+                            "additionalProperties": {
+                              "description": "Expected value for the JSON path"
+                            },
+                            "description": "JSON path expressions to evaluate against tool result",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the tool call should succeed",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "expectNot": {
+                        "description": "Negated expected results for condition evaluation",
+                        "type": "object"
+                      },
+                      "fromStep": {
+                        "description": "Reference a previous step's result for condition evaluation",
+                        "type": "string"
+                      },
+                      "template": {
+                        "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                        "type": "string"
+                      },
+                      "tool": {
+                        "description": "Tool to call for condition evaluation",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this sub-step",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this sub-step",
+                    "type": "string"
+                  },
+                  "output": {
+                    "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                    "type": "boolean"
+                  },
+                  "store": {
+                    "description": "Deprecated alias for output; kept for backwards compatibility",
+                    "type": "boolean"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "output": {
+              "additionalProperties": true,
+              "description": "Optional output template that shapes the returned document",
+              "type": "object"
+            },
+            "steps": {
+              "description": "Workflow steps",
+              "items": {
+                "additionalProperties": false,
+                "description": "Individual workflow step configuration",
+                "properties": {
+                  "allowFailure": {
+                    "description": "Whether this step is allowed to fail without failing the workflow. On a forEach or parallel step this tolerates a failure of the whole group.",
+                    "type": "boolean"
+                  },
+                  "args": {
+                    "description": "Arguments to pass to the tool, supporting templating with {{.input.argName}} for workflow args and {{.results.stepId.field}} for stored step results",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "additionalProperties": false,
+                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments for the condition tool",
+                        "type": "object"
+                      },
+                      "expect": {
+                        "description": "Expected results for condition evaluation",
+                        "properties": {
+                          "jsonPath": {
+                            "additionalProperties": {
+                              "description": "Expected value for the JSON path"
+                            },
+                            "description": "JSON path expressions to evaluate against tool result",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the tool call should succeed",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "expectNot": {
+                        "description": "Negated expected results for condition evaluation",
+                        "type": "object"
+                      },
+                      "fromStep": {
+                        "description": "Reference a previous step's result for condition evaluation",
+                        "type": "string"
+                      },
+                      "template": {
+                        "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                        "type": "string"
+                      },
+                      "tool": {
+                        "description": "Tool to call for condition evaluation",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this step's purpose",
+                    "type": "string"
+                  },
+                  "forEach": {
+                    "additionalProperties": false,
+                    "description": "Run a body of sub-steps once per item of a list",
+                    "properties": {
+                      "as": {
+                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} (default \"item\")",
+                        "type": "string"
+                      },
+                      "items": {
+                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\"",
+                        "type": "string"
+                      },
+                      "steps": {
+                        "description": "Body executed for each item",
+                        "items": {
+                          "additionalProperties": false,
+                          "description": "A tool-call sub-step",
+                          "properties": {
+                            "allowFailure": {
+                              "description": "Whether this sub-step is allowed to fail",
+                              "type": "boolean"
+                            },
+                            "args": {
+                              "description": "Arguments to pass to the tool (supports templating)",
+                              "type": "object"
+                            },
+                            "condition": {
+                              "additionalProperties": false,
+                              "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                              "properties": {
+                                "args": {
+                                  "description": "Arguments for the condition tool",
+                                  "type": "object"
+                                },
+                                "expect": {
+                                  "description": "Expected results for condition evaluation",
+                                  "properties": {
+                                    "jsonPath": {
+                                      "additionalProperties": {
+                                        "description": "Expected value for the JSON path"
+                                      },
+                                      "description": "JSON path expressions to evaluate against tool result",
+                                      "type": "object"
+                                    },
+                                    "success": {
+                                      "description": "Whether the tool call should succeed",
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "expectNot": {
+                                  "description": "Negated expected results for condition evaluation",
+                                  "type": "object"
+                                },
+                                "fromStep": {
+                                  "description": "Reference a previous step's result for condition evaluation",
+                                  "type": "string"
+                                },
+                                "template": {
+                                  "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "description": "Tool to call for condition evaluation",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "description": {
+                              "description": "Human-readable documentation for this sub-step",
+                              "type": "string"
+                            },
+                            "id": {
+                              "description": "Unique identifier for this sub-step",
+                              "type": "string"
+                            },
+                            "output": {
+                              "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                              "type": "boolean"
+                            },
+                            "store": {
+                              "description": "Deprecated alias for output; kept for backwards compatibility",
+                              "type": "boolean"
+                            },
+                            "tool": {
+                              "description": "Name of the tool to execute",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "tool"
+                          ],
+                          "type": "object"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "items",
+                      "steps"
+                    ],
+                    "type": "object"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "output": {
+                    "description": "Whether this step's result is included in the workflow's returned document. Every step result is always referenceable by later steps via {{.results.stepId.field}} regardless of this flag.",
+                    "type": "boolean"
+                  },
+                  "parallel": {
+                    "description": "Sub-steps to execute concurrently (mutually exclusive with tool/forEach)",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A tool-call sub-step",
+                      "properties": {
+                        "allowFailure": {
+                          "description": "Whether this sub-step is allowed to fail",
+                          "type": "boolean"
+                        },
+                        "args": {
+                          "description": "Arguments to pass to the tool (supports templating)",
+                          "type": "object"
+                        },
+                        "condition": {
+                          "additionalProperties": false,
+                          "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                          "properties": {
+                            "args": {
+                              "description": "Arguments for the condition tool",
+                              "type": "object"
+                            },
+                            "expect": {
+                              "description": "Expected results for condition evaluation",
+                              "properties": {
+                                "jsonPath": {
+                                  "additionalProperties": {
+                                    "description": "Expected value for the JSON path"
+                                  },
+                                  "description": "JSON path expressions to evaluate against tool result",
+                                  "type": "object"
+                                },
+                                "success": {
+                                  "description": "Whether the tool call should succeed",
+                                  "type": "boolean"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "expectNot": {
+                              "description": "Negated expected results for condition evaluation",
+                              "type": "object"
+                            },
+                            "fromStep": {
+                              "description": "Reference a previous step's result for condition evaluation",
+                              "type": "string"
+                            },
+                            "template": {
+                              "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                              "type": "string"
+                            },
+                            "tool": {
+                              "description": "Tool to call for condition evaluation",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "description": {
+                          "description": "Human-readable documentation for this sub-step",
+                          "type": "string"
+                        },
+                        "id": {
+                          "description": "Unique identifier for this sub-step",
+                          "type": "string"
+                        },
+                        "output": {
+                          "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                          "type": "boolean"
+                        },
+                        "store": {
+                          "description": "Deprecated alias for output; kept for backwards compatibility",
+                          "type": "boolean"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to execute",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "store": {
+                    "description": "Deprecated alias for output; kept for backwards compatibility",
+                    "type": "boolean"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step (mutually exclusive with forEach/parallel)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "name",
+            "steps"
+          ],
+          "type": "object"
+        },
+        "core_workflow_validate": {
+          "description": "Arguments for core_workflow_validate tool",
+          "properties": {
+            "args": {
+              "additionalProperties": {
+                "additionalProperties": false,
+                "description": "Argument definition with validation rules",
+                "properties": {
+                  "default": {
+                    "description": "Default value if argument is not provided"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this argument",
+                    "type": "string"
+                  },
+                  "required": {
+                    "description": "Whether this argument is required",
+                    "type": "boolean"
+                  },
+                  "type": {
+                    "description": "Expected data type for validation",
+                    "enum": [
+                      "string",
+                      "integer",
+                      "boolean",
+                      "number",
+                      "object",
+                      "array"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "type": "object"
+              },
+              "description": "Workflow arguments definition",
+              "type": "object"
+            },
+            "description": {
+              "description": "Description of the workflow",
+              "type": "string"
+            },
+            "name": {
+              "description": "Name of the workflow",
+              "type": "string"
+            },
+            "onFailure": {
+              "description": "Cleanup/rollback steps run when the workflow fails",
+              "items": {
+                "additionalProperties": false,
+                "description": "A tool-call sub-step",
+                "properties": {
+                  "allowFailure": {
+                    "description": "Whether this sub-step is allowed to fail",
+                    "type": "boolean"
+                  },
+                  "args": {
+                    "description": "Arguments to pass to the tool (supports templating)",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "additionalProperties": false,
+                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments for the condition tool",
+                        "type": "object"
+                      },
+                      "expect": {
+                        "description": "Expected results for condition evaluation",
+                        "properties": {
+                          "jsonPath": {
+                            "additionalProperties": {
+                              "description": "Expected value for the JSON path"
+                            },
+                            "description": "JSON path expressions to evaluate against tool result",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the tool call should succeed",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "expectNot": {
+                        "description": "Negated expected results for condition evaluation",
+                        "type": "object"
+                      },
+                      "fromStep": {
+                        "description": "Reference a previous step's result for condition evaluation",
+                        "type": "string"
+                      },
+                      "template": {
+                        "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                        "type": "string"
+                      },
+                      "tool": {
+                        "description": "Tool to call for condition evaluation",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this sub-step",
+                    "type": "string"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this sub-step",
+                    "type": "string"
+                  },
+                  "output": {
+                    "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                    "type": "boolean"
+                  },
+                  "store": {
+                    "description": "Deprecated alias for output; kept for backwards compatibility",
+                    "type": "boolean"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "tool"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "output": {
+              "additionalProperties": true,
+              "description": "Optional output template that shapes the returned document",
+              "type": "object"
+            },
+            "steps": {
+              "description": "Workflow steps",
+              "items": {
+                "additionalProperties": false,
+                "description": "Individual workflow step configuration",
+                "properties": {
+                  "allowFailure": {
+                    "description": "Whether this step is allowed to fail without failing the workflow. On a forEach or parallel step this tolerates a failure of the whole group.",
+                    "type": "boolean"
+                  },
+                  "args": {
+                    "description": "Arguments to pass to the tool, supporting templating with {{.input.argName}} for workflow args and {{.results.stepId.field}} for stored step results",
+                    "type": "object"
+                  },
+                  "condition": {
+                    "additionalProperties": false,
+                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "properties": {
+                      "args": {
+                        "description": "Arguments for the condition tool",
+                        "type": "object"
+                      },
+                      "expect": {
+                        "description": "Expected results for condition evaluation",
+                        "properties": {
+                          "jsonPath": {
+                            "additionalProperties": {
+                              "description": "Expected value for the JSON path"
+                            },
+                            "description": "JSON path expressions to evaluate against tool result",
+                            "type": "object"
+                          },
+                          "success": {
+                            "description": "Whether the tool call should succeed",
+                            "type": "boolean"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "expectNot": {
+                        "description": "Negated expected results for condition evaluation",
+                        "type": "object"
+                      },
+                      "fromStep": {
+                        "description": "Reference a previous step's result for condition evaluation",
+                        "type": "string"
+                      },
+                      "template": {
+                        "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                        "type": "string"
+                      },
+                      "tool": {
+                        "description": "Tool to call for condition evaluation",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "description": {
+                    "description": "Human-readable documentation for this step's purpose",
+                    "type": "string"
+                  },
+                  "forEach": {
+                    "additionalProperties": false,
+                    "description": "Run a body of sub-steps once per item of a list",
+                    "properties": {
+                      "as": {
+                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} (default \"item\")",
+                        "type": "string"
+                      },
+                      "items": {
+                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\"",
+                        "type": "string"
+                      },
+                      "steps": {
+                        "description": "Body executed for each item",
+                        "items": {
+                          "additionalProperties": false,
+                          "description": "A tool-call sub-step",
+                          "properties": {
+                            "allowFailure": {
+                              "description": "Whether this sub-step is allowed to fail",
+                              "type": "boolean"
+                            },
+                            "args": {
+                              "description": "Arguments to pass to the tool (supports templating)",
+                              "type": "object"
+                            },
+                            "condition": {
+                              "additionalProperties": false,
+                              "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                              "properties": {
+                                "args": {
+                                  "description": "Arguments for the condition tool",
+                                  "type": "object"
+                                },
+                                "expect": {
+                                  "description": "Expected results for condition evaluation",
+                                  "properties": {
+                                    "jsonPath": {
+                                      "additionalProperties": {
+                                        "description": "Expected value for the JSON path"
+                                      },
+                                      "description": "JSON path expressions to evaluate against tool result",
+                                      "type": "object"
+                                    },
+                                    "success": {
+                                      "description": "Whether the tool call should succeed",
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "type": "object"
+                                },
+                                "expectNot": {
+                                  "description": "Negated expected results for condition evaluation",
+                                  "type": "object"
+                                },
+                                "fromStep": {
+                                  "description": "Reference a previous step's result for condition evaluation",
+                                  "type": "string"
+                                },
+                                "template": {
+                                  "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                                  "type": "string"
+                                },
+                                "tool": {
+                                  "description": "Tool to call for condition evaluation",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "description": {
+                              "description": "Human-readable documentation for this sub-step",
+                              "type": "string"
+                            },
+                            "id": {
+                              "description": "Unique identifier for this sub-step",
+                              "type": "string"
+                            },
+                            "output": {
+                              "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                              "type": "boolean"
+                            },
+                            "store": {
+                              "description": "Deprecated alias for output; kept for backwards compatibility",
+                              "type": "boolean"
+                            },
+                            "tool": {
+                              "description": "Name of the tool to execute",
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "tool"
+                          ],
+                          "type": "object"
+                        },
+                        "minItems": 1,
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "items",
+                      "steps"
+                    ],
+                    "type": "object"
+                  },
+                  "id": {
+                    "description": "Unique identifier for this step within the workflow",
+                    "type": "string"
+                  },
+                  "output": {
+                    "description": "Whether this step's result is included in the workflow's returned document. Every step result is always referenceable by later steps via {{.results.stepId.field}} regardless of this flag.",
+                    "type": "boolean"
+                  },
+                  "parallel": {
+                    "description": "Sub-steps to execute concurrently (mutually exclusive with tool/forEach)",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "A tool-call sub-step",
+                      "properties": {
+                        "allowFailure": {
+                          "description": "Whether this sub-step is allowed to fail",
+                          "type": "boolean"
+                        },
+                        "args": {
+                          "description": "Arguments to pass to the tool (supports templating)",
+                          "type": "object"
+                        },
+                        "condition": {
+                          "additionalProperties": false,
+                          "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                          "properties": {
+                            "args": {
+                              "description": "Arguments for the condition tool",
+                              "type": "object"
+                            },
+                            "expect": {
+                              "description": "Expected results for condition evaluation",
+                              "properties": {
+                                "jsonPath": {
+                                  "additionalProperties": {
+                                    "description": "Expected value for the JSON path"
+                                  },
+                                  "description": "JSON path expressions to evaluate against tool result",
+                                  "type": "object"
+                                },
+                                "success": {
+                                  "description": "Whether the tool call should succeed",
+                                  "type": "boolean"
+                                }
+                              },
+                              "type": "object"
+                            },
+                            "expectNot": {
+                              "description": "Negated expected results for condition evaluation",
+                              "type": "object"
+                            },
+                            "fromStep": {
+                              "description": "Reference a previous step's result for condition evaluation",
+                              "type": "string"
+                            },
+                            "template": {
+                              "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                              "type": "string"
+                            },
+                            "tool": {
+                              "description": "Tool to call for condition evaluation",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "description": {
+                          "description": "Human-readable documentation for this sub-step",
+                          "type": "string"
+                        },
+                        "id": {
+                          "description": "Unique identifier for this sub-step",
+                          "type": "string"
+                        },
+                        "output": {
+                          "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                          "type": "boolean"
+                        },
+                        "store": {
+                          "description": "Deprecated alias for output; kept for backwards compatibility",
+                          "type": "boolean"
+                        },
+                        "tool": {
+                          "description": "Name of the tool to execute",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "tool"
+                      ],
+                      "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                  },
+                  "store": {
+                    "description": "Deprecated alias for output; kept for backwards compatibility",
+                    "type": "boolean"
+                  },
+                  "tool": {
+                    "description": "Name of the tool to execute for this step (mutually exclusive with forEach/parallel)",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "name",
+            "steps"
+          ],
+          "type": "object"
+        }
+      },
       "type": "object"
     }
   },

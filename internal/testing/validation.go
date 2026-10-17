@@ -164,13 +164,15 @@ func validateStep(step TestStep, toolSchemas map[string]interface{}, verbose, de
 		// workflow_* = workflow execution tools
 		// api_* = API tools
 		// We consider them valid but don't validate args since they're scenario-specific
+	} else if IsTestTool(step.Tool) {
+		// test_* helpers the runner handles itself, never sent to muster serve
 	} else {
 		// All other tools are invalid
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
 			Type:       "unknown_tool",
 			Message:    fmt.Sprintf("Tool '%s' is not a valid tool type", step.Tool),
-			Suggestion: "Tools must be prefixed with 'core_' (API tools), 'x_' (mock tools), 'workflow_' (workflow execution), or 'api_' (API tools)",
+			Suggestion: "Tools must be prefixed with 'core_' (API tools), 'x_' (mock tools), 'workflow_' (workflow execution), or 'api_' (API tools), or be a test helper the runner registers (IsTestTool)",
 		})
 	}
 
