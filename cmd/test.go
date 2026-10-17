@@ -182,7 +182,7 @@ func init() {
 	// Test execution configuration
 	testCmd.Flags().DurationVar(&testTimeout, "timeout", 10*time.Minute, "Overall test execution timeout")
 	testCmd.Flags().DurationVar(&testReadinessTimeout, "readiness-timeout", 15*time.Second, "Per-instance deadline for expected resources (tools, workflows, MCP servers) to become available after startup; raise on slow or contended machines such as CI")
-	testCmd.Flags().IntVar(&testBasePort, "base-port", 18000, "Starting port number for test muster instances")
+	testCmd.Flags().IntVar(&testBasePort, "base-port", testing.DefaultBasePort, "Starting port of the 100-port window for test muster instances; the window must stay outside the Kubernetes NodePort range 30000-32767")
 
 	// Output and debugging
 	testCmd.Flags().BoolVar(&testVerbose, "verbose", false, "Enable verbose test output")

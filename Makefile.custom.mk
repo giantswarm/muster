@@ -97,7 +97,7 @@ verify-crds: ## Regenerate CRDs and fail if the committed copies are stale.
 .PHONY: muster-integration-test
 muster-integration-test: build ## Run the muster integration suite (./muster test).
 	@echo "Running muster integration suite..."
-	./muster test --parallel 50 --base-port 30000 --report test-reports
+	./muster test --parallel 50 --base-port 20000 --report test-reports
 
 .PHONY: test-envtest
 test-envtest: ## Run the envtest-backed tests: the RBAC integration tests and the Kubernetes-mode scenarios (downloads a kube-apiserver via setup-envtest).
@@ -107,7 +107,7 @@ test-envtest: ## Run the envtest-backed tests: the RBAC integration tests and th
 	@echo "Running the Kubernetes-mode scenarios (mode: kubernetes) against envtest..."
 	go build -tags envtest -o $(APPLICATION)-envtest .
 	KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)" \
-		./$(APPLICATION)-envtest test --mode kubernetes --parallel 8 --base-port 31000 --readiness-timeout 60s --report test-reports-envtest
+		./$(APPLICATION)-envtest test --mode kubernetes --parallel 8 --base-port 21000 --readiness-timeout 60s --report test-reports-envtest
 
 .PHONY: test-vet
 test-vet: ## Run go test and go vet

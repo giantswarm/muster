@@ -36,7 +36,7 @@ Run the binary you built:
 | `muster test` | Every behavioural scenario against isolated `muster serve` instances |
 | `muster test --scenario <name> --verbose --debug` | One scenario, with the instance's log |
 | `muster test --concept workflow` | The scenarios of one concept (`workflow`, `mcpserver`, `service`) |
-| `muster test --parallel 50 --base-port 30000` | The suite with fifty instances at a time |
+| `muster test --parallel 50 --base-port 20000` | The suite with fifty instances at a time; a window overlapping the NodePort range 30000-32767 is refused |
 | `make test-envtest` | The RBAC integration tests and the Kubernetes-mode scenarios on envtest |
 | `make helm-test` | Chart lint and the helm-unittest suites (what the GitHub chart-tests workflow runs) |
 | `make helm-test-all` | `helm-test` plus the promtool alert-rule tests (what CircleCI runs) |

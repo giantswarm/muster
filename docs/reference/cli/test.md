@@ -78,7 +78,7 @@ muster test [flags]
 ## Options
 
 ```
-      --base-port int                Starting port number for test muster instances (default 18000)
+      --base-port int                Starting port of the 100-port window for test muster instances; the window must stay outside the Kubernetes NodePort range 30000-32767 (default 18000)
       --category string              Run tests for specific category (behavioral, integration)
       --concept string               Run tests for specific concept (workflow, mcpserver, service)
       --config string                Path to test configuration directory (default: internal test scenarios)
