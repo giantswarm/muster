@@ -98,6 +98,12 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.debug | bool | `false` |  |
 | muster.writesAsCaller.kubernetesAudience | string | `""` |  |
 | muster.toolsetPresets | object | `{}` |  |
+| muster.credentialProvider.enabled | bool | `false` |  |
+| muster.credentialProvider.port | int | `50051` |  |
+| muster.credentialProvider.gatewayIdentity | string | `""` |  |
+| muster.credentialProvider.authority | string | `"muster.giantswarm.io"` |  |
+| muster.credentialProvider.bindingTTL | string | `"336h"` |  |
+| muster.credentialProvider.releasable | object | `{}` |  |
 | muster.extraCaFile.path | string | `"/etc/muster/ca/extra-ca.pem"` |  |
 | muster.extraCaFile.secret.name | string | `""` |  |
 | muster.extraCaFile.secret.key | string | `"ca.pem"` |  |

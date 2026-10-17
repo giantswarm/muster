@@ -125,6 +125,52 @@ aggregator:
     bindAddress: 127.0.0.1 # default: 127.0.0.1; a wider bind exposes an unauthenticated UI
 ```
 
+#### Credential Provider for Substrate's Egress Gateway
+
+`aggregator.credentialProvider` makes muster a credential provider of Substrate's egress
+gateway: a sandbox's git and gh requests to a provider's hosts are sent with the access
+token of the person who started the Session, without the token ever reaching the sandbox.
+The data path stays the gateway's; muster only answers whose token, and only to the gateway.
+
+- **Session bindings.** The component that starts a Session calls muster as the person
+  (their bearer, validated like every request on the aggregator port):
+  `PUT /session-bindings` with `{"actor": "spiffe://substrate-actor.local/actor/<atespace>/<actor>",
+  "session": "<namespace>/<name>", "providers": ["github"]}` binds the Session's sandbox actor
+  to the caller (`204`; `403` when the actor is bound to another person; `400` for a provider
+  that is not releasable), and `DELETE /session-bindings?actor=<id>` removes the caller's
+  binding (`204`, also when there is none; `403` for another person's). A binding lives for
+  `bindingTTL` after its last bind or answered fetch, in Valkey when muster runs on Valkey.
+- **FetchSecret.** On its own gRPC port, muster serves `CredentialProvider.FetchSecret` over
+  mutual TLS and answers only a client certificate that chains to `clientCAFile` and names
+  `gatewayIdentity`. For `ate-secret://<authority>/<provider>/git` it answers
+  `base64("x-access-token:<token>")` (the gateway's rule adds `Basic `), for
+  `.../<provider>/api` the token itself (the rule adds `Bearer `), when the actor is bound,
+  the provider is in its binding and listed in `releasable`, and the person holds the grant.
+  Anything else is refused (`PERMISSION_DENIED`, or `NOT_FOUND` without a grant). Only the
+  access token leaves muster, never the refresh token. Every answer and refusal is logged
+  (`credential_released`, `credential_refused`: person, Session, actor, provider, use).
+- **Freshness.** muster refreshes a subject-scoped grant 15 minutes before it expires, so a
+  token the gateway caches (five minutes per actor and URI) is never used past its expiry.
+  A disconnected grant or a removed binding is refused at the gateway's next fetch.
+
+```yaml
+aggregator:
+  credentialProvider:
+    enabled: true                    # default: false; needs oauth.server
+    listenAddress: ":50051"          # default
+    serverCredBundle: /run/servicedns.podcert.ate.dev/credential-bundle.pem
+    clientCAFile: /run/podidentity.podcert.ate.dev/trust-bundle.pem
+    gatewayIdentity: spiffe://cluster.local/ns/substrate/sa/substrate-atenet-egress
+    authority: muster.giantswarm.io  # default
+    bindingTTL: 336h                 # default: 14 days, the Session idle TTL
+    releasable:                      # provider instance -> grant issuer (grantScope: subject)
+      github: https://github.com/apps/my-workspaces-app
+```
+
+The Helm chart renders this from `muster.credentialProvider` and mounts Substrate's pod
+certificates; register muster with Substrate as
+`credentialProvider.additionalProviders: [{uriAuthority: muster.giantswarm.io, host: <muster service>.<namespace>.svc:50051}]`.
+
 ### Auth Configuration
 
 #### Session Duration

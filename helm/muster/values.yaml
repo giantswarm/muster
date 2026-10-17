@@ -315,6 +315,31 @@ muster:
   #         - pattern: "*_delete"
   toolsetPresets: {}  # @schema additionalProperties: true
 
+  # Credential provider for Substrate's egress gateway: a workspace Session's
+  # git and gh requests get the access token of the person the Session is
+  # bound to (agent-manager binds it at start, as the person, on
+  # PUT /session-bindings). muster serves CredentialProvider.FetchSecret over
+  # mutual TLS on its own port with Substrate pod certificates (the cluster
+  # needs Substrate's podcert signers) and answers the egress gateway alone.
+  # Register it with Substrate as credentialProvider.additionalProviders
+  # {uriAuthority: <authority>, host: <muster service>.<namespace>.svc:<port>}.
+  # Needs the OAuth server (the bind authenticates the person).
+  credentialProvider:
+    enabled: false
+    # gRPC port of FetchSecret.
+    port: 50051
+    # SPIFFE id of the egress gateway, the only caller answered:
+    # spiffe://cluster.local/ns/<substrate namespace>/sa/<substrate release>-atenet-egress
+    gatewayIdentity: ""
+    # Credential URI authority (ate-secret://<authority>/<provider>/<git|api>).
+    authority: "muster.giantswarm.io"
+    # Binding lifetime without use: the platform's Session idle TTL.
+    bindingTTL: "336h"
+    # Provider instance -> issuer of the grant answered for it (an MCPServer
+    # pinned with grantScope: subject). Only these grants are ever released.
+    # Example: {github: "https://github.com/apps/giantswarm-workspaces"}
+    releasable: {}  # @schema additionalProperties: true
+
   # Append a PEM file to muster's system trust pool at startup. Use this when
   # muster talks to backends served by an internal CA (for example, the SPIFFE
   # bundle that tunnelport tunnels on a Giant Swarm MC). The chart mounts the

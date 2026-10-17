@@ -10,6 +10,23 @@ data:
       host: "0.0.0.0"
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
+      {{- with .Values.muster.credentialProvider }}
+      {{- if .enabled }}
+      {{- if not .gatewayIdentity }}{{ fail "muster.credentialProvider.gatewayIdentity is required" }}{{- end }}
+      {{- if not .releasable }}{{ fail "muster.credentialProvider.releasable lists no provider" }}{{- end }}
+      {{- if not $.Values.muster.oauth.server.enabled }}{{ fail "muster.credentialProvider needs muster.oauth.server.enabled" }}{{- end }}
+      credentialProvider:
+        enabled: true
+        listenAddress: ":{{ .port }}"
+        serverCredBundle: /run/servicedns.podcert.ate.dev/credential-bundle.pem
+        clientCAFile: /run/podidentity.podcert.ate.dev/trust-bundle.pem
+        gatewayIdentity: {{ .gatewayIdentity | quote }}
+        authority: {{ .authority | quote }}
+        bindingTTL: {{ .bindingTTL | quote }}
+        releasable:
+          {{- toYaml .releasable | nindent 10 }}
+      {{- end }}
+      {{- end }}
       oauth:
         {{- if .Values.muster.oauth.mcpClient.enabled }}
         mcpClient:

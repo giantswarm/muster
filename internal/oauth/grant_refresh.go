@@ -14,12 +14,13 @@ import (
 
 const (
 	// subjectGrantRefreshMargin is the lead time before a subject-scoped
-	// grant's access token expires at which a lookup refreshes it. It is
-	// deliberately longer than the 240 s skew a relying party (the Dev
-	// Portal's broker cache) applies before re-asking for the token, so the
-	// relying party never receives a token it has to re-request within its
-	// own refresh window.
-	subjectGrantRefreshMargin = 5 * time.Minute
+	// grant's access token expires at which a lookup refreshes it. A relying
+	// party keeps a released token for a while without asking again: the
+	// egress gateway caches a credential provider's answer for 300 s per
+	// actor and URI, the Dev Portal's broker cache re-asks 240 s before
+	// expiry. Fifteen minutes is well beyond both, so a token handed out is
+	// never used past its expiry.
+	subjectGrantRefreshMargin = 15 * time.Minute
 
 	// subjectGrantRefreshTimeout bounds one refresh round trip. The refresh
 	// runs on a context detached from the caller's cancellation because

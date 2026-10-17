@@ -254,6 +254,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				Port:        cfg.MusterConfig.Aggregator.Admin.Port,
 				BindAddress: cfg.MusterConfig.Aggregator.Admin.BindAddress,
 			},
+			CredentialProvider: cfg.MusterConfig.Aggregator.CredentialProvider,
 		}
 
 		// Set defaults if not specified
