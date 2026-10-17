@@ -16,6 +16,10 @@
     // (same condition as the architect orb disable below); a no-op for repos
     // without an ats/ Pipfile, so it is safe to extend for all generated-CI repos.
     'github>giantswarm/renovate-presets:tests-ats.json5',
+    // Repo-owned overrides -- last entry, so its rules win over the presets.
+    // Renovate resolves this from the default branch on every run: edits are
+    // live on merge, no regeneration needed.
+    'github>giantswarm/muster:renovate-custom.json5',
   ],
   // Two of our own bots commit onto Renovate branches. taylorbot
   // <dev@giantswarm.io> pushes what the generated workflows produce
