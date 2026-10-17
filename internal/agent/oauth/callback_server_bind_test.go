@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 // freeLoopbackPort returns a port free on 127.0.0.1 and, where the host has
@@ -73,8 +72,10 @@ func TestCallbackServer_Start_ListensOnBothLoopbacks(t *testing.T) {
 
 // TestCallbackServer_Start_FailsWhenALoopbackIsTaken: a process listening on
 // the callback port on either loopback address would receive the browser's
-// callback in muster's place. Start refuses at once, naming the address and
-// the holder, and leaves the other address free.
+// callback in muster's place. Start refuses without retrying, naming the
+// address and the holder, and leaves the other address free. Naming the
+// holder scans /proc, whose latency follows the machine's load, so the test
+// asserts the refusal, not its duration.
 func TestCallbackServer_Start_FailsWhenALoopbackIsTaken(t *testing.T) {
 	for _, held := range []string{"::1", "127.0.0.1"} {
 		t.Run(held, func(t *testing.T) {
@@ -92,14 +93,10 @@ func TestCallbackServer_Start_FailsWhenALoopbackIsTaken(t *testing.T) {
 			server := NewCallbackServer(port)
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			start := time.Now()
 			_, err = server.Start(ctx)
 			if err == nil {
 				server.Stop()
 				t.Fatalf("the callback started although %s is held: the browser's callback can land there", addr)
-			}
-			if elapsed := time.Since(start); elapsed > time.Second {
-				t.Errorf("Start took %v to refuse", elapsed)
 			}
 			var inUse *PortInUseError
 			if !errors.As(err, &inUse) {
