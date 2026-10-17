@@ -356,28 +356,46 @@ func (c *mcpTestClient) ListTools(ctx context.Context) ([]string, error) {
 	return toolNames, nil
 }
 
-// ListToolsWithSchemas returns available MCP tools with their full schemas
-func (c *mcpTestClient) ListToolsWithSchemas(ctx context.Context) ([]mcp.Tool, error) {
-	if c.client == nil {
-		return nil, fmt.Errorf("MCP client not connected")
+// ListCoreToolsWithSchemas returns muster's core_* tools with their input
+// schemas. tools/list only carries the meta-tools, so the core tools are read
+// through the list_core_tools meta-tool.
+func (c *mcpTestClient) ListCoreToolsWithSchemas(ctx context.Context) ([]mcp.Tool, error) {
+	result, err := c.CallToolDirect(ctx, "list_core_tools", map[string]interface{}{"include_schema": true})
+	if err != nil {
+		return nil, err
+	}
+	if len(result.Content) == 0 {
+		return nil, fmt.Errorf("empty content from list_core_tools")
+	}
+	text, ok := mcp.AsTextContent(result.Content[0])
+	if !ok {
+		return nil, fmt.Errorf("unexpected content type from list_core_tools")
+	}
+	if result.IsError {
+		return nil, fmt.Errorf("list_core_tools: %s", text.Text)
 	}
 
-	// Create timeout context for the tools list request
-	listCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
+	var page struct {
+		Tools []struct {
+			Name        string              `json:"name"`
+			Description string              `json:"description"`
+			InputSchema mcp.ToolInputSchema `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(text.Text), &page); err != nil {
+		return nil, fmt.Errorf("failed to parse list_core_tools response: %w", err)
+	}
 
-	// Get the list of available tools
-	defer watchCallOverrun(listCtx, c.endpoint)()
-	result, err := c.client.ListTools(listCtx, mcp.ListToolsRequest{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tools: %w", err)
+	tools := make([]mcp.Tool, 0, len(page.Tools))
+	for _, t := range page.Tools {
+		tools = append(tools, mcp.Tool{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
 	}
 
 	if c.debug {
-		c.logger.Debug("🛠️  Available tools with schemas (%d): %v\n", len(result.Tools), result.Tools)
+		c.logger.Debug("🛠️  Core tools with schemas (%d)\n", len(tools))
 	}
 
-	return result.Tools, nil
+	return tools, nil
 }
 
 // ReadResource reads an MCP resource by URI

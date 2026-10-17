@@ -53,7 +53,7 @@ helm-promtool-test: ## Run the promtool unit tests for the PrometheusRule (requi
 # Makefile.gen.go.mk; these prerequisites run before it (the version stamp for
 # the CI binaries, CRD freshness, then the integration suite) and only add
 # prerequisites -- they do not override the generated recipe.
-test: stamp-version verify-crds verify-cli-docs muster-integration-test
+test: stamp-version verify-crds verify-cli-docs verify-scenario-schema muster-integration-test
 
 # The version stamp-version appends: the tag when CIRCLE_TAG is set,
 # otherwise what `git describe` says about HEAD (v5.23.2-1-g4be8379e on a
@@ -93,6 +93,19 @@ verify-crds: ## Regenerate CRDs and fail if the committed copies are stale.
 		echo "ERROR: CRDs are out of date. Run 'make generate-crds' and commit."; \
 		exit 1; }
 	@echo "CRDs are up to date."
+
+# schema.json is the core tool API the scenarios are validated against
+# (TestCommittedScenariosValidateAgainstSchema, run by `go test`). This keeps
+# it current: regenerated from a live `muster serve`, it must match the
+# committed copy, and every scenario must validate against it.
+.PHONY: verify-scenario-schema
+verify-scenario-schema: build ## Regenerate schema.json, fail if the committed copy is stale or a scenario does not validate.
+	@echo "Verifying schema.json is up to date..."
+	./muster test --generate-schema --base-port 45000
+	@git diff --exit-code schema.json || { \
+		echo "ERROR: schema.json is out of date. Run 'muster test --generate-schema' and commit."; \
+		exit 1; }
+	./muster test --validate-scenarios
 
 .PHONY: muster-integration-test
 muster-integration-test: build ## Run the muster integration suite (./muster test).

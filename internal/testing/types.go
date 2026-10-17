@@ -870,8 +870,8 @@ type MCPTestClient interface {
 	CallToolDirect(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error)
 	// ListTools returns available MCP tools
 	ListTools(ctx context.Context) ([]string, error)
-	// ListToolsWithSchemas returns available MCP tools with their full schemas
-	ListToolsWithSchemas(ctx context.Context) ([]mcp.Tool, error)
+	// ListCoreToolsWithSchemas returns muster's core_* tools with their input schemas
+	ListCoreToolsWithSchemas(ctx context.Context) ([]mcp.Tool, error)
 	// ReadResource reads an MCP resource by URI
 	ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error)
 	// InitializeResult returns the negotiated handshake result, or nil when the

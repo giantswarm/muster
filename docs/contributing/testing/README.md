@@ -121,6 +121,8 @@ Unlike previous versions, you **do not need** to start an external muster aggreg
 # Both CLI and MCP server provide identical validation results
 ```
 
+`make test` runs both: it regenerates `schema.json` and fails when the committed copy differs (commit the regenerated file after changing a core tool), and fails on any scenario step that does not validate.
+
 ### 3. Run Your First Test
 
 ```bash
