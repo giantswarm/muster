@@ -19,6 +19,12 @@
 # (Connecting, Starting) are covered by the
 # `for:` windows below rather than by being excluded.
 #
+# The alerts page the team that operates the backend. An MCPServer a person
+# registered for themselves through muster (core_mcpserver_create, the Dev
+# Portal's registration wizard) has no such team: it carries
+# registered="true" and is left out with $platform. Its owner sees the state
+# where they registered it, and the dashboard still counts it.
+#
 # Gated on its own value rather than on the prometheus exporter: metrics may
 # reach the Prometheus that loads this rule via OTLP instead of a scrape, in
 # which case muster.observability.metrics.exporter never mentions prometheus.
@@ -40,6 +46,8 @@
 {{- $site := "cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace" }}
 {{- /* The management cluster a member of a family names: <mc>-mcp-<type>. */}}
 {{- $mcRegex := "(.+?)-mcp-.+" }}
+{{- /* Platform-operated servers only; a series without the label is one. */}}
+{{- $platform := "registered!=\"true\"" }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -83,19 +91,19 @@ spec:
             runbook_url: '{{`https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}`}}'
           expr: |-
             max by ({{ $by }}) (
-              label_replace(muster_mcpserver_state{state="Failed"}, "management_cluster", "$1", "mcpserver_name", "{{ $mcRegex }}")
+              label_replace(muster_mcpserver_state{state="Failed", {{ $platform }}}, "management_cluster", "$1", "mcpserver_name", "{{ $mcRegex }}")
               unless on ({{ $site }}, management_cluster)
               (
                 (
                   count by ({{ $site }}, management_cluster) (
                     max by ({{ $by }}, management_cluster) (
-                      label_replace(muster_mcpserver_state{state="Failed", mcpserver_name=~"{{ $mcRegex }}"}, "management_cluster", "$1", "mcpserver_name", "{{ $mcRegex }}")
+                      label_replace(muster_mcpserver_state{state="Failed", mcpserver_name=~"{{ $mcRegex }}", {{ $platform }}}, "management_cluster", "$1", "mcpserver_name", "{{ $mcRegex }}")
                     )
                   )
                   ==
                   count by ({{ $site }}, management_cluster) (
                     max by ({{ $by }}, management_cluster) (
-                      label_replace(muster_mcpserver_state{mcpserver_name=~"{{ $mcRegex }}"}, "management_cluster", "$1", "mcpserver_name", "{{ $mcRegex }}")
+                      label_replace(muster_mcpserver_state{mcpserver_name=~"{{ $mcRegex }}", {{ $platform }}}, "management_cluster", "$1", "mcpserver_name", "{{ $mcRegex }}")
                     )
                   )
                 ) >= 2
@@ -137,9 +145,9 @@ spec:
             description: '{{`MCPServer {{ $labels.mcpserver_namespace }}/{{ $labels.mcpserver_name }} entered state Failed {{ $value | printf "%.0f" }} times in the last hour; the MCP backend is connecting and dropping repeatedly.`}}'
             runbook_url: '{{`https://intranet.giantswarm.io/docs/support-and-ops/runbooks/muster-mcpserver-failed/?INSTALLATION={{ $labels.installation }}&CLUSTER={{ $labels.cluster_id }}`}}'
           expr: |-
-            sum by ({{ $by }}) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h])) > 5
+            sum by ({{ $by }}) (increase(muster_mcpserver_state_transitions_total{state="Failed", {{ $platform }}}[1h])) > 5
             and
-            sum by ({{ $by }}) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[5m])) > 0
+            sum by ({{ $by }}) (increase(muster_mcpserver_state_transitions_total{state="Failed", {{ $platform }}}[5m])) > 0
           for: 10m
           labels:
             area: platform
@@ -168,7 +176,8 @@ spec:
         # unless clause keeps one broken backend from paging twice. The
         # downstream series carry no mcpserver_namespace, so the clause joins
         # on the name: two MCPServers of one name in different namespaces of
-        # one muster share the suppression.
+        # one muster share the suppression. A person-registered server is left
+        # out the same way, whatever its state.
         - alert: MusterToolCallErrorRate
           annotations:
             description: '{{`{{ $value | humanizePercentage }} of the tool calls muster dispatched to MCPServer {{ $labels.mcpserver_name }} in the last 15m failed with a transport error or timeout, while the server is not Failed.`}}'
@@ -183,6 +192,8 @@ spec:
             sum by ({{ $byServer }}) (increase(muster_downstream_tool_calls_total[15m])) >= 20
             unless on ({{ $byServer }})
             max by ({{ $byServer }}) (muster_mcpserver_state{state="Failed"}) == 1
+            unless on ({{ $byServer }})
+            max by ({{ $byServer }}) (muster_mcpserver_state{registered="true"}) == 1
           for: 15m
           labels:
             area: platform

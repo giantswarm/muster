@@ -259,7 +259,7 @@ nodeSelector: {}  # @schema additionalProperties: true
 
 tolerations: []
 
-affinity: {}
+affinity: {}  # @schema additionalProperties: true
 
 # Muster specific configuration
 muster:

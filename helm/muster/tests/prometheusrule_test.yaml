@@ -74,6 +74,8 @@ tests:
             sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_name) (increase(muster_downstream_tool_calls_total[15m])) >= 20
             unless on (cluster_id, installation, pipeline, provider, namespace, mcpserver_name)
             max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_name) (muster_mcpserver_state{state="Failed"}) == 1
+            unless on (cluster_id, installation, pipeline, provider, namespace, mcpserver_name)
+            max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_name) (muster_mcpserver_state{registered="true"}) == 1
       - equal:
           path: spec.groups[0].rules[2].for
           value: 15m
@@ -92,19 +94,19 @@ tests:
           path: spec.groups[0].rules[0].expr
           value: |-
             max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (
-              label_replace(muster_mcpserver_state{state="Failed"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
+              label_replace(muster_mcpserver_state{state="Failed", registered!="true"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
               unless on (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, management_cluster)
               (
                 (
                   count by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, management_cluster) (
                     max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name, management_cluster) (
-                      label_replace(muster_mcpserver_state{state="Failed", mcpserver_name=~"(.+?)-mcp-.+"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
+                      label_replace(muster_mcpserver_state{state="Failed", mcpserver_name=~"(.+?)-mcp-.+", registered!="true"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
                     )
                   )
                   ==
                   count by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, management_cluster) (
                     max by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name, management_cluster) (
-                      label_replace(muster_mcpserver_state{mcpserver_name=~"(.+?)-mcp-.+"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
+                      label_replace(muster_mcpserver_state{mcpserver_name=~"(.+?)-mcp-.+", registered!="true"}, "management_cluster", "$1", "mcpserver_name", "(.+?)-mcp-.+")
                     )
                   )
                 ) >= 2
@@ -123,9 +125,9 @@ tests:
       - equal:
           path: spec.groups[0].rules[1].expr
           value: |-
-            sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[1h])) > 5
+            sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (increase(muster_mcpserver_state_transitions_total{state="Failed", registered!="true"}[1h])) > 5
             and
-            sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (increase(muster_mcpserver_state_transitions_total{state="Failed"}[5m])) > 0
+            sum by (cluster_id, installation, pipeline, provider, namespace, mcpserver_namespace, mcpserver_name) (increase(muster_mcpserver_state_transitions_total{state="Failed", registered!="true"}[5m])) > 0
       - equal:
           path: spec.groups[0].rules[1].for
           value: 10m

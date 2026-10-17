@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -337,5 +338,98 @@ func TestStateMetricsRecordedWithoutStatusUpdater(t *testing.T) {
 
 	if got := h.states()["local-stdio"]; got != string(musterv1alpha1.MCPServerStateFailed) {
 		t.Errorf("gauge reports %q, want Failed", got)
+	}
+}
+
+// registeredLabels collects the registered attribute of both instruments as
+// "<instrument>/<name>" -> value, so a test can tell a person-registered
+// MCPServer from a platform-shipped one the way the alert rules do.
+func (h *metricHarness) registeredLabels() map[string]string {
+	h.t.Helper()
+
+	var collected metricdata.ResourceMetrics
+	if err := h.reader.Collect(context.Background(), &collected); err != nil {
+		h.t.Fatalf("collect metrics: %v", err)
+	}
+
+	labels := make(map[string]string)
+	record := func(instrument string, set attribute.Set) {
+		name, _ := set.Value(attrMCPServerName)
+		registered, ok := set.Value(attrMCPServerRegistered)
+		if !ok {
+			h.t.Errorf("%s: %s carries no %s attribute", instrument, name.String(), attrMCPServerRegistered)
+		}
+		labels[instrument+"/"+name.String()] = registered.String()
+	}
+	for _, scope := range collected.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			switch data := m.Data.(type) {
+			case metricdata.Gauge[int64]:
+				for _, point := range data.DataPoints {
+					record(m.Name, point.Attributes)
+				}
+			case metricdata.Sum[int64]:
+				for _, point := range data.DataPoints {
+					record(m.Name, point.Attributes)
+				}
+			}
+		}
+	}
+	return labels
+}
+
+// addRegisteredServer registers a definition a person created through muster,
+// carrying the registered-by annotation.
+func (h *metricHarness) addRegisteredServer(name string, state api.ServiceState) {
+	h.t.Helper()
+	h.manager.AddMCPServer(&api.MCPServerInfo{Name: name, Type: "streamable-http", RegisteredBy: "subject-1"})
+	h.registry.AddService(name, &MockServiceInfo{Name: name, ServiceType: api.TypeMCPServer, State: state})
+}
+
+// TestStateMetricsLabelPersonRegisteredServers is what lets the alerts leave
+// out a backend a person registered for themselves: a server carrying the
+// registered-by annotation reports registered="true" on both instruments, one
+// the platform ships registered="false".
+func TestStateMetricsLabelPersonRegisteredServers(t *testing.T) {
+	h := newMetricHarness(t)
+
+	h.addRegisteredServer("person-registered", api.StateFailed)
+	h.addServer("platform-shipped", "streamable-http", statePtr(api.StateFailed))
+	h.reconcile("person-registered")
+	h.reconcile("platform-shipped")
+
+	want := map[string]string{
+		"muster.mcpserver.state/person-registered":             "true",
+		"muster.mcpserver.state/platform-shipped":              "false",
+		"muster.mcpserver.state_transitions/person-registered": "true",
+		"muster.mcpserver.state_transitions/platform-shipped":  "false",
+	}
+	got := h.registeredLabels()
+	for key, value := range want {
+		if got[key] != value {
+			t.Errorf("%s: registered=%q, want %q", key, got[key], value)
+		}
+	}
+}
+
+// TestStateGaugeFollowsOriginChange keeps one series per MCPServer when its
+// annotation is added later: the gauge relabels, and no state transition is
+// counted for a server whose state did not change.
+func TestStateGaugeFollowsOriginChange(t *testing.T) {
+	h := newMetricHarness(t)
+
+	h.addServer("adopted", "streamable-http", statePtr(api.StateFailed))
+	h.reconcile("adopted")
+	h.addRegisteredServer("adopted", api.StateFailed)
+	h.reconcile("adopted")
+
+	if got := h.registeredLabels()["muster.mcpserver.state/adopted"]; got != "true" {
+		t.Errorf("gauge registered=%q after the annotation was added, want true", got)
+	}
+	if got := len(h.states()); got != 1 {
+		t.Errorf("gauge reports %d series, want 1", got)
+	}
+	if got := h.transitionCounts()["adopted/Failed"]; got != 1 {
+		t.Errorf("Failed transitions: %d, want 1 (an origin change is no transition)", got)
 	}
 }

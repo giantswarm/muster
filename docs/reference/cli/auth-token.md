@@ -12,7 +12,8 @@ directly:
 
   curl -H "Authorization: Bearer $(muster auth token --id)" https://models.example.com/v1/models
 
-An expired access token is renewed through the session first. The ID token is
+A valid stored access token is printed without contacting the aggregator; an
+expired one is renewed through the session first. The ID token is
 never renewed that way: when it has expired the command fails and names
 'muster auth login', which signs in again.
 
