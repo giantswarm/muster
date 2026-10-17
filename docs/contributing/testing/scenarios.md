@@ -542,7 +542,7 @@ reported as **skipped** with that reason -- never as passed. `make test`
 ```bash
 export KUBEBUILDER_ASSETS="$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)"
 go build -tags envtest -o muster-envtest .
-./muster-envtest test --mode kubernetes --parallel 8 --base-port 31000
+./muster-envtest test --mode kubernetes --parallel 8 --base-port 21000
 ```
 
 Three test tools act on the CRs and the API server while a scenario runs:
