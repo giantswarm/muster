@@ -1,0 +1,107 @@
+name: "mcpserver-call-during-reconnect-is-retryable"
+description: "A tool call to a remote MCPServer whose health probes failed and which is reconnecting is answered as retryable, never \"server not found\", and succeeds once the backend is back (#1531)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "health", "aggregator", "recovery", "regression", "issue-1531"]
+timeout: "3m"
+
+# Given: a remote streamable-http MCP server without auth, Connected. The
+#        harness runs muster with a 1s health-probe interval and retry tick.
+# When:  its backend goes away and the third failed probe moves the server to
+#        Failed, which removes its registry entry until the reconnect.
+# Then:  a call to its tool in that window waits for the reconnect and, with
+#        the backend still down, is answered "is reconnecting ... retry",
+#        never "server not found".
+# When:  the backend is back.
+# Then:  the same call succeeds.
+#
+# Before the fix the call was answered "server not found: probed-server", as
+# if the backend had never existed (giantswarm/muster#1531).
+
+pre_configuration:
+  main_config:
+    config:
+      events: true
+
+  mcp_servers:
+    - name: "probed-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Answers when the backend is reachable"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected"
+    tool: "core_service_status"
+    args:
+      name: "probed-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "45s"
+
+  - id: "probe-works"
+    tool: "x_probed-server_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+  - id: "backend-gone"
+    tool: "test_stop_mock_server"
+    args:
+      server: "probed-server"
+    expected:
+      success: true
+      contains: ["Stopped mock server"]
+    timeout: "15s"
+
+  - id: "probes-failed"
+    tool: "core_events"
+    args:
+      resourceType: "MCPServer"
+      resourceName: "probed-server"
+    expected:
+      success: true
+      wait_for_state: "45s"
+      contains:
+        - "health check failed: 3 consecutive failures: MCP ping failed"
+    timeout: "60s"
+
+  - id: "call-while-reconnecting-is-retryable"
+    description: "The registry entry is gone while the server reconnects; the call is told to retry, not that the server does not exist"
+    tool: "x_probed-server_probe"
+    args: {}
+    expected:
+      success: false
+      contains: ["probed-server is reconnecting", "retry the call shortly"]
+      not_contains: ["server not found"]
+    timeout: "30s"
+
+  - id: "backend-back"
+    tool: "test_start_mock_server"
+    args:
+      server: "probed-server"
+    expected:
+      success: true
+      contains: ["Started mock server"]
+    timeout: "30s"
+
+  - id: "call-after-reconnect-works"
+    tool: "x_probed-server_probe"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "45s"
+      contains: ["alive"]
+    timeout: "60s"

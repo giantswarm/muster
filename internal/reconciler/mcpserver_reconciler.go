@@ -171,7 +171,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	if rejectErr := r.validateDefinition(mcpServerInfo); rejectErr != nil {
 		result := r.reconcileReject(req, rejectErr, exists)
 		r.syncStatus(ctx, req.Name, req.Namespace, result.Error, nil)
-		r.recordState(ctx, req, mcpServerInfo.Type, result.Error)
+		r.recordState(ctx, req, mcpServerInfo, result.Error)
 		return result
 	}
 
@@ -235,7 +235,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 
 	// Sync status back to CRD after reconciliation
 	r.syncStatus(ctx, req.Name, req.Namespace, result.Error, processedRestart)
-	r.recordState(ctx, req, mcpServerInfo.Type, result.Error)
+	r.recordState(ctx, req, mcpServerInfo, result.Error)
 
 	return result
 }
@@ -404,8 +404,14 @@ func (r *MCPServerReconciler) observedState(name, serverType string, reconcileEr
 // but unconditionally: syncStatus returns early without a StatusUpdater
 // (filesystem mode), where the metric is the only external view of state there
 // is.
-func (r *MCPServerReconciler) recordState(ctx context.Context, req ReconcileRequest, serverType string, reconcileErr error) {
-	r.stateMetrics.record(ctx, r.metricKey(req), r.observedState(req.Name, serverType, reconcileErr))
+//
+// A server carrying api.RegisteredByAnnotation is reported as registered, so
+// the alerts can leave out backends a person registered for themselves.
+func (r *MCPServerReconciler) recordState(ctx context.Context, req ReconcileRequest, info *api.MCPServerInfo, reconcileErr error) {
+	r.stateMetrics.record(ctx, r.metricKey(req), observation{
+		state:      r.observedState(req.Name, info.Type, reconcileErr),
+		registered: info.RegisteredBy != "",
+	})
 }
 
 // metricKey builds the metric identity for a reconcile request, falling back to

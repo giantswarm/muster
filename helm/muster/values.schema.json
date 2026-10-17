@@ -5,7 +5,7 @@
     "properties": {
         "affinity": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "autoscaling": {
             "type": "object",
