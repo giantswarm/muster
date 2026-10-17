@@ -226,6 +226,31 @@
                         }
                     }
                 },
+                "credentialProvider": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "authority": {
+                            "type": "string"
+                        },
+                        "bindingTTL": {
+                            "type": "string"
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "gatewayIdentity": {
+                            "type": "string"
+                        },
+                        "port": {
+                            "type": "integer"
+                        },
+                        "releasable": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                },
                 "debug": {
                     "type": "boolean"
                 },

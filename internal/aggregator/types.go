@@ -390,6 +390,11 @@ type AggregatorConfig struct {
 	// Admin, when enabled, starts a separate HTTP listener that serves the
 	// session management web UI. See internal/admin for details.
 	Admin AdminConfig
+
+	// CredentialProvider, when enabled, serves FetchSecret to Substrate's
+	// egress gateway and the /session-bindings endpoints. See
+	// internal/credprovider.
+	CredentialProvider configPkg.CredentialProviderConfig
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.

@@ -71,6 +71,11 @@ spec:
             - name: http
               containerPort: {{ .Values.muster.aggregator.port }}
               protocol: TCP
+            {{- if .Values.muster.credentialProvider.enabled }}
+            - name: credprovider
+              containerPort: {{ .Values.muster.credentialProvider.port }}
+              protocol: TCP
+            {{- end }}
             {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
             - name: metrics
               containerPort: {{ .Values.muster.observability.metrics.prometheus.port }}
@@ -161,12 +166,39 @@ spec:
               mountPath: {{ dir .Values.muster.extraCaFile.path }}
               readOnly: true
             {{- end }}
+            {{- if .Values.muster.credentialProvider.enabled }}
+            - name: servicedns
+              mountPath: /run/servicedns.podcert.ate.dev
+              readOnly: true
+            - name: podidentity
+              mountPath: /run/podidentity.podcert.ate.dev
+              readOnly: true
+            {{- end }}
           {{- with .Values.volumeMounts }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.muster.credentialProvider.enabled }}
+        # FetchSecret serves with the Service's DNS certificate and accepts
+        # callers whose pod identity chains to Substrate's trust bundle.
+        {{- range $volume, $signer := dict "servicedns" "servicedns.podcert.ate.dev/identity" "podidentity" "podidentity.podcert.ate.dev/identity" }}
+        - name: {{ $volume }}
+          projected:
+            sources:
+              - podCertificate:
+                  signerName: {{ $signer }}
+                  keyType: ECDSAP256
+                  credentialBundlePath: credential-bundle.pem
+              - clusterTrustBundle:
+                  signerName: {{ $signer }}
+                  labelSelector:
+                    matchLabels:
+                      podcert.ate.dev/canarying: live
+                  path: trust-bundle.pem
+        {{- end }}
+        {{- end }}
         - name: config
           configMap:
             name: {{ include "muster.fullname" . }}-config
