@@ -66,6 +66,33 @@ steps:
       json_path:
         state: "running"
 
+  # A running service is registered with the aggregator asynchronously: the
+  # family tool lists an instance only once that instance's tools are in the
+  # routing index. Each instance is waited for before the tool is called on it.
+  - id: "tool-available-on-graveler"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_kubernetes_list_pods"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["(available on servers:", "k8s-graveler"]
+    timeout: "45s"
+
+  - id: "tool-available-on-gazelle"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_kubernetes_list_pods"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["(available on servers:", "k8s-gazelle"]
+    timeout: "45s"
+
   - id: "route-to-graveler"
     tool: "x_kubernetes_list_pods"
     args:
