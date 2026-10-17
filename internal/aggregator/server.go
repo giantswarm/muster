@@ -93,6 +93,12 @@ type AggregatorServer struct {
 	// answered as retryable instead of "server not found".
 	reconnects reconnectTracker
 
+	// definedServers returns the servers the MCPServer definitions describe,
+	// whatever their connection state; nil when no service registry backs the
+	// aggregator. A pin release consults it, so a backend that stops answering
+	// keeps the authorization server its definition describes.
+	definedServers func() map[string]*ServerInfo
+
 	errorCallback func(error) // Callback for propagating async errors in the aggregator upwards
 
 	// Transport-specific server instances for different communication protocols
