@@ -49,6 +49,7 @@ var stopWords = map[string]struct{}{
 	"a": {}, "an": {}, "the": {}, "and": {}, "or": {}, "but": {}, "if": {}, "then": {}, "than": {}, "so": {},
 	"of": {}, "to": {}, "in": {}, "on": {}, "at": {}, "by": {}, "for": {}, "from": {}, "with": {}, "into": {},
 	"about": {}, "as": {}, "is": {}, "are": {}, "was": {}, "were": {}, "be": {}, "been": {}, "being": {},
+	"has": {}, "have": {}, "had": {},
 	"it": {}, "its": {}, "this": {}, "that": {}, "these": {}, "those": {}, "there": {}, "here": {},
 	"do": {}, "does": {}, "did": {}, "can": {}, "could": {}, "should": {}, "would": {}, "will": {}, "may": {}, "might": {},
 	"i": {}, "me": {}, "my": {}, "you": {}, "your": {}, "we": {}, "our": {}, "they": {}, "their": {},
@@ -235,7 +236,6 @@ func tokenize(s string) []string {
 
 // queryTerms returns the distinct terms of the query, folded (see foldPlural)
 // and sorted, without its stopWords; a query of only stop words keeps them.
-// Stop words are matched before folding, which turns "does" into "doe".
 func queryTerms(query string) []string {
 	var all, content []string
 	inAll, inContent := make(map[string]bool), make(map[string]bool)
@@ -267,15 +267,27 @@ func rankTerms(s string) []string {
 	return terms
 }
 
-// singularsEndingInS are singular words that end in "s". foldPlural keeps them
-// rather than dropping the "s" as if they were plurals, which would leave
-// "news" meeting "new" and "status" never meeting "statuses", and folds their
-// "es" plural to them ("aliases" -> "alias").
+// singularsEndingInS are singular words and acronyms that end in "s".
+// foldPlural keeps them rather than dropping the "s" as if they were plurals,
+// which would leave "news" meeting "new", "https" meeting "http" and "kms"
+// meeting "km", and "status" never meeting "statuses"; it folds their "es"
+// plural to them ("aliases" -> "alias").
 var singularsEndingInS = map[string]struct{}{
 	"alias": {}, "analysis": {}, "atlas": {}, "axis": {}, "basis": {}, "bias": {}, "bonus": {}, "bus": {},
 	"campus": {}, "canvas": {}, "census": {}, "consensus": {}, "corpus": {}, "dns": {}, "focus": {}, "gas": {},
-	"gcs": {}, "lens": {}, "news": {}, "nexus": {}, "plus": {}, "prometheus": {}, "radius": {}, "redis": {},
-	"series": {}, "species": {}, "status": {}, "tls": {}, "virus": {},
+	"gcs": {}, "https": {}, "lens": {}, "news": {}, "nexus": {}, "plus": {}, "prometheus": {}, "radius": {},
+	"redis": {}, "series": {}, "species": {}, "status": {}, "tls": {}, "virus": {},
+	// AWS services, which would otherwise become two-letter keys.
+	"aws": {}, "ecs": {}, "efs": {}, "eks": {}, "kms": {}, "rds": {}, "sns": {}, "sqs": {},
+}
+
+// irregularPlurals maps plurals that no suffix rule folds to their singular.
+var irregularPlurals = map[string]string{
+	"analyses": "analysis",
+	"children": "child",
+	"indices":  "index",
+	"matrices": "matrix",
+	"vertices": "vertex",
 }
 
 // foldPlural maps a lowercase token to a key it shares with its singular or
@@ -285,9 +297,11 @@ var singularsEndingInS = map[string]struct{}{
 // the same way as the documents.
 //
 // The rules, in order:
-//   - a token with a digit ("k8s", "s3"), ending in "ss" ("access") or listed in
-//     singularsEndingInS ("status") is kept, and the "es" plural of a listed
-//     word becomes that word ("statuses" -> "status");
+//   - a stop word ("has", "this"), a token with a digit ("k8s", "s3"), one
+//     ending in "ss" ("access") or one listed in singularsEndingInS ("status",
+//     "https") is kept, and the "es" plural of a listed word becomes that word
+//     ("statuses" -> "status");
+//   - an irregular plural becomes its singular ("indices" -> "index");
 //   - "ies" becomes "i" ("policies" -> "polici") when two letters stay before it;
 //   - otherwise a final "s" is dropped when two letters stay ("pods" -> "pod",
 //     "apis" -> "api", "vms" -> "vm");
@@ -301,10 +315,15 @@ var singularsEndingInS = map[string]struct{}{
 // It is a light, predictable fold rather than a full stemmer: it does not
 // conflate verb forms ("restarting", "restarted"), and so does not conflate
 // unrelated words that share a stem ("policy" and "police"). A singular in "s"
-// that is not listed loses its "s" ("lens" would, without the list).
+// that is not listed loses its "s" ("lens" would, without the list), and a
+// word that differs from another only by a final "e" after a stem that does not
+// end consonant-vowel-consonant meets it ("range" and "rang").
 func foldPlural(t string) string {
-	if _, ok := singularsEndingInS[t]; ok || strings.HasSuffix(t, "ss") || strings.ContainsFunc(t, unicode.IsDigit) {
+	if isKeptAsIs(t) {
 		return t
+	}
+	if singular, ok := irregularPlurals[t]; ok {
+		return singular
 	}
 	if stem, ok := strings.CutSuffix(t, "es"); ok {
 		if _, ok := singularsEndingInS[stem]; ok {
@@ -327,6 +346,18 @@ func foldPlural(t string) string {
 	return t
 }
 
+// isKeptAsIs reports whether foldPlural keeps t: a stop word, a token with a
+// digit, or a singular ending in "s".
+func isKeptAsIs(t string) bool {
+	if _, ok := stopWords[t]; ok {
+		return true
+	}
+	if _, ok := singularsEndingInS[t]; ok {
+		return true
+	}
+	return strings.HasSuffix(t, "ss") || strings.ContainsFunc(t, unicode.IsDigit)
+}
+
 // isVowelAt reports whether the byte at i is a vowel: a, e, i, o, u, or a "y"
 // after a consonant ("type", not "key").
 func isVowelAt(w string, i int) bool {
@@ -343,7 +374,11 @@ func isVowelAt(w string, i int) bool {
 // w, x or y ("plan", "stat", but not "box").
 func endsCVC(w string) bool {
 	n := len(w)
-	if n < 3 || strings.ContainsRune("wxy", rune(w[n-1])) {
+	if n < 3 {
+		return false
+	}
+	switch w[n-1] {
+	case 'w', 'x', 'y':
 		return false
 	}
 	return !isVowelAt(w, n-3) && isVowelAt(w, n-2) && !isVowelAt(w, n-1)

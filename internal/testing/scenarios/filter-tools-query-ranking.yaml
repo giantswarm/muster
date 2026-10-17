@@ -104,3 +104,18 @@ steps:
       json_path:
         total: 1
         tools.0.name: "x_rank_grafana_dashboard"
+
+  - id: "singular-query"
+    description: "A singular in the query matches the plural in a tool's name and description"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        query: "metric"
+        pattern: "x_rank_*"
+    expected:
+      success: true
+      json_path:
+        total: 2
+        tools.0.name: "x_rank_metrics_overview"
+        tools.1.name: "x_rank_prometheus_query_range"

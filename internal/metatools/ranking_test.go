@@ -50,13 +50,19 @@ func TestFoldPlural_SingularAndPluralShareAKey(t *testing.T) {
 		{"alias", "aliases"},
 		{"bias", "biases"},
 		{"bus", "buses"},
+		{"index", "indices"},
+		{"index", "indexes"},
+		{"matrix", "matrices"},
+		{"vertex", "vertices"},
+		{"analysis", "analyses"},
+		{"child", "children"},
 	} {
 		assert.Equal(t, foldPlural(pair[0]), foldPlural(pair[1]), "%q and %q", pair[0], pair[1])
 	}
 }
 
 func TestFoldPlural_KeepsWordsThatAreNotPlurals(t *testing.T) {
-	for _, word := range []string{"status", "access", "ingress", "analysis", "redis", "series", "news", "dns", "as", "k8s", "s3"} {
+	for _, word := range []string{"status", "access", "ingress", "analysis", "redis", "series", "news", "dns", "https", "aws", "kms", "has", "does", "this", "as", "k8s", "s3"} {
 		assert.Equal(t, word, foldPlural(word))
 	}
 }
@@ -75,6 +81,10 @@ func TestFoldPlural_KeepsUnrelatedWordsApart(t *testing.T) {
 		{"news", "new"},
 		{"lens", "len"},
 		{"gcs", "gc"},
+		{"has", "ha"},
+		{"https", "http"},
+		{"kms", "km"},
+		{"rds", "rd"},
 	} {
 		assert.NotEqual(t, foldPlural(pair[0]), foldPlural(pair[1]), "%q and %q", pair[0], pair[1])
 	}
@@ -108,11 +118,24 @@ func TestRankBM25_PluralQueryMatchesSingular(t *testing.T) {
 	assert.Equal(t, "describe_table", docName(docs, ranked, 0))
 }
 
-// TestQueryTerms_DropsStopWordsBeforeFolding verifies that stop words are
-// recognised as typed: folded, "does" would become "doe" and stay in the query.
-func TestQueryTerms_DropsStopWordsBeforeFolding(t *testing.T) {
+// TestQueryTerms_DropsStopWords verifies that the query keeps its folded
+// content words only, and a query of only stop words keeps them as typed.
+func TestQueryTerms_DropsStopWords(t *testing.T) {
 	assert.Equal(t, []string{"restart", foldPlural("services")}, queryTerms("how does it restart the services"))
-	assert.Equal(t, []string{foldPlural("does")}, queryTerms("does"), "a query of only stop words keeps them, folded")
+	assert.Equal(t, []string{"does"}, queryTerms("does"), "a query of only stop words keeps them")
+}
+
+// TestRankBM25_FunctionWordsAreNotFolded verifies that "has" in a description
+// is not taken for the plural of "ha" (high availability).
+func TestRankBM25_FunctionWordsAreNotFolded(t *testing.T) {
+	docs := []rankDoc{
+		{name: "x_pg_enable_ha", summary: "Enable high availability (HA) for a database cluster."},
+		{name: "x_k8s_get_pod", summary: "Get a pod.", details: "Returns an error if the pod has no node."},
+	}
+
+	ranked := rankBM25("ha", docs)
+	require.Len(t, ranked, 1)
+	assert.Equal(t, "x_pg_enable_ha", docName(docs, ranked, 0))
 }
 
 // TestRankBM25_PluralStopVerbStaysDownWeighted verifies that "lists" is
