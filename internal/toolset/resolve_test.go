@@ -325,3 +325,14 @@ func TestSetFamilyMembers_ReplacesWhatItAdvertised(t *testing.T) {
 	}, tool.InputSchema.Properties["server"])
 	assert.NotContains(t, original, "server", "the input schema's properties are not mutated")
 }
+
+func TestFamilyMembers_ReadsTheTrailer(t *testing.T) {
+	tool := mcp.Tool{Name: "query", Description: "Run a query (on a server)"}
+	assert.Nil(t, FamilyMembers(tool.Description), "a description without the trailer names no member")
+
+	SetFamilyMembers(&tool, "server", []string{"a", "b"})
+	assert.Equal(t, []string{"a", "b"}, FamilyMembers(tool.Description))
+
+	SetFamilyMembers(&tool, "server", []string{"c"})
+	assert.Equal(t, []string{"c"}, FamilyMembers(tool.Description), "the trailer of the latest call is read")
+}

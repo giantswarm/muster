@@ -349,6 +349,10 @@ type MusterInstance struct {
 	Logs *InstanceLogs
 	// ExpectedTools contains the list of tools expected to be available from MCP servers
 	ExpectedTools []string
+	// ExpectedFamilyMembers maps each family-grouped tool in ExpectedTools to
+	// the MCP servers it is expected on. WaitForReady waits until the tool's
+	// describe_tool trailer lists every one of them, not only its first.
+	ExpectedFamilyMembers map[string][]string
 	// ExpectedMCPServers contains the list of MCP server names expected to be registered.
 	// This includes OAuth-protected servers which may be in "auth_required" state.
 	// Used by WaitForReady to ensure servers are registered before tests run.
