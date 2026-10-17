@@ -289,7 +289,7 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 		mcpClient = sseClient
 
 	case TransportStreamableHTTP:
-		var httpOpts []transport.StreamableHTTPCOption
+		httpOpts := []transport.StreamableHTTPCOption{transport.WithHTTPLogger(transportLogger())}
 		if oauthCfg != nil {
 			httpOpts = append(httpOpts, transport.WithHTTPOAuth(*oauthCfg))
 		}
