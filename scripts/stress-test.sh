@@ -19,7 +19,7 @@ set -euo pipefail
 # Configuration
 ITERATIONS="${1:-20}"
 PARALLEL="${2:-50}"
-BASE_PORT="${3:-30000}"  # Use higher port range to avoid conflicts
+BASE_PORT="${3:-22000}"  # Outside the default window and the NodePort range 30000-32767
 RESULTS_DIR="stress-test-results"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_DIR="${RESULTS_DIR}/${TIMESTAMP}"

@@ -266,6 +266,10 @@ func NewMusterInstanceManagerWithLogger(debug bool, basePort int, logger TestLog
 // NewMusterInstanceManagerWithConfig creates a new muster instance manager with custom logger and config options.
 // A readinessTimeout of zero (or negative) selects defaultReadinessTimeout.
 func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLogger, keepTempConfig bool, readinessTimeout time.Duration) (MusterInstanceManager, error) {
+	if err := ValidateBasePort(basePort); err != nil {
+		return nil, err
+	}
+
 	// Create temporary directory for test configurations
 	tempDir, err := os.MkdirTemp("", "muster-test-*")
 	if err != nil {
@@ -1065,7 +1069,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 		return port, nil
 	}
 
-	return 0, fmt.Errorf("no available ports found starting from %d (tried %d ports)", m.basePort, portWindowSize)
+	return 0, m.portWindowExhaustedError()
 }
 
 // portWindowSize is the number of ports, starting at the base port, the
