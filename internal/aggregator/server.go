@@ -18,6 +18,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/admin"
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/credprovider"
 	"github.com/giantswarm/muster/v5/internal/listenfds"
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
@@ -210,6 +211,11 @@ type AggregatorServer struct {
 
 	// adminServer is the optional admin web UI listener. Nil when disabled.
 	adminServer *admin.Server
+
+	// credProvider answers the egress gateway's FetchSecret from Session
+	// bindings; nil when disabled. credProviderServer is its gRPC listener.
+	credProvider       *credprovider.Provider
+	credProviderServer *credprovider.Server
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -1114,6 +1120,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		}
 	}
 
+	if err := a.startCredentialProvider(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1167,6 +1177,8 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 				slog.String("error", err.Error()))
 		}
 	}
+
+	a.stopCredentialProvider(ctx)
 
 	// Cancel context to signal shutdown to all background routines
 	if cancelFunc != nil {
@@ -1814,6 +1826,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		http.HandlerFunc(a.handleUserTokensDeletion)))
 	outerMux.Handle("DELETE /auth/{server}", oauthHTTPServer.ValidateTokenWithSubject(
 		http.HandlerFunc(a.handleAuthServerDeletion)))
+	if err := a.registerSessionBindingRoutes(outerMux, oauthHTTPServer.ValidateTokenWithSubject); err != nil {
+		return nil, err
+	}
 
 	outerMux.Handle("/", oauthMux)
 

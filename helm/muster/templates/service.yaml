@@ -11,6 +11,12 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if .Values.muster.credentialProvider.enabled }}
+    - port: {{ .Values.muster.credentialProvider.port }}
+      targetPort: credprovider
+      protocol: TCP
+      name: credprovider
+    {{- end }}
     {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
     - port: {{ .Values.muster.observability.metrics.prometheus.port }}
       targetPort: metrics
