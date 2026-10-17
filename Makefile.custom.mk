@@ -116,11 +116,13 @@ test-vet: ## Run go test and go vet
 	@echo "Running go vet..."
 	@go vet ./...
 
+# renovate: datasource=go depName=golang.org/x/vuln
+GOVULNCHECK_VERSION ?= v1.9.0
+
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck to scan for known vulnerabilities
 	@echo "Checking for known vulnerabilities..."
-	@command -v govulncheck >/dev/null 2>&1 || { echo "Installing govulncheck..."; go install golang.org/x/vuln/cmd/govulncheck@latest; }
-	@govulncheck ./...
+	@go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 ##@ Documentation
 
