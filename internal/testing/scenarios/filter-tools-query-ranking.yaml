@@ -14,6 +14,8 @@ timeout: "5m"
 #        term are dropped (the query narrows, it does not merely reorder).
 #        Words below the first line of a description are searchable too
 #        (#1534), while the summary stays the first line.
+#        A plural in the query matches its singular in a tool, and the other
+#        way round.
 
 pre_configuration:
   mcp_servers:
@@ -88,3 +90,32 @@ steps:
         tools.0.summary: "List background jobs."
       not_contains:
         - "x_rank_prometheus_query_range"
+
+  - id: "plural-query"
+    description: "A plural in the query matches the singular in a tool's name and description"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        query: "dashboards"
+        pattern: "x_rank_*"
+    expected:
+      success: true
+      json_path:
+        total: 1
+        tools.0.name: "x_rank_grafana_dashboard"
+
+  - id: "singular-query"
+    description: "A singular in the query matches the plural in a tool's name and description"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        query: "metric"
+        pattern: "x_rank_*"
+    expected:
+      success: true
+      json_path:
+        total: 2
+        tools.0.name: "x_rank_metrics_overview"
+        tools.1.name: "x_rank_prometheus_query_range"
