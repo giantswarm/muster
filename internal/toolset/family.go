@@ -8,6 +8,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// familyTrailerPrefix opens the description trailer SetFamilyMembers writes;
+// FamilyMembers reads it back.
+const familyTrailerPrefix = " (available on servers: "
+
 // SetFamilyMembers advertises servers as the members a family-grouped tool
 // runs on: a required string parameter named instanceArg whose enum lists
 // them, and a description trailer naming them. It replaces what a previous
@@ -42,8 +46,23 @@ func SetFamilyMembers(tool *mcp.Tool, instanceArg string, servers []string) {
 	// A single trailer is kept across repeated calls by treating an existing
 	// parenthesised "available on servers" suffix as canonical.
 	description := tool.Description
-	if idx := strings.LastIndex(description, " (available on servers:"); idx >= 0 {
+	if idx := strings.LastIndex(description, strings.TrimSuffix(familyTrailerPrefix, " ")); idx >= 0 {
 		description = description[:idx]
 	}
-	tool.Description = description + " (available on servers: " + strings.Join(servers, ", ") + ")"
+	tool.Description = description + familyTrailerPrefix + strings.Join(servers, ", ") + ")"
+}
+
+// FamilyMembers returns the members a family-grouped tool's description
+// trailer names, in trailer order, or nil when the description carries no
+// trailer.
+func FamilyMembers(description string) []string {
+	idx := strings.LastIndex(description, familyTrailerPrefix)
+	if idx < 0 {
+		return nil
+	}
+	list, ok := strings.CutSuffix(description[idx+len(familyTrailerPrefix):], ")")
+	if !ok || list == "" {
+		return nil
+	}
+	return strings.Split(list, ", ")
 }
