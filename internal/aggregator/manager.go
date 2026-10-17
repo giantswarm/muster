@@ -42,6 +42,11 @@ type AggregatorManager struct {
 	eventHandler     *EventHandler     // Handles service state change events
 	oauthManager     *oauth.Manager    // OAuth proxy for remote MCP server authentication
 
+	// definitionPins is the authorization server each MCPServer definition
+	// was pinned with, see pinDefinedAuthorizationServers.
+	definitionPinsMu sync.Mutex
+	definitionPins   map[string]*api.MCPServerAuthAuthorizationServer
+
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
 	cancelFunc context.CancelFunc // Function to cancel the context
@@ -74,7 +79,9 @@ func NewAggregatorManager(ctx context.Context, config AggregatorConfig, orchestr
 		orchestratorAPI:  orchestratorAPI,
 		serviceRegistry:  serviceRegistry,
 		aggregatorServer: aggregatorServer,
+		definitionPins:   make(map[string]*api.MCPServerAuthAuthorizationServer),
 	}
+	aggregatorServer.definedServers = manager.definedServers
 
 	// Initialize OAuth manager if enabled (OAuth MCP client/proxy for authenticating TO remote MCP servers)
 	if config.OAuth.Enabled {
@@ -141,6 +148,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 		logging.Warn("Aggregator-Manager", "Error during initial MCP server registration: %v", err)
 		// Continue anyway - the event handler will handle future registrations
 	}
+	am.pinDefinedAuthorizationServers(am.ctx)
 
 	// Create event handler with callbacks for registration/deregistration
 	am.eventHandler = NewEventHandler(
@@ -150,6 +158,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 		am.isServerAuthRequired,
 		am.isServerSSOBased,
 	)
+	am.eventHandler.onServiceEvent = func(string) { am.pinDefinedAuthorizationServers(am.ctx) }
 
 	// Start the event handler for automatic updates
 	if err := am.eventHandler.Start(am.ctx); err != nil {
@@ -731,6 +740,7 @@ func (am *AggregatorManager) retryFailedRegistrations(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			am.pinDefinedAuthorizationServers(ctx)
 			am.attemptPendingRegistrations(ctx)
 			am.pruneOrphanedRegistrations()
 		}
