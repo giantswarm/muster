@@ -263,6 +263,10 @@
                         "gatewayIdentity": {
                             "type": "string"
                         },
+                        "gitUsers": {
+                            "type": "object",
+                            "additionalProperties": true
+                        },
                         "port": {
                             "type": "integer"
                         },
