@@ -111,6 +111,13 @@ func TestActorBearerActsAsTheBoundPerson(t *testing.T) {
 	again, err := ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
 	require.NoError(t, err)
 	assert.Equal(t, caller.SessionID, again.SessionID, "one muster session across the actor's turns")
+
+	require.NoError(t, store.Delete(ctx, testActor, "alice"))
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "bob", Session: "kagent/s9", Providers: []string{MusterProvider}}, time.Hour))
+	rebound, err := ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
+	require.NoError(t, err)
+	assert.Equal(t, "bob", rebound.Subject)
+	assert.NotEqual(t, caller.SessionID, rebound.SessionID, "a rebound actor never inherits another person's session")
 }
 
 func TestActorBearerRefusals(t *testing.T) {

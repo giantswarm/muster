@@ -72,7 +72,8 @@ func (a *AggregatorServer) registerActorBearerRoutes(mux *http.ServeMux, mcpHand
 }
 
 // actorBearerHandler serves a request whose bearer is an actor JWT as the
-// person the actor is bound to, and hands every other request to next.
+// person the actor is bound to, and hands every other request to next. A
+// refusal answers a generic reason; the detail is in muster's log.
 //
 // The actor JWT is never put in the request context as a forwardable token:
 // muster's downstream servers never see it.
@@ -86,15 +87,15 @@ func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Hand
 		caller, err := ab.Authenticate(r.Context(), bearer)
 		switch {
 		case errors.Is(err, credprovider.ErrBindingsUnavailable):
-			http.Error(w, "temporarily unavailable: "+err.Error(), http.StatusServiceUnavailable)
+			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		case errors.Is(err, credprovider.ErrActorNotAllowed):
 			w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope"`)
-			http.Error(w, "forbidden: "+err.Error(), http.StatusForbidden)
+			http.Error(w, "forbidden: the actor may not call muster", http.StatusForbidden)
 			return
 		case err != nil:
 			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
-			http.Error(w, "unauthorized: "+err.Error(), http.StatusUnauthorized)
+			http.Error(w, "unauthorized: invalid actor token", http.StatusUnauthorized)
 			return
 		}
 

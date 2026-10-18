@@ -59,7 +59,8 @@ type ActorCaller struct {
 	Subject string
 	// Session is the bound Session, for the audit log.
 	Session string
-	// SessionID is the muster session of the actor: stable across its turns.
+	// SessionID is the muster session of the actor under its binding:
+	// stable across its turns.
 	SessionID string
 	// Expiry is the actor JWT's exp.
 	Expiry time.Time
@@ -147,7 +148,9 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 	if err := a.store.Touch(ctx, actor, a.ttl); err != nil {
 		logging.WarnWithAttrs(logSubsystem, "binding_touch_failed", slog.String("actor", actor), slog.String("error", err.Error()))
 	}
-	sum := sha256.Sum256([]byte(actor))
+	// The session is the actor's under this binding: a rebound actor never
+	// inherits another binding's muster session.
+	sum := sha256.Sum256([]byte(actor + "\x00" + binding.Subject + "\x00" + binding.Session))
 	return &ActorCaller{
 		Actor:     actor,
 		Subject:   binding.Subject,
