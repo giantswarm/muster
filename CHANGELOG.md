@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [5.44.1] - 2026-10-18
+
 ### Fixed
 
 - **A `core_auth_login` that starts no OAuth flow no longer spends the person's authentication attempts.** Every call was charged to the per-user rate limit (10 attempts a minute) before muster looked at the session, so a client checking a server's connection with `core_auth_login` (the portal does before it acts for the person) used up the attempts with answers like "already authenticated" and the next real sign-in was refused with "Rate limit exceeded … Remaining attempts: 0". An attempt is now charged only when the answer needs an OAuth flow, a held grant reused or a new challenge; answers that start none (already authenticated, no authentication needed, a deactivated or SSO-managed server) are free. The limit itself is unchanged. ([#1567](https://github.com/giantswarm/muster/issues/1567))
@@ -2249,7 +2251,8 @@ See [ADR-010](docs/explanation/decisions/010-server-side-meta-tools.md) for desi
 
 - Broker credential minting extracted behind a `CredentialProvider` interface and an `oidc-exchange` provider dispatched through a registry (`internal/oauth`). No behaviour change; the oidc-exchange provider preserves per-(endpoint, connector, user) token caching.
 
-[Unreleased]: https://github.com/giantswarm/muster/compare/v5.44.1-rc.3...HEAD
+[Unreleased]: https://github.com/giantswarm/muster/compare/v5.44.1...HEAD
+[5.44.1]: https://github.com/giantswarm/muster/compare/v5.44.1-rc.3...v5.44.1
 [5.44.1-rc.3]: https://github.com/giantswarm/muster/compare/v5.44.1-rc.2...v5.44.1-rc.3
 [5.44.1-rc.2]: https://github.com/giantswarm/muster/compare/v5.44.0...v5.44.1-rc.2
 [5.44.0]: https://github.com/giantswarm/muster/compare/v5.44.0-rc.3...v5.44.0
