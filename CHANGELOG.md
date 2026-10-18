@@ -4,11 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `core_auth_login` that starts no OAuth flow no longer spends the person's authentication attempts.** Every call was charged to the per-user rate limit (10 attempts a minute) before muster looked at the session, so a client checking a server's connection with `core_auth_login` (the portal does before it acts for the person) used up the attempts with answers like "already authenticated" and the next real sign-in was refused with "Rate limit exceeded … Remaining attempts: 0". An attempt is now charged only when the answer needs an OAuth flow, a held grant reused or a new challenge; answers that start none (already authenticated, no authentication needed, a deactivated or SSO-managed server) are free. The limit itself is unchanged. ([#1567](https://github.com/giantswarm/muster/issues/1567))
+
 ## [5.44.1-rc.3] - 2026-10-17
 
 ### Fixed
 
-- **A `core_auth_login` that starts no OAuth flow no longer spends the person's authentication attempts.** Every call was charged to the per-user rate limit (10 attempts a minute) before muster looked at the session, so a client checking a server's connection with `core_auth_login` (the portal does before it acts for the person) used up the attempts with answers like "already authenticated" and the next real sign-in was refused with "Rate limit exceeded … Remaining attempts: 0". An attempt is now charged only when the answer needs an OAuth flow, a held grant reused or a new challenge; answers that start none (already authenticated, no authentication needed, a deactivated or SSO-managed server) are free. The limit itself is unchanged. ([#1567](https://github.com/giantswarm/muster/issues/1567))
 - **`muster test --validate-scenarios` validates again, and CI runs it.** `--generate-schema` read `tools/list`, which carries only the meta-tools, so `schema.json` held no core tool and every `core_*` step was an unknown tool (1655 errors on main); the validator also rejected the runner's own `test_*` helpers. The generator now reads the core tools and their input schemas through `list_core_tools`, writes no timestamp, and the validator accepts the registered test helpers. `make test` regenerates `schema.json` and fails on a stale copy or a step that does not validate. ([#1560](https://github.com/giantswarm/muster/issues/1560))
 
 ## [5.44.1-rc.2] - 2026-10-17
