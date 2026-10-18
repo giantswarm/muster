@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/48d8219323be4cd05f2eccad7ccfc71118b3ae82/pkg/gen/input/workflows/internal/file/changelog.yaml.template
+#    https://github.com/giantswarm/devctl/blob/4cf9a2c2add200e544c58d8168f7b0d49a62e54d/pkg/gen/input/workflows/internal/file/changelog.yaml.template
 #
 # yamllint disable rule:truthy
 # Fails a pull request while CHANGELOG.md lists, under Unreleased, an entry a
@@ -34,13 +34,24 @@ jobs:
 
       - name: Check CHANGELOG.md
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}      # gh downloads devctl
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # devctl's version check reads its releases
         run: |
           set -euo pipefail
           if [ ! -f CHANGELOG.md ]; then
             echo "no CHANGELOG.md: nothing to check"
             exit 0
           fi
-          gh release download --repo giantswarm/devctl --pattern devctl-linux-amd64 --output "${RUNNER_TEMP}/devctl"
+          # CircleCI uploads a devctl release's binaries minutes after its
+          # tag: the latest release can have none yet.
+          for attempt in $(seq 1 20); do
+            gh release download --repo giantswarm/devctl --pattern devctl-linux-amd64 --output "${RUNNER_TEMP}/devctl" && break
+            if [ "$attempt" -eq 20 ]; then
+              echo "::error title=No devctl binary::devctl's latest release has no devctl-linux-amd64 after 10 minutes"
+              exit 1
+            fi
+            echo "devctl's latest release has no devctl-linux-amd64 yet (CircleCI uploads it after the tag): retrying in 30s"
+            sleep 30
+          done
           chmod +x "${RUNNER_TEMP}/devctl"
           "${RUNNER_TEMP}/devctl" changelog check
