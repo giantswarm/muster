@@ -75,7 +75,7 @@ func BenchmarkRankAnalyzedCached(b *testing.B) {
 	cache.analyze(tools)
 	b.ReportAllocs()
 	for b.Loop() {
-		rankAnalyzed("retention policies for hypertable chunks", cache.analyze(tools))
+		rankAnalyzed(queryTerms("retention policies for hypertable chunks"), cache.analyze(tools))
 	}
 }
 

@@ -177,6 +177,16 @@ func TestRankBM25_EmptyInputs(t *testing.T) {
 	assert.Nil(t, rankBM25("a", nil))
 }
 
+// rankBM25 analyses docs and ranks them for query (see rankAnalyzed), for tests
+// that describe tools as rankDocs.
+func rankBM25(query string, docs []rankDoc) []rankedDoc {
+	analyzed := make([]*analyzedDoc, len(docs))
+	for i, doc := range docs {
+		analyzed[i] = analyzeDoc(doc)
+	}
+	return rankAnalyzed(queryTerms(query), analyzed)
+}
+
 // docName returns the name of the doc at the given ranked position, for readable
 // ordering assertions.
 func docName(docs []rankDoc, ranked []rankedDoc, pos int) string {

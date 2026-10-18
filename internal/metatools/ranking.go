@@ -83,8 +83,8 @@ func (d rankDoc) fields() [numRankFields]string {
 	return [numRankFields]string{d.name, d.summary, d.details}
 }
 
-// rankBM25 scores docs against the query and returns their indices ordered by
-// descending relevance. Documents with a zero score (no query term matched)
+// rankAnalyzed scores docs against the query terms (see queryTerms) and returns
+// their indices ordered by descending relevance. Documents with a zero score (no query term matched)
 // are dropped, so a query narrows the candidate set rather than reordering the
 // whole catalogue.
 //
@@ -95,47 +95,14 @@ func (d rankDoc) fields() [numRankFields]string {
 // least in the details. Ubiquitous CRUD verbs are down-weighted (see
 // stopVerbs) so the discriminating noun drives ranking, and function words are
 // dropped from the query (see stopWords).
-// Tokenisation is lowercase alphanumeric runs (snake_case and kebab-case names
+// Each tool is tokenised and folded once (see analyzeDoc and rankTermCache);
+// tokenisation is lowercase alphanumeric runs (snake_case and kebab-case names
 // split naturally; camelCase boundaries are also split), each folded so that a
 // plural matches its singular (see foldPlural), IDF is computed over
 // the candidate corpus, and no embedding index or external dependency is
 // involved. Embeddings can replace this later if lexical recall proves
 // insufficient (see muster#868).
-func rankBM25(query string, docs []rankDoc) []rankedDoc {
-	analyzed := make([]*analyzedDoc, len(docs))
-	for i, doc := range docs {
-		analyzed[i] = analyzeDoc(doc)
-	}
-	return rankAnalyzed(query, analyzed)
-}
-
-// analyzedDoc is a rankDoc tokenised and folded once: per field, the count of
-// each term and the number of tokens. It depends only on the tool, so it is
-// computed once per tool and shared by every query (see rankTermCache); it is
-// never modified after analyzeDoc returns it.
-type analyzedDoc struct {
-	tf     [numRankFields]map[string]int
-	length [numRankFields]int
-}
-
-// analyzeDoc tokenises and folds the fields of doc (see rankTerms).
-func analyzeDoc(doc rankDoc) *analyzedDoc {
-	var a analyzedDoc
-	for f, text := range doc.fields() {
-		tokens := rankTerms(text)
-		tf := make(map[string]int, len(tokens))
-		for _, t := range tokens {
-			tf[t]++
-		}
-		a.tf[f] = tf
-		a.length[f] = len(tokens)
-	}
-	return &a
-}
-
-// rankAnalyzed is rankBM25 over documents analyzeDoc has prepared.
-func rankAnalyzed(query string, docs []*analyzedDoc) []rankedDoc {
-	terms := queryTerms(query)
+func rankAnalyzed(terms []string, docs []*analyzedDoc) []rankedDoc {
 	if len(terms) == 0 || len(docs) == 0 {
 		return nil
 	}
