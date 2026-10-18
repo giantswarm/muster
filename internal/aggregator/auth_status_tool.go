@@ -77,7 +77,7 @@ func (p *AuthToolProvider) issueAuthURL(ctx context.Context, sessionID, sub stri
 	if !grantable(*entry) {
 		return
 	}
-	result := p.login(ctx, sessionID, sub, entry.Name, false)
+	result := p.login(ctx, sessionID, sub, entry.Name, false, nil)
 	if url := challengeURL(result); url != "" {
 		entry.AuthURL = url
 		return

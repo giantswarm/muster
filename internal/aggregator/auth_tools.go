@@ -101,11 +101,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return errResult, nil
 	}
 
-	if refused := p.rateLimited(sub, serverName); refused != nil {
-		return refused, nil
-	}
-
-	return p.login(ctx, sessionID, sub, serverName, resetClientRegistration), nil
+	return p.login(ctx, sessionID, sub, serverName, resetClientRegistration, p.rateLimited), nil
 }
 
 // rateLimited answers the refusal for a caller over the authentication rate
@@ -128,12 +124,20 @@ func (p *AuthToolProvider) rateLimited(sub, serverName string) *api.CallToolResu
 	}
 }
 
+// attemptLimit charges one authentication attempt to sub and answers the
+// refusal when sub is over the rate limit, or nil when the attempt may go
+// ahead.
+type attemptLimit func(sub, serverName string) *api.CallToolResult
+
 // login connects the caller's session to serverName with a grant the person
-// already holds, or answers the sign-in challenge that starts a new grant. It
-// is core_auth_login without the rate limit, which its callers apply: one
-// core_auth_login is one attempt, and so is one core_auth_status that issues
+// already holds, or answers the sign-in challenge that starts a new grant.
+// limit is charged only once the answer needs an OAuth flow: an answer that
+// starts none (already authenticated, no authentication needed, a refusal) is
+// no attempt, so a client that checks a server's connection with
+// core_auth_login does not spend the person's attempts. A nil limit charges
+// nothing: core_auth_status charges its one attempt itself before it issues
 // the links of every server it lists.
-func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName string, resetClientRegistration bool) *api.CallToolResult {
+func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName string, resetClientRegistration bool, limit attemptLimit) *api.CallToolResult {
 	// Record the login attempt in metrics
 	if p.aggregator.authMetrics != nil {
 		p.aggregator.authMetrics.RecordLoginAttempt(serverName, sub)
@@ -241,6 +245,14 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 				serverName,
 			)},
 			IsError: true,
+		}
+	}
+
+	// From here on the answer needs an OAuth flow: a held grant reused or a
+	// new challenge. That is the attempt the rate limit counts.
+	if limit != nil {
+		if refused := limit(sub, serverName); refused != nil {
+			return refused
 		}
 	}
 
