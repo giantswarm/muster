@@ -29,6 +29,12 @@ func (h *personMirrorHandler) PersonLoginIDToken(subject, issuer string) *api.OA
 	return h.person[subject]
 }
 
+func (h *personMirrorHandler) ClearLoginIDToken(sessionID, issuer string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	delete(h.tokens, sessionID+"|"+issuer)
+}
+
 func (h *personMirrorHandler) setPerson(subject string, token *api.OAuthToken) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -65,10 +71,17 @@ func TestWithPersonIDToken_PutsThePersonsTokenOnTheActorSession(t *testing.T) {
 }
 
 func TestWithPersonIDToken_NoTokenLeavesTheRequestAlone(t *testing.T) {
-	a, _ := newActorPersonTestAggregator(t)
-	ctx := a.withPersonIDToken(context.Background(), testActorCaller())
+	a, handler := newActorPersonTestAggregator(t)
+	caller := testActorCaller()
+	handler.setPerson("alice", &api.OAuthToken{IDToken: identityTokenBefore, ExpiresAt: time.Now().Add(time.Hour)})
+	a.withPersonIDToken(context.Background(), caller)
+
+	handler.setPerson("alice", nil) // the person signed out
+	ctx := a.withPersonIDToken(context.Background(), caller)
 	_, ok := server.GetIDTokenFromContext(ctx)
 	assert.False(t, ok)
+	assert.Empty(t, getIDTokenForForwarding(context.Background(), caller.SessionID, identityTestIssuer, nil),
+		"the actor session's copy goes with the person's sign-out")
 }
 
 func TestWithPersonIDToken_RefreshesThePersonsLoginsOnce(t *testing.T) {

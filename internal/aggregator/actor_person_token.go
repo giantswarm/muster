@@ -53,8 +53,8 @@ func (r *personTokenRefreshes) due(subject string) bool {
 // request, so the servers that forward it (forwardToken, forwardIdentity) or
 // exchange it (tokenExchange) connect for the actor as the person, and files
 // it as the actor session's login token, where those servers' background
-// connections look it up. The token is the freshest one any of the person's
-// own muster logins recorded; an expired one is renewed by refreshing those
+// connections look it up. The token is the one that lives longest among the
+// person's own live muster logins; an expired one is renewed by refreshing those
 // logins at their identity provider. Without one the request is served as
 // before and those servers stay unconnected for the actor.
 func (a *AggregatorServer) withPersonIDToken(ctx context.Context, caller *credprovider.ActorCaller) context.Context {
@@ -65,16 +65,20 @@ func (a *AggregatorServer) withPersonIDToken(ctx context.Context, caller *credpr
 	}
 	token := a.personLoginIDToken(ctx, oh, caller.Subject, issuer)
 	if token == nil {
+		// A person who signed out takes the copy out of the actor session too.
+		api.ClearLoginIDToken(oh, caller.SessionID, issuer)
 		logging.DebugWithAttrs("Aggregator", "Actor bearer: no live login ID token of the bound person",
 			slog.String("sub", logging.TruncateIdentifier(caller.Subject)),
 			slog.String("session", caller.Session))
 		return ctx
 	}
-	api.StoreLoginIDToken(oh, caller.SessionID, caller.Subject, issuer, token.IDToken, token.ExpiresAt)
+	// Filed without the person's user ID: the copy is no login of the person
+	// and never serves another actor request as one.
+	api.StoreLoginIDToken(oh, caller.SessionID, "", issuer, token.IDToken, token.ExpiresAt)
 	return server.ContextWithIDToken(ctx, token.IDToken)
 }
 
-// personLoginIDToken returns the person's freshest live login ID token,
+// personLoginIDToken returns the person's longest-lived live login ID token,
 // refreshing their logins this replica serves when none is live.
 func (a *AggregatorServer) personLoginIDToken(ctx context.Context, oh api.OAuthHandler, subject, issuer string) *api.OAuthToken {
 	if token := api.PersonLoginIDToken(oh, subject, issuer); token != nil {

@@ -56,6 +56,10 @@ type TokenStorer interface {
 	// rotated token and nobody redeems the old refresh token again.
 	ReplaceByUserAndIssuer(userID, issuer string, token *pkgoauth.Token) int
 
+	// GetLongestLivedForUser returns the live token, among the user's
+	// sessions, filed under the issuer and scope that expires last, or nil.
+	GetLongestLivedForUser(userID, issuer, scope string) *pkgoauth.Token
+
 	// DeleteBySession removes all tokens for a session.
 	DeleteBySession(sessionID string)
 

@@ -109,9 +109,10 @@ func TestClient_ExchangeCode_ScopeFromRequestWhenOmitted(t *testing.T) {
 	}
 }
 
-// The person's slot holds the login ID token that lives longest of all their
-// sessions', and goes with a sign out everywhere.
-func TestAdapter_PersonLoginIDToken_FreshestOfThePersonsSessions(t *testing.T) {
+// The person's login ID token is the one that lives longest among their live
+// sessions, read when asked: a session's revocation or a sign out everywhere
+// takes it out at once.
+func TestAdapter_PersonLoginIDToken_LongestLivedOfThePersonsSessions(t *testing.T) {
 	manager := NewManager(config.OAuthMCPClientConfig{
 		Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback",
 	})
@@ -125,18 +126,24 @@ func TestAdapter_PersonLoginIDToken_FreshestOfThePersonsSessions(t *testing.T) {
 	}
 	api.StoreLoginIDToken(adapter, "cli", "alice", issuer, "cli-token", now.Add(2*time.Hour))
 	api.StoreLoginIDToken(adapter, "portal", "alice", issuer, "portal-token", now.Add(time.Hour))
+	api.StoreLoginIDToken(adapter, "copy", "", issuer, "copy-token", now.Add(5*time.Hour))
+	api.StoreLoginIDToken(adapter, "bob-cli", "bob", issuer, "bob-token", now.Add(4*time.Hour))
+	manager.StoreToken("grant", "alice", issuer, &pkgoauth.Token{AccessToken: "at", IDToken: "grant-id", ExpiresAt: now.Add(6 * time.Hour), Issuer: issuer})
 	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got == nil || got.IDToken != "cli-token" {
-		t.Fatalf("person token = %+v, want the one that lives longest", got)
+		t.Fatalf("person token = %+v, want the login that lives longest, no copy, grant or other person", got)
 	}
-	api.StoreLoginIDToken(adapter, "portal", "alice", issuer, "portal-token-2", now.Add(3*time.Hour))
-	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got == nil || got.IDToken != "portal-token-2" {
-		t.Fatalf("person token = %+v, want the newer, longer-lived one", got)
+	if got := api.PersonLoginIDToken(adapter, "alice", "https://other.example.com"); got != nil {
+		t.Fatalf("another issuer = %+v, want nil", got)
 	}
-	if got := api.LoginIDToken(adapter, "portal", issuer); got == nil || got.IDToken != "portal-token-2" {
-		t.Fatalf("session token = %+v, want the session's own", got)
+
+	manager.DeleteTokensBySession("cli") // the CLI login is revoked
+	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got == nil || got.IDToken != "portal-token" {
+		t.Fatalf("person token after a revocation = %+v, want the remaining login's", got)
 	}
-	if got := api.PersonLoginIDToken(adapter, "bob", issuer); got != nil {
-		t.Fatalf("another person's token = %+v, want nil", got)
+
+	api.ClearLoginIDToken(adapter, "copy", issuer)
+	if got := api.LoginIDToken(adapter, "copy", issuer); got != nil && got.IDToken == "copy-token" {
+		t.Fatalf("cleared login token = %+v, want gone", got)
 	}
 	if got := api.PersonLoginIDToken(adapter, "", issuer); got != nil {
 		t.Fatalf("no subject = %+v, want nil", got)
@@ -144,6 +151,7 @@ func TestAdapter_PersonLoginIDToken_FreshestOfThePersonsSessions(t *testing.T) {
 	if got := api.PersonLoginIDToken(&legacyHandler{}, "alice", issuer); got != nil {
 		t.Fatalf("a handler without the mirror = %+v, want nil", got)
 	}
+	api.ClearLoginIDToken(&legacyHandler{}, "copy", issuer) // no mirror: nothing to do
 
 	manager.client.tokenStore.DeleteByUser("alice")
 	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got != nil {

@@ -165,10 +165,11 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   one muster session, and every accepted request restarts the binding's TTL. The actor JWT is
   never forwarded downstream. Servers that forward (`forwardToken`, `forwardIdentity`) or
   exchange (`tokenExchange`) the person's ID token get the person's own login ID token instead:
-  the one that lives longest of those the person's muster logins (the CLI's, the portal's
-  forwarded one) recorded. When none is live, muster refreshes the person's logins it serves
-  at the identity provider, at most once every 30 seconds per person; without any, those
-  servers stay unconnected for the actor. Signing out everywhere ends it.
+  the one that lives longest among the person's live muster logins (the CLI's, the portal's
+  forwarded one), read on every request, so a login's sign-out or revocation takes its token
+  out at once. When none is live, muster refreshes the person's logins it serves at the
+  identity provider, at most once every 30 seconds per person; without any, those servers
+  stay unconnected for the actor.
 
 ```yaml
 aggregator:
