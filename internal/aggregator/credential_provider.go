@@ -40,6 +40,7 @@ func (a *AggregatorServer) newCredentialProvider() (*credprovider.Provider, erro
 		Authority:       cfg.Authority,
 		GatewayIdentity: cfg.GatewayIdentity,
 		Releasable:      cfg.Releasable,
+		MusterBearer:    cfg.ActorBearer.Enabled,
 		BindingTTL:      ttl,
 		Store:           store,
 		Grants:          releaseSubjectGrant,

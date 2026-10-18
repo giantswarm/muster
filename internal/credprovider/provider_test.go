@@ -269,12 +269,18 @@ func TestNewProviderValidates(t *testing.T) {
 	_, err := NewProvider(ok)
 	require.NoError(t, err)
 
+	musterOnly := ok
+	musterOnly.Releasable, musterOnly.MusterBearer = nil, true
+	_, err = NewProvider(musterOnly)
+	require.NoError(t, err, "the actor bearer alone needs nothing releasable")
+
 	for name, mutate := range map[string]func(*Options){
 		"no gateway":          func(o *Options) { o.GatewayIdentity = "" },
 		"gateway not SPIFFE":  func(o *Options) { o.GatewayIdentity = "https://gateway" },
 		"nothing releasable":  func(o *Options) { o.Releasable = nil },
 		"provider with slash": func(o *Options) { o.Releasable = map[string]string{"a/b": testIssuer} },
 		"provider w/o issuer": func(o *Options) { o.Releasable = map[string]string{"github": ""} },
+		"muster is reserved":  func(o *Options) { o.Releasable = map[string]string{MusterProvider: testIssuer} },
 		"no store":            func(o *Options) { o.Store = nil },
 		"no grant source":     func(o *Options) { o.Grants = nil },
 	} {

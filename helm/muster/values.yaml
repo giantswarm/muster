@@ -339,6 +339,23 @@ muster:
     # pinned with grantScope: subject). Only these grants are ever released.
     # Example: {github: "https://github.com/apps/giantswarm-workspaces"}
     releasable: {}  # @schema additionalProperties: true
+    # A bound Session's sandbox calls muster itself as its person: the egress
+    # gateway injects the actor's JWT on the muster host (an actor_jwt rule
+    # with this audience), muster verifies it against Substrate's actor-JWT
+    # issuer and serves the request as the person whose binding lists the
+    # provider "muster". No credential is in the sandbox.
+    actorBearer:
+      enabled: false
+      # iss of Substrate's actor JWTs (ate-api's --actor-jwt-issuer):
+      # https://idp.<substrate namespace>.svc
+      issuer: ""
+      # Key set; empty means <issuer>/openid/v1/jwks.
+      jwksUrl: ""
+      # aud the gateway binds the actor JWT to; empty means oauth.server.baseUrl.
+      audience: ""
+      # Key set hosts that may resolve to a private address; empty means the
+      # issuer's host (an in-cluster Service).
+      allowPrivateIPJWKSHosts: []
 
   # Append a PEM file to muster's system trust pool at startup. Use this when
   # muster talks to backends served by an internal CA (for example, the SPIFFE

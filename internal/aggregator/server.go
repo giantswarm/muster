@@ -1745,7 +1745,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Also detects broken upstream refresh chains: when authAlive is true but
 	// the ID token has disappeared, SSO connections are evicted to stop the
 	// mcp-go retry loop from spamming errors with expired tokens.
-	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+	onAuthenticated := func(ctx context.Context, sessionID string) {
 		if a.capabilityStore == nil {
 			return
 		}
@@ -1810,7 +1810,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		}
 
 		a.beginSessionBootstrap(sso)
-	})
+	}
+	oauthHTTPServer.SetOnAuthenticated(onAuthenticated)
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
 		slog.String("baseURL", cfg.BaseURL))
@@ -1833,6 +1834,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	outerMux.Handle("DELETE /auth/{server}", oauthHTTPServer.ValidateTokenWithSubject(
 		http.HandlerFunc(a.handleAuthServerDeletion)))
 	if err := a.registerSessionBindingRoutes(outerMux, oauthHTTPServer.ValidateTokenWithSubject); err != nil {
+		return nil, err
+	}
+	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated); err != nil {
 		return nil, err
 	}
 

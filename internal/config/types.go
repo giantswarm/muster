@@ -128,6 +128,41 @@ type CredentialProviderConfig struct {
 	// grants are ever answered: the workspace App, never the login App.
 	// Example: {github: https://github.com/apps/giantswarm-workspaces}
 	Releasable map[string]string `yaml:"releasable,omitempty"`
+
+	// ActorBearer lets a bound Session's sandbox call muster itself as its
+	// person, with no credential in the sandbox. Disabled by default.
+	ActorBearer ActorBearerConfig `yaml:"actorBearer,omitempty"`
+}
+
+// ActorBearerConfig accepts Substrate's actor JWT, which the egress gateway
+// injects on the muster host, as the bearer of an MCP request. muster verifies
+// it against Substrate's actor-JWT issuer and serves the request as the person
+// the actor is bound to. Only a binding that lists the reserved provider
+// "muster" is accepted; FetchSecret never releases it.
+type ActorBearerConfig struct {
+	// Enabled accepts actor JWTs on /mcp, /sse and /message and lets a
+	// binding list the provider "muster". Default: false.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// Issuer is the iss of Substrate's actor JWTs (ate-api's
+	// --actor-jwt-issuer, https://idp.<namespace>.svc by default). Required.
+	Issuer string `yaml:"issuer,omitempty"`
+
+	// JwksURL is the key set the JWTs are verified with
+	// (default <issuer>/openid/v1/jwks, where Substrate serves it).
+	JwksURL string `yaml:"jwksUrl,omitempty"`
+
+	// Audience is the aud the gateway's rule binds the actor JWT to for the
+	// muster host. Required: a JWT minted for another host is refused.
+	Audience string `yaml:"audience,omitempty"`
+
+	// CAFile is a PEM bundle the key set endpoint's certificate must chain
+	// to, added to the system roots (Substrate's in-cluster CA).
+	CAFile string `yaml:"caFile,omitempty"`
+
+	// AllowPrivateIPJWKSHosts lists the key set hosts that may resolve to a
+	// private address, as an in-cluster Service does.
+	AllowPrivateIPJWKSHosts []string `yaml:"allowPrivateIPJWKSHosts,omitempty"`
 }
 
 // AdminConfig defines the configuration for the admin web UI.

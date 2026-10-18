@@ -230,6 +230,27 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "actorBearer": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "allowPrivateIPJWKSHosts": {
+                                    "type": "array"
+                                },
+                                "audience": {
+                                    "type": "string"
+                                },
+                                "enabled": {
+                                    "type": "boolean"
+                                },
+                                "issuer": {
+                                    "type": "string"
+                                },
+                                "jwksUrl": {
+                                    "type": "string"
+                                }
+                            }
+                        },
                         "authority": {
                             "type": "string"
                         },
