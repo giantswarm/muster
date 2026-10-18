@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **A bound Session's sandbox can call muster as its person with Substrate's actor JWT** (`credentialProvider.actorBearer`, off by default). Substrate's egress gateway injects the actor's JWT on the muster host; muster verifies it against Substrate's actor-JWT issuer and serves the MCP request as the person whose Session binding lists the reserved provider `muster`, so neither the person's bearer nor a loopback token is in the sandbox. An unbound actor is refused with `403`, the JWT is never forwarded to muster's downstream servers. ([#1572](https://github.com/giantswarm/muster/issues/1572))
+- **Servers that forward or exchange the person's ID token work for a bound Session's sandbox.** A request authenticated with an actor JWT now carries the bound person's own login ID token, the one that lives longest among the person's live muster logins (a login's sign-out or revocation takes its token out at once), so `forwardToken`, `forwardIdentity` and `tokenExchange` servers connect for the sandbox as the person. When none is live, muster refreshes the person's logins at the identity provider, at most every 30 seconds per person. The actor JWT itself is still never forwarded. ([#1581](https://github.com/giantswarm/muster/issues/1581))
 
 ### Changed
 

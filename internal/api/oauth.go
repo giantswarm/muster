@@ -230,6 +230,32 @@ func LoginIDToken(h OAuthHandler, sessionID, issuer string) *OAuthToken {
 	return h.GetFullTokenByIssuer(sessionID, issuer)
 }
 
+// PersonLoginTokenMirror is implemented by a LoginTokenMirror that can read,
+// per person, the login ID token that lives longest among their live
+// sessions: the token muster forwards or exchanges for a caller with no login
+// of its own, a Session's sandbox actor bound to the person.
+type PersonLoginTokenMirror interface {
+	// PersonLoginIDToken returns the person's longest-lived live login ID
+	// token for the issuer, or nil when none of their sessions holds one.
+	PersonLoginIDToken(subject, issuer string) *OAuthToken
+
+	// ClearLoginIDToken removes the session's login ID token for the issuer.
+	ClearLoginIDToken(sessionID, issuer string)
+}
+
+// PersonLoginIDToken reads the person's longest-lived login ID token through
+// the handler's mirror, or nil when the handler keeps none.
+func PersonLoginIDToken(h OAuthHandler, subject, issuer string) *OAuthToken {
+	mirror, ok := h.(PersonLoginTokenMirror)
+	if !ok || subject == "" {
+		return nil
+	}
+	if token := mirror.PersonLoginIDToken(subject, issuer); token != nil && token.IDToken != "" {
+		return token
+	}
+	return nil
+}
+
 // GrantReleaser is implemented by an OAuthHandler that can hand a person's
 // subject-scoped grant to a trusted relying party: the token broker's grant
 // targets (tokenExchangeBroker.targets.<audience>.grantIssuer) call it with
@@ -317,4 +343,12 @@ func GetOAuthHandler() OAuthHandler {
 	oauthMutex.RLock()
 	defer oauthMutex.RUnlock()
 	return oauthHandler
+}
+
+// ClearLoginIDToken removes the session's login ID token through the
+// handler's mirror, when it keeps one.
+func ClearLoginIDToken(h OAuthHandler, sessionID, issuer string) {
+	if mirror, ok := h.(PersonLoginTokenMirror); ok {
+		mirror.ClearLoginIDToken(sessionID, issuer)
+	}
 }

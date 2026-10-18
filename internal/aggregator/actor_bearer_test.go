@@ -43,16 +43,23 @@ func TestActorBearerHandler(t *testing.T) {
 	store := credprovider.NewMemoryStore()
 	ab := testActorBearer(t, store)
 
-	var served struct{ sub, session, bearer string }
+	var served struct{ sub, session, bearer, idToken string }
 	mcp := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		served.sub = api.GetSubjectFromContext(r.Context())
 		served.session = api.GetSessionIDFromContext(r.Context())
 		served.bearer = server.CallerTokensFromContext(r.Context()).Bearer
+		served.idToken = server.CallerTokensFromContext(r.Context()).IDToken
 		w.WriteHeader(http.StatusOK)
 	})
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) })
-	var authenticated string
-	h := actorBearerHandler(ab, mcp, next, func(_ context.Context, sessionID string) { authenticated = sessionID })
+	var authenticated, authenticatedIDToken string
+	withPersonToken := func(ctx context.Context, caller *credprovider.ActorCaller) context.Context {
+		return server.ContextWithIDToken(ctx, "id-token-of-"+caller.Subject)
+	}
+	h := actorBearerHandler(ab, mcp, next, func(ctx context.Context, sessionID string) {
+		authenticated = sessionID
+		authenticatedIDToken, _ = server.GetIDTokenFromContext(ctx)
+	}, withPersonToken)
 
 	call := func(bearer string) int {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
@@ -78,10 +85,12 @@ func TestActorBearerHandler(t *testing.T) {
 	assert.NotEmpty(t, served.session)
 	assert.Equal(t, served.session, authenticated)
 	assert.Empty(t, served.bearer, "the actor JWT is never forwarded downstream")
+	assert.Equal(t, "id-token-of-alice", served.idToken, "the bound person's ID token is what servers forward or exchange")
+	assert.Equal(t, "id-token-of-alice", authenticatedIDToken, "the session's servers connect with it")
 }
 
 func TestActorBearerHandlerStoreOutage(t *testing.T) {
-	h := actorBearerHandler(testActorBearer(t, outageStore{credprovider.NewMemoryStore()}), http.NotFoundHandler(), http.NotFoundHandler(), nil)
+	h := actorBearerHandler(testActorBearer(t, outageStore{credprovider.NewMemoryStore()}), http.NotFoundHandler(), http.NotFoundHandler(), nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	req.Header.Set("Authorization", "Bearer "+fakeActorJWT(testActorIssuer, "actor/kagent/session-a"))
 	rec := httptest.NewRecorder()

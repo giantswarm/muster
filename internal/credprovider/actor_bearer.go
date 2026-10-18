@@ -168,6 +168,12 @@ func (a *ActorBearer) refuse(kind error, reason, actor string, attrs ...slog.Att
 	return fmt.Errorf("%w: %s", kind, reason)
 }
 
+// IsActorSession reports whether a muster session ID is an actor-JWT
+// caller's (ActorCaller.SessionID), which has no login of its own.
+func IsActorSession(sessionID string) bool {
+	return strings.HasPrefix(sessionID, actorSessionPrefix)
+}
+
 // actorFromSubject maps an actor JWT's sub, actor/<atespace>/<actor>, to the
 // actor's SPIFFE id, the key its binding is filed under.
 func actorFromSubject(sub string) (string, error) {
