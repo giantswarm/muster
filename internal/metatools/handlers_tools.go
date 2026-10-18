@@ -323,12 +323,7 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	}
 	var ordered []scoredTool
 	if opts.query != "" {
-		docs := make([]rankDoc, len(matched))
-		for i, t := range matched {
-			summary, details := splitDescription(t.Description)
-			docs[i] = rankDoc{name: t.Name, summary: summary, details: details}
-		}
-		for _, rd := range rankBM25(opts.query, docs) {
+		for _, rd := range rankAnalyzed(opts.query, p.rankTerms.analyze(matched)) {
 			ordered = append(ordered, scoredTool{tool: matched[rd.index], score: rd.score, scored: true})
 		}
 	} else {

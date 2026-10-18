@@ -102,43 +102,63 @@ func (d rankDoc) fields() [numRankFields]string {
 // involved. Embeddings can replace this later if lexical recall proves
 // insufficient (see muster#868).
 func rankBM25(query string, docs []rankDoc) []rankedDoc {
+	analyzed := make([]*analyzedDoc, len(docs))
+	for i, doc := range docs {
+		analyzed[i] = analyzeDoc(doc)
+	}
+	return rankAnalyzed(query, analyzed)
+}
+
+// analyzedDoc is a rankDoc tokenised and folded once: per field, the count of
+// each term and the number of tokens. It depends only on the tool, so it is
+// computed once per tool and shared by every query (see rankTermCache); it is
+// never modified after analyzeDoc returns it.
+type analyzedDoc struct {
+	tf     [numRankFields]map[string]int
+	length [numRankFields]int
+}
+
+// analyzeDoc tokenises and folds the fields of doc (see rankTerms).
+func analyzeDoc(doc rankDoc) *analyzedDoc {
+	var a analyzedDoc
+	for f, text := range doc.fields() {
+		tokens := rankTerms(text)
+		tf := make(map[string]int, len(tokens))
+		for _, t := range tokens {
+			tf[t]++
+		}
+		a.tf[f] = tf
+		a.length[f] = len(tokens)
+	}
+	return &a
+}
+
+// rankAnalyzed is rankBM25 over documents analyzeDoc has prepared.
+func rankAnalyzed(query string, docs []*analyzedDoc) []rankedDoc {
 	terms := queryTerms(query)
 	if len(terms) == 0 || len(docs) == 0 {
 		return nil
 	}
-	isQueryTerm := make(map[string]bool, len(terms))
-	for _, t := range terms {
-		isQueryTerm[t] = true
-	}
 
-	// Per document and field, count only the query terms; the field length
-	// counts every token. A field's average length is taken over the documents
-	// that have the field, so the many tools with a one-line description do not
-	// shrink the average details length and crush every details match.
-	fieldTf := make([][numRankFields]map[string]int, len(docs))
-	fieldLen := make([][numRankFields]int, len(docs))
+	// A field's average length is taken over the documents that have the
+	// field, so the many tools with a one-line description do not shrink the
+	// average details length and crush every details match.
 	docFreq := make(map[string]int, len(terms)) // documents containing a query term (in any field)
 	var totalLen, withField [numRankFields]int
-	for i, doc := range docs {
-		seen := make(map[string]bool, len(terms))
-		for f, text := range doc.fields() {
-			tokens := rankTerms(text)
-			tf := make(map[string]int, len(terms))
-			for _, t := range tokens {
-				if isQueryTerm[t] {
-					tf[t]++
-					seen[t] = true
-				}
-			}
-			fieldTf[i][f] = tf
-			fieldLen[i][f] = len(tokens)
-			if len(tokens) > 0 {
-				totalLen[f] += len(tokens)
+	for _, doc := range docs {
+		for f, length := range doc.length {
+			if length > 0 {
+				totalLen[f] += length
 				withField[f]++
 			}
 		}
-		for t := range seen {
-			docFreq[t]++
+		for _, term := range terms {
+			for _, tf := range doc.tf {
+				if tf[term] > 0 {
+					docFreq[term]++
+					break
+				}
+			}
 		}
 	}
 	var avgFieldLen [numRankFields]float64
@@ -155,7 +175,7 @@ func rankBM25(query string, docs []rankDoc) []rankedDoc {
 	}
 
 	ranked := make([]rankedDoc, 0, len(docs))
-	for i := range docs {
+	for i, doc := range docs {
 		var score float64
 		// terms is sorted, so equally relevant documents sum the same
 		// contributions in the same order and get the same score.
@@ -165,7 +185,7 @@ func rankBM25(query string, docs []rankDoc) []rankedDoc {
 			// the saturating BM25 term.
 			var wtf float64
 			for f, weight := range rankFieldWeights {
-				wtf += weight * normTf(float64(fieldTf[i][f][term]), float64(fieldLen[i][f]), avgFieldLen[f])
+				wtf += weight * normTf(float64(doc.tf[f][term]), float64(doc.length[f]), avgFieldLen[f])
 			}
 			if wtf == 0 {
 				continue
