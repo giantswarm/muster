@@ -61,7 +61,7 @@ func (a *AggregatorServer) registerActorBearerRoutes(mux *http.ServeMux, mcpHand
 	if err != nil || ab == nil {
 		return err
 	}
-	handler := actorBearerHandler(ab, mcpHandler, next, onAuthenticated)
+	handler := actorBearerHandler(ab, mcpHandler, next, onAuthenticated, a.withPersonIDToken)
 	for _, path := range actorBearerPaths {
 		mux.Handle(path, handler)
 	}
@@ -76,8 +76,10 @@ func (a *AggregatorServer) registerActorBearerRoutes(mux *http.ServeMux, mcpHand
 // refusal answers a generic reason; the detail is in muster's log.
 //
 // The actor JWT is never put in the request context as a forwardable token:
-// muster's downstream servers never see it.
-func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Handler, onAuthenticated func(context.Context, string)) http.Handler {
+// muster's downstream servers never see it. withPersonToken, when set, puts
+// the bound person's own login ID token there instead, for the servers that
+// forward or exchange it.
+func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Handler, onAuthenticated func(context.Context, string), withPersonToken func(context.Context, *credprovider.ActorCaller) context.Context) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := bearerFromHeader(r.Header.Get("Authorization"))
 		if bearer == "" || !ab.Claims(bearer) {
@@ -101,6 +103,9 @@ func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Hand
 
 		ctx := api.WithSubject(r.Context(), caller.Subject)
 		ctx = api.WithSessionID(ctx, caller.SessionID)
+		if withPersonToken != nil {
+			ctx = withPersonToken(ctx, caller)
+		}
 		logging.DebugWithAttrs("Aggregator", "Actor bearer accepted",
 			slog.String("sub", caller.Subject),
 			slog.String("session", caller.Session),

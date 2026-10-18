@@ -156,14 +156,40 @@ func (a *Adapter) PinIssuer(issuer string, pin api.IssuerPin) {
 // grant from the same issuer.
 const LoginIDTokenScope = "urn:muster:login-id-token" //nolint:gosec // G101: a scope token that names a slot, not a credential
 
-// StoreLoginIDToken implements api.LoginTokenMirror.
+// personLoginSessionPrefix marks the token-store slot that holds a person's
+// freshest login ID token, keyed by their subject rather than a session.
+const personLoginSessionPrefix = "person:"
+
+// StoreLoginIDToken implements api.LoginTokenMirror. The token also becomes
+// the person's (api.PersonLoginTokenMirror) when it outlives the one recorded
+// there. Filed under the person's user ID, the person's slot goes with a sign
+// out everywhere.
 func (a *Adapter) StoreLoginIDToken(sessionID, userID, issuer, idToken string, expiresAt time.Time) {
-	a.manager.StoreToken(sessionID, userID, issuer, &pkgoauth.Token{
-		IDToken:   idToken,
-		ExpiresAt: expiresAt,
-		Scope:     LoginIDTokenScope,
-		Issuer:    issuer,
-	})
+	a.manager.StoreToken(sessionID, userID, issuer, loginIDToken(issuer, idToken, expiresAt))
+	if userID == "" || a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
+		return
+	}
+	key := personLoginKey(userID, issuer)
+	if current := a.manager.client.tokenStore.Get(key); current != nil && !expiresAt.After(current.ExpiresAt) {
+		return
+	}
+	a.manager.client.tokenStore.Store(key, loginIDToken(issuer, idToken, expiresAt), userID)
+}
+
+// PersonLoginIDToken implements api.PersonLoginTokenMirror.
+func (a *Adapter) PersonLoginIDToken(subject, issuer string) *api.OAuthToken {
+	if subject == "" || a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
+		return nil
+	}
+	return fullTokenToAPIToken(a.manager.client.tokenStore.Get(personLoginKey(subject, issuer)))
+}
+
+func loginIDToken(issuer, idToken string, expiresAt time.Time) *pkgoauth.Token {
+	return &pkgoauth.Token{IDToken: idToken, ExpiresAt: expiresAt, Scope: LoginIDTokenScope, Issuer: issuer}
+}
+
+func personLoginKey(subject, issuer string) TokenKey {
+	return TokenKey{SessionID: personLoginSessionPrefix + subject, Issuer: issuer, Scope: LoginIDTokenScope}
 }
 
 // LoginIDToken implements api.LoginTokenMirror.
@@ -204,10 +230,11 @@ func (a *Adapter) SubjectGrantForRelease(ctx context.Context, userID, issuer str
 }
 
 var (
-	_ api.IssuerPinner        = (*Adapter)(nil)
-	_ api.SubjectGrantHandler = (*Adapter)(nil)
-	_ api.GrantReleaser       = (*Adapter)(nil)
-	_ api.LoginTokenMirror    = (*Adapter)(nil)
+	_ api.IssuerPinner           = (*Adapter)(nil)
+	_ api.SubjectGrantHandler    = (*Adapter)(nil)
+	_ api.GrantReleaser          = (*Adapter)(nil)
+	_ api.LoginTokenMirror       = (*Adapter)(nil)
+	_ api.PersonLoginTokenMirror = (*Adapter)(nil)
 )
 
 // DeleteTokensByUser removes all downstream tokens for a given user across all sessions.

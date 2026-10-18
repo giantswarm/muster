@@ -108,3 +108,45 @@ func TestClient_ExchangeCode_ScopeFromRequestWhenOmitted(t *testing.T) {
 		t.Errorf("scope = %q, want the scope the response granted", token.Scope)
 	}
 }
+
+// The person's slot holds the login ID token that lives longest of all their
+// sessions', and goes with a sign out everywhere.
+func TestAdapter_PersonLoginIDToken_FreshestOfThePersonsSessions(t *testing.T) {
+	manager := NewManager(config.OAuthMCPClientConfig{
+		Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback",
+	})
+	defer manager.Stop()
+	adapter := NewAdapter(manager)
+	const issuer = "https://dex.example.com/dex"
+	now := time.Now()
+
+	if got := adapter.PersonLoginIDToken("alice", issuer); got != nil {
+		t.Fatalf("person token before any login = %+v, want nil", got)
+	}
+	api.StoreLoginIDToken(adapter, "cli", "alice", issuer, "cli-token", now.Add(2*time.Hour))
+	api.StoreLoginIDToken(adapter, "portal", "alice", issuer, "portal-token", now.Add(time.Hour))
+	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got == nil || got.IDToken != "cli-token" {
+		t.Fatalf("person token = %+v, want the one that lives longest", got)
+	}
+	api.StoreLoginIDToken(adapter, "portal", "alice", issuer, "portal-token-2", now.Add(3*time.Hour))
+	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got == nil || got.IDToken != "portal-token-2" {
+		t.Fatalf("person token = %+v, want the newer, longer-lived one", got)
+	}
+	if got := api.LoginIDToken(adapter, "portal", issuer); got == nil || got.IDToken != "portal-token-2" {
+		t.Fatalf("session token = %+v, want the session's own", got)
+	}
+	if got := api.PersonLoginIDToken(adapter, "bob", issuer); got != nil {
+		t.Fatalf("another person's token = %+v, want nil", got)
+	}
+	if got := api.PersonLoginIDToken(adapter, "", issuer); got != nil {
+		t.Fatalf("no subject = %+v, want nil", got)
+	}
+	if got := api.PersonLoginIDToken(&legacyHandler{}, "alice", issuer); got != nil {
+		t.Fatalf("a handler without the mirror = %+v, want nil", got)
+	}
+
+	manager.client.tokenStore.DeleteByUser("alice")
+	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got != nil {
+		t.Fatalf("person token after sign out everywhere = %+v, want nil", got)
+	}
+}

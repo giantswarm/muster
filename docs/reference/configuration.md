@@ -163,8 +163,12 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   token is `401`, an unbound actor or a binding without `muster` is `403`, a binding store
   outage is `503`, each refusal logged (`actor_bearer_refused`). All requests of one actor are
   one muster session, and every accepted request restarts the binding's TTL. The actor JWT is
-  never forwarded downstream: servers that forward or exchange the person's ID token are not
-  connected for such a session.
+  never forwarded downstream. Servers that forward (`forwardToken`, `forwardIdentity`) or
+  exchange (`tokenExchange`) the person's ID token get the person's own login ID token instead:
+  the one that lives longest of those the person's muster logins (the CLI's, the portal's
+  forwarded one) recorded. When none is live, muster refreshes the person's logins it serves
+  at the identity provider, at most once every 30 seconds per person; without any, those
+  servers stay unconnected for the actor. Signing out everywhere ends it.
 
 ```yaml
 aggregator:
