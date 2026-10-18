@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/84e15115a9a6548b69aee895e7c2cbfe4be0dded/pkg/gen/input/workflows/internal/file/auto_release.yaml.template
+#    https://github.com/giantswarm/devctl/blob/f8912fad4e14c1316d737b9e1bc5baa2995e40c3/pkg/gen/input/workflows/internal/file/auto_release.yaml.template
 #
 # yamllint disable rule:truthy
 # Push-based release tagger + release-page publisher.
@@ -84,8 +84,6 @@ jobs:
       pull-requests: read
       # The stable run reads the commit statuses of the candidate it promotes.
       statuses: read
-    outputs:
-      tag: ${{ steps.decide.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -634,134 +632,3 @@ jobs:
               exit 1
               ;;
           esac
-
-  # The entries a merged pull request added under Unreleased in CHANGELOG.md
-  # are part of the release just cut, and the release's CHANGELOG.md still
-  # lists them under Unreleased. `devctl changelog cut` moves every entry a
-  # release carried into that release's section, and this job opens the cut as
-  # a pull request against the released branch and arms auto-merge on it. The
-  # branch head is cut, not the promoted candidate: the cut lands on top of
-  # what merged since. The pull request is `docs`, which git-cliff skips, so
-  # merging it cuts no release of its own. The Changelog workflow fails a pull
-  # request while released entries remain under Unreleased.
-  #
-  # The pull request is opened as taylorbot (TAYLORBOT_GITHUB_ACTION): a pull
-  # request opened with GITHUB_TOKEN runs no workflow, so its required checks
-  # would never report. The review the branch's ruleset requires comes from a
-  # second machine identity, architectbot (ARCHITECT_GITHUB_REPO_SYNC_TOKEN),
-  # since an author cannot approve its own pull request. It approves only the
-  # cut this job pushed: the opener's pull request, its head the cut commit,
-  # CHANGELOG.md its only file; anything else waits for a review. The armed
-  # auto-merge then lands the cut once its required checks are green, and no
-  # other pull request fails the Changelog workflow on a cut left waiting for a
-  # person. A fork line carries upstream's CHANGELOG.md, which its releases do
-  # not cut, and has no such job.
-  changelog:
-    name: Cut the CHANGELOG
-    needs: tag
-    if: needs.tag.outputs.tag != ''
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          ref: ${{ github.ref_name }}
-          fetch-depth: 0        # every tag's CHANGELOG.md says what it released
-          fetch-tags: true
-          persist-credentials: false
-
-      - name: Cut released entries out of Unreleased
-        id: cut
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}      # gh downloads devctl
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # devctl's version check reads its releases
-        run: |
-          set -euo pipefail
-          if [ ! -f CHANGELOG.md ]; then
-            echo "no CHANGELOG.md: nothing to cut"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # CircleCI uploads a devctl release's binaries minutes after its
-          # tag: the latest release can have none yet.
-          for attempt in $(seq 1 20); do
-            gh release download --repo giantswarm/devctl --pattern devctl-linux-amd64 --output "${RUNNER_TEMP}/devctl" && break
-            if [ "$attempt" -eq 20 ]; then
-              echo "::error title=No devctl binary::devctl's latest release has no devctl-linux-amd64 after 10 minutes"
-              exit 1
-            fi
-            echo "devctl's latest release has no devctl-linux-amd64 yet (CircleCI uploads it after the tag): retrying in 30s"
-            sleep 30
-          done
-          chmod +x "${RUNNER_TEMP}/devctl"
-          "${RUNNER_TEMP}/devctl" changelog cut
-          if git diff --quiet -- CHANGELOG.md; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up git identity
-        run: |
-          git config --local user.email "dev@giantswarm.io"
-          git config --local user.name "taylorbot"
-
-      - name: Open the cut as a pull request
-        if: steps.cut.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.TAYLORBOT_GITHUB_ACTION }}
-          APPROVER_TOKEN: ${{ secrets.ARCHITECT_GITHUB_REPO_SYNC_TOKEN }}
-          TAG: ${{ needs.tag.outputs.tag }}
-        run: |
-          set -euo pipefail
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::warning title=CHANGELOG not cut::no TAYLORBOT_GITHUB_ACTION secret to open the pull request with; run \`devctl changelog cut\` and commit CHANGELOG.md."
-            exit 0
-          fi
-          # One cut pull request per released branch, rebuilt from the branch
-          # head on every release: it never carries a stale cut.
-          branch="changelog-cut/${GITHUB_REF_NAME}"
-          title="docs(changelog): cut released entries out of Unreleased"
-          git checkout -q -B "$branch"
-          git commit -q -m "$title" -- CHANGELOG.md
-          gh auth setup-git
-          git push --force origin "HEAD:refs/heads/${branch}"
-          pr=$(gh pr list --head "$branch" --base "$GITHUB_REF_NAME" --state open --json url --jq '.[0].url // empty')
-          if [ -z "$pr" ]; then
-            pr=$(gh pr create --base "$GITHUB_REF_NAME" --head "$branch" --title "$title" \
-              --body "Moves the CHANGELOG.md entries ${TAG} and the releases before it carried out of Unreleased into their release sections (\`devctl changelog cut\`). Opened by the Auto-release workflow.")
-          fi
-          echo "cut pull request: ${pr}"
-          # The auto-merge and the approval hold for the cut commit alone: a
-          # later push to the branch merges nothing on them. GitHub reports an
-          # updated pull request's previous head for a few seconds after the
-          # push, and refuses an expected head it does not report yet: the
-          # pull request is read until its head is the cut before either.
-          sha=$(git rev-parse HEAD)
-          cut="$(gh api user --jq .login) ${sha} CHANGELOG.md"
-          for attempt in $(seq 1 6); do
-            scope=$(gh pr view "$pr" --json author,headRefOid,files \
-              --jq '[.author.login, .headRefOid, ([.files[].path] | join(","))] | join(" ")')
-            if [ "$scope" = "$cut" ] || [ "$attempt" -eq 6 ]; then
-              break
-            fi
-            sleep 5
-          done
-          if ! gh pr merge "$pr" --auto --squash --match-head-commit "$sha"; then
-            echo "::warning title=Auto-merge not armed::${pr} waits for a merge: auto-merge could not be armed."
-          fi
-          # Approved anew on every release: the branch is rebuilt each time.
-          # architectbot approves only what this step pushed: a pull request
-          # the opening identity authored, whose head is the cut commit and
-          # whose only file is CHANGELOG.md. Anything else waits for a person.
-          if [ -z "${APPROVER_TOKEN:-}" ]; then
-            echo "::warning title=Cut not approved::no ARCHITECT_GITHUB_REPO_SYNC_TOKEN secret to approve ${pr} with: it waits for a review."
-          elif [ "$scope" != "$cut" ]; then
-            echo "::warning title=Cut not approved::${pr} is not the cut alone (author, head, files: ${scope}; the cut: ${cut}): it waits for a review."
-          elif ! GH_TOKEN="$APPROVER_TOKEN" gh api --silent -X POST "repos/${GITHUB_REPOSITORY}/pulls/${pr##*/}/reviews" \
-            -f event=APPROVE -f commit_id="$sha" \
-            -f body="Approved by the Auto-release workflow: the cut only moves released entries out of Unreleased."; then
-            echo "::warning title=Cut not approved::${pr} waits for a review: the approval was refused."
-          fi
