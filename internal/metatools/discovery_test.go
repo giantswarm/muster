@@ -14,10 +14,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// filterResult runs filter_tools and parses the typed response.
+// filterResult runs filter_tools on a new provider and parses the typed
+// response.
 func filterResult(t *testing.T, args map[string]interface{}) FilterToolsResponse {
 	t.Helper()
-	provider := NewProvider()
+	return filterResultWith(t, NewProvider(), args)
+}
+
+// filterResultWith runs filter_tools on provider and parses the typed response.
+func filterResultWith(t *testing.T, provider *Provider, args map[string]interface{}) FilterToolsResponse {
+	t.Helper()
 	result, err := provider.ExecuteTool(context.Background(), "filter_tools", args)
 	require.NoError(t, err)
 	require.NotNil(t, result)

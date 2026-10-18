@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - **A bound Session's sandbox can call muster as its person with Substrate's actor JWT** (`credentialProvider.actorBearer`, off by default). Substrate's egress gateway injects the actor's JWT on the muster host; muster verifies it against Substrate's actor-JWT issuer and serves the MCP request as the person whose Session binding lists the reserved provider `muster`, so neither the person's bearer nor a loopback token is in the sandbox. An unbound actor is refused with `403`, the JWT is never forwarded to muster's downstream servers. ([#1572](https://github.com/giantswarm/muster/issues/1572))
 
+### Changed
+
+- **A `filter_tools` query no longer reads every word of every tool.** Since the ranker searches whole descriptions (#1534), each query tokenised and folded the name and description of every candidate tool and threw the result away: over 300 tools with multi-paragraph descriptions, about 7 ms and 55,000 allocations per query, 97% of the call. muster now keeps each tool's tokenised text by tool name and analyses only tools it has not seen or whose description changed; the same query takes about 0.3 ms and 65 allocations. Each entry takes about 5 KB for a tool with a few paragraphs of description. Once the cache holds more than 4,096 tools, it drops those no query has used since its previous clean-up, so tools of removed servers age out while a catalogue of any size stays cached. Rankings are unchanged. ([#1547](https://github.com/giantswarm/muster/issues/1547))
+
 ## [5.44.1] - 2026-10-18
 
 ### Fixed

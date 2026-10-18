@@ -323,13 +323,12 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	}
 	var ordered []scoredTool
 	if opts.query != "" {
-		docs := make([]rankDoc, len(matched))
-		for i, t := range matched {
-			summary, details := splitDescription(t.Description)
-			docs[i] = rankDoc{name: t.Name, summary: summary, details: details}
-		}
-		for _, rd := range rankBM25(opts.query, docs) {
-			ordered = append(ordered, scoredTool{tool: matched[rd.index], score: rd.score, scored: true})
+		// A query without terms (only punctuation) matches nothing; the tools
+		// are not analysed for it.
+		if terms := queryTerms(opts.query); len(terms) > 0 {
+			for _, rd := range rankAnalyzed(terms, p.rankTerms.analyze(matched)) {
+				ordered = append(ordered, scoredTool{tool: matched[rd.index], score: rd.score, scored: true})
+			}
 		}
 	} else {
 		for _, t := range matched {
