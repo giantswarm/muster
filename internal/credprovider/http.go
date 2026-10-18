@@ -57,6 +57,9 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, provider := range req.Providers {
+		if provider == MusterProvider && p.musterBearer {
+			continue
+		}
 		if _, ok := p.releasable[provider]; !ok {
 			http.Error(w, "bad request: provider "+provider+" is not releasable; releasable: "+strings.Join(p.releasableNames(), ", "), http.StatusBadRequest)
 			return
@@ -114,9 +117,12 @@ func (p *Provider) HandleUnbind(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Provider) releasableNames() []string {
-	names := make([]string, 0, len(p.releasable))
+	names := make([]string, 0, len(p.releasable)+1)
 	for name := range p.releasable {
 		names = append(names, name)
+	}
+	if p.musterBearer {
+		names = append(names, MusterProvider)
 	}
 	sort.Strings(names)
 	return names

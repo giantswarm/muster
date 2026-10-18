@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **A bound Session's sandbox can call muster as its person with Substrate's actor JWT** (`credentialProvider.actorBearer`, off by default). Substrate's egress gateway injects the actor's JWT on the muster host; muster verifies it against Substrate's actor-JWT issuer and serves the MCP request as the person whose Session binding lists the reserved provider `muster`, so neither the person's bearer nor a loopback token is in the sandbox. An unbound actor is refused with `403`, the JWT is never forwarded to muster's downstream servers. ([#1572](https://github.com/giantswarm/muster/issues/1572))
+
 ### Fixed
 
 - **A `core_auth_login` that starts no OAuth flow no longer spends the person's authentication attempts.** Every call was charged to the per-user rate limit (10 attempts a minute) before muster looked at the session, so a client checking a server's connection with `core_auth_login` (the portal does before it acts for the person) used up the attempts with answers like "already authenticated" and the next real sign-in was refused with "Rate limit exceeded … Remaining attempts: 0". An attempt is now charged only when the answer needs an OAuth flow, a held grant reused or a new challenge; answers that start none (already authenticated, no authentication needed, a deactivated or SSO-managed server) are free. The limit itself is unchanged. ([#1567](https://github.com/giantswarm/muster/issues/1567))

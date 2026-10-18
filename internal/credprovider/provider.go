@@ -48,9 +48,11 @@ type Provider struct {
 	authority  string
 	gateway    string
 	releasable map[string]string
-	ttl        time.Duration
-	store      Store
-	grants     GrantSource
+	// musterBearer lets a binding list MusterProvider.
+	musterBearer bool
+	ttl          time.Duration
+	store        Store
+	grants       GrantSource
 }
 
 // Options configure a Provider.
@@ -61,6 +63,9 @@ type Options struct {
 	GatewayIdentity string
 	// Releasable maps provider instance to grant issuer.
 	Releasable map[string]string
+	// MusterBearer lets a binding list MusterProvider, for an actor that
+	// calls muster itself with its actor JWT (ActorBearer).
+	MusterBearer bool
 	// BindingTTL is the binding lifetime without use (DefaultBindingTTL if 0).
 	BindingTTL time.Duration
 	Store      Store
@@ -75,7 +80,7 @@ func NewProvider(o Options) (*Provider, error) {
 	if err := validateSPIFFE(o.GatewayIdentity); err != nil {
 		return nil, fmt.Errorf("credential provider: gatewayIdentity: %w", err)
 	}
-	if len(o.Releasable) == 0 {
+	if len(o.Releasable) == 0 && !o.MusterBearer {
 		return nil, fmt.Errorf("credential provider: releasable lists no provider")
 	}
 	releasable := make(map[string]string, len(o.Releasable))
@@ -83,18 +88,22 @@ func NewProvider(o Options) (*Provider, error) {
 		if provider == "" || strings.Contains(provider, "/") || issuer == "" {
 			return nil, fmt.Errorf("credential provider: releasable entry %q: %q is not a provider name and issuer", provider, issuer)
 		}
+		if provider == MusterProvider {
+			return nil, fmt.Errorf("credential provider: releasable entry %q: the name is reserved for the actor bearer", provider)
+		}
 		releasable[provider] = strings.TrimSuffix(issuer, "/")
 	}
 	if o.Store == nil || o.Grants == nil {
 		return nil, fmt.Errorf("credential provider: a binding store and a grant source are required")
 	}
 	p := &Provider{
-		authority:  o.Authority,
-		gateway:    o.GatewayIdentity,
-		releasable: releasable,
-		ttl:        o.BindingTTL,
-		store:      o.Store,
-		grants:     o.Grants,
+		authority:    o.Authority,
+		gateway:      o.GatewayIdentity,
+		releasable:   releasable,
+		musterBearer: o.MusterBearer,
+		ttl:          o.BindingTTL,
+		store:        o.Store,
+		grants:       o.Grants,
 	}
 	if p.authority == "" {
 		p.authority = DefaultAuthority
@@ -104,6 +113,12 @@ func NewProvider(o Options) (*Provider, error) {
 	}
 	return p, nil
 }
+
+// Store is the binding store, which ActorBearer shares.
+func (p *Provider) Store() Store { return p.store }
+
+// BindingTTL is the binding lifetime without use.
+func (p *Provider) BindingTTL() time.Duration { return p.ttl }
 
 // GatewayIdentity is the caller SPIFFE id the listener requires.
 func (p *Provider) GatewayIdentity() string { return p.gateway }

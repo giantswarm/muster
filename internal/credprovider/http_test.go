@@ -83,13 +83,14 @@ func TestBindRejectsBadRequests(t *testing.T) {
 		sub, body string
 		code      int
 	}{
-		"no identity":    {"", testBindBody, http.StatusUnauthorized},
-		"not JSON":       {"alice", "{", http.StatusBadRequest},
-		"unknown field":  {"alice", `{"actor":"` + testActor + `","session":"s","providers":["github"],"subject":"bob"}`, http.StatusBadRequest},
-		"not an actor":   {"alice", `{"actor":"spiffe://cluster.local/ns/x/sa/y","session":"s","providers":["github"]}`, http.StatusBadRequest},
-		"no session":     {"alice", `{"actor":"` + testActor + `","providers":["github"]}`, http.StatusBadRequest},
-		"no providers":   {"alice", `{"actor":"` + testActor + `","session":"s"}`, http.StatusBadRequest},
-		"not releasable": {"alice", `{"actor":"` + testActor + `","session":"s","providers":["login"]}`, http.StatusBadRequest},
+		"no identity":                     {"", testBindBody, http.StatusUnauthorized},
+		"not JSON":                        {"alice", "{", http.StatusBadRequest},
+		"unknown field":                   {"alice", `{"actor":"` + testActor + `","session":"s","providers":["github"],"subject":"bob"}`, http.StatusBadRequest},
+		"not an actor":                    {"alice", `{"actor":"spiffe://cluster.local/ns/x/sa/y","session":"s","providers":["github"]}`, http.StatusBadRequest},
+		"no session":                      {"alice", `{"actor":"` + testActor + `","providers":["github"]}`, http.StatusBadRequest},
+		"no providers":                    {"alice", `{"actor":"` + testActor + `","session":"s"}`, http.StatusBadRequest},
+		"not releasable":                  {"alice", `{"actor":"` + testActor + `","session":"s","providers":["login"]}`, http.StatusBadRequest},
+		"muster without the actor bearer": {"alice", `{"actor":"` + testActor + `","session":"s","providers":["muster"]}`, http.StatusBadRequest},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -100,4 +101,21 @@ func TestBindRejectsBadRequests(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, unbind(t, p, "", testActor).Code)
 		assert.Equal(t, http.StatusBadRequest, unbind(t, p, "alice", "").Code)
 	})
+}
+
+func TestBindListsMusterWithTheActorBearer(t *testing.T) {
+	store := NewMemoryStore()
+	p, err := NewProvider(Options{
+		GatewayIdentity: testGateway,
+		Releasable:      map[string]string{"github": testIssuer},
+		MusterBearer:    true,
+		Store:           store,
+		Grants:          fakeGrants{}.source,
+	})
+	require.NoError(t, err)
+	body := `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github","muster"]}`
+	require.Equal(t, http.StatusNoContent, bind(t, p, "alice", body).Code)
+	b, err := store.Get(context.Background(), testActor)
+	require.NoError(t, err)
+	assert.True(t, b.Allows(MusterProvider))
 }

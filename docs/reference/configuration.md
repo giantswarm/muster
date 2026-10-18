@@ -152,6 +152,19 @@ The data path stays the gateway's; muster only answers whose token, and only to 
 - **Freshness.** muster refreshes a subject-scoped grant 15 minutes before it expires, so a
   token the gateway caches (five minutes per actor and URI) is never used past its expiry.
   A disconnected grant or a removed binding is refused at the gateway's next fetch.
+- **Actor bearer.** With `actorBearer.enabled`, a bound Session's sandbox calls muster itself
+  as its person, with no credential in the sandbox: the gateway's rule for the muster host
+  injects the actor's JWT (`actor_jwt`, audience `actorBearer.audience`), and muster serves an
+  MCP request (`/mcp`, `/sse`, `/message`) whose bearer names `actorBearer.issuer` as the
+  person the actor is bound to. The JWT must be signed by a key of the issuer's key set
+  (`jwksUrl`, default `<issuer>/openid/v1/jwks`), unexpired, for that audience, with the
+  subject `actor/<atespace>/<actor>`; the binding must list the reserved provider `muster`,
+  which a bind accepts only with the actor bearer on and `FetchSecret` never releases. A bad
+  token is `401`, an unbound actor or a binding without `muster` is `403`, a binding store
+  outage is `503`, each refusal logged (`actor_bearer_refused`). All requests of one actor are
+  one muster session, and every accepted request restarts the binding's TTL. The actor JWT is
+  never forwarded downstream: servers that forward or exchange the person's ID token are not
+  connected for such a session.
 
 ```yaml
 aggregator:
@@ -165,6 +178,12 @@ aggregator:
     bindingTTL: 336h                 # default: 14 days, the Session idle TTL
     releasable:                      # provider instance -> grant issuer (grantScope: subject)
       github: https://github.com/apps/my-workspaces-app
+    actorBearer:
+      enabled: true                  # default: false
+      issuer: https://idp.substrate.svc   # ate-api's --actor-jwt-issuer
+      audience: https://muster.example.com
+      caFile: /run/servicedns.podcert.ate.dev/trust-bundle.pem
+      allowPrivateIPJWKSHosts: [idp.substrate.svc]
 ```
 
 The Helm chart renders this from `muster.credentialProvider` and mounts Substrate's pod
