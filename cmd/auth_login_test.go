@@ -73,6 +73,36 @@ func TestAuthLoginCmdForceFlag(t *testing.T) {
 	}
 }
 
+// TestSignsInAgain: 'login --force --server' signs in again to a server the
+// session reads connected -- its stored grant may be one the server refuses --
+// and only to a server the person signs in to themselves.
+func TestSignsInAgain(t *testing.T) {
+	connected := func(kind pkgoauth.ServerAuthKind) pkgoauth.ServerAuthStatus {
+		return pkgoauth.ServerAuthStatus{Name: "gh", Status: pkgoauth.SessionServerStatusConnected, Kind: kind}
+	}
+	tests := []struct {
+		name   string
+		server pkgoauth.ServerAuthStatus
+		force  bool
+		want   bool
+	}{
+		{"connected grant server with --force", connected(pkgoauth.ServerAuthKindGrant), true, true},
+		{"connected server of an aggregator that names no kind", connected(""), true, true},
+		{"connected grant server without --force", connected(pkgoauth.ServerAuthKindGrant), false, false},
+		{"server without a credential", connected(pkgoauth.ServerAuthKindNone), true, false},
+		{"SSO server", connected(pkgoauth.ServerAuthKindSSO), true, false},
+		{"token-forwarding server of an aggregator that names no kind", pkgoauth.ServerAuthStatus{Status: pkgoauth.SessionServerStatusConnected, TokenForwardingEnabled: true}, true, false},
+		{"server awaiting sign-in takes the plain login", pkgoauth.ServerAuthStatus{Status: pkgoauth.SessionServerStatusAuthRequired, Kind: pkgoauth.ServerAuthKindGrant}, true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := signsInAgain(tt.server, tt.force); got != tt.want {
+				t.Errorf("signsInAgain() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestAuthLoginCallbackPortFlag: --callback-port reaches cli.GetCallbackPort,
 // which every OAuth entry point resolves the port through; a value outside
 // the port range is refused.

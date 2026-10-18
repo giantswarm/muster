@@ -47,6 +47,16 @@ func credentialRefused(err error) bool {
 	return is401Error(err) || api.IsAuthRequiredError(err)
 }
 
+// connectRefusedSignIn reports whether err, the failure of opening a session's
+// connection to the server, is the server refusing the person's stored grant
+// for a server they sign in to through muster. An SSO server is left out: its
+// credential is the session's own muster token, which a fresh forward can see
+// refused until the backend learns the issuer's new signing key.
+func (a *AggregatorServer) connectRefusedSignIn(serverName string, err error) bool {
+	info, ok := a.registry.GetServerInfo(serverName)
+	return ok && needsManualLogin(info) && credentialRefused(err)
+}
+
 // authRequiredAnswer answers a tool call the session cannot make because it is
 // not authenticated to the server -- it never was, or the backend just refused
 // its credential (reason says which). The answer is the auth_required
