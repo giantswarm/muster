@@ -3495,6 +3495,14 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 		if notAuthenticated, ok := errors.AsType[*sessionNotAuthenticatedError](err); ok {
 			return a.authRequiredAnswer(ctx, serverName, originalToolName, args, sessionID, sub, notAuthenticated.reason())
 		}
+		if a.connectRefusedSignIn(serverName, err) {
+			// No pooled connection, and the server refused the session's
+			// stored grant on the handshake: the same loss as a 401 during
+			// the call. The login the answer starts drops the refused grant
+			// before it issues the server's sign-in link.
+			a.makeSessionAuthLossHandler(sessionID, serverName)(err.Error())
+			return a.authRequiredAnswer(ctx, serverName, originalToolName, args, sessionID, sub, "the server rejected this session's credentials")
+		}
 		return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, err)
 	}
 	defer cleanup()

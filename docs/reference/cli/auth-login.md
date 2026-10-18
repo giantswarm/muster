@@ -23,7 +23,9 @@ A valid session is reused. The session's automatic refresh renews the access
 token and the OIDC ID token together, once the access token has expired; when
 the session carries no ID token or an expired one, login signs in again through
 the browser so the token file carries a current one now (see 'muster auth
-token --id'). --force signs in again regardless.
+token --id'). --force signs in again regardless. With --server, --force signs
+the session out of a server it reads connected and signs in to it again, for
+a stored grant the server refuses.
 
 The browser returns to http://localhost:<port>/callback (default 3000). muster
 listens on that port on 127.0.0.1 and ::1 and stops at once, naming the

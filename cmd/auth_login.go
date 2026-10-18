@@ -50,7 +50,9 @@ A valid session is reused. The session's automatic refresh renews the access
 token and the OIDC ID token together, once the access token has expired; when
 the session carries no ID token or an expired one, login signs in again through
 the browser so the token file carries a current one now (see 'muster auth
-token --id'). --force signs in again regardless.
+token --id'). --force signs in again regardless. With --server, --force signs
+the session out of a server it reads connected and signs in to it again, for
+a stored grant the server refuses.
 
 The browser returns to http://localhost:<port>/callback (default 3000). muster
 listens on that port on 127.0.0.1 and ::1 and stops at once, naming the
@@ -130,7 +132,7 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 
 	// Handle --server flag: authenticate to a specific MCP server
 	if loginServer != "" {
-		return loginToMCPServer(ctx, handler, endpoint, loginServer)
+		return loginToMCPServer(ctx, handler, endpoint, loginServer, loginForce)
 	}
 
 	// Handle --all flag: authenticate to aggregator + all pending MCP servers
@@ -222,9 +224,21 @@ func idTokenRenewal(stored storedIDToken, force bool, now time.Time) (renew bool
 	return false, ""
 }
 
+// signsInAgain reports whether 'muster auth login --server' signs the session
+// in to a server it reads connected: only with --force, and only for a server
+// the person signs in to with a grant of their own. A connected session can
+// still hold a grant the server refuses; --force is the way out.
+func signsInAgain(server pkgoauth.ServerAuthStatus, force bool) bool {
+	return force && server.Status == pkgoauth.SessionServerStatusConnected &&
+		server.Kind != pkgoauth.ServerAuthKindNone && server.Kind != pkgoauth.ServerAuthKindSSO &&
+		!server.TokenForwardingEnabled && !server.TokenExchangeEnabled
+}
+
 // loginToMCPServer authenticates to a specific MCP server through the aggregator.
 // It queries the auth://status resource to find the server's auth tool and invokes it.
-func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string) error {
+// With force, a server the session reads connected is signed out of first
+// (core_auth_logout) and signed in to again.
+func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEndpoint, serverName string, force bool) error {
 	// Try fetching auth status directly -- the mcp-go transport handles token
 	// refresh transparently, so this also serves as the connectivity check.
 	authStatus, err := ensureAuthenticatedAndGetStatus(ctx, handler, aggregatorEndpoint)
@@ -248,9 +262,17 @@ func loginToMCPServer(ctx context.Context, handler api.AuthHandler, aggregatorEn
 		return nil
 	}
 
+	if signsInAgain(*serverInfo, force) {
+		if err := signOutOfMCPServer(ctx, aggregatorEndpoint, serverName); err != nil {
+			return err
+		}
+		authPrint("Signed out of %s (--force); signing in again...\n", serverName)
+		return triggerMCPServerAuthWithWait(ctx, handler, aggregatorEndpoint, serverName, coreAuthLoginTool, DefaultAuthWaitConfig())
+	}
+
 	if serverInfo.Status != pkgoauth.SessionServerStatusAuthRequired {
 		if serverInfo.Status == pkgoauth.SessionServerStatusConnected {
-			authPrint("Server '%s' is already connected and does not require authentication.\n", serverName)
+			authPrint("Server '%s' is already connected. Run 'muster auth login --force --server %s' to sign in to it again.\n", serverName, serverName)
 			return nil
 		}
 		if serverInfo.Status == pkgoauth.SessionServerStatusSSOPending {

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/agent"
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/cli"
 	"github.com/giantswarm/muster/v5/internal/config"
@@ -300,16 +301,47 @@ func logoutFromMCPServer(ctx context.Context, handler api.AuthHandler, endpoint,
 		return nil
 	}
 
-	result, err := client.CallTool(ctx, "core_auth_logout", map[string]any{"server": serverName})
+	said, err := callAuthLogout(ctx, client, serverName)
 	if err != nil {
-		return fmt.Errorf("failed to sign out of server '%s': %w", serverName, err)
-	}
-	said := toolResultText(result)
-	if result.IsError {
-		return fmt.Errorf("could not sign out of server '%s': %s", serverName, said)
+		return err
 	}
 	authPrint("%s", mcpServerLogoutSummary(serverName, endpoint, said))
 	return nil
+}
+
+// coreAuthLoginTool and coreAuthLogoutTool are the aggregator's tools that
+// sign the calling session in to and out of one MCP server.
+const (
+	coreAuthLoginTool  = "core_auth_login"
+	coreAuthLogoutTool = "core_auth_logout"
+)
+
+// callAuthLogout signs the client's session out of one MCP server and returns
+// what the aggregator said.
+func callAuthLogout(ctx context.Context, client *agent.Client, serverName string) (string, error) {
+	result, err := client.CallTool(ctx, coreAuthLogoutTool, map[string]any{"server": serverName})
+	if err != nil {
+		return "", fmt.Errorf("failed to sign out of server '%s': %w", serverName, err)
+	}
+	said := toolResultText(result)
+	if result.IsError {
+		return "", fmt.Errorf("could not sign out of server '%s': %s", serverName, said)
+	}
+	return said, nil
+}
+
+// signOutOfMCPServer signs the CLI's session out of one MCP server ahead of a
+// forced sign-in: the server's authenticated mark, pooled connection and the
+// grant the logout revokes go, so the login that follows starts the server's
+// sign-in instead of answering that the session is connected.
+func signOutOfMCPServer(ctx context.Context, endpoint, serverName string) error {
+	client, err := createConnectedClient(ctx, endpoint)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = client.Close() }()
+	_, err = callAuthLogout(ctx, client, serverName)
+	return err
 }
 
 // findServerAuthStatus returns the auth status of one server from the
