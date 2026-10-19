@@ -68,7 +68,7 @@ func suspendedServers(ctx context.Context, servers map[string]*ServerInfo) map[s
 	suspended := make(map[string]bool)
 	for _, definition := range definitions {
 		if definition.Suspended {
-			suspended[definition.Name] = true
+			suspended[definition.ServerKey()] = true
 		}
 	}
 	return suspended

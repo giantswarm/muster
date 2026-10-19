@@ -132,9 +132,22 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// mode: the configured Kubernetes flag can still fall back to the
 	// filesystem, and only the resolved mode decides whether stdio MCPServers
 	// may be started (issue #1067).
+	// Get namespace from config, defaulting to "default" if not specified.
+	// It is muster's namespace: Workflow objects, events, the broker's
+	// default Secret namespace and the servers for everyone live there.
+	namespace := cfg.MusterConfig.Namespace
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	// MCPServer objects of every namespace are served only in Kubernetes
+	// mode and only when the setting asks for it.
+	mcpServersInAllNamespaces := musterClient.IsKubernetesMode() && cfg.MusterConfig.MCPServersInAllNamespaces
+
 	orchConfig := orchestrator.Config{
 		Aggregator:     cfg.MusterConfig.Aggregator,
 		KubernetesMode: musterClient.IsKubernetesMode(),
+		Namespace:      namespace,
 	}
 
 	orch := orchestrator.New(orchConfig)
@@ -156,12 +169,6 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Register configuration adapter
 	configAdapter := NewConfigAdapter(cfg.MusterConfig, "") // Empty path means auto-detect
 	configAdapter.Register()
-
-	// Get namespace from config, defaulting to "default" if not specified
-	namespace := cfg.MusterConfig.Namespace
-	if namespace == "" {
-		namespace = "default"
-	}
 
 	// Register the event manager adapter. Event emission is a core feature and
 	// is always enabled; it works in both Kubernetes (real Events) and
@@ -195,6 +202,9 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Initialize and register MCPServer adapter using the muster client
 	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
+	if mcpServersInAllNamespaces {
+		mcpServerAdapter.ServeAllNamespaces()
+	}
 	if musterClient.IsKubernetesMode() {
 		mcpServerAdapter.EnableWritesAsCaller(callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
 	}
@@ -320,9 +330,12 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			Mode:           watchMode,
 			FilesystemPath: cfg.ConfigPath,
 			Namespace:      namespace,
-			WorkerCount:    2,
-			MaxRetries:     5,
-			Debug:          cfg.Debug,
+			// MCPServer objects in all namespaces when the setting is on;
+			// Workflow objects stay in muster's namespace.
+			MCPServersInAllNamespaces: mcpServersInAllNamespaces,
+			WorkerCount:               2,
+			MaxRetries:                5,
+			Debug:                     cfg.Debug,
 		}
 
 		reconcileManager = reconciler.NewManager(reconcileConfig)

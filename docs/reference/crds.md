@@ -132,7 +132,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse`; `stdio` is rejected in Kubernetes mode (see below) |
-| `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
+| `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset. A server outside muster's namespace gets its namespace in front: `<namespace>_<toolPrefix or name>` | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$`; in muster's namespace, neither it nor the name may start with `org-` |
 | `family` | `object` | No | Family grouping for equivalent servers under a shared tool surface | `name` and `instanceArg` both required when set |
 | `family.name` | `string` | Yes (in `family`) | Family identifier | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
 | `family.instanceArg` | `string` | Yes (in `family`) | Name of the required parameter the LLM uses to select an instance (e.g. `management_cluster`, `country`, `model`) | Pattern: `^[a-zA-Z][a-zA-Z0-9_]*$` |

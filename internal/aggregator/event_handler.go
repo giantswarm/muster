@@ -334,17 +334,26 @@ func (eh *EventHandler) generateEvent(serviceName string, reason events.EventRea
 	if namespace == "" {
 		namespace = metav1.NamespaceDefault
 	}
-	objectRef := api.ObjectReference{
-		Kind:      mcpServerKind,
-		Name:      serviceName,
-		Namespace: namespace,
-	}
+	objectRef := mcpServerObjectRef(serviceName, namespace)
 
 	err := eventManager.CreateEventWithData(context.Background(), objectRef, string(reason), data.ToAPI())
 	if err != nil {
 		logging.Debug("Aggregator-EventHandler", "Failed to generate event for %s: %v", serviceName, err)
 	} else {
 		logging.Debug("Aggregator-EventHandler", "Generated event %s for MCPServer %s", string(reason), serviceName)
+	}
+}
+
+// mcpServerObjectRef references the MCPServer object a server key names
+// (api.MCPServerKey). A server outside muster's namespace carries its
+// namespace in its key, and its events are filed on its own object;
+// namespace is the namespace of a bare key.
+func mcpServerObjectRef(serverName, namespace string) api.ObjectReference {
+	namespace, name := api.MCPServerObject(serverName, namespace)
+	return api.ObjectReference{
+		Kind:      mcpServerKind,
+		Name:      name,
+		Namespace: namespace,
 	}
 }
 
