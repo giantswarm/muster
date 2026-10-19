@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -65,6 +66,10 @@ type TokenStorer interface {
 
 	// DeleteByIssuer removes all tokens for a session+issuer combination.
 	DeleteByIssuer(sessionID, issuer string)
+
+	// DeleteIssuers removes every token whose issuer key matches, in every
+	// session and of every person (see Client.ForgetTenantIssuers).
+	DeleteIssuers(ctx context.Context, match func(issuer string) bool) error
 
 	// Count returns the total number of tokens in the store.
 	Count() int

@@ -10,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/client"
@@ -47,7 +48,7 @@ func (c *namespacedClient) GetMCPServer(_ context.Context, name, namespace strin
 func twoGitHubs() *namespacedClient {
 	server := func(namespace string) musterv1alpha1.MCPServer {
 		return musterv1alpha1.MCPServer{
-			ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: namespace},
+			ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: namespace, UID: types.UID("uid-" + namespace)},
 			Spec:       musterv1alpha1.MCPServerSpec{Type: "streamable-http", URL: "https://mcp.example.com/" + namespace},
 		}
 	}
@@ -96,6 +97,7 @@ func TestAdapterKeysServersByNamespaceAndName(t *testing.T) {
 	assert.Equal(t, "github", tenant.Name, "the object keeps its name")
 	assert.Equal(t, "org-a/github", tenant.ToMCPServer().Name, "the service is registered under the key")
 	assert.Equal(t, "https://mcp.example.com/org-a", tenant.URL)
+	assert.Equal(t, "uid-org-a", tenant.ToMCPServer().UID, "the service carries the object's UID, which the aggregator adopts a tenant server by")
 
 	_, err = adapter.GetMCPServer(t.Context(), "org-b/github")
 	assert.True(t, api.IsNotFound(err))

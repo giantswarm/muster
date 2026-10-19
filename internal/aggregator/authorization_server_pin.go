@@ -61,7 +61,8 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		}
 		creds, err := secrets.LoadClientCredentials(ctx, as.ClientCredentialsSecretRef, serverInfo.GetNamespace())
 		if err != nil {
-			return fmt.Errorf("load client credentials for server %s: %w", serverInfo.Name, err)
+			return fmt.Errorf("load client credentials for server %s: %w", serverInfo.Name,
+				tenantSecretReadError(serverInfo.Name, serverInfo.GetNamespace(), as.ClientCredentialsSecretRef.Name, err))
 		}
 		pin.ClientID, pin.ClientSecret = creds.ClientID, creds.ClientSecret
 	}

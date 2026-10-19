@@ -370,6 +370,7 @@ func (r *ServerRegistry) Register(ctx context.Context, registration ServerRegist
 	info := &ServerInfo{
 		Name:            registration.Name,
 		Namespace:       registration.Namespace,
+		UID:             registration.UID,
 		Client:          client,
 		ToolPrefix:      registration.ToolPrefix,
 		Family:          cloneFamily(registration.Family),
@@ -1579,6 +1580,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 	info := &ServerInfo{
 		Name:            registration.Name,
 		Namespace:       registration.Namespace,
+		UID:             registration.UID,
 		URL:             registration.URL,
 		ToolPrefix:      registration.ToolPrefix,
 		Family:          cloneFamily(registration.Family),

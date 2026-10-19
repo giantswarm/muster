@@ -767,6 +767,9 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	if s.definition.Namespace != "" {
 		data["namespace"] = s.definition.Namespace
 	}
+	if s.definition.UID != "" {
+		data[api.ServiceDataUID] = s.definition.UID
+	}
 
 	// Add failure tracking data for unreachable server detection (thread-safe
 	// read). The orchestrator's retry loop and the reconciler's status sync

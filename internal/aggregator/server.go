@@ -145,6 +145,10 @@ type AggregatorServer struct {
 	// Always non-nil after NewAggregatorServer.
 	capabilityStore oauthstore.CapabilityStore
 
+	// tenantOwners records which MCPServer objects own the stored sign-ins
+	// of each organization namespace (see adoptTenantServer).
+	tenantOwners oauthstore.TenantOwnerStore
+
 	// Per-session connection pool for reusing live MCP clients across tool calls.
 	// Always non-nil after NewAggregatorServer.
 	connPool *SessionConnectionPool
@@ -802,6 +806,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		downstreamMetrics: newDownstreamMetrics(),
 		authStore:         stores.authStore,
 		capabilityStore:   stores.capabilityStore,
+		tenantOwners:      stores.tenantOwners,
 		connPool:          NewSessionConnectionPool(DefaultConnectionPoolMaxAge),
 		ssoTracker:        newSSOTracker(),
 		subjectSessions:   newSubjectSessionTracker(),
@@ -1311,6 +1316,13 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 	logging.InfoWithAttrs("Aggregator", "RegisterServer called",
 		slog.String("server", registration.Name))
 
+	adoptCtx, cancelAdopt := context.WithTimeout(ctx, tenantForgetTimeout)
+	err := a.adoptTenantServer(adoptCtx, registration, nil)
+	cancelAdopt()
+	if err != nil {
+		return err
+	}
+
 	// Wire the notification handler before registration so Initialize()
 	// (called inside Register) forwards it to the underlying mcp-go client.
 	client.OnNotification(func(notif mcp.JSONRPCNotification) {
@@ -1437,6 +1449,14 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 	if err == nil && removed {
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		a.releaseAuthorizationServerPin(releaseCtx, name, previousAuth)
+		cancel()
+	}
+	if !keepSessionAuth {
+		// The service is gone: the definition was deleted (or refused). Also
+		// when it never reached the registry: a session may hold sign-ins of
+		// an earlier registration.
+		forgetCtx, cancel := context.WithTimeout(context.Background(), tenantForgetTimeout)
+		a.forgetTenantServer(forgetCtx, name)
 		cancel()
 	}
 	if !reconnecting || (tracked && (err != nil || !removed)) {

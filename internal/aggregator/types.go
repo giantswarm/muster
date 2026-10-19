@@ -86,6 +86,11 @@ type ServerRegistration struct {
 	// falls back to "default".
 	Namespace string
 
+	// UID is the Kubernetes UID of the MCPServer resource (api.MCPServer.UID).
+	// A server outside muster's namespace is adopted by it before it
+	// registers (adoptTenantServer). Empty in filesystem mode.
+	UID string
+
 	// ToolPrefix is the per-server tool prefix used when Family is nil.
 	// Pattern: {musterPrefix}_{toolPrefix-or-name}_{toolName}.
 	ToolPrefix string
@@ -147,6 +152,10 @@ type ServerInfo struct {
 	// This is used for event emission and resource references.
 	// Defaults to "default" if not specified.
 	Namespace string
+
+	// UID is the Kubernetes UID of the server's MCPServer object
+	// (ServerRegistration.UID). Empty in filesystem mode.
+	UID string
 
 	// Client is the MCP client instance used to communicate with the server
 	Client MCPClient

@@ -311,6 +311,15 @@ func (m *Manager) UnpinIssuer(issuer string) {
 	m.client.UnpinIssuer(issuer)
 }
 
+// ForgetTenantIssuers removes the stored state of an organization namespace,
+// see Client.ForgetTenantIssuers.
+func (m *Manager) ForgetTenantIssuers(ctx context.Context, namespace string, issuerKeys []string) error {
+	if m == nil {
+		return nil
+	}
+	return m.client.ForgetTenantIssuers(ctx, namespace, issuerKeys)
+}
+
 // GetTokenByIssuerForUser is GetTokenByIssuer with the subject-scoped grant
 // fallback, see Client.GetByIssuerForUser.
 func (m *Manager) GetTokenByIssuerForUser(sessionID, userID, issuer string) *pkgoauth.Token {

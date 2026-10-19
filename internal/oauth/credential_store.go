@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"sync"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -24,6 +25,9 @@ type ClientCredentialStorer interface {
 	// Delete removes the credentials for the issuer (e.g. after the AS
 	// stopped accepting them, so the next flow re-registers).
 	Delete(issuer string)
+
+	// DeleteIssuers removes the credentials whose issuer key matches.
+	DeleteIssuers(ctx context.Context, match func(issuer string) bool) error
 
 	// Stop releases resources (background goroutines, connections, etc.).
 	Stop()

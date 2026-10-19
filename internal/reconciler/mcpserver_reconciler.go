@@ -178,6 +178,22 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 		return result
 	}
 
+	// A new object under the same key (deleted and created again, the two
+	// events merged or one lost) is a delete and a create, not an update:
+	// the old object's service goes before anything starts, resumes or
+	// suspends it, so nothing of its service or sign-ins is kept, and the
+	// new object is reconciled as one without a service.
+	if exists && replacedObject(existingService, mcpServerInfo) {
+		logging.Info("MCPServerReconciler", "MCPServer %s is a new object (its UID changed); replacing its service", key)
+		if err := r.orchestratorAPI.RemoveService(key); err != nil && !IsNotFoundError(err) {
+			return ReconcileResult{
+				Error:   fmt.Errorf("failed to remove the service of the replaced object: %w", err),
+				Requeue: true,
+			}
+		}
+		existingService, exists = nil, false
+	}
+
 	var result ReconcileResult
 	var processedRestart *time.Time
 
@@ -866,6 +882,13 @@ func (r *MCPServerReconciler) reconcileUpdate(ctx context.Context, key string, i
 
 	logging.Info("MCPServerReconciler", "Successfully updated MCPServer service: %s", key)
 	return ReconcileResult{}, true
+}
+
+// replacedObject reports whether the service runs for another object than
+// the definition: both carry a UID and they differ.
+func replacedObject(service api.ServiceInfo, info *api.MCPServerInfo) bool {
+	running, _ := service.GetServiceData()[api.ServiceDataUID].(string)
+	return running != "" && info.UID != "" && running != info.UID
 }
 
 // infoToMCPServer converts an MCPServerInfo (API/reconciler view) to an MCPServer

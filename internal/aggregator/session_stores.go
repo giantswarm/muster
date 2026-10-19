@@ -44,6 +44,7 @@ const (
 type storeBundle struct {
 	authStore       oauthstore.SessionAuthStore
 	capabilityStore oauthstore.CapabilityStore
+	tenantOwners    oauthstore.TenantOwnerStore
 	valkeyClient    valkey.Client
 	keyPrefix       string
 	encryptor       *security.Encryptor
@@ -62,6 +63,7 @@ func createStores(ctx context.Context, cfg AggregatorConfig) (storeBundle, error
 		return storeBundle{
 			authStore:       oauthstore.NewInMemorySessionAuthStore(oauthstore.DefaultCapabilityStoreTTL),
 			capabilityStore: oauthstore.NewInMemoryCapabilityStore(oauthstore.DefaultCapabilityStoreTTL),
+			tenantOwners:    oauthstore.NewInMemoryTenantOwnerStore(),
 			keyPrefix:       config.DefaultValkeyKeyPrefix,
 		}, nil
 	}
@@ -83,6 +85,7 @@ func createStores(ctx context.Context, cfg AggregatorConfig) (storeBundle, error
 	return storeBundle{
 		authStore:       oauthstore.NewValkeySessionAuthStore(client, oauthstore.DefaultCapabilityStoreTTL, keyPrefix),
 		capabilityStore: oauthstore.NewValkeyCapabilityStore(client, oauthstore.DefaultCapabilityStoreTTL, keyPrefix),
+		tenantOwners:    oauthstore.NewValkeyTenantOwnerStore(client, keyPrefix),
 		valkeyClient:    client,
 		keyPrefix:       keyPrefix,
 		encryptor:       createEncryptor(oauthCfg),
