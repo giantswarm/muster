@@ -51,7 +51,7 @@ func TestHandler_HandleCallback_MissingParams(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/oauth/callback?"+tc.query, nil)
+			req := httptest.NewRequest("GET", "/oauth/proxy/callback?"+tc.query, nil)
 			rr := httptest.NewRecorder()
 
 			handler.HandleCallback(rr, req)
@@ -78,7 +78,7 @@ func TestHandler_HandleCallback_OAuthError(t *testing.T) {
 	handler := NewHandler(client)
 	encodedState := storeCallbackState(t, client, authServer.URL)
 
-	req := httptest.NewRequest("GET", "/oauth/callback?error=access_denied&error_description=User+denied+access&state="+url.QueryEscape(encodedState), nil)
+	req := httptest.NewRequest("GET", "/oauth/proxy/callback?error=access_denied&error_description=User+denied+access&state="+url.QueryEscape(encodedState), nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleCallback(rr, req)
@@ -109,7 +109,7 @@ func TestHandler_HandleCallback_ErrorWithoutValidState(t *testing.T) {
 
 	handler := NewHandler(client)
 
-	req := httptest.NewRequest("GET", "/oauth/callback?error=access_denied&error_description=User+denied+access", nil)
+	req := httptest.NewRequest("GET", "/oauth/proxy/callback?error=access_denied&error_description=User+denied+access", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleCallback(rr, req)
@@ -130,7 +130,7 @@ func TestHandler_HandleCallback_InvalidState(t *testing.T) {
 	handler := NewHandler(client)
 
 	// State that doesn't exist in the store
-	req := httptest.NewRequest("GET", "/oauth/callback?code=auth-code&state=invalid-state", nil)
+	req := httptest.NewRequest("GET", "/oauth/proxy/callback?code=auth-code&state=invalid-state", nil)
 	rr := httptest.NewRecorder()
 
 	handler.HandleCallback(rr, req)

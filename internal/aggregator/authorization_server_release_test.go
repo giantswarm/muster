@@ -87,6 +87,33 @@ func TestReleaseAuthorizationServerPin(t *testing.T) {
 		assert.Equal(t, "https://sibling.example.com/auth", pin.AuthorizationEndpoint, "the sibling's description replaced the released one")
 	})
 
+	t.Run("a tenant and muster's namespace never take over each other's pin", func(t *testing.T) {
+		tenantKey := api.IssuerKey("org-a", issuer)
+		muster := api.IssuerPin{AuthorizationEndpoint: "https://muster-ns.example.com/auth"}
+		tenant := api.IssuerPin{AuthorizationEndpoint: "https://tenant.example.com/auth"}
+
+		// muster's server drops its pin while a tenant still describes the issuer.
+		a := &AggregatorServer{registry: NewServerRegistry("x")}
+		handler.pins[issuer], handler.pins[tenantKey] = muster, tenant
+		newServer(a.registry, "fixture", &api.MCPServerAuth{Type: "oauth"})
+		newServer(a.registry, "org-a/fixture", pinnedAuth(issuer, "https://tenant.example.com/auth", "https://tenant.example.com/token"))
+		a.releaseAuthorizationServerPin(ctx, "fixture", pinnedAuth(issuer, "https://muster-ns.example.com/auth", "https://muster-ns.example.com/token"))
+		_, still := handler.pins[issuer]
+		assert.False(t, still, "the tenant's description does not become muster's namespace's pin")
+		assert.Equal(t, tenant, handler.pins[tenantKey], "the tenant's own pin is untouched")
+
+		// The tenant drops its pin while muster's namespace still describes the issuer.
+		a = &AggregatorServer{registry: NewServerRegistry("x")}
+		handler.pins[issuer], handler.pins[tenantKey] = muster, tenant
+		newServer(a.registry, "org-a/fixture", &api.MCPServerAuth{Type: "oauth"})
+		newServer(a.registry, "sibling", pinnedAuth(issuer, "https://muster-ns.example.com/auth", "https://muster-ns.example.com/token"))
+		a.releaseAuthorizationServerPin(ctx, "org-a/fixture", pinnedAuth(issuer, "https://tenant.example.com/auth", "https://tenant.example.com/token"))
+		_, still = handler.pins[tenantKey]
+		assert.False(t, still, "muster's namespace's description does not become the tenant's pin")
+		assert.Equal(t, muster, handler.pins[issuer], "muster's namespace's pin is untouched")
+		delete(handler.pins, issuer)
+	})
+
 	t.Run("nothing to release without a previous pin", func(t *testing.T) {
 		a := &AggregatorServer{registry: NewServerRegistry("x")}
 		handler.pins[issuer] = api.IssuerPin{ClientID: "keep"}

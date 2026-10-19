@@ -1676,6 +1676,9 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 			mux.Handle(callbackPath, oauthHandler.GetHTTPHandler())
 			logging.InfoWithAttrs("Aggregator", "Mounted OAuth callback handler",
 				slog.String("path", callbackPath))
+			// The callback of the servers outside muster's namespace, one
+			// redirect URI per namespace.
+			mux.Handle(config.OAuthProxyNamespaceCallbackPattern, oauthHandler.GetHTTPHandler())
 		}
 
 		startPath := oauthHandler.GetStartPath()
@@ -3041,7 +3044,7 @@ func (a *AggregatorServer) tearDownSession(ctx context.Context, sessionID string
 func (a *AggregatorServer) tearDownSessionServer(ctx context.Context, sessionID string, serverInfo *ServerInfo) {
 	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
 		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sessionID, serverInfo.AuthInfo.Issuer)
+			oauthHandler.ClearTokenByIssuer(sessionID, api.ServerIssuerKey(serverInfo.Name, serverInfo.AuthInfo.Issuer))
 		}
 	}
 	serverName := serverInfo.Name
@@ -3399,7 +3402,7 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 			if err != nil {
 				return nil, nil, fmt.Errorf("resolve the authorization server of %s: %w", serverName, err)
 			}
-			issuer, scope = authInfo.Issuer, authInfo.Scope
+			issuer, scope = api.ServerIssuerKey(serverName, authInfo.Issuer), authInfo.Scope
 		}
 		if issuer == "" {
 			return nil, nil, fmt.Errorf("unable to determine auth method for server %s: its OAuth issuer is unknown (no RFC 9728 metadata, no spec.auth.authorizationServer pin)", serverName)

@@ -96,6 +96,18 @@ func TestPinAuthorizationServer(t *testing.T) {
 		assert.Equal(t, "https://github.com/login/oauth/access_token", pin.TokenEndpoint)
 	})
 
+	t.Run("a tenant's pin is filed under its namespace", func(t *testing.T) {
+		handler := &pinCaptureHandler{mockOAuthHandler: newMockOAuthHandler(true), pins: map[string]api.IssuerPin{}}
+		api.RegisterOAuthHandler(handler)
+		defer api.RegisterOAuthHandler(nil)
+
+		tenant := githubStyleServer(nil, api.GrantScopeSubject)
+		tenant.Name, tenant.Namespace = "org-a/github", "org-a"
+		require.NoError(t, pinAuthorizationServer(ctx, tenant))
+		assert.Equal(t, []string{"ns:org-a:https://github.com/login/oauth"}, keysOf(handler.pins),
+			"the pin applies to no server outside org-a")
+	})
+
 	t.Run("fails when the secret cannot be read", func(t *testing.T) {
 		handler := &pinCaptureHandler{mockOAuthHandler: newMockOAuthHandler(true), pins: map[string]api.IssuerPin{}}
 		api.RegisterOAuthHandler(handler)
@@ -117,4 +129,12 @@ func TestPinAuthorizationServer(t *testing.T) {
 		api.RegisterOAuthHandler(newMockOAuthHandler(true)) // enabled but no IssuerPinner
 		require.Error(t, pinAuthorizationServer(ctx, githubStyleServer(nil, api.GrantScopeSubject)))
 	})
+}
+
+func keysOf(pins map[string]api.IssuerPin) []string {
+	keys := make([]string, 0, len(pins))
+	for key := range pins {
+		keys = append(keys, key)
+	}
+	return keys
 }

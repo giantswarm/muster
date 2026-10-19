@@ -85,6 +85,9 @@ type StateParams struct {
 type CompletedFlow struct {
 	ServerName  string `json:"srv"`
 	RedirectURI string `json:"ru,omitempty"`
+	// Issuer is the flow's issuer key: a duplicate delivery re-renders the
+	// outcome only on the redirect URI of the flow's namespace.
+	Issuer string `json:"iss,omitempty"`
 }
 
 // completionGrace bounds how long a completed flow's outcome is re-rendered

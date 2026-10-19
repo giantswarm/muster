@@ -136,6 +136,10 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		// sign-in. The code exchange is NOT re-run — the completion record
 		// carries no secrets, only what finishSuccess renders.
 		if done := h.client.stateStore.Completed(stateParam); done != nil {
+			if !h.onFlowCallback(r, done.Issuer) {
+				h.renderErrorPage(w, summaryUnverifiedResponse, "")
+				return
+			}
 			logging.Info("OAuth", "Duplicate OAuth callback delivery for completed flow (server=%s) — re-rendering the outcome", done.ServerName)
 			h.finishSuccess(w, r, &OAuthState{ServerName: done.ServerName, RedirectURI: done.RedirectURI})
 			return
@@ -148,6 +152,18 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if state.Issuer == "" {
 		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
 		h.renderErrorPage(w, summaryInvalidSession, "")
+		return
+	}
+
+	// The namespace check comes before anything that acts on the response:
+	// the iss check (it fetches the flow issuer's metadata), the drop of a
+	// registration on an error, and the code exchange. A code that arrives
+	// on another namespace's redirect URI was issued for another client, so
+	// its flow's token endpoint must never receive it.
+	if !h.onFlowCallback(r, state.Issuer) {
+		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: it arrived on %s, not on the redirect URI of its namespace",
+			state.ServerName, r.URL.EscapedPath())
+		h.renderErrorPage(w, summaryUnverifiedResponse, "")
 		return
 	}
 
@@ -211,6 +227,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	h.client.stateStore.MarkCompleted(stateParam, &CompletedFlow{
 		ServerName:  state.ServerName,
 		RedirectURI: state.RedirectURI,
+		Issuer:      state.Issuer,
 	})
 
 	logging.Info("OAuth", "Successfully authenticated session=%s server=%s",
@@ -230,6 +247,17 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.finishSuccess(w, r, state)
+}
+
+// onFlowCallback reports whether a callback request arrived on the redirect
+// URI of the flow filed under issuerKey: the plain callback for muster's
+// namespace, the namespace's own callback for a server outside it. The
+// namespace comes from the stored state only (the issuer key), never from the
+// state parameter the authorization server hands back, and the path is
+// compared as it arrived, without decoding. A flow stored before namespaces
+// existed carries a plain issuer, so it is a flow of muster's namespace.
+func (h *Handler) onFlowCallback(r *http.Request, issuerKey string) bool {
+	return r.URL.EscapedPath() == h.client.callbackPathFor(issuerKey)
 }
 
 // validateResponseIssuer applies the RFC 9207 check to an authorization
@@ -279,8 +307,9 @@ func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState,
 	// compare against. It is operator-configured and may carry a trailing
 	// slash the authorization server does not put on its own identifier, so
 	// that one difference is ignored here. Nothing else is normalized.
-	if strings.TrimSuffix(iss, "/") != strings.TrimSuffix(state.Issuer, "/") {
-		return fmt.Errorf("iss mismatch: response carried %q, expected %q", iss, state.Issuer)
+	recorded := api.IssuerURL(state.Issuer)
+	if strings.TrimSuffix(iss, "/") != strings.TrimSuffix(recorded, "/") {
+		return fmt.Errorf("iss mismatch: response carried %q, expected %q", iss, recorded)
 	}
 	return nil
 }

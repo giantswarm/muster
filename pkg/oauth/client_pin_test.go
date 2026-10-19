@@ -78,3 +78,40 @@ func TestClient_PinMetadata_SurvivesCacheClearAndDiscovery(t *testing.T) {
 		t.Errorf("re-pin did not replace the pin: %q", metadata.TokenEndpoint)
 	}
 }
+
+// A caller whose pins live under another key (a server outside muster's
+// namespace) discovers what the authorization server publishes, never the pin
+// of the plain issuer, and that discovery is cached apart from the pin.
+func TestClient_DiscoverPublishedMetadata_IgnoresAndKeepsThePin(t *testing.T) {
+	var hits atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path != WellKnownAuthorizationServer {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"issuer":"` + server.URL + `","authorization_endpoint":"` + server.URL + `/published/authorize","token_endpoint":"` + server.URL + `/published/token"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient()
+	client.PinMetadata(server.URL, &Metadata{AuthorizationEndpoint: server.URL + "/pinned/authorize", TokenEndpoint: server.URL + "/pinned/token"})
+
+	for range 2 {
+		published, err := client.DiscoverPublishedMetadata(context.Background(), server.URL)
+		if err != nil {
+			t.Fatalf("DiscoverPublishedMetadata: %v", err)
+		}
+		if published.TokenEndpoint != server.URL+"/published/token" {
+			t.Errorf("published token endpoint = %q, want the server's own", published.TokenEndpoint)
+		}
+	}
+	if hits.Load() != 1 {
+		t.Errorf("metadata requests = %d, want one: the published document is cached next to the pin", hits.Load())
+	}
+	if pinned, _ := client.DiscoverMetadata(context.Background(), server.URL); pinned.TokenEndpoint != server.URL+"/pinned/token" {
+		t.Errorf("the pin answers DiscoverMetadata, got %q", pinned.TokenEndpoint)
+	}
+}

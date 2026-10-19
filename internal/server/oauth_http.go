@@ -255,6 +255,10 @@ func (s *OAuthHTTPServer) setupOAuthProxyRoutes(mux *http.ServeMux) {
 	if callbackPath != "" {
 		mux.Handle(callbackPath, oauthProxyHandler.GetHTTPHandler())
 		logging.Info("OAuth", "Mounted OAuth proxy callback at %s", callbackPath)
+		// The callback of the servers outside muster's namespace, one
+		// redirect URI per namespace.
+		mux.Handle(config.OAuthProxyNamespaceCallbackPattern, oauthProxyHandler.GetHTTPHandler())
+		logging.Info("OAuth", "Mounted OAuth proxy namespace callback at %s", config.OAuthProxyNamespaceCallbackPattern)
 	}
 
 	// Mount the OAuth proxy start endpoint (browser entry point of the flow)

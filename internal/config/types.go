@@ -266,6 +266,12 @@ type OAuthMCPClientConfig struct {
 	// (e.g. in-cluster Dex via .svc.cluster.local).
 	// Not part of any user-facing config; populated by the serve command.
 	ExtraCAFile string `yaml:"-"`
+
+	// ServesOtherNamespaces is set when muster serves MCPServer objects of
+	// other namespaces (mcpServersInAllNamespaces in Kubernetes mode): their
+	// servers sign in through the namespace callbacks. Populated at wiring
+	// time, never from YAML.
+	ServesOtherNamespaces bool `yaml:"-"`
 }
 
 // OAuthTokenExchangeClientConfig configures the outbound RFC 8693

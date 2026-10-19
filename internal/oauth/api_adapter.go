@@ -113,7 +113,9 @@ func (a *Adapter) FindTokenWithIDToken(sessionID string) *api.OAuthToken {
 
 	allTokens := a.manager.client.tokenStore.GetAllForSession(sessionID)
 	for _, token := range allTokens {
-		if token != nil && token.IDToken != "" {
+		// A token of a server outside muster's namespace never stands in
+		// for muster's own login: its issuer is the tenant's choice.
+		if token != nil && token.IDToken != "" && !api.IsTenantIssuerKey(token.Issuer) {
 			return fullTokenToAPIToken(token)
 		}
 	}
@@ -135,7 +137,7 @@ func (a *Adapter) PinIssuer(issuer string, pin api.IssuerPin) {
 	var metadata *pkgoauth.Metadata
 	if pin.AuthorizationEndpoint != "" && pin.TokenEndpoint != "" {
 		metadata = &pkgoauth.Metadata{
-			Issuer:                 issuer,
+			Issuer:                 api.IssuerURL(issuer),
 			AuthorizationEndpoint:  pin.AuthorizationEndpoint,
 			TokenEndpoint:          pin.TokenEndpoint,
 			ResponseTypesSupported: []string{"code"},

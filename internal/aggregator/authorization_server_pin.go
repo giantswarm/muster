@@ -57,7 +57,9 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		pin.ClientID, pin.ClientSecret = creds.ClientID, creds.ClientSecret
 	}
 
-	issuer := strings.TrimSuffix(as.Issuer, "/")
+	// Filed under the issuer key: a pin of a server outside muster's
+	// namespace applies to no server outside that namespace.
+	issuer := api.ServerIssuerKey(serverInfo.Name, strings.TrimSuffix(as.Issuer, "/"))
 	pinner.PinIssuer(issuer, pin)
 	logging.InfoWithAttrs("Aggregator", "oauth_authorization_server_pinned",
 		slog.String("server", serverInfo.Name),
@@ -137,16 +139,17 @@ func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, na
 	if !ok {
 		return
 	}
-	issuer := strings.TrimSuffix(prev.Issuer, "/")
+	issuer := api.ServerIssuerKey(name, strings.TrimSuffix(prev.Issuer, "/"))
 
-	// Another server may still describe the issuer; its description takes
-	// over. This server's own current description is applied by the caller.
+	// Another server may still describe the issuer under the same key (its
+	// namespace and issuer); its description takes over. This server's own
+	// current description is applied by the caller.
 	for other, info := range described {
 		if other == name {
 			continue
 		}
 		as := authorizationServerOf(info.AuthConfig)
-		if as == nil || strings.TrimSuffix(as.Issuer, "/") != issuer {
+		if as == nil || api.ServerIssuerKey(other, strings.TrimSuffix(as.Issuer, "/")) != issuer {
 			continue
 		}
 		pinner.UnpinIssuer(issuer)

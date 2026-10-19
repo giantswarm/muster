@@ -2,8 +2,10 @@ package oauth
 
 import (
 	"context"
+	"fmt"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
@@ -24,8 +26,12 @@ func dcrClient(creds *pkgoauth.ClientCredentials) *resolvedClient {
 // back to the CIMD URL rather than aborting — never worse than the pre-DCR
 // behavior — and the challenge carries the rejection.
 func (c *Client) register(ctx context.Context, issuer, registrationEndpoint string) *resolvedClient {
-	registration, err := c.oauthClient.RegisterClient(ctx, registrationEndpoint, c.GetRegistrationMetadata())
+	registration, err := c.oauthClient.RegisterClient(ctx, registrationEndpoint, c.registrationMetadataFor(issuer))
 	if err != nil {
+		if api.IsTenantIssuerKey(issuer) {
+			logging.Warn("OAuth", "Dynamic client registration with %s failed: %v", issuer, err)
+			return &resolvedClient{Method: ClientIDMethodNone, RegistrationError: fmt.Errorf("dynamic client registration failed: %w", err)}
+		}
 		logging.Warn("OAuth", "Dynamic client registration with %s failed, falling back to CIMD URL as client_id: %v",
 			issuer, err)
 		return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodDCRFailed, RegistrationError: err}
@@ -79,7 +85,7 @@ func (c *Client) registrationGone(ctx context.Context, issuer string, metadata *
 			issuer, creds.ClientID, err)
 	}
 
-	status, err := c.oauthClient.ProbeClientRegistration(ctx, metadata.AuthorizationEndpoint, creds.ClientID, c.GetRedirectURI())
+	status, err := c.oauthClient.ProbeClientRegistration(ctx, metadata.AuthorizationEndpoint, creds.ClientID, c.redirectURIFor(issuer))
 	switch status {
 	case pkgoauth.RegistrationGone:
 		return true, "authorization endpoint answered invalid_client"
@@ -170,16 +176,31 @@ func (c *Client) GetRegistrationMetadata() *pkgoauth.ClientMetadata {
 	return metadata
 }
 
+// registrationMetadataFor is GetRegistrationMetadata for the flows filed
+// under an issuer key: a registration of a server outside muster's namespace
+// lists only its namespace's redirect URI.
+func (c *Client) registrationMetadataFor(issuerKey string) *pkgoauth.ClientMetadata {
+	metadata := c.GetRegistrationMetadata()
+	metadata.RedirectURIs = []string{c.redirectURIFor(issuerKey)}
+	return metadata
+}
+
 // GetClientCredentialsForIssuer returns the client_id and client_secret the
 // OAuth flows use against the given issuer, without triggering a new DCR
 // registration. This backs mcp-go's transport-level token refresh, which
 // must present the same client identification the token was issued under.
 func (c *Client) GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string) {
 	if pin := c.issuerPin(issuer); pin != nil && pin.ClientID != "" {
+		if api.IsTenantIssuerKey(issuer) && pin.ClientID == c.clientID {
+			return "", ""
+		}
 		return pin.ClientID, pin.ClientSecret
 	}
-	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
+	metadata, err := c.discoverMetadata(ctx, issuer)
 	if err != nil {
+		if api.IsTenantIssuerKey(issuer) {
+			return "", ""
+		}
 		// Metadata should be cached from the original flow; on a cold cache
 		// with an unreachable AS the CIMD URL is the only sensible answer.
 		logging.Debug("OAuth", "GetClientCredentialsForIssuer: metadata discovery for %s failed, using CIMD URL: %v", issuer, err)
