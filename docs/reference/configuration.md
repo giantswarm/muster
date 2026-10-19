@@ -161,7 +161,9 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   subject `actor/<atespace>/<actor>`; the binding must list the reserved provider `muster`,
   which a bind accepts only with the actor bearer on and `FetchSecret` never releases. A bad
   token is `401`, an unbound actor or a binding without `muster` is `403`, a binding store
-  outage is `503`, each refusal logged (`actor_bearer_refused`). All requests of one actor are
+  outage is `503`. Every accepted or refused request is an audit event
+  (`[AUDIT] action=actor_bearer outcome=success|failure`) naming the person's truncated subject,
+  the actor and the bound Session, and, on a refusal, the reason. All requests of one actor are
   one muster session, and every accepted request restarts the binding's TTL. The actor JWT is
   never forwarded downstream. Servers that forward (`forwardToken`, `forwardIdentity`) or
   exchange (`tokenExchange`) the person's ID token get the person's own login ID token instead:

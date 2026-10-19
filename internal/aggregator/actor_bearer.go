@@ -106,11 +106,6 @@ func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Hand
 		if withPersonToken != nil {
 			ctx = withPersonToken(ctx, caller)
 		}
-		logging.DebugWithAttrs("Aggregator", "Actor bearer accepted",
-			slog.String("sub", caller.Subject),
-			slog.String("session", caller.Session),
-			slog.String("actor", caller.Actor),
-			slog.Time("expiresAt", caller.Expiry))
 		if onAuthenticated != nil {
 			onAuthenticated(ctx, caller.SessionID)
 		}

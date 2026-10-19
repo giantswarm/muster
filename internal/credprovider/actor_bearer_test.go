@@ -1,6 +1,7 @@
 package credprovider
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -19,6 +20,8 @@ import (
 	josejwt "github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 const testAudience = "https://muster.example.com"
@@ -146,6 +149,49 @@ func TestActorBearerRefusals(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := ab.Authenticate(ctx, tc.token)
 			assert.ErrorIs(t, err, tc.want)
+		})
+	}
+}
+
+func TestActorBearerAuditsEveryAuthentication(t *testing.T) {
+	var buf bytes.Buffer
+	logging.InitForCLI(logging.LevelInfo, &buf)
+	ctx := t.Context()
+	iss := newActorIssuer(t)
+	store := NewMemoryStore()
+	const person = "CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs"
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: person, Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+	gitOnly := "spiffe://substrate-actor.local/actor/kagent/session-git"
+	require.NoError(t, store.Put(ctx, gitOnly, Binding{Subject: person, Session: "kagent/s2", Providers: []string{"github"}}, time.Hour))
+	ab := iss.bearer(t, store)
+
+	cases := []struct {
+		name  string
+		token string
+		want  string
+	}{
+		{
+			name:  "accepted",
+			token: iss.mint(t, testActorSubject, nil),
+			want:  "[AUDIT] action=actor_bearer outcome=success subject=CiQwOGE4... target=muster details=actor=" + testActor + " session=kagent/s1",
+		},
+		{
+			name:  "binding without muster",
+			token: iss.mint(t, "actor/kagent/session-git", nil),
+			want:  "[AUDIT] action=actor_bearer outcome=failure subject=CiQwOGE4... target=muster details=actor=" + gitOnly + " session=kagent/s2 error=the binding does not list muster",
+		},
+		{
+			name:  "unbound actor",
+			token: iss.mint(t, "actor/kagent/session-z", nil),
+			want:  "[AUDIT] action=actor_bearer outcome=failure target=muster details=actor=spiffe://substrate-actor.local/actor/kagent/session-z error=actor is not bound",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buf.Reset()
+			_, _ = ab.Authenticate(ctx, tc.token)
+			assert.Contains(t, buf.String(), tc.want)
+			assert.NotContains(t, buf.String(), tc.token, "the actor JWT is never logged")
 		})
 	}
 }
