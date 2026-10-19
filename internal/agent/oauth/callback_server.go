@@ -2,15 +2,16 @@ package oauth
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
-	"html/template"
 	"net"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/giantswarm/pagekit"
 
 	"github.com/giantswarm/muster/v5/internal/netdiag"
 )
@@ -20,12 +21,6 @@ const DefaultCallbackPort = 3000
 
 // CallbackTimeout is how long to wait for the OAuth callback.
 const CallbackTimeout = 10 * time.Minute
-
-//go:embed templates/callback_success.html
-var callbackSuccessHTML string
-
-//go:embed templates/callback_error.html
-var callbackErrorHTML string
 
 // CallbackResult represents the result of an OAuth callback.
 type CallbackResult struct {
@@ -189,20 +184,17 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 	})
 
 	if !handled {
-		http.Error(w, "Callback already processed", http.StatusBadRequest)
+		pagekit.Render(w, http.StatusBadRequest, pagekit.Page{
+			Heading: "Already received",
+			Summary: "This sign-in was already received",
+			Message: "You can close this tab.",
+		})
 	}
 }
 
 // processCallback processes the OAuth callback request.
 // This is called exactly once via sync.Once.
 func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request) {
-	// Set security headers
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Cache-Control", "no-store")
-
 	// Parse query parameters
 	query := r.URL.Query()
 	result := &CallbackResult{
@@ -213,24 +205,15 @@ func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request)
 		ErrorDescription: query.Get("error_description"),
 	}
 
-	// Render appropriate HTML response
-	var tmpl *template.Template
-	var data interface{}
-
 	if result.IsError() {
-		tmpl = template.Must(template.New("error").Parse(callbackErrorHTML))
-		data = map[string]string{
-			"Error":       result.Error,
-			"Description": result.ErrorDescription,
-		}
+		pagekit.Render(w, http.StatusBadRequest, callbackErrorPage(result.Error))
 	} else {
-		tmpl = template.Must(template.New("success").Parse(callbackSuccessHTML))
-		data = map[string]string{}
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, data); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		pagekit.Render(w, http.StatusOK, pagekit.Page{
+			Title:   "Signed in to Muster",
+			Heading: "Signed in",
+			Summary: "Muster is now connected",
+			Message: "You can close this tab and return to where you started the sign-in.",
+		})
 	}
 
 	// Send result to channel
@@ -244,6 +227,26 @@ func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request)
 		time.Sleep(1 * time.Second)
 		s.Stop()
 	}()
+}
+
+// oauthErrorCode matches the error codes of RFC 6749 section 4.1.2.1 and
+// their extensions, such as access_denied or login_required.
+var oauthErrorCode = regexp.MustCompile(`^[a-z_]{1,64}$`)
+
+// callbackErrorPage returns the page for an authorization error. Any page can
+// send the browser to the loopback callback with made-up parameters, so the
+// page shows the error code only when it looks like one, and never the free
+// text of error_description.
+func callbackErrorPage(code string) pagekit.Page {
+	p := pagekit.Page{
+		Heading: "Sign-in failed",
+		Summary: "The identity provider reported an error",
+		Message: "You can close this tab and start the sign-in again from where you started it.",
+	}
+	if oauthErrorCode.MatchString(code) {
+		p.Detail = code
+	}
+	return p
 }
 
 // Stop gracefully shuts down the callback server.

@@ -1,41 +1,19 @@
 package oauth
 
 import (
-	"bytes"
 	"context"
-	"embed"
 	"encoding/json"
 	"fmt"
-	"html"
-	"html/template"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/giantswarm/pagekit"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
-
-//go:embed templates/*.html
-var templateFS embed.FS
-
-// Parsed templates - initialized once at package load
-var (
-	successTemplate *template.Template
-	errorTemplate   *template.Template
-)
-
-func init() {
-	var err error
-	successTemplate, err = template.ParseFS(templateFS, "templates/success.html")
-	if err != nil {
-		panic("failed to parse success template: " + err.Error())
-	}
-	errorTemplate, err = template.ParseFS(templateFS, "templates/error.html")
-	if err != nil {
-		panic("failed to parse error template: " + err.Error())
-	}
-}
 
 // Handler provides HTTP handlers for OAuth callback endpoints.
 type Handler struct {
@@ -68,9 +46,18 @@ func (h *Handler) SetPostLoginRedirectAllowlist(prefixes []*url.URL) {
 	h.postLoginRedirectAllowlist = prefixes
 }
 
-// expiredStartLinkMessage is shown when a sign-in link is opened after its
-// state expired or was already used.
-const expiredStartLinkMessage = "This sign-in link has expired. Start a new sign-in; opening this link again will not work."
+// Summaries of the sign-in error pages. Every error page tells the person to
+// start the sign-in again, since no failed step can be retried on its own.
+const (
+	summaryIncompleteLink     = "The sign-in link is incomplete"
+	summaryExpiredLink        = "The sign-in link has expired or was already used"
+	summaryInvalidSession     = "The sign-in session is invalid"
+	summaryExpiredSession     = "The sign-in session has expired"
+	summaryIncompleteResponse = "The sign-in response is incomplete"
+	summaryUnverifiedResponse = "The sign-in response could not be verified"
+	summaryDenied             = "The sign-in was denied or failed"
+	summaryNotCompleted       = "The sign-in could not be completed"
+)
 
 // HandleStart handles the OAuth proxy start endpoint. Auth challenges point
 // the browser here; it redirects to the upstream authorization URL stored
@@ -82,7 +69,7 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 	stateParam := r.URL.Query().Get("state")
 	if stateParam == "" {
 		logging.Warn("OAuth", "Start endpoint called without state parameter")
-		h.renderErrorPage(w, "Invalid sign-in link: missing required parameters")
+		h.renderErrorPage(w, summaryIncompleteLink, "")
 		return
 	}
 
@@ -104,12 +91,12 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 	if state == nil {
 		// Retrying this link can never succeed: its state is gone, so only a
 		// new sign-in (a new link) helps.
-		h.renderErrorPage(w, expiredStartLinkMessage)
+		h.renderErrorPage(w, summaryExpiredLink, "")
 		return
 	}
 	if state.AuthorizationURL == "" {
 		logging.Warn("OAuth", "State has no authorization URL: nonce=%s", state.Nonce)
-		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
 
@@ -134,7 +121,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	if stateParam == "" {
 		logging.Warn("OAuth", "OAuth callback missing state parameter")
-		h.renderErrorPage(w, "Invalid callback: missing required parameters")
+		h.renderErrorPage(w, summaryIncompleteResponse, "")
 		return
 	}
 
@@ -153,33 +140,34 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		logging.Warn("OAuth", "OAuth callback with invalid or expired state")
-		h.renderErrorPage(w, "Authentication session expired. Please try again.")
+		h.renderErrorPage(w, summaryExpiredSession, "")
 		return
 	}
 
 	if state.Issuer == "" {
 		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
-		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
 
 	if err := h.validateResponseIssuer(r.Context(), state, issParam); err != nil {
 		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: %v", state.ServerName, err)
-		h.renderErrorPage(w, "Authentication response could not be verified. Please try again.")
+		h.renderErrorPage(w, summaryUnverifiedResponse, "")
 		return
 	}
 
-	// Handle OAuth errors - use generic message to avoid leaking sensitive info
+	// The page shows the OAuth error code but not error_description, which
+	// may carry provider details.
 	if errorParam != "" {
 		logging.Warn("OAuth", "OAuth callback received error: %s - %s", errorParam, errorDesc)
 		h.client.ForgetRegistrationOnAuthorizationError(state.Issuer, errorParam)
-		h.renderErrorPage(w, "Authentication was denied or failed. Please try again.")
+		h.renderErrorPage(w, summaryDenied, errorParam)
 		return
 	}
 
 	if code == "" {
 		logging.Warn("OAuth", "OAuth callback missing code parameter")
-		h.renderErrorPage(w, "Invalid callback: missing required parameters")
+		h.renderErrorPage(w, summaryIncompleteResponse, "")
 		return
 	}
 
@@ -188,13 +176,13 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	if state.SessionID == "" {
 		logging.Warn("OAuth", "Missing session ID in state for nonce=%s (possible rolling-upgrade race)", state.Nonce)
-		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
 
 	if state.CodeVerifier == "" {
 		logging.Warn("OAuth", "Missing code verifier in state for nonce=%s", state.Nonce)
-		h.renderErrorPage(w, "Authentication session invalid. Please try again.")
+		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
 
@@ -210,7 +198,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	token, err := h.client.ExchangeCode(ctx, code, state.CodeVerifier, state.Issuer, state.Resource, state.Scope)
 	if err != nil {
 		logging.Error("OAuth", err, "Failed to exchange authorization code")
-		h.renderErrorPage(w, "Failed to complete authentication. Please try again.")
+		h.renderErrorPage(w, summaryNotCompleted, "")
 		return
 	}
 
@@ -296,62 +284,41 @@ func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState,
 	return nil
 }
 
-// setSecurityHeaders sets recommended security headers for HTML responses.
-// These headers help prevent XSS, clickjacking, and MIME sniffing attacks.
-func setSecurityHeaders(w http.ResponseWriter) {
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+// renderSuccessPage renders the page shown after signing in to serverName,
+// naming the server by its display name where it has one.
+func (h *Handler) renderSuccessPage(ctx context.Context, w http.ResponseWriter, serverName string) {
+	name := serverDisplayName(ctx, serverName)
+	pagekit.Render(w, http.StatusOK, pagekit.Page{
+		Title:   "Signed in to " + name,
+		Heading: "Signed in",
+		Summary: name + " is now connected",
+		Message: "You can close this tab and return to where you started the sign-in.",
+	})
 }
 
-// templateData holds data for HTML template rendering.
-type templateData struct {
-	ServerName string
-	Message    string
+// renderErrorPage renders a sign-in error page. detail, when set, is shown
+// as a code the person can pass on to support.
+func (h *Handler) renderErrorPage(w http.ResponseWriter, summary, detail string) {
+	pagekit.Render(w, http.StatusBadRequest, pagekit.Page{
+		Heading: "Sign-in failed",
+		Summary: summary,
+		Message: "You can close this tab and start the sign-in again from where you started it.",
+		Detail:  detail,
+	})
 }
 
-// renderSuccessPage renders an HTML page indicating successful authentication.
-func (h *Handler) renderSuccessPage(w http.ResponseWriter, serverName string) {
-	setSecurityHeaders(w)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	// Escape server name to prevent XSS attacks
-	data := templateData{
-		ServerName: html.EscapeString(serverName),
+// serverDisplayName returns the MCPServer's display name, or name itself when
+// the server has none or cannot be read.
+func serverDisplayName(ctx context.Context, name string) string {
+	manager := api.GetMCPServerManager()
+	if manager == nil {
+		return name
 	}
-
-	var buf bytes.Buffer
-	if err := successTemplate.Execute(&buf, data); err != nil {
-		logging.Error("OAuth", err, "Failed to render success template")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+	info, err := manager.GetMCPServer(ctx, name)
+	if err != nil || info == nil || info.DisplayName == "" {
+		return name
 	}
-
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(buf.Bytes())
-}
-
-// renderErrorPage renders an HTML page indicating an authentication error.
-func (h *Handler) renderErrorPage(w http.ResponseWriter, message string) {
-	setSecurityHeaders(w)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	// Escape message to prevent XSS attacks
-	data := templateData{
-		Message: html.EscapeString(message),
-	}
-
-	var buf bytes.Buffer
-	if err := errorTemplate.Execute(&buf, data); err != nil {
-		logging.Error("OAuth", err, "Failed to render error template")
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusBadRequest)
-	_, _ = w.Write(buf.Bytes())
+	return info.DisplayName
 }
 
 // ServeHTTP implements http.Handler for the OAuth handler.

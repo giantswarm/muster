@@ -241,7 +241,7 @@ func TestHandler_HandleCallback_IssFallbackIgnoresTrailingSlash(t *testing.T) {
 	authServer.Close()
 
 	const (
-		issAccepted = "Failed to complete authentication"
+		issAccepted = summaryNotCompleted
 		issRejected = "could not be verified"
 	)
 
