@@ -14,6 +14,27 @@ const (
 // Servers read it by this name: it must not be renamed.
 const HeaderMusterIDToken = "X-Muster-Id-Token" //nolint:gosec // G101: a header name, not a credential
 
+// HeaderProviderAppGrantPrefix starts the header that carries the person's
+// access token of one provider App to an MCPServer with spec.auth.providerApps:
+// X-Muster-Grant-<app>, one header per App the person granted. Servers read it
+// by this name: it must not be renamed.
+const HeaderProviderAppGrantPrefix = "X-Muster-Grant-" //nolint:gosec // G101: a header name, not a credential
+
+// ProviderAppGrantHeader is the header carrying the person's token of the
+// provider App app.
+func ProviderAppGrantHeader(app string) string {
+	return HeaderProviderAppGrantPrefix + app
+}
+
+// A tool result whose structuredContent is an object with "status":
+// StatusGrantRequired and "apps": [<app>, ...] says the call needs the
+// person's grant of those provider Apps. muster answers it auth_required with
+// each App's sign-in link.
+const (
+	StatusGrantRequired = "grant_required"
+	FieldGrantApps      = "apps"
+)
+
 // Token-endpoint form field names (RFC 6749 §4 + RFC 7636 PKCE + RFC 8693).
 const (
 	FormFieldGrantType     = "grant_type"

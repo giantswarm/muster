@@ -325,6 +325,27 @@ muster:
   #         - pattern: "*_delete"
   toolsetPresets: {}  # @schema additionalProperties: true
 
+  # Provider Apps: the OAuth App of each provider instance a person grants
+  # once in muster, apart from any MCPServer (core_auth_login app=<name>,
+  # core_auth_logout app=<name>). An MCPServer receives the grants of the Apps
+  # it names in spec.auth.providerApps, one X-Muster-Grant-<name> header per
+  # App the person granted, and the credential provider releases each App
+  # under its name with its git user. Needs muster.oauth.mcpClient.
+  # Example:
+  #   - name: github
+  #     issuer: https://github.com/apps/giantswarm-workspaces
+  #     authorizationEndpoint: https://github.com/login/oauth/authorize
+  #     tokenEndpoint: https://github.com/login/oauth/access_token
+  #     expectedIssuer: https://github.com/login/oauth
+  #     clientCredentialsSecretRef: {name: github-workspaces-app}
+  #   - name: gitlab
+  #     issuer: https://gitlab.example.com
+  #     revocationEndpoint: https://gitlab.example.com/oauth/revoke
+  #     clientCredentialsSecretRef: {name: gitlab-workspaces-app}
+  #     scopes: api read_user
+  #     gitUser: oauth2
+  providerApps: []
+
   # Credential provider for Substrate's egress gateway: a workspace Session's
   # git and gh requests get the access token of the person the Session is
   # bound to (agent-manager binds it at start, as the person, on

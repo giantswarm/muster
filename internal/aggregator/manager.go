@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"sync"
@@ -555,6 +556,15 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 
 	if aggregatorServer == nil {
 		return fmt.Errorf("aggregator server not available")
+	}
+
+	// A provider App's grant is stored already and connects nothing: the
+	// servers that receive it read it on their next request.
+	if app, ok := providerAppOfFlow(serverName); ok {
+		logging.InfoWithAttrs("Aggregator-Manager", "provider_app_granted",
+			slog.String("app", app),
+			slog.String("subject", logging.TruncateIdentifier(userID)))
+		return nil
 	}
 
 	serverInfo, exists := aggregatorServer.GetRegistry().GetServerInfo(serverName)

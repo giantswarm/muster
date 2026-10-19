@@ -32,13 +32,14 @@ func (p *AuthToolProvider) handleAuthStatus(ctx context.Context, args map[string
 	}
 
 	response := p.aggregator.sessionAuthStatus(ctx)
-	if withURLs && awaitsGrant(response.Servers) {
+	if withURLs && (awaitsGrant(response.Servers) || awaitsAppGrant(response.ProviderApps)) {
 		if refused := p.rateLimited(sub, "core_auth_status"); refused != nil {
 			return refused, nil
 		}
 		for i := range response.Servers {
 			p.issueAuthURL(ctx, sessionID, sub, &response.Servers[i])
 		}
+		response.ProviderApps = p.providerAppStatuses(ctx, sessionID, sub, true)
 	}
 
 	data, err := json.Marshal(response)
@@ -56,6 +57,16 @@ func (p *AuthToolProvider) handleAuthStatus(ctx context.Context, args map[string
 func awaitsGrant(servers []pkgoauth.ServerAuthStatus) bool {
 	for _, s := range servers {
 		if grantable(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// awaitsAppGrant reports whether the person has not granted a provider App.
+func awaitsAppGrant(apps []pkgoauth.ProviderAppAuthStatus) bool {
+	for _, app := range apps {
+		if app.Status == pkgoauth.SessionServerStatusAuthRequired {
 			return true
 		}
 	}

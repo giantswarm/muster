@@ -1,0 +1,65 @@
+# Provider App tests for the muster Helm chart
+#
+# muster.providerApps renders the provider instances' OAuth Apps into
+# aggregator.providerApps; they need the OAuth proxy (mcpClient) and count as
+# releasable providers for the credential provider.
+suite: provider apps
+templates:
+  - templates/configmap.yaml
+release:
+  name: muster
+  namespace: agent-platform
+set:
+  muster.oauth.mcpClient.enabled: true
+  muster.oauth.mcpClient.publicUrl: https://muster.example.test
+tests:
+  - it: renders no provider Apps by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: providerApps
+  - it: renders the provider Apps under aggregator
+    set:
+      muster.providerApps:
+        - name: github
+          issuer: https://github.com/apps/giantswarm-workspaces
+          authorizationEndpoint: https://github.com/login/oauth/authorize
+          tokenEndpoint: https://github.com/login/oauth/access_token
+          expectedIssuer: https://github.com/login/oauth
+          clientCredentialsSecretRef:
+            name: github-workspaces-app
+        - name: gitlab
+          issuer: https://gitlab.example.com
+          clientCredentialsSecretRef:
+            name: gitlab-workspaces-app
+          gitUser: oauth2
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '\n  providerApps:\n    - authorizationEndpoint: https://github.com/login/oauth/authorize\n      clientCredentialsSecretRef:\n        name: github-workspaces-app'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- clientCredentialsSecretRef:\n        name: gitlab-workspaces-app\n      gitUser: oauth2\n      issuer: https://gitlab.example.com\n      name: gitlab'
+  - it: refuses provider Apps without the OAuth proxy
+    set:
+      muster.oauth.mcpClient.enabled: false
+      muster.providerApps:
+        - name: gitlab
+          issuer: https://gitlab.example.com
+    asserts:
+      - failedTemplate:
+          errorMessage: muster.providerApps needs muster.oauth.mcpClient.enabled
+  - it: lets the provider Apps be the credential provider's releasable providers
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.existingSecret: muster-oauth
+      muster.oauth.server.baseUrl: https://muster.example.test
+      muster.credentialProvider.enabled: true
+      muster.credentialProvider.gatewayIdentity: spiffe://cluster.local/ns/substrate/sa/substrate-atenet-egress
+      muster.providerApps:
+        - name: gitlab
+          issuer: https://gitlab.example.com
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'credentialProvider:\n\s+enabled: true'

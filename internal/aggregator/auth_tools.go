@@ -86,6 +86,16 @@ func (p *AuthToolProvider) ExecuteTool(ctx context.Context, toolName string, arg
 //   - Rate limiting: Prevents OAuth flow abuse by limiting attempts per user
 //   - Metrics: Tracks login attempts, successes, and failures for monitoring
 func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
+	if appName, isApp, errResult := providerAppArgument(args); isApp || errResult != nil {
+		if errResult != nil {
+			return errResult, nil
+		}
+		sessionID, sub, errResult := requireSessionContextResult(ctx)
+		if errResult != nil {
+			return errResult, nil
+		}
+		return p.grantProviderApp(ctx, sessionID, sub, appName, p.rateLimited), nil
+	}
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
 		return &api.CallToolResult{
@@ -466,6 +476,16 @@ func authChallengeResult(serverName string, challenge *api.AuthChallenge) *api.C
 // Security features:
 //   - Metrics: Tracks logout attempts and successes for monitoring
 func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string]any) (*api.CallToolResult, error) {
+	if appName, isApp, errResult := providerAppArgument(args); isApp || errResult != nil {
+		if errResult != nil {
+			return errResult, nil
+		}
+		sessionID, sub, errResult := requireSessionContextResult(ctx)
+		if errResult != nil {
+			return errResult, nil
+		}
+		return p.disconnectProviderApp(ctx, sessionID, sub, appName), nil
+	}
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {
 		return &api.CallToolResult{

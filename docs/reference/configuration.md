@@ -231,6 +231,55 @@ The Helm chart renders this from `muster.credentialProvider` and mounts Substrat
 certificates; register muster with Substrate as
 `credentialProvider.additionalProviders: [{uriAuthority: muster.giantswarm.io, host: <muster service>.<namespace>.svc:50051}]`.
 
+#### Provider Apps
+
+`aggregator.providerApps` lists the OAuth App of each provider instance a person grants once
+in muster, apart from any MCPServer: a GitHub App, a GitLab OAuth application, one per
+instance. GitHub and GitLab, or github.com and a GitHub Enterprise Server, can be granted
+side by side at one installation.
+
+- **Granting.** `core_auth_login app=<name>` answers the App's sign-in link, or that muster
+  already holds the person's grant. The grant belongs to the person (`grantScope: subject`):
+  one sign-in serves every session and every server that receives it. `core_auth_logout
+  app=<name>` revokes the grant at the App's revocation endpoint and drops it; no other grant
+  is touched.
+- **Attaching.** An MCPServer in muster's namespace that connects as the person
+  (`forwardToken: true` or `forwardIdentity: true`) names the Apps whose grants it receives in
+  `spec.auth.providerApps`. On every request muster sends the access token of each named App
+  the person granted in the header `X-Muster-Grant-<app>`; an App the person has not granted
+  sends no header.
+- **Asking.** A tool result whose `structuredContent` is `{"status": "grant_required",
+  "apps": ["gitlab"]}` is answered `auth_required` with each named App's sign-in link
+  (`structuredContent.apps[].authUrl`). Every other result is returned unchanged.
+- **Releasing.** Every App is releasable to the egress gateway under its name, with its
+  `gitUser`, next to any `credentialProvider.releasable` entry (one that names the App
+  differently fails the start). Each App's issuer is pinned from muster's start, so a grant is
+  released whether or not any MCPServer has answered.
+- **Existing grants.** Grants are filed under the App's `issuer`, as an MCPServer pinned with
+  `grantScope: subject` files them. An App that names the issuer of such a registration finds
+  the grants people already hold; its pin wins over the MCPServer's.
+
+```yaml
+aggregator:
+  providerApps:
+    - name: github                   # lower-case letters, digits, dashes
+      issuer: https://github.com/apps/my-workspaces-app
+      authorizationEndpoint: https://github.com/login/oauth/authorize
+      tokenEndpoint: https://github.com/login/oauth/access_token
+      expectedIssuer: https://github.com/login/oauth
+      clientCredentialsSecretRef:
+        name: github-workspaces-app  # namespace defaults to muster's
+    - name: gitlab
+      issuer: https://gitlab.example.com   # discovered
+      revocationEndpoint: https://gitlab.example.com/oauth/revoke
+      clientCredentialsSecretRef:
+        name: gitlab-workspaces-app
+      scopes: api read_user
+      gitUser: oauth2
+```
+
+The Helm chart renders this from `muster.providerApps`; it needs `muster.oauth.mcpClient`.
+
 ### Auth Configuration
 
 #### Session Duration

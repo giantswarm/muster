@@ -269,6 +269,7 @@ type MCPServerFamily struct {
 // +kubebuilder:validation:XValidation:rule="has(self.sigv4) == (self.type == 'sigv4')",message="type 'sigv4' requires the sigv4 block, and the sigv4 block requires type 'sigv4'"
 // +kubebuilder:validation:XValidation:rule="!has(self.sigv4) || (self.forwardToken == false && !has(self.tokenExchange))",message="sigv4 signs as muster's own machine identity, so forwardToken and tokenExchange do not apply"
 // +kubebuilder:validation:XValidation:rule="!has(self.forwardIdentity) || !self.forwardIdentity || (self.type == 'oauth' && has(self.authorizationServer))",message="forwardIdentity sends the session's ID token next to a pinned grant, so it needs type oauth and authorizationServer"
+// +kubebuilder:validation:XValidation:rule="!has(self.providerApps) || size(self.providerApps) == 0 || (has(self.forwardToken) && self.forwardToken) || (has(self.forwardIdentity) && self.forwardIdentity)",message="providerApps attaches the person's App tokens to a connection made as the person, so it needs forwardToken or forwardIdentity"
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
@@ -319,6 +320,20 @@ type MCPServerAuth struct {
 	// much as a ForwardToken backend.
 	// +kubebuilder:default=false
 	ForwardIdentity bool `json:"forwardIdentity,omitempty" yaml:"forwardIdentity,omitempty"`
+
+	// ProviderApps names the provider Apps (muster's aggregator.providerApps)
+	// whose grants this server receives. On every request muster attaches the
+	// access token of each named App the person granted, in the header
+	// X-Muster-Grant-<app>, refreshed ahead of its expiry; an App the person
+	// did not grant sends no header. A tool result that names missing Apps
+	// ({"status": "grant_required", "apps": [...]} in structuredContent) is
+	// answered auth_required with each App's sign-in link. The person's
+	// connection is made as the person, so this needs ForwardToken or
+	// ForwardIdentity.
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:Pattern=`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`
+	ProviderApps []string `json:"providerApps,omitempty" yaml:"providerApps,omitempty"`
 
 	// RequiredAudiences specifies additional audience(s) that the forwarded ID token
 	// should contain. When ForwardToken is true, muster will request these audiences

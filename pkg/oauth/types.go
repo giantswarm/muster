@@ -439,6 +439,25 @@ type AuthStatusResponse struct {
 	// person must sign in again, when muster lists servers as the caller and
 	// the Kubernetes API does not accept the session's token.
 	Notice string `json:"notice,omitempty"`
+
+	// ProviderApps is the person's grant of each provider App muster keeps
+	// apart from MCPServers (core_auth_login app=<name>).
+	ProviderApps []ProviderAppAuthStatus `json:"providerApps,omitempty"`
+}
+
+// ProviderAppAuthStatus is whether the person granted one provider App.
+type ProviderAppAuthStatus struct {
+	// Name is the provider instance the App belongs to.
+	Name string `json:"name"`
+	// Status is SessionServerStatusConnected when the person holds the grant,
+	// SessionServerStatusAuthRequired otherwise.
+	Status SessionServerStatus `json:"status"`
+	// AuthTool is the tool that starts the grant, for an App awaiting it.
+	AuthTool string `json:"auth_tool,omitempty"`
+	// AuthURL is the sign-in link, issued only on request (auth_urls).
+	AuthURL string `json:"auth_url,omitempty"`
+	// Error says why no sign-in link could be issued.
+	Error string `json:"error,omitempty"`
 }
 
 // ServerAuthStatus represents the authentication status of a single MCP server.

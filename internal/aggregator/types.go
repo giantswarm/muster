@@ -395,6 +395,14 @@ type AggregatorConfig struct {
 	// egress gateway and the /session-bindings endpoints. See
 	// internal/credprovider.
 	CredentialProvider configPkg.CredentialProviderConfig
+
+	// ProviderApps are the provider instances' OAuth Apps a person grants once
+	// in muster, apart from any MCPServer. See provider_apps.go.
+	ProviderApps []configPkg.ProviderAppConfig
+
+	// MusterNamespace is muster's own namespace, where a provider App's client
+	// Secret lives unless its reference names another.
+	MusterNamespace string
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.

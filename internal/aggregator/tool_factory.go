@@ -251,7 +251,7 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 	authTools := []mcp.Tool{
 		{
 			Name:        corePrefix + "auth_login",
-			Description: "Authenticate to an OAuth-protected MCP server",
+			Description: "Authenticate to an OAuth-protected MCP server, or grant a provider App (app) once for every server that receives its grant",
 			// Read-only: the call issues a sign-in link for the caller and
 			// changes nothing on the platform; the grant that follows lands
 			// in the caller's own session. Open world: it reaches the
@@ -263,7 +263,11 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 				Properties: map[string]any{
 					resourceServerArg: map[string]any{
 						"type":        "string",
-						"description": "Name of the MCP server to authenticate to",
+						"description": "Name of the MCP server to authenticate to; set server or app",
+					},
+					providerAppArg: map[string]any{
+						"type":        "string",
+						"description": "Name of the provider App to grant (a provider instance, e.g. github or gitlab); set server or app",
 					},
 					"reset_client_registration": map[string]any{
 						"type": "boolean",
@@ -271,7 +275,6 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 							"Use when sign-ins fail with invalid_client although muster reports a stored registration; other users' tokens from that authorization server may need a fresh sign-in afterwards.",
 					},
 				},
-				Required: []string{"server"},
 			},
 		},
 		{
@@ -296,7 +299,7 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 		},
 		{
 			Name:        corePrefix + "auth_logout",
-			Description: "Log out from an OAuth-protected MCP server",
+			Description: "Log out from an OAuth-protected MCP server, or disconnect a provider App (app): its grant is dropped and revoked",
 			// A write: it discards the caller's stored grant for the server
 			// (idempotent, nothing else is touched), so it stays outside the
 			// read-only preset.
@@ -306,10 +309,13 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 				Properties: map[string]any{
 					"server": map[string]any{
 						"type":        "string",
-						"description": "Name of the MCP server to log out from",
+						"description": "Name of the MCP server to log out from; set server or app",
+					},
+					providerAppArg: map[string]any{
+						"type":        "string",
+						"description": "Name of the provider App to disconnect; set server or app",
 					},
 				},
-				Required: []string{"server"},
 			},
 		},
 	}

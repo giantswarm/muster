@@ -148,7 +148,7 @@ func establishConnection(
 		clientID, clientSecret := oauthHandler.GetClientCredentialsForIssuer(ctx, issuer)
 		client = internalmcp.NewDynamicAuthClient(serverURL, tokenStore, scope, clientID, clientSecret).
 			WithHeaders(headers).
-			WithHeaderFunc(a.identityHeaderFunc(sessionID, info)).
+			WithHeaderFunc(a.sessionHeaderFunc(sessionID, sub, info, nil)).
 			WithMeta(meta).
 			WithTimeout(timeout).
 			WithMaxCallDuration(maxCallDuration).
@@ -1033,7 +1033,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 		return nil, "", err
 	}
 	presented := &atomic.Pointer[string]{}
-	headerFunc := presentingHeaderFunc(makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired), presented)
+	headerFunc := presentingHeaderFunc(a.sessionHeaderFunc(sessionID, sub, serverInfo, makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired)), presented)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 	return &tokenForwardingClient{StreamableHTTPClient: client, presented: presented}, token, nil
 }
