@@ -102,18 +102,22 @@ func hexTraceID(b []byte) string {
 	return string(out)
 }
 
-// TestMCPServerCapabilityOptions_DoesNotAdvertiseResourceSubscribe asserts the
-// aggregator's initialize response omits resources.subscribe. mcp-go
-// acknowledges resources/subscribe whenever the capability is advertised, and
-// the aggregator never emits notifications/resources/updated, so advertising it
-// strands a subscribing client. listChanged must stay on: it is backed by
-// notification_subscriber.
-func TestMCPServerCapabilityOptions_DoesNotAdvertiseResourceSubscribe(t *testing.T) {
-	srv := server.NewMCPServer("muster-aggregator-test", "test", mcpServerCapabilityOptions()...)
+// TestMCPServerCapabilityOptions_ResourceSubscribeForSubscriptionsListenOnly
+// asserts resources.subscribe is advertised to a 2026-07-28 client, whose
+// subscriptions/listen the aggregator relays, and hidden from a legacy
+// initialize (hideLegacySubscribe), whose resources/subscribe mcp-go would
+// acknowledge with no update ever following. listChanged stays on in both: it
+// is backed by notification_subscriber.
+func TestMCPServerCapabilityOptions_ResourceSubscribeForSubscriptionsListenOnly(t *testing.T) {
+	hooks := &server.Hooks{}
+	hooks.AddAfterInitialize(func(_ context.Context, _ any, _ *mcp.InitializeRequest, result *mcp.InitializeResult) {
+		hideLegacySubscribe(result)
+	})
+	srv := server.NewMCPServer("muster-aggregator-test", "test", append(mcpServerCapabilityOptions(), server.WithHooks(hooks))...)
 
 	initBody := fmt.Appendf(nil,
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":%q,"clientInfo":{"name":"t","version":"1"},"capabilities":{}}}`,
-		mcp.LATEST_PROTOCOL_VERSION,
+		mcp.LATEST_LEGACY_PROTOCOL_VERSION,
 	)
 	raw, err := json.Marshal(srv.HandleMessage(t.Context(), initBody))
 	require.NoError(t, err)
@@ -126,9 +130,25 @@ func TestMCPServerCapabilityOptions_DoesNotAdvertiseResourceSubscribe(t *testing
 	require.NotNil(t, resp.Result.Capabilities.Resources,
 		"resources capability must still be advertised")
 	require.False(t, resp.Result.Capabilities.Resources.Subscribe,
-		"resources.subscribe must stay off until the aggregator relays subscriptions and emits notifications/resources/updated")
+		"a legacy initialize must not advertise resources.subscribe: only subscriptions/listen is relayed")
 	require.True(t, resp.Result.Capabilities.Resources.ListChanged,
 		"resources.listChanged is wired via notification_subscriber and must stay on")
 	require.NotNil(t, resp.Result.Capabilities.Tools)
 	require.NotNil(t, resp.Result.Capabilities.Prompts)
+
+	discoverBody := fmt.Appendf(nil,
+		`{"jsonrpc":"2.0","id":2,"method":"server/discover","params":{"_meta":{%q:%q,%q:{"name":"t","version":"1"},%q:{}}}}`,
+		mcp.MetaKeyProtocolVersion, mcp.ProtocolVersion20260728, mcp.MetaKeyClientInfo, mcp.MetaKeyClientCapabilities,
+	)
+	raw, err = json.Marshal(srv.HandleMessage(t.Context(), discoverBody))
+	require.NoError(t, err)
+	var discovered struct {
+		Result struct {
+			Capabilities mcp.ServerCapabilities `json:"capabilities"`
+		} `json:"result"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &discovered), string(raw))
+	require.NotNil(t, discovered.Result.Capabilities.Resources, string(raw))
+	require.True(t, discovered.Result.Capabilities.Resources.Subscribe,
+		"a 2026-07-28 client is told resource subscriptions are served")
 }

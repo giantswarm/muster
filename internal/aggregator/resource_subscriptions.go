@@ -281,25 +281,28 @@ func (a *AggregatorServer) openResourceRelay(
 		return nil, ctx.Err()
 	}
 
+	// The relay lives only while the session may reach the server: a
+	// sign-out, a lost or expired credential ends it (resourceRelays).
+	authorized := func() bool { return a.relayAuthorized(ctx, info, sessionID, sub) }
+	unregister := a.relayRegistry().add(sessionID, server, authorized, cancel)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		a.keepResourceRelay(listenCtx, server, sessionID, listen, ended)
+		defer unregister()
+		defer func() { _ = client.Close() }()
+		a.keepResourceRelay(listenCtx, server, sessionID, listen, ended, authorized)
 	}()
-	var once sync.Once
 	return func() {
-		once.Do(func() {
-			cancel()
-			wg.Wait()
-			_ = client.Close()
-		})
+		cancel()
+		wg.Wait()
 	}, nil
 }
 
 // keepResourceRelay opens a backend stream again each time it ends while ctx
-// lives, waiting longer after each attempt up to resourceRelayRetryMax.
-func (a *AggregatorServer) keepResourceRelay(ctx context.Context, server, sessionID string, listen func(), ended <-chan error) {
+// lives and the session still reaches the server, waiting longer after each
+// attempt up to resourceRelayRetryMax.
+func (a *AggregatorServer) keepResourceRelay(ctx context.Context, server, sessionID string, listen func(), ended <-chan error, authorized func() bool) {
 	wait := resourceRelayRetryMin
 	for {
 		select {
@@ -321,6 +324,12 @@ func (a *AggregatorServer) keepResourceRelay(ctx context.Context, server, sessio
 				timer.Stop()
 				return
 			case <-timer.C:
+			}
+			if !authorized() {
+				logging.InfoWithAttrs("Aggregator", "Relayed resource subscription not reopened: the session no longer reaches the server",
+					slog.String("server", server),
+					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+				return
 			}
 			wait = min(2*wait, resourceRelayRetryMax)
 			go listen()

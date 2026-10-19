@@ -145,6 +145,11 @@ type AggregatorServer struct {
 	// Always non-nil after NewAggregatorServer.
 	connPool *SessionConnectionPool
 
+	// relays are the open relays of resource subscriptions, created with
+	// the first (relayRegistry, resource_relay_revocation.go).
+	relays     *resourceRelays
+	relaysOnce sync.Once
+
 	// tokenRefreshGroup deduplicates concurrent background token refresh
 	// goroutines for the same (sessionID, serverName) key. This prevents
 	// multiple tool calls from spawning parallel token exchanges.
