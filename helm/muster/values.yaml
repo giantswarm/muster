@@ -339,6 +339,11 @@ muster:
     # pinned with grantScope: subject). Only these grants are ever released.
     # Example: {github: "https://github.com/apps/giantswarm-workspaces"}
     releasable: {}  # @schema additionalProperties: true
+    # Releasable provider instance -> the user name sent with its token for
+    # git; without an entry "x-access-token" (GitHub's). A GitLab instance
+    # takes "oauth2", the only login GitLab accepts an OAuth token with.
+    # Example: {gitlab: "oauth2"}
+    gitUsers: {}  # @schema additionalProperties: true
     # A bound Session's sandbox calls muster itself as its person: the egress
     # gateway injects the actor's JWT on the muster host (an actor_jwt rule
     # with this audience), muster verifies it against Substrate's actor-JWT

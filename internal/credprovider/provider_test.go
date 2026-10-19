@@ -171,6 +171,35 @@ func TestFetchSecretAnswersTheBoundPerson(t *testing.T) {
 	assert.NotContains(t, string(resp.GetOpaqueBytes()), "ghr_secret", "the refresh token never leaves muster")
 }
 
+func TestFetchSecretSendsTheProvidersGitUser(t *testing.T) {
+	const gitlabIssuer = "https://gitlab.example.com"
+	grants := fakeGrants{"alice": {testIssuer: {AccessToken: "ghu_alice"}, gitlabIssuer: {AccessToken: "glo_alice"}}}
+	store := NewMemoryStore()
+	p, err := NewProvider(Options{
+		GatewayIdentity: testGateway,
+		Releasable:      map[string]string{"github": testIssuer, "gitlab": gitlabIssuer},
+		GitUsers:        map[string]string{"gitlab": "oauth2"},
+		Store:           store,
+		Grants:          grants.source,
+	})
+	require.NoError(t, err)
+	pki := newTestPKI(t)
+	gateway, _ := pki.leaf(t, "gateway", "", testGateway)
+	client := serveTLS(t, p, pki, gateway)
+	ctx := context.Background()
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Providers: []string{"github", "gitlab"}}, time.Hour))
+
+	for uri, want := range map[string]string{
+		"ate-secret://muster.giantswarm.io/gitlab/git": base64.StdEncoding.EncodeToString([]byte("oauth2:glo_alice")),
+		"ate-secret://muster.giantswarm.io/gitlab/api": "glo_alice",
+		testGitURI: base64.StdEncoding.EncodeToString([]byte("x-access-token:ghu_alice")),
+	} {
+		resp, err := client.FetchSecret(ctx, &credproviderpb.FetchSecretRequest{Uri: uri, ActorSpiffeId: testActor})
+		require.NoError(t, err, uri)
+		assert.Equal(t, want, string(resp.GetOpaqueBytes()), uri)
+	}
+}
+
 func TestFetchSecretRefusals(t *testing.T) {
 	grants := fakeGrants{
 		"alice": {testIssuer: {AccessToken: "ghu_alice"}, testLoginIssuer: {AccessToken: "ghu_login"}},
@@ -275,14 +304,17 @@ func TestNewProviderValidates(t *testing.T) {
 	require.NoError(t, err, "the actor bearer alone needs nothing releasable")
 
 	for name, mutate := range map[string]func(*Options){
-		"no gateway":          func(o *Options) { o.GatewayIdentity = "" },
-		"gateway not SPIFFE":  func(o *Options) { o.GatewayIdentity = "https://gateway" },
-		"nothing releasable":  func(o *Options) { o.Releasable = nil },
-		"provider with slash": func(o *Options) { o.Releasable = map[string]string{"a/b": testIssuer} },
-		"provider w/o issuer": func(o *Options) { o.Releasable = map[string]string{"github": ""} },
-		"muster is reserved":  func(o *Options) { o.Releasable = map[string]string{MusterProvider: testIssuer} },
-		"no store":            func(o *Options) { o.Store = nil },
-		"no grant source":     func(o *Options) { o.Grants = nil },
+		"no gateway":            func(o *Options) { o.GatewayIdentity = "" },
+		"gateway not SPIFFE":    func(o *Options) { o.GatewayIdentity = "https://gateway" },
+		"nothing releasable":    func(o *Options) { o.Releasable = nil },
+		"provider with slash":   func(o *Options) { o.Releasable = map[string]string{"a/b": testIssuer} },
+		"provider w/o issuer":   func(o *Options) { o.Releasable = map[string]string{"github": ""} },
+		"muster is reserved":    func(o *Options) { o.Releasable = map[string]string{MusterProvider: testIssuer} },
+		"git user unreleasable": func(o *Options) { o.GitUsers = map[string]string{"gitlab": "oauth2"} },
+		"empty git user":        func(o *Options) { o.GitUsers = map[string]string{"github": ""} },
+		"git user with colon":   func(o *Options) { o.GitUsers = map[string]string{"github": "a:b"} },
+		"no store":              func(o *Options) { o.Store = nil },
+		"no grant source":       func(o *Options) { o.Grants = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			o := ok

@@ -144,6 +144,9 @@ type IssuerPin struct {
 	ClientID       string
 	ClientSecret   string
 	SubjectScoped  bool
+	// RevocationEndpoint is the RFC 7009 endpoint a disconnect revokes a
+	// subject-scoped grant at instead of the metadata's; empty for that.
+	RevocationEndpoint string
 }
 
 // IssuerPinner is implemented by an OAuthHandler that accepts operator pins

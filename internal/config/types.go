@@ -135,6 +135,12 @@ type CredentialProviderConfig struct {
 	// Example: {github: https://github.com/apps/giantswarm-workspaces}
 	Releasable map[string]string `yaml:"releasable,omitempty"`
 
+	// GitUsers maps a Releasable provider instance to the user name sent
+	// with its token for git (default "x-access-token", GitHub's). A GitLab
+	// instance takes "oauth2", the only login GitLab accepts an OAuth access
+	// token with. Example: {gitlab: oauth2}
+	GitUsers map[string]string `yaml:"gitUsers,omitempty"`
+
 	// ActorBearer lets a bound Session's sandbox call muster itself as its
 	// person, with no credential in the sandbox. Disabled by default.
 	ActorBearer ActorBearerConfig `yaml:"actorBearer,omitempty"`
