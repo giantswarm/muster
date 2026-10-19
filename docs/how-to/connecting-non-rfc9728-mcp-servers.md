@@ -155,6 +155,16 @@ session -- even when other MCPServers share the issuer, where a logout from a
 session-scoped shared issuer would leave the token alone so the other servers
 keep working. Concretely:
 
+- The grant is revoked at the authorization server first (RFC 7009): its
+  refresh token, then its access token, at `revocationEndpoint` or, without
+  one, the `revocation_endpoint` its metadata advertises, identified as the
+  client the grant was issued under. The provider then refuses both tokens
+  (GitLab answers 401) and the next sign-in asks for consent again. A
+  revocation that fails or times out (10 s) is logged
+  (`subject_grant_revocation_failed`, with the issuer and the person) and
+  does not keep the grant in muster; an authorization server without a
+  revocation endpoint (GitHub) keeps the grant on its side until it expires,
+  logged as `subject_grant_revocation_unsupported`.
 - The tokens for that issuer are deleted from every session of the person and
   from the person's grant itself. `muster auth status` shows every server of
   the issuer as not authenticated.
@@ -166,7 +176,8 @@ keep working. Concretely:
   disconnects itself; no session can adopt a revoked grant.
 - The next `core_auth_login` on any of those servers starts a fresh sign-in.
   Whether the browser sees a consent prompt is the authorization server's
-  call: GitHub redirects straight back while the person's authorization of the
+  call: after a revocation it asks again; GitHub, which muster cannot revoke
+  at, redirects straight back while the person's authorization of the
   App still exists on the GitHub side, so revoke it there too if the account
   must be cut off from muster for good.
 

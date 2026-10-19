@@ -143,10 +143,11 @@ func (a *Adapter) PinIssuer(issuer string, pin api.IssuerPin) {
 		}
 	}
 	a.manager.PinIssuer(issuer, IssuerPin{
-		ClientID:       pin.ClientID,
-		ClientSecret:   pin.ClientSecret,
-		SubjectScoped:  pin.SubjectScoped,
-		ExpectedIssuer: pin.ExpectedIssuer,
+		ClientID:           pin.ClientID,
+		ClientSecret:       pin.ClientSecret,
+		SubjectScoped:      pin.SubjectScoped,
+		ExpectedIssuer:     pin.ExpectedIssuer,
+		RevocationEndpoint: pin.RevocationEndpoint,
 	}, metadata)
 }
 

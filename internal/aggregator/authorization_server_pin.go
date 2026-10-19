@@ -43,6 +43,7 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		TokenEndpoint:         as.TokenEndpoint,
 		ExpectedIssuer:        as.ExpectedIssuer,
 		SubjectScoped:         as.SubjectScoped(),
+		RevocationEndpoint:    as.RevocationEndpoint,
 	}
 	if as.ClientCredentialsSecretRef != nil {
 		secrets := api.GetSecretCredentialsHandler()
@@ -78,7 +79,7 @@ func authorizationServerOf(auth *api.MCPServerAuth) *api.MCPServerAuthAuthorizat
 }
 
 // sameAuthorizationServer reports whether two descriptions of an authorization
-// server are the same: issuer, endpoints, expected issuer, client Secret
+// server are the same: issuer, endpoints (revocation included), expected issuer, client Secret
 // reference, grant scope and scopes. A rotated Secret behind an unchanged reference is not a change
 // here; the re-pin every login performs picks that up.
 func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
@@ -89,6 +90,7 @@ func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
 		a.AuthorizationEndpoint != b.AuthorizationEndpoint ||
 		a.TokenEndpoint != b.TokenEndpoint ||
 		a.ExpectedIssuer != b.ExpectedIssuer ||
+		a.RevocationEndpoint != b.RevocationEndpoint ||
 		a.GrantScope != b.GrantScope ||
 		a.Scopes != b.Scopes {
 		return false
