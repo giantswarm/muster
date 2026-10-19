@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
 
 - **A `filter_tools` query no longer reads every word of every tool.** Since the ranker searches whole descriptions (#1534), each query tokenised and folded the name and description of every candidate tool and threw the result away: over 300 tools with multi-paragraph descriptions, about 7 ms and 55,000 allocations per query, 97% of the call. muster now keeps each tool's tokenised text by tool name and analyses only tools it has not seen or whose description changed; the same query takes about 0.3 ms and 65 allocations. Each entry takes about 5 KB for a tool with a few paragraphs of description. Once the cache holds more than 4,096 tools, it drops those no query has used since its previous clean-up, so tools of removed servers age out while a catalogue of any size stays cached. Rankings are unchanged. ([#1547](https://github.com/giantswarm/muster/issues/1547))
 
+### Fixed
+
+- **Replicas sharing Valkey refresh a person's upstream grant once.** Each muster replica single-flighted the refresh of a subject-scoped grant (GitHub, GitLab) only within its own process, so when the grant fell due, every replica that served the person redeemed the same refresh token. A provider that rotates refresh tokens on use accepts the first redemption and rejects the others, and the rejecting replicas then deleted the grant for the person, who had to sign in again. The refresh now runs under a lock per person and issuer in the shared Valkey store: one replica redeems the token, the others wait for it and pick up the rotated grant from the store without a token request. A replica that cannot take the lock (Valkey unavailable) does not redeem and serves the still-valid access token. A rejected refresh token whose grant was meanwhile replaced, by a sign-in or another writer, keeps that grant instead of deleting it. ([#1577](https://github.com/giantswarm/muster/issues/1577))
+
 ## [5.44.1] - 2026-10-18
 
 ### Fixed
