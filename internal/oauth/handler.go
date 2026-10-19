@@ -12,6 +12,7 @@ import (
 	"github.com/giantswarm/pagekit"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/signinpage"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -287,38 +288,36 @@ func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState,
 // renderSuccessPage renders the page shown after signing in to serverName,
 // naming the server by its display name where it has one.
 func (h *Handler) renderSuccessPage(ctx context.Context, w http.ResponseWriter, serverName string) {
-	name := serverDisplayName(ctx, serverName)
-	pagekit.Render(w, http.StatusOK, pagekit.Page{
-		Title:   "Signed in to " + name,
-		Heading: "Signed in",
-		Summary: name + " is now connected",
-		Message: "You can close this tab and return to where you started the sign-in.",
-	})
+	pagekit.Render(w, http.StatusOK, signinpage.SignedIn(serverDisplayName(ctx, serverName)))
 }
 
-// renderErrorPage renders a sign-in error page. detail, when set, is shown
-// as a code the person can pass on to support.
-func (h *Handler) renderErrorPage(w http.ResponseWriter, summary, detail string) {
-	pagekit.Render(w, http.StatusBadRequest, pagekit.Page{
-		Heading: "Sign-in failed",
-		Summary: summary,
-		Message: "You can close this tab and start the sign-in again from where you started it.",
-		Detail:  detail,
-	})
+// renderErrorPage renders a sign-in error page. errorCode is the error
+// parameter of the authorization response, shown when it is a known code.
+func (h *Handler) renderErrorPage(w http.ResponseWriter, summary, errorCode string) {
+	pagekit.Render(w, http.StatusBadRequest, signinpage.Failed(summary, errorCode))
 }
+
+// displayNameTimeout bounds the display name lookup, which reads the
+// MCPServer from its definition source while the success page waits.
+const displayNameTimeout = 2 * time.Second
 
 // serverDisplayName returns the MCPServer's display name, or name itself when
-// the server has none or cannot be read.
+// the server has none or cannot be read in time.
 func serverDisplayName(ctx context.Context, name string) string {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
 		return name
 	}
+	ctx, cancel := context.WithTimeout(ctx, displayNameTimeout)
+	defer cancel()
 	info, err := manager.GetMCPServer(ctx, name)
-	if err != nil || info == nil || info.DisplayName == "" {
+	if err != nil || info == nil {
 		return name
 	}
-	return info.DisplayName
+	if displayName := strings.TrimSpace(info.DisplayName); displayName != "" {
+		return displayName
+	}
+	return name
 }
 
 // ServeHTTP implements http.Handler for the OAuth handler.

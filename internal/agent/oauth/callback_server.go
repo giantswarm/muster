@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,6 +13,7 @@ import (
 	"github.com/giantswarm/pagekit"
 
 	"github.com/giantswarm/muster/v5/internal/netdiag"
+	"github.com/giantswarm/muster/v5/internal/signinpage"
 )
 
 // DefaultCallbackPort is the default port for the local OAuth callback server.
@@ -57,6 +57,11 @@ type CallbackServer struct {
 	errorCh   chan error
 	once      sync.Once
 	serverURL string
+
+	// outcomeStatus and outcome are the response to the first callback,
+	// written inside once and shown again to any later delivery.
+	outcomeStatus int
+	outcome       pagekit.Page
 }
 
 // NewCallbackServer creates a new callback server on the specified port.
@@ -176,25 +181,17 @@ func (s *CallbackServer) WaitForCallback(ctx context.Context) (*CallbackResult, 
 
 // handleCallback handles the OAuth callback request.
 func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
-	// Only handle once - use sync.Once to ensure idempotency
-	var handled bool
+	// Only the first callback counts. Browsers and redirect pages may load
+	// the callback twice; a later load shows the first one's outcome.
 	s.once.Do(func() {
-		handled = true
-		s.processCallback(w, r)
+		s.processCallback(r)
 	})
-
-	if !handled {
-		pagekit.Render(w, http.StatusBadRequest, pagekit.Page{
-			Heading: "Already received",
-			Summary: "This sign-in was already received",
-			Message: "You can close this tab.",
-		})
-	}
+	pagekit.Render(w, s.outcomeStatus, s.outcome)
 }
 
-// processCallback processes the OAuth callback request.
-// This is called exactly once via sync.Once.
-func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request) {
+// processCallback processes the OAuth callback request and records the page
+// to answer with. This is called exactly once via sync.Once.
+func (s *CallbackServer) processCallback(r *http.Request) {
 	// Parse query parameters
 	query := r.URL.Query()
 	result := &CallbackResult{
@@ -205,15 +202,16 @@ func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request)
 		ErrorDescription: query.Get("error_description"),
 	}
 
-	if result.IsError() {
-		pagekit.Render(w, http.StatusBadRequest, callbackErrorPage(result.Error))
-	} else {
-		pagekit.Render(w, http.StatusOK, pagekit.Page{
-			Title:   "Signed in to Muster",
-			Heading: "Signed in",
-			Summary: "Muster is now connected",
-			Message: "You can close this tab and return to where you started the sign-in.",
-		})
+	switch {
+	case result.IsError():
+		s.outcomeStatus = http.StatusBadRequest
+		s.outcome = signinpage.Failed("The identity provider reported an error", result.Error)
+	case result.Code == "":
+		s.outcomeStatus = http.StatusBadRequest
+		s.outcome = signinpage.Failed("The sign-in response is incomplete", "")
+	default:
+		s.outcomeStatus = http.StatusOK
+		s.outcome = signinpage.SignedIn("Muster")
 	}
 
 	// Send result to channel
@@ -227,26 +225,6 @@ func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request)
 		time.Sleep(1 * time.Second)
 		s.Stop()
 	}()
-}
-
-// oauthErrorCode matches the error codes of RFC 6749 section 4.1.2.1 and
-// their extensions, such as access_denied or login_required.
-var oauthErrorCode = regexp.MustCompile(`^[a-z_]{1,64}$`)
-
-// callbackErrorPage returns the page for an authorization error. Any page can
-// send the browser to the loopback callback with made-up parameters, so the
-// page shows the error code only when it looks like one, and never the free
-// text of error_description.
-func callbackErrorPage(code string) pagekit.Page {
-	p := pagekit.Page{
-		Heading: "Sign-in failed",
-		Summary: "The identity provider reported an error",
-		Message: "You can close this tab and start the sign-in again from where you started it.",
-	}
-	if oauthErrorCode.MatchString(code) {
-		p.Detail = code
-	}
-	return p
 }
 
 // Stop gracefully shuts down the callback server.

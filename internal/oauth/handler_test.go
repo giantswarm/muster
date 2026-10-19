@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
@@ -179,9 +180,27 @@ func (m *displayNameManager) GetMCPServer(_ context.Context, name string) (*api.
 	return &api.MCPServerInfo{Name: name, DisplayName: displayName}, nil
 }
 
+// useMCPServerManager registers manager for the test and restores the
+// previous one afterwards.
+func useMCPServerManager(t *testing.T, manager api.MCPServerManagerHandler) {
+	t.Helper()
+	previous := api.GetMCPServerManager()
+	api.RegisterMCPServerManager(manager)
+	t.Cleanup(func() { api.RegisterMCPServerManager(previous) })
+}
+
+// unansweredManager never answers a lookup before its context ends.
+type unansweredManager struct {
+	api.MCPServerManagerHandler
+}
+
+func (unansweredManager) GetMCPServer(ctx context.Context, _ string) (*api.MCPServerInfo, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestHandler_RenderSuccessPage(t *testing.T) {
-	api.RegisterMCPServerManager(&displayNameManager{names: map[string]string{"mcp-marge": "Marge"}})
-	t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
+	useMCPServerManager(t, &displayNameManager{names: map[string]string{"mcp-marge": "Marge", "mcp-blank": "  "}})
 
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
@@ -202,6 +221,11 @@ func TestHandler_RenderSuccessPage(t *testing.T) {
 			name:       "no display name",
 			serverName: testServerName,
 			want:       []string{"<title>Signed in to " + testServerName + "</title>", testServerName + " is now connected"},
+		},
+		{
+			name:       "blank display name",
+			serverName: "mcp-blank",
+			want:       []string{"<title>Signed in to mcp-blank</title>", "mcp-blank is now connected"},
 		},
 	}
 
@@ -224,6 +248,26 @@ func TestHandler_RenderSuccessPage(t *testing.T) {
 	}
 }
 
+// TestHandler_RenderSuccessPage_LookupTimesOut covers a definition source
+// that does not answer: the page falls back to the server name instead of
+// waiting for it.
+func TestHandler_RenderSuccessPage_LookupTimesOut(t *testing.T) {
+	useMCPServerManager(t, unansweredManager{})
+
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+	defer client.Stop()
+	handler := NewHandler(client)
+
+	synctest.Test(t, func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		handler.renderSuccessPage(t.Context(), rr, "mcp-marge")
+
+		if !strings.Contains(rr.Body.String(), "mcp-marge is now connected") {
+			t.Errorf("expected the server name on the page, got %q", rr.Body.String())
+		}
+	})
+}
+
 func TestHandler_RenderErrorPage(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
@@ -231,7 +275,7 @@ func TestHandler_RenderErrorPage(t *testing.T) {
 	handler := NewHandler(client)
 
 	rr := httptest.NewRecorder()
-	handler.renderErrorPage(rr, summaryDenied, "<b>access_denied</b>")
+	handler.renderErrorPage(rr, summaryDenied, "access_denied")
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, rr.Code)
@@ -242,16 +286,19 @@ func TestHandler_RenderErrorPage(t *testing.T) {
 		"<h1>Sign-in failed</h1>",
 		summaryDenied,
 		"start the sign-in again from where you started it",
-		"&lt;b&gt;access_denied&lt;/b&gt;",
+		"<code>access_denied</code>",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Expected body to contain %q", want)
 		}
 	}
-	if strings.Contains(body, "&amp;lt;") {
-		t.Errorf("Expected the detail to be escaped once, got %q", body)
-	}
 	assertNoIDEWording(t, body)
+
+	rr = httptest.NewRecorder()
+	handler.renderErrorPage(rr, summaryDenied, "your_account_is_locked_call_555")
+	if strings.Contains(rr.Body.String(), "555") {
+		t.Errorf("Expected an unknown error code not to be shown, got %q", rr.Body.String())
+	}
 }
 
 func TestHandler_SecurityHeaders(t *testing.T) {

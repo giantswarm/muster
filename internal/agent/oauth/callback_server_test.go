@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -398,68 +397,12 @@ func TestCallbackServer_MultipleCallbacksHandledOnce(t *testing.T) {
 		t.Errorf("expected first code, got %q", result.Code)
 	}
 
-	// Try second callback - should get "already processed" or be rejected
+	// A second callback is not processed: it shows the first one's outcome.
 	resp, err := http.Get(callbackURL + "?code=second-code&state=second-state")
 	if err == nil {
 		defer func() { _ = resp.Body.Close() }()
-		// The second request should be rejected
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Logf("Second callback got status %d (expected 400 BadRequest)", resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			t.Logf("Second callback got status %d (expected the first callback's 200)", resp.StatusCode)
 		}
-	}
-}
-
-func TestCallbackServer_Pages(t *testing.T) {
-	tests := []struct {
-		name       string
-		query      string
-		wantStatus int
-		want       []string
-		notWant    []string
-	}{
-		{
-			name:       "success",
-			query:      "code=c&state=s",
-			wantStatus: http.StatusOK,
-			want:       []string{"<h1>Signed in</h1>", "Muster is now connected"},
-		},
-		{
-			name:       "error shows the code, not the description",
-			query:      "error=access_denied&error_description=Call+support+at+555",
-			wantStatus: http.StatusBadRequest,
-			want:       []string{"<h1>Sign-in failed</h1>", "<code>access_denied</code>"},
-			notWant:    []string{"555"},
-		},
-		{
-			name:       "error with a code that is not one",
-			query:      "error=Call+support+at+555",
-			wantStatus: http.StatusBadRequest,
-			want:       []string{"<h1>Sign-in failed</h1>"},
-			notWant:    []string{"555"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			server := NewCallbackServer(0)
-			rr := httptest.NewRecorder()
-
-			server.handleCallback(rr, httptest.NewRequest(http.MethodGet, "/callback?"+tc.query, nil))
-
-			if rr.Code != tc.wantStatus {
-				t.Errorf("expected status %d, got %d", tc.wantStatus, rr.Code)
-			}
-			body := rr.Body.String()
-			for _, want := range tc.want {
-				if !strings.Contains(body, want) {
-					t.Errorf("expected body to contain %q, got %q", want, body)
-				}
-			}
-			for _, notWant := range tc.notWant {
-				if strings.Contains(body, notWant) {
-					t.Errorf("expected body not to contain %q", notWant)
-				}
-			}
-		})
 	}
 }
