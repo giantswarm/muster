@@ -28,6 +28,15 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 	if as == nil || (as.ClientCredentialsSecretRef == nil && !as.HasPinnedEndpoints() && !as.SubjectScoped()) {
 		return nil
 	}
+	// Filed under the issuer key: a pin of a server outside muster's
+	// namespace applies to no server outside that namespace.
+	issuer := api.ServerIssuerKey(serverInfo.Name, strings.TrimSuffix(as.Issuer, "/"))
+	if appOwnsIssuer(issuer) {
+		// A provider App describes this issuer: its pin stands, and the
+		// server's grants are the App's.
+		logging.Debug("Aggregator", "Server %s pins issuer %s, which provider App owns; the App's pin stands", serverInfo.Name, issuer)
+		return nil
+	}
 
 	handler := api.GetOAuthHandler()
 	if handler == nil || !handler.IsEnabled() {
@@ -58,9 +67,6 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		pin.ClientID, pin.ClientSecret = creds.ClientID, creds.ClientSecret
 	}
 
-	// Filed under the issuer key: a pin of a server outside muster's
-	// namespace applies to no server outside that namespace.
-	issuer := api.ServerIssuerKey(serverInfo.Name, strings.TrimSuffix(as.Issuer, "/"))
 	pinner.PinIssuer(issuer, pin)
 	logging.InfoWithAttrs("Aggregator", "oauth_authorization_server_pinned",
 		slog.String("server", serverInfo.Name),
@@ -141,6 +147,10 @@ func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, na
 		return
 	}
 	issuer := api.ServerIssuerKey(name, strings.TrimSuffix(prev.Issuer, "/"))
+	if appOwnsIssuer(issuer) {
+		// The pin is a provider App's and outlives every MCPServer.
+		return
+	}
 
 	// Another server may still describe the issuer under the same key (its
 	// namespace and issuer); its description takes over. This server's own

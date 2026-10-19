@@ -264,6 +264,23 @@ spec:
                       by the IdP, e.g. via exchange at dex) carries the delegation chain for
                       backend authorization decisions.
                     type: boolean
+                  providerApps:
+                    description: |-
+                      ProviderApps names the provider Apps (muster's aggregator.providerApps)
+                      whose grants this server receives. On every request muster attaches the
+                      access token of each named App the person granted, in the header
+                      X-Muster-Grant-<app>, refreshed ahead of its expiry; an App the person
+                      did not grant sends no header. A tool result that names missing Apps
+                      ({"status": "grant_required", "apps": [...]} in structuredContent) is
+                      answered auth_required with each App's sign-in link. The person's
+                      connection is made as the person, so this needs ForwardToken or
+                      ForwardIdentity.
+                    items:
+                      pattern: ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$
+                      type: string
+                    maxItems: 32
+                    type: array
+                    x-kubernetes-list-type: set
                   requiredAudiences:
                     description: |-
                       RequiredAudiences specifies additional audience(s) that the forwarded ID token
@@ -442,6 +459,11 @@ spec:
                     pinned grant, so it needs type oauth and authorizationServer
                   rule: '!has(self.forwardIdentity) || !self.forwardIdentity || (self.type
                     == ''oauth'' && has(self.authorizationServer))'
+                - message: providerApps attaches the person's App tokens to a connection
+                    made as the person, so it needs forwardToken or forwardIdentity
+                  rule: '!has(self.providerApps) || size(self.providerApps) == 0 ||
+                    (has(self.forwardToken) && self.forwardToken) || (has(self.forwardIdentity)
+                    && self.forwardIdentity)'
               autoStart:
                 default: false
                 description: |-

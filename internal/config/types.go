@@ -87,6 +87,56 @@ type AggregatorConfig struct {
 	// the egress gateway: a workspace Session's git and gh requests get the
 	// access token of the person the Session is bound to. Disabled by default.
 	CredentialProvider CredentialProviderConfig `yaml:"credentialProvider,omitempty"`
+
+	// ProviderApps are the OAuth Apps of the provider instances a person
+	// grants once in muster, apart from any MCPServer: a GitHub App, a GitLab
+	// OAuth application, one per instance. core_auth_login app=<name> starts a
+	// grant, core_auth_logout app=<name> drops and revokes it. An MCPServer
+	// names the Apps whose grants it receives (spec.auth.providerApps), and the
+	// credential provider releases them to the egress gateway (each App is
+	// releasable under its name, with its git user).
+	ProviderApps []ProviderAppConfig `yaml:"providerApps,omitempty"`
+}
+
+// ProviderAppConfig is one provider instance's OAuth App. Its grants belong to
+// the person (grantScope subject) and are filed under Issuer, as the grants of
+// an MCPServer pinned to the same issuer: an App that takes over such a pin
+// finds the grants people already hold.
+type ProviderAppConfig struct {
+	// Name is the provider instance, the name core_auth_login, an MCPServer's
+	// spec.auth.providerApps and the credential URI use: lower-case letters,
+	// digits and dashes. Required.
+	Name string `yaml:"name"`
+
+	// Issuer is the authorization server's issuer URL, the key the grants are
+	// filed under. Without endpoints muster discovers the server from it.
+	// Required.
+	Issuer string `yaml:"issuer"`
+
+	// AuthorizationEndpoint and TokenEndpoint pin the endpoints of an
+	// authorization server that publishes no discovery document (GitHub).
+	// Set together or not at all.
+	AuthorizationEndpoint string `yaml:"authorizationEndpoint,omitempty"`
+	TokenEndpoint         string `yaml:"tokenEndpoint,omitempty"`
+
+	// ExpectedIssuer is the RFC 9207 iss the callback must carry when it
+	// differs from Issuer. Needs the endpoints.
+	ExpectedIssuer string `yaml:"expectedIssuer,omitempty"`
+
+	// RevocationEndpoint is the RFC 7009 endpoint a disconnect revokes the
+	// grant at. Default: the discovered metadata's.
+	RevocationEndpoint string `yaml:"revocationEndpoint,omitempty"`
+
+	// ClientCredentialsSecretRef is the Secret holding the App's client,
+	// registered out of band. Its namespace defaults to muster's.
+	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
+
+	// Scopes is the space-separated scope requested at sign-in.
+	Scopes string `yaml:"scopes,omitempty"`
+
+	// GitUser is the user name sent with the App's token for git (default
+	// "x-access-token", GitHub's; "oauth2" for GitLab).
+	GitUser string `yaml:"gitUser,omitempty"`
 }
 
 // CredentialProviderConfig configures muster as a credential provider of

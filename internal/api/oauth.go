@@ -367,3 +367,8 @@ func ClearLoginIDToken(h OAuthHandler, sessionID, issuer string) {
 		mirror.ClearLoginIDToken(sessionID, issuer)
 	}
 }
+
+// ProviderAppFlowPrefix marks a provider App's sign-in in an OAuth flow's
+// server name ("app:<name>"), where a server's sign-in carries the server's
+// name. No MCPServer name contains a colon.
+const ProviderAppFlowPrefix = "app:"

@@ -175,6 +175,7 @@ A person who can read an MCPServer can read every field of it. So a credential g
 | `type` | `string` | No | Authentication type | Must be `oauth` or `none` |
 | `forwardToken` | `boolean` | No | Forward muster's ID token for SSO | Default: `false` |
 | `forwardIdentity` | `boolean` | No | Send the session's ID token in the `X-Muster-Id-Token` header next to the pinned grant in `Authorization` | Default: `false`; requires `type: oauth` and `authorizationServer` |
+| `providerApps` | `[]string` | No | Provider Apps (`aggregator.providerApps`) whose grants the server receives, one `X-Muster-Grant-<app>` header per App the person granted | Requires `forwardToken` or `forwardIdentity`; muster's namespace only |
 | `requiredAudiences` | `[]string` | No | Additional audiences to request from IdP for SSO | Used with `forwardToken`, `forwardIdentity` or `tokenExchange` |
 | `tokenExchange` | `TokenExchangeConfig` | No | RFC 8693 token exchange for cross-cluster SSO | See below |
 | `authorizationServer` | `MCPServerAuthAuthorizationServer` | No | Pins the OAuth authorization server when the MCP server publishes no RFC 9728 metadata; with endpoints, a pre-registered client and a grant scope it describes one muster cannot discover or register with (GitHub) | See below |

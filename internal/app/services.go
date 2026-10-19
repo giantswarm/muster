@@ -276,6 +276,8 @@ func InitializeServices(cfg *Config) (*Services, error) {
 				BindAddress: cfg.MusterConfig.Aggregator.Admin.BindAddress,
 			},
 			CredentialProvider: cfg.MusterConfig.Aggregator.CredentialProvider,
+			ProviderApps:       cfg.MusterConfig.Aggregator.ProviderApps,
+			MusterNamespace:    cfg.MusterConfig.Namespace,
 		}
 
 		// Set defaults if not specified

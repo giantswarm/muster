@@ -621,6 +621,9 @@
                         }
                     }
                 },
+                "providerApps": {
+                    "type": "array"
+                },
                 "toolsetPresets": {
                     "type": "object",
                     "additionalProperties": true

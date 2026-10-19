@@ -54,6 +54,10 @@ func (am *AggregatorManager) pinDefinedAuthorizationServers(ctx context.Context)
 	am.definitionPinsMu.Lock()
 	defer am.definitionPinsMu.Unlock()
 
+	// The provider Apps first: an MCPServer that names an App's issuer
+	// leaves the App's pin alone.
+	am.aggregatorServer.providerApps.pinAll(ctx)
+
 	defined := am.definedServers()
 	for name, pinned := range am.definitionPins {
 		var current *api.MCPServerAuthAuthorizationServer
