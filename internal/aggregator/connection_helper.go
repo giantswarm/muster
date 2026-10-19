@@ -500,11 +500,7 @@ func emitTokenForwardingEvent(serverName, namespace string, success bool, errorM
 		namespace = metav1.NamespaceDefault
 	}
 
-	objRef := api.ObjectReference{
-		Kind:      mcpServerKind,
-		Name:      serverName,
-		Namespace: namespace,
-	}
+	objRef := mcpServerObjectRef(serverName, namespace)
 
 	_ = eventManager.CreateEventWithData(context.Background(), objRef, string(events.ReasonMCPServerTokenForwardingFailed), api.EventData{
 		Error: errorMsg,
@@ -811,11 +807,7 @@ func emitTokenExchangeEvent(serverName, namespace string, success bool, errorMsg
 		namespace = metav1.NamespaceDefault
 	}
 
-	objRef := api.ObjectReference{
-		Kind:      mcpServerKind,
-		Name:      serverName,
-		Namespace: namespace,
-	}
+	objRef := mcpServerObjectRef(serverName, namespace)
 
 	_ = eventManager.CreateEventWithData(context.Background(), objRef, string(events.ReasonMCPServerTokenExchangeFailed), api.EventData{
 		Error: errorMsg,
@@ -1464,11 +1456,7 @@ func (a *AggregatorServer) notifyMCPServerAuthRequired(serverName, reason string
 	if namespace == "" {
 		namespace = metav1.NamespaceDefault
 	}
-	_ = eventManager.CreateEventWithData(context.Background(), api.ObjectReference{
-		Kind:      mcpServerKind,
-		Name:      serverName,
-		Namespace: namespace,
-	}, string(eventReason), api.EventData{
+	_ = eventManager.CreateEventWithData(context.Background(), mcpServerObjectRef(serverName, namespace), string(eventReason), api.EventData{
 		Error: reason,
 	})
 }

@@ -126,6 +126,11 @@ func (a *AggregatorServer) enrichServerEntry(ctx context.Context, sub, sessionID
 	if !ok || serverName == "" {
 		return entry
 	}
+	// The registry and the stores key a server outside muster's namespace as
+	// "<namespace>/<name>" (api.MCPServerKey), which the listing carries as key.
+	if key, _ := entry["key"].(string); key != "" {
+		serverName = key
+	}
 
 	info, found := a.registry.GetServerInfo(serverName)
 	if found {

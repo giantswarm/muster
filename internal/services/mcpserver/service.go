@@ -1130,13 +1130,16 @@ func (s *Service) generateEvent(reason events.EventReason, data events.EventData
 
 	// Associate MCPServer lifecycle events with the MCPServer CRD resource in
 	// the configured muster namespace so they are not orphaned in "default".
+	// A server outside muster's namespace is named "<namespace>/<name>"
+	// (api.MCPServerKey); its events are filed on its own object.
 	namespace := eventManager.DefaultNamespace()
 	if namespace == "" {
 		namespace = "default"
 	}
+	namespace, name := api.MCPServerObject(s.GetName(), namespace)
 	objectRef := api.ObjectReference{
 		Kind:      "MCPServer",
-		Name:      s.GetName(),
+		Name:      name,
 		Namespace: namespace,
 	}
 
