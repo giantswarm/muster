@@ -375,17 +375,19 @@ func (a *AggregatorServer) handleUpstreamRefreshFailure(sessionID, userID, reaso
 	logging.Warn("Aggregator", "SSO: Upstream refresh failure detected for session %s (user %s): %s",
 		logging.TruncateIdentifier(sessionID), logging.TruncateIdentifier(userID), reason)
 
-	if a.connPool != nil {
-		a.connPool.EvictSession(sessionID)
-		logging.Info("Aggregator", "SSO: Evicted pooled connections for session %s due to refresh failure",
-			logging.TruncateIdentifier(sessionID))
-	}
-
+	// Revoke before the eviction: what the eviction tells (a relayed
+	// resource subscription) re-checks the session's access.
 	if a.authStore != nil {
 		if err := a.authStore.RevokeSession(context.Background(), sessionID); err != nil {
 			logging.Warn("Aggregator", "SSO: Failed to revoke auth session %s after refresh failure: %v",
 				logging.TruncateIdentifier(sessionID), err)
 		}
+	}
+
+	if a.connPool != nil {
+		a.connPool.EvictSession(sessionID)
+		logging.Info("Aggregator", "SSO: Evicted pooled connections for session %s due to refresh failure",
+			logging.TruncateIdentifier(sessionID))
 	}
 
 	// Clear the stored ID token so headerFunc closures don't keep resolving

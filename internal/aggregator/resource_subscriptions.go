@@ -250,10 +250,23 @@ func (a *AggregatorServer) openResourceRelay(
 	sort.Strings(backendURIs)
 
 	listenCtx, cancel := context.WithCancel(ctx)
+	// The relay lives only while the session may reach the server: a
+	// sign-out, a lost or expired credential ends it (resourceRelays). It is
+	// registered before the stream opens, so a revocation during the
+	// handshake reaches it too.
+	authorized := func() bool { return a.relayAuthorized(ctx, info, sessionID, sub) }
+	unregister := a.relayRegistry().add(sessionID, server, authorized, cancel)
 	ended := make(chan error, 1)
 	listen := func() { ended <- listener.ListenResources(listenCtx, backendURIs) }
 	go listen()
 
+	fail := func(err error) (func(), error) {
+		cancel()
+		awaitRelayEnd(server, ended)
+		unregister()
+		_ = client.Close()
+		return nil, err
+	}
 	timeout := info.Timeout
 	if timeout <= 0 {
 		timeout = internalmcp.DefaultTimeout
@@ -263,28 +276,23 @@ func (a *AggregatorServer) openResourceRelay(
 	select {
 	case <-acked:
 	case err := <-ended:
-		cancel()
-		_ = client.Close()
+		ended <- err // for fail's wait
 		if err == nil {
 			err = errors.New("the server closed the stream before acknowledging it")
 		}
-		return nil, err
+		return fail(err)
 	case <-ackTimer.C:
-		cancel()
-		awaitRelayEnd(server, ended)
-		_ = client.Close()
-		return nil, fmt.Errorf("no acknowledgement within %s", timeout)
-	case <-ctx.Done():
-		cancel()
-		awaitRelayEnd(server, ended)
-		_ = client.Close()
-		return nil, ctx.Err()
+		return fail(fmt.Errorf("no acknowledgement within %s", timeout))
+	case <-listenCtx.Done():
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
+		}
+		return fail(errors.New("the session no longer reaches the server"))
+	}
+	if !authorized() {
+		return fail(errors.New("the session no longer reaches the server"))
 	}
 
-	// The relay lives only while the session may reach the server: a
-	// sign-out, a lost or expired credential ends it (resourceRelays).
-	authorized := func() bool { return a.relayAuthorized(ctx, info, sessionID, sub) }
-	unregister := a.relayRegistry().add(sessionID, server, authorized, cancel)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
