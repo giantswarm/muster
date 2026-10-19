@@ -66,6 +66,32 @@ type SessionConnectionPool struct {
 
 	notifCallbacksMu sync.RWMutex
 	notifCallbacks   map[string]func(string, MCPClient)
+
+	// evictListener is told of every Evict, EvictSession and EvictServer,
+	// "" for the side an eviction does not name (SetEvictionListener).
+	evictListener func(sessionID, serverName string)
+}
+
+// SetEvictionListener registers fn, called after every explicit eviction --
+// Evict(session, server), EvictSession(session) with server "",
+// EvictServer(server) with session "" -- whether or not an entry was pooled:
+// the paths that take a session's access to a server away all evict. The
+// idle reaper and a Put replacing an entry are not evictions of access and
+// do not call it.
+func (p *SessionConnectionPool) SetEvictionListener(fn func(sessionID, serverName string)) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.evictListener = fn
+}
+
+// notifyEvicted calls the eviction listener, outside the pool's lock.
+func (p *SessionConnectionPool) notifyEvicted(sessionID, serverName string) {
+	p.mu.RLock()
+	fn := p.evictListener
+	p.mu.RUnlock()
+	if fn != nil {
+		fn(sessionID, serverName)
+	}
 }
 
 // NewSessionConnectionPool creates an empty connection pool with a background
@@ -257,6 +283,7 @@ func (p *SessionConnectionPool) Evict(sessionID, serverName string) {
 	if ok && entry.Client != nil {
 		closeQuietly(entry.Client, sessionID, serverName, "evicted")
 	}
+	p.notifyEvicted(sessionID, serverName)
 }
 
 // EvictSession removes and closes all pooled entries for the given session.
@@ -276,6 +303,7 @@ func (p *SessionConnectionPool) EvictSession(sessionID string) {
 			closeQuietly(evicted[i].Client, sessionID, "", "session-evict")
 		}
 	}
+	p.notifyEvicted(sessionID, "")
 }
 
 // HasServer reports whether any session currently holds a pooled connection
@@ -310,6 +338,7 @@ func (p *SessionConnectionPool) EvictServer(serverName string) {
 			closeQuietly(evicted[i].Client, "", serverName, "server-evict")
 		}
 	}
+	p.notifyEvicted("", serverName)
 }
 
 // DrainAll closes and removes every entry in the pool. Intended for use

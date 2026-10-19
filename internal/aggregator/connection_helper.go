@@ -364,16 +364,17 @@ func EstablishConnectionWithTokenForwarding(
 	// auth entry when the token cannot be resolved after repeated attempts.
 	// This stops mcp-go's infinite retry loop with expired tokens.
 	onStaleToken := func() {
-		if a.connPool != nil {
-			a.connPool.Evict(sessionID, serverInfo.Name)
-			logging.Info("Connection", "Evicted stale SSO connection for session %s to %s",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name)
-		}
+		// Revoke before the eviction, which relayed subscriptions re-check.
 		if a.authStore != nil {
 			if err := a.authStore.Revoke(context.Background(), sessionID, serverInfo.Name); err != nil {
 				logging.Warn("Connection", "Failed to revoke auth for session %s server %s after stale token eviction: %v",
 					logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
 			}
+		}
+		if a.connPool != nil {
+			a.connPool.Evict(sessionID, serverInfo.Name)
+			logging.Info("Connection", "Evicted stale SSO connection for session %s to %s",
+				logging.TruncateIdentifier(sessionID), serverInfo.Name)
 		}
 	}
 	client, forwardedToken, err := a.newTokenForwardingClient(ctx, sessionID, sub, musterIssuer, serverInfo, onStaleToken)
@@ -968,14 +969,15 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 	}
 
 	onStaleToken := func() {
-		if a.connPool != nil {
-			a.connPool.Evict(sessionID, serverName)
-		}
+		// Revoke before the eviction, which relayed subscriptions re-check.
 		if a.authStore != nil {
 			if revokeErr := a.authStore.Revoke(context.Background(), sessionID, serverName); revokeErr != nil {
 				logging.Warn("Connection", "Failed to revoke token-exchange auth for %s/%s: %v",
 					logging.TruncateIdentifier(sessionID), serverName, revokeErr)
 			}
+		}
+		if a.connPool != nil {
+			a.connPool.Evict(sessionID, serverName)
 		}
 	}
 

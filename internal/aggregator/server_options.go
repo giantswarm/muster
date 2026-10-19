@@ -48,15 +48,15 @@ func RequestSpan() server.ToolHandlerMiddleware {
 // mcpServerCapabilityOptions returns the capability advertisement for the
 // aggregator's mcp-go server.
 //
-// resources/subscribe is off: mcp-go acknowledges a subscribe request whenever
-// the capability is advertised, but the aggregator neither relays the
-// subscription to the downstream server that owns the resource nor emits
-// notifications/resources/updated, so a subscribing client waits forever.
-// listChanged is on and backed by the notification subscriber.
+// resources.subscribe is on for subscriptions/listen (MCP 2026-07-28), which
+// the aggregator relays per user to the backend serving each URI
+// (resource_subscriptions.go); a legacy initialize does not advertise it
+// (hideLegacySubscribe). listChanged is on and backed by the notification
+// subscriber.
 func mcpServerCapabilityOptions() []server.ServerOption {
 	return []server.ServerOption{
 		server.WithToolCapabilities(true),
-		server.WithResourceCapabilities(false, true),
+		server.WithResourceCapabilities(true, true),
 		server.WithPromptCapabilities(true),
 	}
 }

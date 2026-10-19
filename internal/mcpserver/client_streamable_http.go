@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -147,18 +146,10 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 	challenges := &challengeRecorder{}
 	opts = append(opts, transport.WithHTTPBasicClient(recordingHTTPClient(httpClient, challenges)))
 
-	// Enable receiving server-pushed notifications outside active requests.
-	// This opens a long-lived GET connection to the server per the MCP spec.
-	// SA1019: mcp-go v1 deprecates WithContinuousListening because
-	// protocol revision 2026-07-28 removed the standalone GET stream in
-	// favour of Client.Listen. Keeping the option is the behaviour-
-	// preserving choice here: it pins the connection to the legacy
-	// handshake, which is exactly where mcp-go v0.58.0 already was, and
-	// Client.Listen errors out unless the peer negotiated 2026-07-28.
-	// Dropping it would instead silently cost every pre-2026-07-28
-	// backend its out-of-band notifications. Adopting Client.Listen is a
-	// deliberate protocol migration, tracked separately.
-	opts = append(opts, transport.WithContinuousListening()) //nolint:staticcheck // SA1019: see comment above
+	// A legacy client receives server-pushed notifications on a long-lived
+	// GET stream; one in listen mode on its subscriptions/listen stream.
+	handshakeOpts, protocolVersion := c.handshakeOptions()
+	opts = append(opts, handshakeOpts...)
 	opts = append(opts, transport.WithHTTPLogger(mcpTransportLogger(c.url)))
 
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)
@@ -182,7 +173,7 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 
 	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
-			ProtocolVersion: api.ClientProtocolVersion,
+			ProtocolVersion: protocolVersion,
 			ClientInfo: mcp.Implementation{
 				Name:    clientName,
 				Version: clientVersion,
@@ -206,6 +197,11 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 		// and the Retry-After, so the service retries it and the log and CR
 		// status name it (issues #1295, #1303).
 		return initializeError(c.url, err, challenges)
+	}
+
+	if err := c.checkListenHandshake(c.url, initResult); err != nil {
+		_ = mcpClient.Close()
+		return err
 	}
 
 	c.client = mcpClient
