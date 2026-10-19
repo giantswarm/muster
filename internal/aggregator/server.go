@@ -99,6 +99,10 @@ type AggregatorServer struct {
 	// keeps the authorization server its definition describes.
 	definedServers func() map[string]*ServerInfo
 
+	// providerApps are the provider instances' OAuth Apps a person grants
+	// once in muster, apart from any MCPServer (provider_apps.go).
+	providerApps *providerAppSet
+
 	errorCallback func(error) // Callback for propagating async errors in the aggregator upwards
 
 	// Transport-specific server instances for different communication protocols
@@ -777,8 +781,18 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 	if err != nil {
 		return nil, fmt.Errorf("session stores: %w", err)
 	}
+	musterNamespace := aggConfig.MusterNamespace
+	if musterNamespace == "" {
+		musterNamespace = "default"
+	}
+	providerApps, err := newProviderAppSet(aggConfig.ProviderApps, musterNamespace)
+	if err != nil {
+		return nil, fmt.Errorf("provider Apps: %w", err)
+	}
+	setAppOwnedIssuers(providerApps)
 
 	return &AggregatorServer{
+		providerApps:      providerApps,
 		config:            aggConfig,
 		registry:          NewServerRegistry(aggConfig.MusterPrefix),
 		toolManager:       newActiveItemManager(),
@@ -3431,7 +3445,7 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 
 	result, callErr := client.CallTool(ctx, originalToolName, args)
 	if callErr == nil {
-		return result, nil
+		return a.answerGrantRequired(ctx, serverName, sessionID, sub, result), nil
 	}
 	if invalidParams(callErr) {
 		return nil, a.refusedSessionArguments(ctx, serverName, sessionID, originalToolName, client, callErr)

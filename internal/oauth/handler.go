@@ -333,6 +333,9 @@ const displayNameTimeout = 2 * time.Second
 // serverDisplayName returns the MCPServer's display name, or name itself when
 // the server has none or cannot be read in time.
 func serverDisplayName(ctx context.Context, name string) string {
+	if app, ok := strings.CutPrefix(name, api.ProviderAppFlowPrefix); ok {
+		return app
+	}
 	manager := api.GetMCPServerManager()
 	if manager == nil {
 		return name

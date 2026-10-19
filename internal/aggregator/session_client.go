@@ -130,7 +130,7 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 		// its calls under the defaults the login path does not.
 		client = internalmcp.NewDynamicAuthClient(serverInfo.URL, tokenStore, scope, clientID, clientSecret).
 			WithHeaders(headers).
-			WithHeaderFunc(a.identityHeaderFunc(sessionID, serverInfo)).
+			WithHeaderFunc(a.sessionHeaderFunc(sessionID, sub, serverInfo, nil)).
 			WithMeta(serverInfo.Meta).
 			WithTimeout(serverInfo.Timeout).
 			WithMaxCallDuration(serverInfo.MaxCallDuration).

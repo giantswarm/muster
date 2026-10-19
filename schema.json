@@ -8,31 +8,33 @@
         "core_auth_login": {
           "description": "Arguments for core_auth_login tool",
           "properties": {
+            "app": {
+              "description": "Name of the provider App to grant (a provider instance, e.g. github or gitlab); set server or app",
+              "type": "string"
+            },
             "reset_client_registration": {
               "description": "Discard muster's stored dynamic client registration (RFC 7591) with this server's authorization server and register anew before issuing the sign-in link. Use when sign-ins fail with invalid_client although muster reports a stored registration; other users' tokens from that authorization server may need a fresh sign-in afterwards.",
               "type": "boolean"
             },
             "server": {
-              "description": "Name of the MCP server to authenticate to",
+              "description": "Name of the MCP server to authenticate to; set server or app",
               "type": "string"
             }
           },
-          "required": [
-            "server"
-          ],
           "type": "object"
         },
         "core_auth_logout": {
           "description": "Arguments for core_auth_logout tool",
           "properties": {
+            "app": {
+              "description": "Name of the provider App to disconnect; set server or app",
+              "type": "string"
+            },
             "server": {
-              "description": "Name of the MCP server to log out from",
+              "description": "Name of the MCP server to log out from; set server or app",
               "type": "string"
             }
           },
-          "required": [
-            "server"
-          ],
           "type": "object"
         },
         "core_auth_status": {

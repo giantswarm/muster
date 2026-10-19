@@ -99,7 +99,11 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
 	}
-	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers)), Notice: view.Reason}
+	response := pkgoauth.AuthStatusResponse{
+		Servers:      make([]pkgoauth.ServerAuthStatus, 0, len(servers)),
+		Notice:       view.Reason,
+		ProviderApps: NewAuthToolProvider(a).providerAppStatuses(ctx, sessionID, sub, false),
+	}
 
 	for name, info := range servers {
 		usesTokenExchange := ShouldUseTokenExchange(info)

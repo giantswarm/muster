@@ -126,6 +126,7 @@ func convertCRDAuthToAPI(src *musterv1alpha1.MCPServerAuth) *api.MCPServerAuth {
 		Type:              src.Type,
 		ForwardToken:      src.ForwardToken,
 		ForwardIdentity:   src.ForwardIdentity,
+		ProviderApps:      src.ProviderApps,
 		RequiredAudiences: src.RequiredAudiences,
 		SigV4:             convertCRDSigV4ToAPI(src.SigV4),
 	}
@@ -167,6 +168,7 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 		Type:              src.Type,
 		ForwardToken:      src.ForwardToken,
 		ForwardIdentity:   src.ForwardIdentity,
+		ProviderApps:      src.ProviderApps,
 		RequiredAudiences: src.RequiredAudiences,
 		SigV4:             convertAPISigV4ToCRD(src.SigV4),
 	}
@@ -1401,6 +1403,12 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	}
 	if err := api.ValidateForwardIdentity(auth); err != nil {
 		return err
+	}
+	if err := api.ValidateProviderApps(auth); err != nil {
+		return err
+	}
+	if auth != nil && len(auth.ProviderApps) > 0 && serverNamespace != "" && serverNamespace != a.namespace {
+		return fmt.Errorf("auth.providerApps is only valid for an MCPServer in muster's namespace %q: the person's App tokens never reach a server of another namespace", a.namespace)
 	}
 	return api.ValidateSigV4(server.Spec.Type, auth)
 }

@@ -36,11 +36,15 @@ func (a *AggregatorServer) newCredentialProvider() (*credprovider.Provider, erro
 	if a.valkeyClient != nil {
 		store = credprovider.NewValkeyStore(a.valkeyClient, a.valkeyKeyPrefix, a.valkeyEncryptor)
 	}
+	releasable, gitUsers, err := releasableWithProviderApps(cfg.Releasable, cfg.GitUsers, a.config.ProviderApps)
+	if err != nil {
+		return nil, fmt.Errorf("credential provider: %w", err)
+	}
 	return credprovider.NewProvider(credprovider.Options{
 		Authority:       cfg.Authority,
 		GatewayIdentity: cfg.GatewayIdentity,
-		Releasable:      cfg.Releasable,
-		GitUsers:        cfg.GitUsers,
+		Releasable:      releasable,
+		GitUsers:        gitUsers,
 		MusterBearer:    cfg.ActorBearer.Enabled,
 		BindingTTL:      ttl,
 		Store:           store,

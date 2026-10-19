@@ -156,6 +156,12 @@ type MCPServerAuth struct {
 	// the v1alpha1 CRD field of the same name for full semantics.
 	ForwardIdentity bool `yaml:"forwardIdentity,omitempty" json:"forwardIdentity,omitempty"`
 
+	// ProviderApps names the provider Apps whose grants the server receives,
+	// one X-Muster-Grant-<app> header per App the person granted. Needs
+	// ForwardToken or ForwardIdentity (ValidateProviderApps). See the v1alpha1
+	// CRD field of the same name.
+	ProviderApps []string `yaml:"providerApps,omitempty" json:"providerApps,omitempty"`
+
 	// RequiredAudiences specifies additional audience(s) that the SSO token should contain.
 	// This is used with both Token Forwarding and Token Exchange SSO methods.
 	//
@@ -531,6 +537,27 @@ func ValidateForwardIdentity(auth *MCPServerAuth) error {
 		return fmt.Errorf("auth.forwardIdentity sends the session's ID token next to a pinned grant, so it needs auth.type %q and auth.authorizationServer", MCPServerAuthTypeOAuth)
 	}
 	return nil
+}
+
+// ValidateProviderApps reports whether spec.auth.providerApps is usable with
+// the rest of the auth configuration: the App tokens ride on a connection made
+// as the person, so it needs forwardToken or forwardIdentity.
+//
+// The CRD states the same rule in CEL; keep the two in step.
+func ValidateProviderApps(auth *MCPServerAuth) error {
+	if auth == nil || len(auth.ProviderApps) == 0 {
+		return nil
+	}
+	if !auth.ForwardToken && !auth.ForwardIdentity {
+		return fmt.Errorf("auth.providerApps attaches the person's App tokens to a connection made as the person, so it needs auth.forwardToken or auth.forwardIdentity")
+	}
+	return nil
+}
+
+// ReceivesProviderApps reports whether the server receives the person's App
+// tokens: it names Apps and passes ValidateProviderApps.
+func (a *MCPServerAuth) ReceivesProviderApps() bool {
+	return a != nil && len(a.ProviderApps) > 0 && ValidateProviderApps(a) == nil
 }
 
 // ValidateMetaAllowed reports whether spec.meta is usable with the given
