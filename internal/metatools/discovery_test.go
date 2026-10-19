@@ -14,10 +14,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// filterResult runs filter_tools and parses the typed response.
+// filterResult runs filter_tools on a new provider and parses the typed
+// response.
 func filterResult(t *testing.T, args map[string]interface{}) FilterToolsResponse {
 	t.Helper()
-	provider := NewProvider()
+	return filterResultWith(t, NewProvider(), args)
+}
+
+// filterResultWith runs filter_tools on provider and parses the typed response.
+func filterResultWith(t *testing.T, provider *Provider, args map[string]interface{}) FilterToolsResponse {
+	t.Helper()
 	result, err := provider.ExecuteTool(context.Background(), "filter_tools", args)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -102,6 +108,37 @@ func TestFilterTools_RankedQuery(t *testing.T) {
 	for i := 1; i < len(resp.Tools); i++ {
 		assert.GreaterOrEqual(t, resp.Tools[i-1].Score, resp.Tools[i].Score)
 	}
+}
+
+func TestFilterTools_RankedQueryMatchesDetails(t *testing.T) {
+	mock := &mockMetaToolsHandler{tools: []mcp.Tool{
+		{Name: "list_jobs", Description: "List background jobs.\nIncludes each retention policy job and its last run."},
+		{Name: "service_restart", Description: "Restart a running service."},
+	}}
+	defer registerMockHandler(mock)()
+
+	resp := filterResult(t, map[string]interface{}{"query": "retention policy"})
+
+	require.Len(t, resp.Tools, 1, "a match below the first line is returned")
+	assert.Equal(t, "list_jobs", resp.Tools[0].Name)
+	assert.Equal(t, "List background jobs.", resp.Tools[0].Summary, "the summary stays the first line")
+	assert.Empty(t, resp.Tools[0].Description)
+}
+
+func TestSplitDescription(t *testing.T) {
+	for _, tc := range []struct{ desc, summary, details string }{
+		{"One line.", "One line.", ""},
+		{"Summary.\nDetails.\nMore.", "Summary.", "Details.\nMore."},
+		{"\n  Search issues.\n  Supports filters.\n", "Search issues.", "  Supports filters.\n"},
+		{" \n\t\nSummary.", "Summary.", ""},
+		{"", "", ""},
+	} {
+		summary, details := splitDescription(tc.desc)
+		assert.Equal(t, tc.summary, summary, "summary of %q", tc.desc)
+		assert.Equal(t, tc.details, details, "details of %q", tc.desc)
+	}
+	assert.Equal(t, "Search issues.", summarizeText("\n  Search issues.\n  Supports filters.", summaryMaxLen),
+		"the displayed summary skips leading blank lines too")
 }
 
 func TestFilterTools_LabelFacets(t *testing.T) {

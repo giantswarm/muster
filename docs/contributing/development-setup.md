@@ -7,7 +7,7 @@ What you need to build, test and change muster locally.
 - **Go**: the version named in `go.mod` (`go 1.25`, with the toolchain directive selecting the exact release). `go install` and `make build` use it automatically.
 - **golangci-lint**, **goimports**: `make lint` and `make imports` install or expect them; the pre-commit hooks run the same checks.
 - **pre-commit**: `pre-commit install` once after cloning. The hooks format Go code, run the linters, enforce Conventional Commit messages, regenerate the Helm values schema and the chart README.
-- **Helm** with the `unittest` and `schema` plugins, and **promtool**: only for chart work (`make helm-test`).
+- **Helm** with the `unittest` and `schema` plugins, and **promtool**: only for chart work (`make helm-test-all`).
 - **setup-envtest**: only for the Kubernetes-mode tests (`make test-envtest` downloads a `kube-apiserver` on first run).
 - **uv**: only for the documentation site (`make docs-serve`).
 
@@ -36,9 +36,10 @@ Run the binary you built:
 | `muster test` | Every behavioural scenario against isolated `muster serve` instances |
 | `muster test --scenario <name> --verbose --debug` | One scenario, with the instance's log |
 | `muster test --concept workflow` | The scenarios of one concept (`workflow`, `mcpserver`, `service`) |
-| `muster test --parallel 50 --base-port 30000` | The suite with fifty instances at a time |
+| `muster test --parallel 50 --base-port 20000` | The suite with fifty instances at a time; a window overlapping the NodePort range 30000-32767 is refused |
 | `make test-envtest` | The RBAC integration tests and the Kubernetes-mode scenarios on envtest |
-| `make helm-test` | Chart lint, helm-unittest suites and the promtool alert-rule tests |
+| `make helm-test` | Chart lint and the helm-unittest suites (what the GitHub chart-tests workflow runs) |
+| `make helm-test-all` | `helm-test` plus the promtool alert-rule tests (what CircleCI runs) |
 
 Scenarios live in `internal/testing/scenarios/*.yaml`; [Testing](testing/README.md) explains
 the framework and [Writing scenarios](testing/scenarios.md) the schema. A failing scenario is a

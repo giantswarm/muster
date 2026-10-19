@@ -87,7 +87,7 @@ through `call_tool`, and only through `call_tool`.
 |----------|------|---------|---------|
 | `pattern` | string | — | Glob match on the tool name (e.g. `x_kubernetes_*`). |
 | `description_filter` | string | — | Case-insensitive substring match on the full description. |
-| `query` | string | — | Natural-language query. When set, matches are relevance-ranked (field-weighted lexical BM25F over name + summary — name matches weigh higher than description matches, and ubiquitous verbs like `list`/`get` are down-weighted so the discriminating noun drives ranking), returned best-first with a `score`; non-matching tools are dropped. |
+| `query` | string | — | Natural-language query. When set, matches are relevance-ranked (field-weighted lexical BM25F over the name, the description's first line and the rest of the description — a match weighs most in the name, less in the first line and least below it; ubiquitous verbs like `list`/`get` are down-weighted so the discriminating noun drives ranking, and function words such as `the` or `how` are dropped from the query unless it has no other word; a plural matches its singular, so `policies` finds `policy`), returned best-first with a `score`; non-matching tools are dropped. |
 | `labels` | object | — | Label facets as key=value pairs. A tool must carry every given label to match. Only workflow tools carry labels today — they inherit the `Workflow` CRD's `metadata.labels`; core (`core_*`) and external (`x_*`) tools have none, so a `labels` facet currently scopes discovery to labelled workflows. |
 | `case_sensitive` | bool | `false` | Case-sensitive name matching. |
 | `include_schema` | bool | `false` | Return full descriptions **and** input schemas instead of one-line summaries. |
@@ -198,9 +198,40 @@ workflow whose steps call only read-only tools stays read-only when one of them 
 | `core_events` | true | false | true | false | Read. |
 | `core_auth_login` | **true** | false | true | **true** | Issues a sign-in link for the caller and changes nothing on the platform; the grant that follows lands in the caller's own session. Reaches the server's authorization server. A read-only agent keeps the ability to connect SSO-protected servers as the person. |
 | `core_auth_logout` | false | false | true | false | Discards the caller's stored grant for a server — a write, nothing else is touched. |
+| `core_auth_status` | **true** | false | true | **true** | Reads the caller's state on every server; with `auth_urls` it issues the sign-in links `core_auth_login` would, which change nothing until the person completes them. |
 
 Workflow execution tools (`workflow_<name>`) declare nothing themselves; their `readOnlyHint` is
 [derived from their steps](toolsets.md#workflow-read-only-derivation).
+
+### `core_auth_status` — every server's sign-in state, and the links that start the missing grants
+
+A client that gets a person ready before the agent needs them (a chat front-end right after its
+sign-in) reads the person's state on every server in one call. The answer is the
+[`auth://status`](#resource-access) document — `servers[]` with `name`, `status`, `issuer`,
+`scope`, `auth_tool`, `error`, `suspended`, the SSO flags — plus, per server:
+
+- `kind`: `grant` (a grant of the person's own, started with `core_auth_login`), `sso` (the muster
+  sign-in, forwarded or exchanged; never a link) or `none`;
+- `grant_scope`: for a `grant` server, `subject` (the grant is the person's, every later session
+  reuses it) or `session` (the session that completed it);
+- `auth_url`, with `auth_urls: true`, for every `grant` server in `auth_required` or
+  `reauth_required` that is not suspended: the link `core_auth_login` would issue for it, with the
+  same expiry and the same `redirect` parameter on `/oauth/proxy/start`. A server whose grant the
+  person already holds is connected by the call and reported `connected`; one the login refuses
+  carries the reason in `error`.
+
+Issuing the links counts as one authentication attempt for the rate limit. Each link is a bearer
+link for the caller's session: show it to the person only.
+
+```json
+{"name": "core_auth_status", "arguments": {"auth_urls": true}}
+→ {"servers": [
+    {"name": "github", "status": "auth_required", "kind": "grant", "grant_scope": "subject",
+     "issuer": "https://github.com/login/oauth", "auth_tool": "core_auth_login",
+     "auth_url": "https://muster.example.com/oauth/proxy/start?state=…"},
+    {"name": "kubernetes", "status": "connected", "kind": "sso", "token_forwarding_enabled": true}
+  ]}
+```
 
 ### Additional Tool Types
 
@@ -431,6 +462,7 @@ Create a new MCP server definition that can be started as a service.
 **Arguments:**
 - `name` (string, required) - Unique server name (used as service identifier)
 - `type` (string, required) - Server type (`stdio`, `streamable-http`, or `sse`)
+- `displayName` (string, optional) - Human-friendly name UIs show for the server, stored in the `ui.giantswarm.io/display-name` annotation next to the `registered-by` annotations muster stamps. Surrounding whitespace is trimmed; a blank value sets no annotation
 - `description` (string, optional) - Human-readable description of server purpose
 - `command` (array of strings, optional) - Command executable and arguments (for stdio servers)
 - `args` (array of strings, optional) - Command line arguments (for stdio servers)
@@ -450,6 +482,7 @@ Create a new MCP server definition that can be started as a service.
   "name": "core_mcpserver_create",
   "arguments": {
     "name": "my-tools",
+    "displayName": "My Tools",
     "type": "stdio",
     "description": "Custom tool server for project management",
     "command": ["my-mcp-server", "--port", "3000", "--verbose"],
@@ -473,7 +506,7 @@ Get detailed information about a specific MCP server definition.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to retrieve
 
-**Returns:** Complete MCP server definition object
+**Returns:** Complete MCP server definition object. `displayName`, `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server
 
 **Example Request:**
 ```json
@@ -489,6 +522,7 @@ Get detailed information about a specific MCP server definition.
 ```json
 {
   "name": "my-tools",
+  "displayName": "My Tools",
   "type": "stdio",
   "autoStart": true,
   "description": "Custom tool server for project management",
@@ -506,10 +540,11 @@ Update an existing MCP server definition. Only provided fields are updated.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to update
 - `type` (string, optional) - Server type
+- `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation, trimmed; an empty or blank string removes it, and omitting it keeps the current one
 - `description` (string, optional) - Updated description
 - `command` (array of strings, optional) - New command and arguments
 - `env` (object, optional) - Updated environment variables (replaces existing)
-- `autoStart` (boolean, optional) - Auto-start setting
+- `autoStart` (boolean, optional) - Auto-start setting; omitting it keeps the current one
 - `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` (or omitted) resumes it
 - `restartRequestedAt` (string, optional) - RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler
 
@@ -567,6 +602,7 @@ Validate MCP server configuration without creating or modifying the server.
 **Arguments:**
 - `name` (string, required) - Server name to validate
 - `type` (string, required) - Server type to validate
+- `displayName` (string, optional) - Display name to validate, as on create
 - `description` (string, optional) - Description to validate
 - `command` (array of strings, optional) - Command to validate
 - `env` (object, optional) - Environment variables to validate

@@ -94,6 +94,7 @@ steps:
         - 'muster_mcpserver_state{'
         - 'mcpserver_name="metrics-broken-server"'
         - 'state="Failed"'
+        - 'registered="'
 
   - id: "verify-healthy-state-exported"
     description: "The healthy server is exported too, as Connected — the gauge covers every known server, not only broken ones"

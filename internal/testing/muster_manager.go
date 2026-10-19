@@ -266,6 +266,10 @@ func NewMusterInstanceManagerWithLogger(debug bool, basePort int, logger TestLog
 // NewMusterInstanceManagerWithConfig creates a new muster instance manager with custom logger and config options.
 // A readinessTimeout of zero (or negative) selects defaultReadinessTimeout.
 func NewMusterInstanceManagerWithConfig(debug bool, basePort int, logger TestLogger, keepTempConfig bool, readinessTimeout time.Duration) (MusterInstanceManager, error) {
+	if err := ValidateBasePort(basePort); err != nil {
+		return nil, err
+	}
+
 	// Create temporary directory for test configurations
 	tempDir, err := os.MkdirTemp("", "muster-test-*")
 	if err != nil {
@@ -422,7 +426,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 	m.mu.Unlock()
 
 	// Extract expected resources from configuration
-	expectedTools := m.extractExpectedToolsWithHTTPMocks(config, mockHTTPServerInfo)
+	expectedTools, expectedFamilyMembers := m.extractExpectedToolsWithHTTPMocks(config, mockHTTPServerInfo)
 	expectedMCPServers := m.extractExpectedMCPServers(config)
 
 	// Extract muster OAuth access token if any mock OAuth server is used as muster's OAuth server
@@ -444,6 +448,7 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 		StartTime:              time.Now(),
 		Logs:                   nil, // Will be populated when destroying
 		ExpectedTools:          expectedTools,
+		ExpectedFamilyMembers:  expectedFamilyMembers,
 		ExpectedMCPServers:     expectedMCPServers,
 		MockHTTPServers:        mockHTTPServerInfo,
 		MockOAuthServers:       mockOAuthServerInfo,
@@ -719,6 +724,9 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 		if len(expectedTools) > 0 {
 			logger.Debug("🎯 Waiting for %d expected tools: %v\n", len(expectedTools), expectedTools)
 		}
+		if len(instance.ExpectedFamilyMembers) > 0 {
+			logger.Debug("🎯 Waiting for every member of the family tools: %v\n", instance.ExpectedFamilyMembers)
+		}
 		if len(expectedWorkflows) > 0 {
 			logger.Debug("🎯 Waiting for %d expected Workflows: %v\n", len(expectedWorkflows), expectedWorkflows)
 		}
@@ -813,6 +821,17 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 					if len(missingTools) > 0 {
 						allReady = false
 						notReadyReasons = append(notReadyReasons, fmt.Sprintf("missing tools: %v", missingTools))
+					} else if len(instance.ExpectedFamilyMembers) > 0 {
+						// A family tool is listed once its first member
+						// registers; wait for every member it is expected on.
+						missingMembers, err := findMissingFamilyMembers(resourceCtx, mcpClient, instance.ExpectedFamilyMembers)
+						if err != nil {
+							allReady = false
+							notReadyReasons = append(notReadyReasons, fmt.Sprintf("family members check failed: %v", err))
+						} else if len(missingMembers) > 0 {
+							allReady = false
+							notReadyReasons = append(notReadyReasons, fmt.Sprintf("missing family members: %v", missingMembers))
+						}
 					}
 				}
 			}
@@ -1050,7 +1069,7 @@ func (m *musterInstanceManager) findAvailablePort(instanceID string, logger Test
 		return port, nil
 	}
 
-	return 0, fmt.Errorf("no available ports found starting from %d (tried %d ports)", m.basePort, portWindowSize)
+	return 0, m.portWindowExhaustedError()
 }
 
 // portWindowSize is the number of ports, starting at the base port, the
@@ -2115,14 +2134,16 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 }
 
 // extractExpectedToolsWithHTTPMocks extracts expected tool names from the configuration,
-// including tools from HTTP mock servers.
+// including tools from HTTP mock servers, and for every family-grouped tool the
+// members it is expected on (exposed name -> server names).
 // Note: OAuth-protected servers are excluded since their tools won't be available until authenticated.
-func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *MusterPreConfiguration, mockHTTPServers map[string]*MockHTTPServerInfo) []string {
+func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *MusterPreConfiguration, mockHTTPServers map[string]*MockHTTPServerInfo) ([]string, map[string][]string) {
 	if config == nil {
-		return []string{}
+		return []string{}, nil
 	}
 
 	var expectedTools []string
+	familyMembers := map[string][]string{}
 
 	// Identify family groups whose members would fall back to per-server
 	// prefixing: same family.name but diverging family.instanceArg, or same
@@ -2237,6 +2258,7 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 								!instanceArgCollides
 							if grouped {
 								prefixedName = fmt.Sprintf("x_%s_%s", familyName, name)
+								familyMembers[prefixedName] = append(familyMembers[prefixedName], mcpServer.Name)
 							} else {
 								prefixedName = fmt.Sprintf("x_%s_%s", serverPrefix, name)
 							}
@@ -2252,7 +2274,7 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 		m.logger.Debug("🎯 Extracted expected tools from configuration (including HTTP mocks): %v\n", expectedTools)
 	}
 
-	return expectedTools
+	return expectedTools, familyMembers
 }
 
 // Cleanup cleans up all temporary directories created by this manager

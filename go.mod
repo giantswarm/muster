@@ -14,10 +14,11 @@ require (
 	github.com/briandowns/spinner v1.23.2
 	github.com/chzyer/readline v1.5.1
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/giantswarm/go-selfupdate v1.6.3
-	github.com/giantswarm/mcp-oauth v1.7.2
+	github.com/giantswarm/go-selfupdate v1.6.5
+	github.com/giantswarm/mcp-oauth v1.7.4
 	github.com/giantswarm/mcp-toolkit v0.2.16
-	github.com/go-jose/go-jose/v4 v4.1.5
+	github.com/giantswarm/pagekit v0.1.1
+	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/go-logr/logr v1.4.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
@@ -26,7 +27,7 @@ require (
 	github.com/mark3labs/mcp-go/otel v0.54.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
-	github.com/valkey-io/valkey-go v1.0.78
+	github.com/valkey-io/valkey-go v1.0.79
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/metric v1.47.0
 	go.opentelemetry.io/otel/sdk v1.47.0
@@ -111,7 +112,7 @@ require (
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/giantswarm/selfupdate-cosign v0.3.4
+	github.com/giantswarm/selfupdate-cosign v0.3.8
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v1.0.1 // indirect
@@ -191,8 +192,8 @@ require (
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
-	google.golang.org/grpc v1.84.0 // indirect
-	google.golang.org/protobuf v1.36.12 // indirect
+	google.golang.org/grpc v1.84.0
+	google.golang.org/protobuf v1.36.12
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect

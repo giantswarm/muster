@@ -63,8 +63,18 @@ type Orchestrator struct {
 	ctx        context.Context
 	cancelFunc context.CancelFunc
 
+	// retryInterval and healthCheckInterval pace the maintenance loop. New
+	// copies them from RetryInterval and HealthCheckInterval, so a running
+	// loop never reads a package variable.
+	retryInterval       time.Duration
+	healthCheckInterval time.Duration
+
 	// WaitGroup for tracking in-flight retry and health-probe goroutines
 	retryWg sync.WaitGroup
+
+	// loopWg tracks the maintenance loop that Start launches, so Stop returns
+	// only once the loop and its in-flight retries and probes have finished.
+	loopWg sync.WaitGroup
 
 	mu sync.RWMutex
 }
@@ -91,6 +101,8 @@ func New(cfg Config) *Orchestrator {
 		aggregator:             cfg.Aggregator,
 		kubernetesMode:         cfg.KubernetesMode,
 		namespace:              cfg.Namespace,
+		retryInterval:          RetryInterval,
+		healthCheckInterval:    HealthCheckInterval,
 		stopReasons:            make(map[string]StopReason),
 		stateChangeSubscribers: make([]chan<- ServiceStateChangedEvent, 0),
 	}
@@ -119,7 +131,11 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 		logging.Error("Orchestrator", err, "Failed to process auto-start MCPServers")
 	}
 
-	go o.retryFailedMCPServers()
+	o.loopWg.Add(1)
+	go func() {
+		defer o.loopWg.Done()
+		o.retryFailedMCPServers()
+	}()
 
 	logging.Info("Orchestrator", "Started orchestrator with %d static services", len(staticServices))
 	return nil
@@ -433,23 +449,25 @@ func (o *Orchestrator) publishStateChangeEvent(name string, oldState, newState s
 	}
 }
 
-// Stop gracefully stops all services.
+// Stop gracefully stops all services. It returns once the maintenance loop
+// and the retries and health probes it started have finished.
 func (o *Orchestrator) Stop() error {
 	if o.cancelFunc != nil {
 		o.cancelFunc()
 	}
+	o.loopWg.Wait()
 	return nil
 }
 
 // retryFailedMCPServers runs the periodic MCPServer maintenance loop: every
-// RetryInterval it attempts to reconnect servers that failed due to transient
+// retryInterval it attempts to reconnect servers that failed due to transient
 // connectivity issues, respecting the exponential backoff calculated by the
-// service, and every HealthCheckInterval it probes the connected ones (see
+// service, and every healthCheckInterval it probes the connected ones (see
 // health_check.go).
 func (o *Orchestrator) retryFailedMCPServers() {
-	ticker := clock.NewTicker(RetryInterval)
+	ticker := clock.NewTicker(o.retryInterval)
 	defer ticker.Stop()
-	healthTicker := clock.NewTicker(HealthCheckInterval)
+	healthTicker := clock.NewTicker(o.healthCheckInterval)
 	defer healthTicker.Stop()
 
 	for {

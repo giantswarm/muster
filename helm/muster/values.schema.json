@@ -5,7 +5,7 @@
     "properties": {
         "affinity": {
             "type": "object",
-            "additionalProperties": false
+            "additionalProperties": true
         },
         "autoscaling": {
             "type": "object",
@@ -223,6 +223,52 @@
                         },
                         "transport": {
                             "type": "string"
+                        }
+                    }
+                },
+                "credentialProvider": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "actorBearer": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "allowPrivateIPJWKSHosts": {
+                                    "type": "array"
+                                },
+                                "audience": {
+                                    "type": "string"
+                                },
+                                "enabled": {
+                                    "type": "boolean"
+                                },
+                                "issuer": {
+                                    "type": "string"
+                                },
+                                "jwksUrl": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "authority": {
+                            "type": "string"
+                        },
+                        "bindingTTL": {
+                            "type": "string"
+                        },
+                        "enabled": {
+                            "type": "boolean"
+                        },
+                        "gatewayIdentity": {
+                            "type": "string"
+                        },
+                        "port": {
+                            "type": "integer"
+                        },
+                        "releasable": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 },

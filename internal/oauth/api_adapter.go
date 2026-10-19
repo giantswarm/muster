@@ -166,6 +166,24 @@ func (a *Adapter) StoreLoginIDToken(sessionID, userID, issuer, idToken string, e
 	})
 }
 
+// PersonLoginIDToken implements api.PersonLoginTokenMirror: the login ID
+// token that lives longest among the person's live sessions, read when asked,
+// so a session's sign-out or revocation takes its token out at once.
+func (a *Adapter) PersonLoginIDToken(subject, issuer string) *api.OAuthToken {
+	if subject == "" || a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
+		return nil
+	}
+	return fullTokenToAPIToken(a.manager.client.tokenStore.GetLongestLivedForUser(subject, issuer, LoginIDTokenScope))
+}
+
+// ClearLoginIDToken implements api.PersonLoginTokenMirror.
+func (a *Adapter) ClearLoginIDToken(sessionID, issuer string) {
+	if a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
+		return
+	}
+	a.manager.client.tokenStore.Delete(TokenKey{SessionID: sessionID, Issuer: issuer, Scope: LoginIDTokenScope})
+}
+
 // LoginIDToken implements api.LoginTokenMirror.
 func (a *Adapter) LoginIDToken(sessionID, issuer string) *api.OAuthToken {
 	if a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
@@ -204,10 +222,11 @@ func (a *Adapter) SubjectGrantForRelease(ctx context.Context, userID, issuer str
 }
 
 var (
-	_ api.IssuerPinner        = (*Adapter)(nil)
-	_ api.SubjectGrantHandler = (*Adapter)(nil)
-	_ api.GrantReleaser       = (*Adapter)(nil)
-	_ api.LoginTokenMirror    = (*Adapter)(nil)
+	_ api.IssuerPinner           = (*Adapter)(nil)
+	_ api.SubjectGrantHandler    = (*Adapter)(nil)
+	_ api.GrantReleaser          = (*Adapter)(nil)
+	_ api.LoginTokenMirror       = (*Adapter)(nil)
+	_ api.PersonLoginTokenMirror = (*Adapter)(nil)
 )
 
 // DeleteTokensByUser removes all downstream tokens for a given user across all sessions.

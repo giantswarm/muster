@@ -67,7 +67,7 @@ func connectWith(t *testing.T, server *httptest.Server, token *oauth2.Token) (he
 	if err != nil {
 		t.Fatalf("NewTokenStore failed: %v", err)
 	}
-	if err := store.StoreToken(server.URL, server.URL, token); err != nil {
+	if err := store.StoreToken(server.URL, server.URL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("StoreToken failed: %v", err)
 	}
 

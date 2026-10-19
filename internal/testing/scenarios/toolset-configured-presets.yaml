@@ -110,9 +110,9 @@ steps:
     expected:
       success: true
       json_path:
-        # 3 server reads + the 16 read-only core tools (core_workflow_list came
-        # in through ops already; readOnly adds the other 15, #1172)
-        total: 19
+        # 3 server reads + the 17 read-only core tools (core_workflow_list came
+        # in through ops already; readOnly adds the other 16, #1172)
+        total: 20
       contains: ["x_k8s_get_pods", "x_prom_query", "x_gh_issues", "core_workflow_list", "core_auth_login"]
       not_contains: ["workflow_rw-rollout", "x_k8s_delete_pod", "core_workflow_delete"]
 

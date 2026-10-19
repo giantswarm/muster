@@ -165,17 +165,21 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	m.mu.Unlock()
 
+	// Start the event processor before the detector: the detector's initial
+	// listing emits one event per existing resource before Start returns, and
+	// the channel must be drained while it does.
+	m.wg.Add(1)
+	go m.processChangeEvents()
+
 	// Start change detector
 	if err := m.changeDetector.Start(m.ctx, m.changeChan); err != nil {
+		m.cancelFunc()
+		m.wg.Wait()
 		m.mu.Lock()
 		m.running = false
 		m.mu.Unlock()
 		return fmt.Errorf("failed to start change detector: %w", err)
 	}
-
-	// Start event processor
-	m.wg.Add(1)
-	go m.processChangeEvents()
 
 	// Start periodic resync (level-based safety net for lost change events)
 	m.wg.Add(1)

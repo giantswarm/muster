@@ -182,7 +182,7 @@ func init() {
 	// Test execution configuration
 	testCmd.Flags().DurationVar(&testTimeout, "timeout", 10*time.Minute, "Overall test execution timeout")
 	testCmd.Flags().DurationVar(&testReadinessTimeout, "readiness-timeout", 15*time.Second, "Per-instance deadline for expected resources (tools, workflows, MCP servers) to become available after startup; raise on slow or contended machines such as CI")
-	testCmd.Flags().IntVar(&testBasePort, "base-port", 18000, "Starting port number for test muster instances")
+	testCmd.Flags().IntVar(&testBasePort, "base-port", testing.DefaultBasePort, "Starting port of the 100-port window for test muster instances; the window must stay outside the Kubernetes NodePort range 30000-32767")
 
 	// Output and debugging
 	testCmd.Flags().BoolVar(&testVerbose, "verbose", false, "Enable verbose test output")
@@ -536,27 +536,20 @@ func generateAPISchema(ctx context.Context, client testing.MCPTestClient, verbos
 		fmt.Printf("🔍 Discovering available tools with schemas...\n")
 	}
 
-	// Get all available tools with their full schemas
-	allTools, err := client.ListToolsWithSchemas(ctx)
+	coreTools, err := client.ListCoreToolsWithSchemas(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tools with schemas: %w", err)
+		return nil, fmt.Errorf("failed to list core tools with schemas: %w", err)
+	}
+	if len(coreTools) == 0 {
+		return nil, fmt.Errorf("muster serve reported no core tools")
 	}
 
-	if verbose || debug {
-		fmt.Printf("📋 Found %d tools with schemas\n", len(allTools))
-	}
-
-	// Filter for core_* tools and build schemas
 	coreToolSchemas := make(map[string]interface{})
-	for _, tool := range allTools {
-		if strings.HasPrefix(tool.Name, "core_") {
-			if verbose || debug {
-				fmt.Printf("🔧 Processing tool: %s\n", tool.Name)
-			}
-
-			schema := convertMCPToolToSchema(tool, verbose, debug)
-			coreToolSchemas[tool.Name] = schema
+	for _, tool := range coreTools {
+		if verbose || debug {
+			fmt.Printf("🔧 Processing tool: %s\n", tool.Name)
 		}
+		coreToolSchemas[tool.Name] = convertMCPToolToSchema(tool, verbose, debug)
 	}
 
 	if verbose || debug {
@@ -576,8 +569,7 @@ func generateAPISchema(ctx context.Context, client testing.MCPTestClient, verbos
 				"properties":  coreToolSchemas,
 			},
 		},
-		"generated_at": time.Now().Format(time.RFC3339),
-		"version":      "1.0.0",
+		"version": "1.0.0",
 	}
 
 	return apiSchema, nil
@@ -620,8 +612,8 @@ func writeSchemaToFile(schema map[string]interface{}, filename string) error {
 		return fmt.Errorf("failed to marshal schema to JSON: %w", err)
 	}
 
-	// Write to file
-	if err := os.WriteFile(filename, jsonData, 0o600); err != nil {
+	// Write to file, newline-terminated as the committed schema.json is
+	if err := os.WriteFile(filename, append(jsonData, '\n'), 0o600); err != nil {
 		return fmt.Errorf("failed to write schema file: %w", err)
 	}
 

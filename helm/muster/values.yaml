@@ -259,7 +259,7 @@ nodeSelector: {}  # @schema additionalProperties: true
 
 tolerations: []
 
-affinity: {}
+affinity: {}  # @schema additionalProperties: true
 
 # Muster specific configuration
 muster:
@@ -314,6 +314,48 @@ muster:
   #       exclude:
   #         - pattern: "*_delete"
   toolsetPresets: {}  # @schema additionalProperties: true
+
+  # Credential provider for Substrate's egress gateway: a workspace Session's
+  # git and gh requests get the access token of the person the Session is
+  # bound to (agent-manager binds it at start, as the person, on
+  # PUT /session-bindings). muster serves CredentialProvider.FetchSecret over
+  # mutual TLS on its own port with Substrate pod certificates (the cluster
+  # needs Substrate's podcert signers) and answers the egress gateway alone.
+  # Register it with Substrate as credentialProvider.additionalProviders
+  # {uriAuthority: <authority>, host: <muster service>.<namespace>.svc:<port>}.
+  # Needs the OAuth server (the bind authenticates the person).
+  credentialProvider:
+    enabled: false
+    # gRPC port of FetchSecret.
+    port: 50051
+    # SPIFFE id of the egress gateway, the only caller answered:
+    # spiffe://cluster.local/ns/<substrate namespace>/sa/<substrate release>-atenet-egress
+    gatewayIdentity: ""
+    # Credential URI authority (ate-secret://<authority>/<provider>/<git|api>).
+    authority: "muster.giantswarm.io"
+    # Binding lifetime without use: the platform's Session idle TTL.
+    bindingTTL: "336h"
+    # Provider instance -> issuer of the grant answered for it (an MCPServer
+    # pinned with grantScope: subject). Only these grants are ever released.
+    # Example: {github: "https://github.com/apps/giantswarm-workspaces"}
+    releasable: {}  # @schema additionalProperties: true
+    # A bound Session's sandbox calls muster itself as its person: the egress
+    # gateway injects the actor's JWT on the muster host (an actor_jwt rule
+    # with this audience), muster verifies it against Substrate's actor-JWT
+    # issuer and serves the request as the person whose binding lists the
+    # provider "muster". No credential is in the sandbox.
+    actorBearer:
+      enabled: false
+      # iss of Substrate's actor JWTs (ate-api's --actor-jwt-issuer):
+      # https://idp.<substrate namespace>.svc
+      issuer: ""
+      # Key set; empty means <issuer>/openid/v1/jwks.
+      jwksUrl: ""
+      # aud the gateway binds the actor JWT to; empty means oauth.server.baseUrl.
+      audience: ""
+      # Key set hosts that may resolve to a private address; empty means the
+      # issuer's host (an in-cluster Service).
+      allowPrivateIPJWKSHosts: []
 
   # Append a PEM file to muster's system trust pool at startup. Use this when
   # muster talks to backends served by an internal CA (for example, the SPIFFE

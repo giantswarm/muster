@@ -10,6 +10,40 @@ data:
       host: "0.0.0.0"
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
+      {{- with .Values.muster.credentialProvider }}
+      {{- if .enabled }}
+      {{- if not .gatewayIdentity }}{{ fail "muster.credentialProvider.gatewayIdentity is required" }}{{- end }}
+      {{- if not (or .releasable .actorBearer.enabled) }}{{ fail "muster.credentialProvider.releasable lists no provider" }}{{- end }}
+      {{- if not $.Values.muster.oauth.server.enabled }}{{ fail "muster.credentialProvider needs muster.oauth.server.enabled" }}{{- end }}
+      credentialProvider:
+        enabled: true
+        listenAddress: ":{{ .port }}"
+        serverCredBundle: /run/servicedns.podcert.ate.dev/credential-bundle.pem
+        clientCAFile: /run/podidentity.podcert.ate.dev/trust-bundle.pem
+        gatewayIdentity: {{ .gatewayIdentity | quote }}
+        authority: {{ .authority | quote }}
+        bindingTTL: {{ .bindingTTL | quote }}
+        {{- with .releasable }}
+        releasable:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .actorBearer }}
+        {{- if .enabled }}
+        {{- if not .issuer }}{{ fail "muster.credentialProvider.actorBearer.issuer is required" }}{{- end }}
+        actorBearer:
+          enabled: true
+          issuer: {{ .issuer | quote }}
+          {{- with .jwksUrl }}
+          jwksUrl: {{ . | quote }}
+          {{- end }}
+          audience: {{ .audience | default $.Values.muster.oauth.server.baseUrl | quote }}
+          caFile: /run/servicedns.podcert.ate.dev/trust-bundle.pem
+          allowPrivateIPJWKSHosts:
+            {{- toYaml (.allowPrivateIPJWKSHosts | default (list (urlParse .issuer).host)) | nindent 12 }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- end }}
       oauth:
         {{- if .Values.muster.oauth.mcpClient.enabled }}
         mcpClient:

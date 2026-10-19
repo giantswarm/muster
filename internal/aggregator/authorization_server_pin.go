@@ -101,10 +101,11 @@ func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
 }
 
 // releaseAuthorizationServerPin runs when a server's registration is replaced
-// or removed; previous is the auth config the registry held for the server
-// before. When that configuration described an authorization server and the
-// server's current registration (if any) describes it differently or not at
-// all, the description is released: replaced by another server's description
+// or removed, or its MCPServer definition changes or goes; previous is the
+// auth config the server was pinned with before. When that configuration
+// described an authorization server and the server's current registration or
+// definition (if any) describes it differently or not at all, the description
+// is released: replaced by another server's description
 // of the same issuer, or forgotten by the OAuth handler. The caller applies
 // the server's current description afterwards (pinAuthorizationServer).
 //
@@ -117,8 +118,9 @@ func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, na
 	if prev == nil {
 		return
 	}
+	described := a.describedServers()
 	var current *api.MCPServerAuthAuthorizationServer
-	if info, ok := a.registry.GetServerInfo(name); ok {
+	if info, ok := described[name]; ok {
 		current = authorizationServerOf(info.AuthConfig)
 	}
 	if sameAuthorizationServer(prev, current) {
@@ -136,7 +138,7 @@ func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, na
 
 	// Another server may still describe the issuer; its description takes
 	// over. This server's own current description is applied by the caller.
-	for other, info := range a.registry.GetAllServers() {
+	for other, info := range described {
 		if other == name {
 			continue
 		}
@@ -159,4 +161,22 @@ func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, na
 	logging.InfoWithAttrs("Aggregator", "oauth_authorization_server_unpinned",
 		slog.String("server", name),
 		slog.String("issuer", issuer))
+}
+
+// describedServers returns every server that describes its authorization
+// server to muster: the MCPServer definitions, connected or not, overlaid by
+// the registry's entries. A definition whose backend is down still describes
+// its authorization server, so a deregistration on a failed connection keeps
+// the pin.
+func (a *AggregatorServer) describedServers() map[string]*ServerInfo {
+	described := make(map[string]*ServerInfo)
+	if a.definedServers != nil {
+		for name, info := range a.definedServers() {
+			described[name] = info
+		}
+	}
+	for name, info := range a.registry.GetAllServers() {
+		described[name] = info
+	}
+	return described
 }

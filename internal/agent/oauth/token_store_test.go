@@ -34,7 +34,7 @@ func TestTokenStore_StoreAndGet(t *testing.T) {
 	}
 
 	// Store the token
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestTokenStore_ExpiredToken(t *testing.T) {
 		Expiry:      time.Now().Add(-1 * time.Hour), // Expired 1 hour ago
 	}
 
-	if err := store.StoreToken(testMusterURL, testDexURL, expiredToken); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, expiredToken); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestTokenStore_DeleteToken(t *testing.T) {
 	}
 
 	// Store and then delete
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -141,7 +141,7 @@ func TestTokenStore_FileMode(t *testing.T) {
 	}
 
 	// Store the token
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -201,7 +201,7 @@ func TestTokenStore_HasValidToken(t *testing.T) {
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
 
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -233,7 +233,7 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 	if !store.HasCredentials(testMusterURL) {
@@ -247,7 +247,7 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 		TokenType:    "Bearer",
 		Expiry:       time.Now().Add(-1 * time.Hour),
 	}
-	if err := store.StoreToken(testMusterURL, testDexURL, expiredWithRefresh); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, expiredWithRefresh); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 	if !store.HasCredentials(testMusterURL) {
@@ -260,7 +260,7 @@ func TestTokenStore_HasCredentials(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(-1 * time.Hour),
 	}
-	if err := store.StoreToken(testMusterURL, testDexURL, expiredNoRefresh); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, expiredNoRefresh); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 	if store.HasCredentials(testMusterURL) {
@@ -287,7 +287,7 @@ func TestTokenStore_Clear(t *testing.T) {
 			TokenType:   "Bearer",
 			Expiry:      time.Now().Add(1 * time.Hour),
 		}
-		if err := store.StoreToken(serverURL, testDexURL, token); err != nil {
+		if err := store.StoreToken(serverURL, testDexURL, DefaultAgentClientID, token); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 	}
@@ -381,7 +381,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL1, testDexURL, token1); err != nil {
+	if err := store.StoreToken(serverURL1, testDexURL, DefaultAgentClientID, token1); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -403,7 +403,7 @@ func TestTokenStore_GetByIssuer(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(serverURL2, testDexURL, token2); err != nil {
+	if err := store.StoreToken(serverURL2, testDexURL, DefaultAgentClientID, token2); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -439,7 +439,7 @@ func TestTokenStore_GetByIssuer_DifferentIssuers(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(testMusterURL, issuer1, token); err != nil {
+	if err := store.StoreToken(testMusterURL, issuer1, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -471,7 +471,7 @@ func TestTokenStore_GetByIssuer_ExpiredToken(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(-1 * time.Hour), // Expired
 	}
-	if err := store.StoreToken(testMusterURL, testDexURL, expiredToken); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, expiredToken); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -503,7 +503,7 @@ func TestTokenStore_HasValidTokenForIssuer(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -530,7 +530,7 @@ func TestTokenStore_GetByIssuer_FileMode(t *testing.T) {
 		TokenType:   "Bearer",
 		Expiry:      time.Now().Add(1 * time.Hour),
 	}
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -610,7 +610,7 @@ func TestTokenStore_IsTokenValid_ExpiryMargin(t *testing.T) {
 			}
 
 			// Store the token
-			if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+			if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 				t.Fatalf("Failed to store token: %v", err)
 			}
 
@@ -644,7 +644,7 @@ func TestTokenStore_FileMode_Permissions(t *testing.T) {
 	}
 
 	// Store the token
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -714,7 +714,7 @@ func TestTokenStore_ZeroExpiry_ConsideredValid(t *testing.T) {
 		// Expiry is zero value
 	}
 
-	if err := store.StoreToken(testMusterURL, testDexURL, token); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, token); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 
@@ -756,7 +756,7 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 			Expiry:       time.Now().Add(30 * time.Second), // Expires in 30s (within 60s margin)
 		}
 
-		if err := store.StoreToken(testMusterURL, testDexURL, expiringToken); err != nil {
+		if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, expiringToken); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
@@ -792,7 +792,7 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 			Expiry:       time.Now().Add(-1 * time.Hour), // Expired 1 hour ago
 		}
 
-		if err := store.StoreToken(testMusterURL, testDexURL, expiredToken); err != nil {
+		if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, expiredToken); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
@@ -824,7 +824,7 @@ func TestTokenStore_GetTokenIncludingExpiring(t *testing.T) {
 			Expiry:       time.Now().Add(1 * time.Hour), // Valid for 1 hour
 		}
 
-		if err := store.StoreToken(testMusterURL, testDexURL, validToken); err != nil {
+		if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, validToken); err != nil {
 			t.Fatalf("Failed to store token: %v", err)
 		}
 
@@ -864,7 +864,7 @@ func TestTokenStore_GetTokenIncludingExpiring_FileMode(t *testing.T) {
 		Expiry:       time.Now().Add(30 * time.Second),
 	}
 
-	if err := store.StoreToken(testMusterURL, testDexURL, expiringToken); err != nil {
+	if err := store.StoreToken(testMusterURL, testDexURL, DefaultAgentClientID, expiringToken); err != nil {
 		t.Fatalf("Failed to store token: %v", err)
 	}
 

@@ -42,6 +42,11 @@ type AggregatorManager struct {
 	eventHandler     *EventHandler     // Handles service state change events
 	oauthManager     *oauth.Manager    // OAuth proxy for remote MCP server authentication
 
+	// definitionPins is the authorization server each MCPServer definition
+	// was pinned with, see pinDefinedAuthorizationServers.
+	definitionPinsMu sync.Mutex
+	definitionPins   map[string]*api.MCPServerAuthAuthorizationServer
+
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
 	cancelFunc context.CancelFunc // Function to cancel the context
@@ -74,7 +79,9 @@ func NewAggregatorManager(ctx context.Context, config AggregatorConfig, orchestr
 		orchestratorAPI:  orchestratorAPI,
 		serviceRegistry:  serviceRegistry,
 		aggregatorServer: aggregatorServer,
+		definitionPins:   make(map[string]*api.MCPServerAuthAuthorizationServer),
 	}
+	aggregatorServer.definedServers = manager.definedServers
 
 	// Initialize OAuth manager if enabled (OAuth MCP client/proxy for authenticating TO remote MCP servers)
 	if config.OAuth.Enabled {
@@ -141,6 +148,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 		logging.Warn("Aggregator-Manager", "Error during initial MCP server registration: %v", err)
 		// Continue anyway - the event handler will handle future registrations
 	}
+	am.pinDefinedAuthorizationServers(am.ctx)
 
 	// Create event handler with callbacks for registration/deregistration
 	am.eventHandler = NewEventHandler(
@@ -150,6 +158,7 @@ func (am *AggregatorManager) Start(ctx context.Context) error {
 		am.isServerAuthRequired,
 		am.isServerSSOBased,
 	)
+	am.eventHandler.onServiceEvent = func(string) { am.pinDefinedAuthorizationServers(am.ctx) }
 
 	// Start the event handler for automatic updates
 	if err := am.eventHandler.Start(am.ctx); err != nil {
@@ -620,7 +629,7 @@ func (am *AggregatorManager) deregisterSingleServer(serverName string) error {
 // state=starting event is being processed (the "Server not found" answer from
 // core_auth_login right after startup). The registry decides under its lock.
 func (am *AggregatorManager) deregisterOnStateChange(serverName string) error {
-	removed, err := am.aggregatorServer.DeregisterServerOnStateChange(serverName)
+	removed, err := am.aggregatorServer.DeregisterServerOnStateChange(serverName, am.serviceReconnecting(serverName))
 	if err != nil {
 		return fmt.Errorf("failed to deregister server: %w", err)
 	}
@@ -631,6 +640,26 @@ func (am *AggregatorManager) deregisterOnStateChange(serverName string) error {
 
 	logging.Info("Aggregator-Manager", "Successfully deregistered MCP server %s", serverName)
 	return nil
+}
+
+// serviceReconnecting reports whether a server whose entry the state-change
+// handler removes is still alive and re-establishing its connection: its
+// service exists and was not stopped. A Failed server with failed health
+// probes has a reconnect due, and a Starting one is that reconnect; a
+// stopped, stopping or deleted one is gone until someone starts it.
+func (am *AggregatorManager) serviceReconnecting(serverName string) bool {
+	if am.serviceRegistry == nil {
+		return false
+	}
+	service, exists := am.serviceRegistry.Get(serverName)
+	if !exists || service == nil {
+		return false
+	}
+	switch service.GetState() {
+	case api.StateStopped, api.StateStopping:
+		return false
+	}
+	return true
 }
 
 // GetEndpoint returns the aggregator's MCP endpoint URL.
@@ -711,6 +740,7 @@ func (am *AggregatorManager) retryFailedRegistrations(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			am.pinDefinedAuthorizationServers(ctx)
 			am.attemptPendingRegistrations(ctx)
 			am.pruneOrphanedRegistrations()
 		}

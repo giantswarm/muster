@@ -3,6 +3,7 @@ package testing
 import (
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 )
 
@@ -275,5 +276,81 @@ func TestDetectEphemeralPortRange(t *testing.T) {
 	low, high := detectEphemeralPortRange()
 	if low <= 0 || high < low {
 		t.Fatalf("detectEphemeralPortRange returned invalid range [%d, %d]", low, high)
+	}
+}
+
+// TestDefaultBasePort_StaysClearOfNodePortAndEphemeralRanges guards the
+// default window: kind clusters on the same machine map host ports from the
+// Kubernetes NodePort range, so a default run must never take one.
+func TestDefaultBasePort_StaysClearOfNodePortAndEphemeralRanges(t *testing.T) {
+	if err := ValidateBasePort(DefaultBasePort); err != nil {
+		t.Fatalf("default base port %d is refused: %v", DefaultBasePort, err)
+	}
+	if high := DefaultBasePort + portWindowSize - 1; high >= nodePortLow || high >= testEphemeralLow {
+		t.Fatalf("default window [%d, %d] reaches into the NodePort or ephemeral range", DefaultBasePort, high)
+	}
+}
+
+// TestValidateBasePort_RefusesNodePortOverlap checks that every window
+// touching [30000, 32767] is refused with an error naming the window and the
+// range, and that windows just outside it are accepted.
+func TestValidateBasePort_RefusesNodePortOverlap(t *testing.T) {
+	for _, base := range []int{29901, 30000, 31000, 32000, 32767} {
+		err := ValidateBasePort(base)
+		if err == nil {
+			t.Fatalf("base port %d: expected a refusal, window overlaps the NodePort range", base)
+		}
+		want := fmt.Sprintf("port window [%d, %d] overlaps the Kubernetes NodePort range [30000, 32767]", base, base+portWindowSize-1)
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("base port %d: error %q does not contain %q", base, err, want)
+		}
+		if _, err := NewMusterInstanceManagerWithLogger(false, base, NewSilentLogger(false, false)); err == nil {
+			t.Fatalf("base port %d: instance manager accepted a NodePort-range window", base)
+		}
+	}
+	for _, base := range []int{1, 18000, 29900, 32768, 45000, 65436} {
+		if err := ValidateBasePort(base); err != nil {
+			t.Fatalf("base port %d: unexpected refusal: %v", base, err)
+		}
+	}
+	for _, base := range []int{0, -1, 65437} {
+		if err := ValidateBasePort(base); err == nil {
+			t.Fatalf("base port %d: expected a refusal, window leaves [1, 65535]", base)
+		}
+	}
+}
+
+// TestFindAvailablePort_ExhaustedWindowNamesBusyPorts fills the whole window
+// with foreign listeners and checks the error names the window and the busy
+// ports instead of only counting them.
+func TestFindAvailablePort_ExhaustedWindowNamesBusyPorts(t *testing.T) {
+	const base = 46500
+	m := newPortTestManager(t, base)
+	for port := base; port < base+portWindowSize; port++ {
+		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			t.Skipf("cannot occupy port %d for the test: %v", port, err)
+		}
+		t.Cleanup(func() { _ = ln.Close() })
+	}
+
+	_, err := m.findAvailablePort("inst-full", m.logger)
+	if err == nil {
+		t.Fatal("expected an error with every port in the window busy")
+	}
+	for _, want := range []string{
+		fmt.Sprintf("no available port in the window [%d, %d]", base, base+portWindowSize-1),
+		fmt.Sprintf("busy: %d-%d", base, base+portWindowSize-1),
+		"--base-port",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not contain %q", err, want)
+		}
+	}
+}
+
+func TestFormatPorts_CollapsesRuns(t *testing.T) {
+	if got, want := formatPorts([]int{18000, 18001, 18002, 18005, 18007, 18008}), "18000-18002, 18005, 18007-18008"; got != want {
+		t.Fatalf("formatPorts = %q, want %q", got, want)
 	}
 }

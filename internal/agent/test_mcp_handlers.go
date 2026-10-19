@@ -21,7 +21,7 @@ func (t *TestMCPServer) handleRunScenarios(ctx context.Context, request mcp.Call
 	config.Parallel = 1               // Default parallel workers
 	config.Verbose = true             // Always verbose for MCP
 	config.Debug = t.debug            // Inherit debug setting from server
-	config.BasePort = 18000           // Default base port for test instances
+	config.BasePort = testing.DefaultBasePort
 
 	// Parse optional args
 	if category, ok := args["category"].(string); ok && category != "" {

@@ -599,9 +599,10 @@ func EstablishConnectionWithTokenExchange(
 
 	// Validate ID token is not expired before exchanging
 	if expired, expErr := pkgoauth.IsExpired(idToken); expired {
-		logging.Warn("Connection", "ID token expired for user %s, cannot exchange for %s: %v",
-			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
-		return nil, fmt.Errorf("ID token has expired, needs refresh before exchange")
+		err := expiredTokenError("ID token", serverInfo.Name, expErr)
+		logging.Warn("Connection", "Cannot exchange the ID token of user %s: %v",
+			logging.TruncateIdentifier(sub), err)
+		return nil, err
 	}
 
 	// Extract user ID from the token for cache key generation
@@ -1019,9 +1020,10 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	}
 
 	if expired, expErr := pkgoauth.IsExpired(token); expired {
-		logging.Warn("Connection", "Token expired for user %s, cannot forward to %s: %v",
-			logging.TruncateIdentifier(sub), serverInfo.Name, expErr)
-		return nil, "", fmt.Errorf("token has expired for %s, re-authenticate to refresh: %w", serverInfo.Name, expErr)
+		err := expiredTokenError("token", serverInfo.Name, expErr)
+		logging.Warn("Connection", "Cannot forward the token of user %s: %v",
+			logging.TruncateIdentifier(sub), err)
+		return nil, "", err
 	}
 
 	headers, err := sessionHeaders(ctx, serverInfo)
@@ -1207,6 +1209,16 @@ func forwardableBearer(ctx context.Context) string {
 		return ""
 	}
 	return bearer
+}
+
+// expiredTokenError is the error for a token pkgoauth.IsExpired refused: past
+// its expiry when IsExpired returned no error, unusable with that error (no
+// parseable exp claim) otherwise.
+func expiredTokenError(kind, serverName string, err error) error {
+	if err != nil {
+		return fmt.Errorf("%s for %s is unusable, re-authenticate to refresh: %w", kind, serverName, err)
+	}
+	return fmt.Errorf("%s has expired for %s, re-authenticate to refresh", kind, serverName)
 }
 
 // makeTokenForwardingHeaderFunc creates the header function closure used by

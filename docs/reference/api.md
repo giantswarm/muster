@@ -64,6 +64,16 @@ that run their own OAuth.
 | `/oauth/proxy/start` | Starts a login to a remote server; `core_auth_login` returns URLs pointing here. An optional `redirect` parameter, checked against `postLoginRedirectAllowlist`, sends the browser on after the login |
 | `/oauth/proxy/callback` | Return from the remote authorization server (`oauth.mcpClient.callbackPath`) |
 
+## Credential provider
+
+With [`aggregator.credentialProvider`](configuration.md#credential-provider-for-substrates-egress-gateway) enabled:
+
+| Path or service | Where | Purpose |
+|---|---|---|
+| `/session-bindings` `PUT` | aggregator port, bearer required | Binds a Session's sandbox actor to the caller: `{"actor", "session", "providers"}`; 204, 400, 403 (bound to another person) |
+| `/session-bindings?actor=<id>` `DELETE` | aggregator port, bearer required | Removes the caller's binding; 204, 403 (another person's) |
+| `credprovider.CredentialProvider/FetchSecret` | gRPC, `listenAddress` (`:50051`), mutual TLS | The egress gateway's credential lookup; answers only the gateway's certificate |
+
 ## Metrics
 
 muster's own Prometheus exporter is switched on with the standard OpenTelemetry environment

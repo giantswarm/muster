@@ -315,8 +315,10 @@ func TestRetryFailedMCPServers_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		o := &Orchestrator{
-			registry: registry,
-			ctx:      ctx,
+			registry:            registry,
+			ctx:                 ctx,
+			retryInterval:       RetryInterval,
+			healthCheckInterval: HealthCheckInterval,
 		}
 
 		// Start the retry loop with proper synchronization

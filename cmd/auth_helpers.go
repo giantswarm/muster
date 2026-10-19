@@ -27,6 +27,10 @@ const (
 	DefaultAuthPollInterval = 500 * time.Millisecond
 	// DefaultStatusCheckTimeout is the timeout for checking connection status and fetching resources.
 	DefaultStatusCheckTimeout = 10 * time.Second
+	// DefaultConnectTimeout bounds a connection made only to renew the access
+	// token: the client's retries of a connection that did not reach the
+	// aggregator, and one status check's time for the last attempt.
+	DefaultConnectTimeout = agent.DefaultConnectRetryBudget + DefaultStatusCheckTimeout
 )
 
 // AuthHandlerOptions configures the auth handler creation.
@@ -151,7 +155,7 @@ func createStatusClient(ctx context.Context, endpoint string) (*agent.Client, er
 // is acceptable because it is only called on the `muster auth login`
 // fast-path where no further aggregator interaction is needed.
 func tryMCPConnection(ctx context.Context, handler api.AuthHandler, endpoint string) error {
-	connCtx, cancel := context.WithTimeout(ctx, DefaultStatusCheckTimeout)
+	connCtx, cancel := context.WithTimeout(ctx, DefaultConnectTimeout)
 	defer cancel()
 
 	client, err := createStatusClient(connCtx, endpoint)
@@ -183,13 +187,13 @@ func ensureAuthenticatedAndGetStatus(ctx context.Context, handler api.AuthHandle
 	}
 
 	authPrintln("Authenticating to aggregator first...")
-	if loginErr := handler.Login(ctx, endpoint); loginErr != nil {
-		return nil, fmt.Errorf("failed to authenticate to aggregator: %w", loginErr)
+	verify := func() error {
+		var err error
+		authStatus, err = getAuthStatusFromAggregator(ctx, handler, endpoint)
+		return err
 	}
-
-	authStatus, err = getAuthStatusFromAggregator(ctx, handler, endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get auth status after login: %w", err)
+	if err := signIn(ctx, handler, endpoint, false, verify); err != nil {
+		return nil, fmt.Errorf("failed to authenticate to aggregator: %w", err)
 	}
 	return authStatus, nil
 }

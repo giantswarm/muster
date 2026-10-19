@@ -33,6 +33,7 @@ type EventHandler struct {
 	deregisterFunc       func(string) error                  // Callback for server deregistration
 	isServerAuthRequired func(string) bool                   // Callback to check if server is in auth_required state
 	isServerSSOBased     func(string) bool                   // Callback to check if server uses SSO token forwarding/exchange
+	onServiceEvent       func(string)                        // Optional callback run first for every MCP service event
 
 	// Lifecycle management
 	ctx        context.Context    // Context for coordinating shutdown
@@ -207,6 +208,10 @@ func (eh *EventHandler) processEvent(event api.ServiceStateChangedEvent) {
 
 	logging.Debug("Aggregator-EventHandler", "Processing MCP service event: %s (state=%s, health=%s)",
 		event.Name, event.NewState, event.Health)
+
+	if eh.onServiceEvent != nil {
+		eh.onServiceEvent(event.Name)
+	}
 
 	// Generate events for service state transitions
 	eh.generateServiceStateEvents(event)

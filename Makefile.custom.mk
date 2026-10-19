@@ -11,9 +11,14 @@ helm-lint: ## Run Helm linter
 HELM_UNITTEST_VERSION := 1.0.3
 YQ_VERSION := v4.44.6
 
-# What CI runs (the chart-test job in .circleci/custom.yml).
+# The chart checks that need helm only, which the generated chart-tests workflow runs
+# through `make helm-test` on a runner with no promtool. The chart-test job in
+# .circleci/custom.yml adds helm-promtool-test, which needs promtool and yq.
 .PHONY: helm-test
-helm-test: helm-lint helm-unittest helm-promtool-test ## Run every chart check (what CI runs).
+helm-test: helm-lint helm-unittest ## Run the helm-only chart checks: lint and unittest.
+
+.PHONY: helm-test-all
+helm-test-all: helm-test helm-promtool-test ## Run every chart check (what CircleCI runs).
 
 .PHONY: helm-alerting-test
 helm-alerting-test: ## Run only the PrometheusRule checks: its helm-unittest suite plus the promtool alert-rule tests.
@@ -48,7 +53,7 @@ helm-promtool-test: ## Run the promtool unit tests for the PrometheusRule (requi
 # Makefile.gen.go.mk; these prerequisites run before it (the version stamp for
 # the CI binaries, CRD freshness, then the integration suite) and only add
 # prerequisites -- they do not override the generated recipe.
-test: stamp-version verify-crds verify-cli-docs muster-integration-test
+test: stamp-version verify-crds verify-cli-docs verify-scenario-schema muster-integration-test
 
 # The version stamp-version appends: the tag when CIRCLE_TAG is set,
 # otherwise what `git describe` says about HEAD (v5.23.2-1-g4be8379e on a
@@ -89,10 +94,23 @@ verify-crds: ## Regenerate CRDs and fail if the committed copies are stale.
 		exit 1; }
 	@echo "CRDs are up to date."
 
+# schema.json is the core tool API the scenarios are validated against
+# (TestCommittedScenariosValidateAgainstSchema, run by `go test`). This keeps
+# it current: regenerated from a live `muster serve`, it must match the
+# committed copy, and every scenario must validate against it.
+.PHONY: verify-scenario-schema
+verify-scenario-schema: build ## Regenerate schema.json, fail if the committed copy is stale or a scenario does not validate.
+	@echo "Verifying schema.json is up to date..."
+	./muster test --generate-schema --base-port 45000
+	@git diff --exit-code schema.json || { \
+		echo "ERROR: schema.json is out of date. Run 'muster test --generate-schema' and commit."; \
+		exit 1; }
+	./muster test --validate-scenarios
+
 .PHONY: muster-integration-test
 muster-integration-test: build ## Run the muster integration suite (./muster test).
 	@echo "Running muster integration suite..."
-	./muster test --parallel 50 --base-port 30000 --report test-reports
+	./muster test --parallel 50 --base-port 20000 --report test-reports
 
 .PHONY: test-envtest
 test-envtest: ## Run the envtest-backed tests: the RBAC integration tests and the Kubernetes-mode scenarios (downloads a kube-apiserver via setup-envtest).
@@ -102,7 +120,7 @@ test-envtest: ## Run the envtest-backed tests: the RBAC integration tests and th
 	@echo "Running the Kubernetes-mode scenarios (mode: kubernetes) against envtest..."
 	go build -tags envtest -o $(APPLICATION)-envtest .
 	KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)" \
-		./$(APPLICATION)-envtest test --mode kubernetes --parallel 8 --base-port 31000 --readiness-timeout 60s --report test-reports-envtest
+		./$(APPLICATION)-envtest test --mode kubernetes --parallel 8 --base-port 21000 --readiness-timeout 60s --report test-reports-envtest
 
 .PHONY: test-vet
 test-vet: ## Run go test and go vet
@@ -111,11 +129,13 @@ test-vet: ## Run go test and go vet
 	@echo "Running go vet..."
 	@go vet ./...
 
+# renovate: datasource=go depName=golang.org/x/vuln
+GOVULNCHECK_VERSION ?= v1.9.0
+
 .PHONY: govulncheck
 govulncheck: ## Run govulncheck to scan for known vulnerabilities
 	@echo "Checking for known vulnerabilities..."
-	@command -v govulncheck >/dev/null 2>&1 || { echo "Installing govulncheck..."; go install golang.org/x/vuln/cmd/govulncheck@latest; }
-	@govulncheck ./...
+	@go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
 
 ##@ Documentation
 

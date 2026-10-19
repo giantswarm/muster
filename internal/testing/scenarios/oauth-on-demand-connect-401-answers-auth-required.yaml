@@ -1,0 +1,153 @@
+name: "oauth-on-demand-connect-401-answers-auth-required"
+category: "behavioral"
+concept: "oauth"
+description: |
+  A session that holds a stored grant and an authenticated mark for a server,
+  but no pooled connection to it, opens an on-demand connection on its next
+  tool call. When the server refuses the stored token with a 401 on that
+  handshake, the call answers the server's auth_required challenge with its
+  sign-in link -- never "failed to initialize on-demand client: ... 401" --
+  the refused grant is dropped, auth://status stops reading connected, and
+  core_auth_login issues the sign-in instead of "already authenticated".
+
+    1. The person signs in to a GitHub-style server; a tool call runs.
+    2. muster restarts on the same Valkey: the grant and the mark survive,
+       the pooled connection does not.
+    3. The authorization server revokes every token: the server answers the
+       stored grant with 401.
+    4. The next call answers auth_required with the sign-in link;
+       auth://status reads auth_required; core_auth_login asks for a sign-in.
+    5. The sign-in completes; the call runs again.
+
+  oauth-backend-401-answers-auth-required covers the 401 on a pooled
+  connection's call; this is the 401 on the connect.
+tags: ["oauth", "auth-required", "401", "restart", "valkey", "regression", "issue-1574"]
+timeout: "4m"
+
+pre_configuration:
+  storage:
+    type: "valkey"
+
+  mock_oauth_servers:
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "github-as"
+      profile: "github"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+
+  mcp_servers:
+    - name: "gh"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+        tools:
+          - name: "whoami"
+            description: "Who the server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "gh"
+
+steps:
+  - id: server-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["gh"]
+
+  - id: person-logs-into-muster
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: sign-in
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: call-runs
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["gh"]
+
+  - id: restart-muster
+    description: "The grant and the session's mark survive on Valkey; the pooled connection does not"
+    tool: "test_restart_instance"
+    args: {}
+    expected:
+      success: true
+
+  - id: authorization-server-revokes-the-tokens
+    tool: "test_revoke_token"
+    args:
+      server: "github-as"
+    expected:
+      success: true
+      contains: ["Revoked"]
+
+  - id: refused-connect-answers-the-sign-in
+    description: "The on-demand connect is refused with 401: the call answers auth_required with the sign-in link"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "rejected this session's credentials", "Please sign in"]
+      not_contains: ["failed to initialize on-demand client", "unauthorized (401)"]
+
+  - id: session-is-auth-required
+    description: "auth://status no longer reads connected"
+    tool: "test_read_auth_status"
+    args:
+      server: "gh"
+    expected:
+      success: true
+      contains: ["gh", '"status": "auth_required"']
+
+  - id: login-asks-for-a-sign-in
+    description: "core_auth_login issues the server's sign-in, not 'already authenticated'"
+    tool: "core_auth_login"
+    args:
+      server: "gh"
+    expected:
+      success: true
+      contains: ["Please sign in"]
+      not_contains: ["already authenticated"]
+
+  - id: sign-in-again
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh"
+    expected:
+      success: true
+
+  - id: call-runs-again
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["gh"]

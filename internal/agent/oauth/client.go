@@ -71,6 +71,10 @@ type AuthFlow struct {
 	// IssuerURL is the OAuth issuer URL.
 	IssuerURL string
 
+	// ClientID is the OAuth client_id the flow authorizes and exchanges the
+	// code with; the token is stored with it.
+	ClientID string
+
 	// Resource is the canonical URI of the muster server this flow obtains a
 	// token for (RFC 8707). It goes on the authorization request and on the
 	// token request.
@@ -257,6 +261,7 @@ func (c *Client) StartAuthFlowWithOptions(ctx context.Context, serverURL, issuer
 	c.currentFlow = &AuthFlow{
 		ServerURL:      serverURL,
 		IssuerURL:      issuerURL,
+		ClientID:       DefaultAgentClientID,
 		Resource:       resource,
 		PKCE:           pkce,
 		State:          state,
@@ -267,7 +272,7 @@ func (c *Client) StartAuthFlowWithOptions(ctx context.Context, serverURL, issuer
 	}
 
 	// Build authorization URL with options
-	authURL, err := c.buildAuthorizationURLWithOptions(metadata, redirectURI, state, pkce, resource, opts)
+	authURL, err := c.buildAuthorizationURLWithOptions(metadata, c.currentFlow.ClientID, redirectURI, state, pkce, resource, opts)
 	if err != nil {
 		c.cancelCurrentFlow()
 		return "", fmt.Errorf("failed to build authorization URL: %w", err)
@@ -391,7 +396,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 	)
 
 	// Store token
-	if err := c.tokenStore.StoreToken(flow.ServerURL, flow.IssuerURL, token); err != nil {
+	if err := c.tokenStore.StoreToken(flow.ServerURL, flow.IssuerURL, flow.ClientID, token); err != nil {
 		// Log but continue - token is still valid for this session
 		slog.Debug("failed to persist OAuth token to storage",
 			"server_url", flow.ServerURL,
@@ -486,10 +491,10 @@ func resourceIndicator(declared, serverURL string) (string, error) {
 
 // buildAuthorizationURLWithOptions constructs the OAuth authorization URL with optional OIDC parameters.
 // The opts parameter allows setting prompt, login_hint, id_token_hint, and other OIDC parameters.
-func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, redirectURI, state string, pkce *pkgoauth.PKCEChallenge, resource string, opts *AuthFlowOptions) (string, error) {
+func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, clientID, redirectURI, state string, pkce *pkgoauth.PKCEChallenge, resource string, opts *AuthFlowOptions) (string, error) {
 	// Use golang.org/x/oauth2 Config for constructing the authorization URL
 	cfg := &oauth2.Config{
-		ClientID:    DefaultAgentClientID,
+		ClientID:    clientID,
 		RedirectURL: redirectURI,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  metadata.AuthorizationEndpoint,
@@ -533,7 +538,7 @@ func (c *Client) buildAuthorizationURLWithOptions(metadata *OAuthMetadata, redir
 func (c *Client) exchangeCode(ctx context.Context, flow *AuthFlow, code string) (*oauth2.Token, error) {
 	// Create OAuth2 config for token exchange
 	cfg := &oauth2.Config{
-		ClientID:    DefaultAgentClientID,
+		ClientID:    flow.ClientID,
 		RedirectURL: flow.CallbackServer.GetRedirectURI(),
 		Endpoint: oauth2.Endpoint{
 			AuthURL:   flow.Metadata.AuthorizationEndpoint,

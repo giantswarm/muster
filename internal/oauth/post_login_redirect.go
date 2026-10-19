@@ -73,7 +73,7 @@ func (h *Handler) finishSuccess(w http.ResponseWriter, r *http.Request, state *O
 		}
 		logging.Warn("OAuth", "Ignoring unparseable post-login redirect target: %v", err)
 	}
-	h.renderSuccessPage(w, state.ServerName)
+	h.renderSuccessPage(r.Context(), w, state.ServerName)
 }
 
 // postLoginRedirectTarget appends the connected server's name to the

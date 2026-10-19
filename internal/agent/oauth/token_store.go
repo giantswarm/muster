@@ -58,7 +58,7 @@ type StoredToken struct {
 	IssuerURL string `json:"issuer_url"`
 
 	// ClientID is the OAuth client_id that was used to obtain this token.
-	// This must be used when refreshing the token.
+	// This must be used when refreshing the token (RefreshClientID).
 	ClientID string `json:"client_id,omitempty"`
 
 	// CreatedAt is when the token was stored.
@@ -102,9 +102,20 @@ func NewTokenStore(cfg TokenStoreConfig) (*TokenStore, error) {
 	return store, nil
 }
 
-// StoreToken stores an OAuth token for a specific server.
+// RefreshClientID returns the client_id to refresh this token with: the one it
+// was obtained with, or DefaultAgentClientID for a token file written before
+// the client_id was recorded.
+func (t *StoredToken) RefreshClientID() string {
+	if t.ClientID != "" {
+		return t.ClientID
+	}
+	return DefaultAgentClientID
+}
+
+// StoreToken stores an OAuth token for a specific server, together with the
+// client_id it was obtained with.
 // SECURITY: Token values are never logged. Only server/issuer URLs are logged for audit purposes.
-func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token) error {
+func (s *TokenStore) StoreToken(serverURL, issuerURL, clientID string, token *oauth2.Token) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -115,6 +126,7 @@ func (s *TokenStore) StoreToken(serverURL, issuerURL string, token *oauth2.Token
 		Expiry:       token.Expiry,
 		ServerURL:    serverURL,
 		IssuerURL:    issuerURL,
+		ClientID:     clientID,
 		CreatedAt:    time.Now(),
 	}
 

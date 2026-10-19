@@ -32,6 +32,9 @@ type rotatingAS struct {
 	expiresIn int
 	// delay stretches every request so concurrent callers overlap.
 	delay time.Duration
+	// beforeAnswer, when set, runs after a request arrived and before it is
+	// answered: another writer acting while the request is in flight.
+	beforeAnswer func()
 }
 
 func newRotatingAS(initialRefreshToken string) *rotatingAS {
@@ -50,6 +53,9 @@ func (a *rotatingAS) handler(t *testing.T) http.HandlerFunc {
 		a.requests.Add(1)
 		if a.delay > 0 {
 			time.Sleep(a.delay)
+		}
+		if a.beforeAnswer != nil {
+			a.beforeAnswer()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if a.respondError != "" {
@@ -333,11 +339,12 @@ func TestRefreshMargin(t *testing.T) {
 		expiresIn int
 		want      time.Duration
 	}{
-		{"GitHub eight hours", 28800, 5 * time.Minute},
+		{"GitHub eight hours", 28800, 15 * time.Minute},
+		{"forty minute token: the full margin", 2400, 15 * time.Minute},
 		{"ten minute token: half the lifetime", 600, 5 * time.Minute},
 		{"two minute token: half the lifetime", 120, time.Minute},
 		{"forty second token: floored at the hiding margin", 40, 30 * time.Second},
-		{"unknown lifetime", 0, 5 * time.Minute},
+		{"unknown lifetime", 0, 15 * time.Minute},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -349,10 +356,10 @@ func TestRefreshMargin(t *testing.T) {
 	if refreshDue(&pkgoauth.Token{}) {
 		t.Error("a token without expiry is never due")
 	}
-	if !refreshDue(&pkgoauth.Token{ExpiresIn: 28800, ExpiresAt: time.Now().Add(4 * time.Minute)}) {
-		t.Error("four minutes left of eight hours is due")
+	if !refreshDue(&pkgoauth.Token{ExpiresIn: 28800, ExpiresAt: time.Now().Add(14 * time.Minute)}) {
+		t.Error("fourteen minutes left of eight hours is due")
 	}
-	if refreshDue(&pkgoauth.Token{ExpiresIn: 28800, ExpiresAt: time.Now().Add(6 * time.Minute)}) {
-		t.Error("six minutes left of eight hours is not due")
+	if refreshDue(&pkgoauth.Token{ExpiresIn: 28800, ExpiresAt: time.Now().Add(16 * time.Minute)}) {
+		t.Error("sixteen minutes left of eight hours is not due")
 	}
 }

@@ -82,6 +82,93 @@ type AggregatorConfig struct {
 	// binds to AdminBindAddress:AdminPort without authentication, so it is
 	// only safe when bound to a loopback address or reached via port-forward.
 	Admin AdminConfig `yaml:"admin,omitempty"`
+
+	// CredentialProvider serves Substrate's CredentialProvider.FetchSecret to
+	// the egress gateway: a workspace Session's git and gh requests get the
+	// access token of the person the Session is bound to. Disabled by default.
+	CredentialProvider CredentialProviderConfig `yaml:"credentialProvider,omitempty"`
+}
+
+// CredentialProviderConfig configures muster as a credential provider of
+// Substrate's egress gateway and the Session bindings it answers from.
+//
+// The gateway calls FetchSecret over mutual TLS on a listener of its own with
+// a credential URI ate-secret://<Authority>/<provider>/<git|api> and the
+// SPIFFE id of the sandbox actor it verified. muster answers the current
+// access token of the person the actor is bound to (PUT /session-bindings on
+// the authenticated port, called as the person), for a provider on the
+// Releasable list only. The refresh token never leaves muster.
+type CredentialProviderConfig struct {
+	// Enabled starts the FetchSecret listener and the /session-bindings
+	// endpoints. Default: false.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// ListenAddress is the gRPC listen address (default ":50051").
+	ListenAddress string `yaml:"listenAddress,omitempty"`
+
+	// ServerCredBundle is a PEM file holding the serving key and certificate
+	// chain (Substrate's servicedns.podcert.ate.dev credential bundle). It is
+	// re-read when it changes, so a rotated pod certificate is picked up.
+	ServerCredBundle string `yaml:"serverCredBundle,omitempty"`
+
+	// ClientCAFile is the CA bundle the gateway's client certificate must
+	// chain to (Substrate's podidentity.podcert.ate.dev trust bundle).
+	ClientCAFile string `yaml:"clientCAFile,omitempty"`
+
+	// GatewayIdentity is the egress gateway's SPIFFE id, the only caller
+	// answered: spiffe://cluster.local/ns/<ns>/sa/<release>-atenet-egress.
+	GatewayIdentity string `yaml:"gatewayIdentity,omitempty"`
+
+	// Authority is the credential URI authority muster answers
+	// (default "muster.giantswarm.io").
+	Authority string `yaml:"authority,omitempty"`
+
+	// BindingTTL is how long a Session binding lives without use: the
+	// platform's Session idle TTL. Every answered fetch and every bind
+	// restarts it. Default: 336h (14 days). Format: Go duration.
+	BindingTTL string `yaml:"bindingTTL,omitempty"`
+
+	// Releasable maps a provider instance, the first path segment of the
+	// credential URI, to the issuer its grant is filed under (the MCPServer's
+	// authorizationServer.issuer, pinned with grantScope: subject). Only these
+	// grants are ever answered: the workspace App, never the login App.
+	// Example: {github: https://github.com/apps/giantswarm-workspaces}
+	Releasable map[string]string `yaml:"releasable,omitempty"`
+
+	// ActorBearer lets a bound Session's sandbox call muster itself as its
+	// person, with no credential in the sandbox. Disabled by default.
+	ActorBearer ActorBearerConfig `yaml:"actorBearer,omitempty"`
+}
+
+// ActorBearerConfig accepts Substrate's actor JWT, which the egress gateway
+// injects on the muster host, as the bearer of an MCP request. muster verifies
+// it against Substrate's actor-JWT issuer and serves the request as the person
+// the actor is bound to. Only a binding that lists the reserved provider
+// "muster" is accepted; FetchSecret never releases it.
+type ActorBearerConfig struct {
+	// Enabled accepts actor JWTs on /mcp, /sse and /message and lets a
+	// binding list the provider "muster". Default: false.
+	Enabled bool `yaml:"enabled,omitempty"`
+
+	// Issuer is the iss of Substrate's actor JWTs (ate-api's
+	// --actor-jwt-issuer, https://idp.<namespace>.svc by default). Required.
+	Issuer string `yaml:"issuer,omitempty"`
+
+	// JwksURL is the key set the JWTs are verified with
+	// (default <issuer>/openid/v1/jwks, where Substrate serves it).
+	JwksURL string `yaml:"jwksUrl,omitempty"`
+
+	// Audience is the aud the gateway's rule binds the actor JWT to for the
+	// muster host. Required: a JWT minted for another host is refused.
+	Audience string `yaml:"audience,omitempty"`
+
+	// CAFile is a PEM bundle the key set endpoint's certificate must chain
+	// to, added to the system roots (Substrate's in-cluster CA).
+	CAFile string `yaml:"caFile,omitempty"`
+
+	// AllowPrivateIPJWKSHosts lists the key set hosts that may resolve to a
+	// private address, as an in-cluster Service does.
+	AllowPrivateIPJWKSHosts []string `yaml:"allowPrivateIPJWKSHosts,omitempty"`
 }
 
 // AdminConfig defines the configuration for the admin web UI.

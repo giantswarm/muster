@@ -18,6 +18,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/admin"
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/credprovider"
 	"github.com/giantswarm/muster/v5/internal/listenfds"
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
@@ -86,6 +87,17 @@ type AggregatorServer struct {
 	config    AggregatorConfig     // Configuration args for the aggregator
 	registry  *ServerRegistry      // Registry of backend MCP servers
 	mcpServer *mcpserver.MCPServer // Core MCP server implementation
+
+	// reconnects remembers backends whose entry is removed while their
+	// connection is re-established, so a call in that window waits or is
+	// answered as retryable instead of "server not found".
+	reconnects reconnectTracker
+
+	// definedServers returns the servers the MCPServer definitions describe,
+	// whatever their connection state; nil when no service registry backs the
+	// aggregator. A pin release consults it, so a backend that stops answering
+	// keeps the authorization server its definition describes.
+	definedServers func() map[string]*ServerInfo
 
 	errorCallback func(error) // Callback for propagating async errors in the aggregator upwards
 
@@ -177,6 +189,10 @@ type AggregatorServer struct {
 	// Populated in sessionToolFilter, cleaned up via OnUnregisterSession hook.
 	subjectSessions *subjectSessionTracker
 
+	// personTokenRefreshes spaces the login refreshes actor requests make
+	// for a bound person without a live login ID token.
+	personTokenRefreshes personTokenRefreshes
+
 	// bearerSessions ends each session keyed by a forwarded bearer when that
 	// bearer expires (bearer_session.go).
 	bearerSessions *bearerSessions
@@ -205,6 +221,11 @@ type AggregatorServer struct {
 
 	// adminServer is the optional admin web UI listener. Nil when disabled.
 	adminServer *admin.Server
+
+	// credProvider answers the egress gateway's FetchSecret from Session
+	// bindings; nil when disabled. credProviderServer is its gRPC listener.
+	credProvider       *credprovider.Provider
+	credProviderServer *credprovider.Server
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -1109,6 +1130,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 		}
 	}
 
+	if err := a.startCredentialProvider(ctx); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -1162,6 +1187,8 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 				slog.String("error", err.Error()))
 		}
 	}
+
+	a.stopCredentialProvider(ctx)
 
 	// Cancel context to signal shutdown to all background routines
 	if cancelFunc != nil {
@@ -1274,6 +1301,7 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 	if err := a.registry.Register(ctx, registration, client); err != nil {
 		return err
 	}
+	a.reconnects.settled(registration.Name)
 	if info, ok := a.registry.GetServerInfo(registration.Name); ok {
 		if err := pinAuthorizationServer(ctx, info); err != nil {
 			// Logins for this server retry the pin (auth_tools), so a Secret
@@ -1321,7 +1349,7 @@ func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 //
 // Returns an error if the server is not found or deregistration fails.
 func (a *AggregatorServer) DeregisterServer(name string) error {
-	_, err := a.deregisterServer(name, false)
+	_, err := a.deregisterServer(name, false, false)
 	return err
 }
 
@@ -1330,13 +1358,16 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 // per-session authentication, whatever the (possibly stale) event said. Such
 // entries are owned by the auth-required hook and the periodic pending-auth
 // heal, and removing one leaves core_auth_login answering "server not found"
-// and every session without the server until the next heal. Returns whether
-// an entry was removed.
-func (a *AggregatorServer) DeregisterServerOnStateChange(name string) (bool, error) {
-	return a.deregisterServer(name, true)
+// and every session without the server until the next heal. reconnecting
+// says the service is still alive and re-establishing its connection (failed
+// health probes, a reconnect due): calls in the window until it is registered
+// again wait for it or are answered as retryable (awaitServer). Returns
+// whether an entry was removed.
+func (a *AggregatorServer) DeregisterServerOnStateChange(name string, reconnecting bool) (bool, error) {
+	return a.deregisterServer(name, true, reconnecting)
 }
 
-func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (bool, error) {
+func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconnecting bool) (bool, error) {
 	logging.InfoWithAttrs("Aggregator", "DeregisterServer called",
 		slog.String("server", name))
 
@@ -1360,8 +1391,18 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (
 	// The entry's auth config, read before the delete: a removed server
 	// releases the authorization server it described.
 	var previousAuth *api.MCPServerAuth
-	if info, ok := a.registry.GetServerInfo(name); ok {
+	info, registered := a.registry.GetServerInfo(name)
+	if registered {
 		previousAuth = info.AuthConfig
+	}
+
+	// A reconnecting server is tracked before its entry goes, so no call
+	// finds it neither registered nor reconnecting. A later event of the same
+	// reconnect (starting, another failed attempt) finds no entry and leaves
+	// the tracking as it is; a stop or removal ends it.
+	tracked := reconnecting && registered
+	if tracked {
+		a.reconnects.lost(name)
 	}
 
 	removed := true
@@ -1375,6 +1416,9 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth bool) (
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		a.releaseAuthorizationServerPin(releaseCtx, name, previousAuth)
 		cancel()
+	}
+	if !reconnecting || (tracked && (err != nil || !removed)) {
+		a.reconnects.settled(name)
 	}
 	return removed, err
 }
@@ -1705,7 +1749,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Also detects broken upstream refresh chains: when authAlive is true but
 	// the ID token has disappeared, SSO connections are evicted to stop the
 	// mcp-go retry loop from spamming errors with expired tokens.
-	oauthHTTPServer.SetOnAuthenticated(func(ctx context.Context, sessionID string) {
+	onAuthenticated := func(ctx context.Context, sessionID string) {
 		if a.capabilityStore == nil {
 			return
 		}
@@ -1770,7 +1814,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		}
 
 		a.beginSessionBootstrap(sso)
-	})
+	}
+	oauthHTTPServer.SetOnAuthenticated(onAuthenticated)
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
 		slog.String("baseURL", cfg.BaseURL))
@@ -1792,6 +1837,12 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		http.HandlerFunc(a.handleUserTokensDeletion)))
 	outerMux.Handle("DELETE /auth/{server}", oauthHTTPServer.ValidateTokenWithSubject(
 		http.HandlerFunc(a.handleAuthServerDeletion)))
+	if err := a.registerSessionBindingRoutes(outerMux, oauthHTTPServer.ValidateTokenWithSubject); err != nil {
+		return nil, err
+	}
+	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated); err != nil {
+		return nil, err
+	}
 
 	outerMux.Handle("/", oauthMux)
 
@@ -1999,7 +2050,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	// fall back to legacy single-server resolution). For non-family tools
 	// (including core tools that legitimately accept "server" as a regular
 	// argument), the value is passed through untouched.
-	if a.isFamilyToolForSession(ctx, toolName, sessionID, sub) {
+	if a.isFamilyToolForSession(ctx, toolName, args, sessionID, sub) {
 		instanceArg := a.registry.FamilyInstanceArgFor(toolName)
 		explicitServer, _ := args[instanceArg].(string)
 		if explicitServer == "" {
@@ -2037,12 +2088,13 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	if sessionID != "" {
 		sessionServerName, originalName, sessionErr := a.resolveUserTool(sessionID, toolName)
 		if sessionErr != nil && sub != "" && !a.isCoreToolByName(toolName) {
-			// The tool may belong to a server no session of this process has
-			// connected yet, while the person already holds a subject-scoped
-			// grant for it (a restart with the grant persisted, a fresh CLI
-			// session). Connecting now fills the capability cache the lookup
-			// above reads from.
-			if a.adoptSubjectGrants(ctx, sessionID, sub) > 0 {
+			// The tool may belong to a server the session has not connected
+			// yet: an SSO server its fan-out did not cover, or one the person
+			// already holds a subject-scoped grant for (a restart with the
+			// grant persisted, a fresh CLI session). Connecting now fills the
+			// capability cache the lookup above reads from, so the session's
+			// first call resolves as its first listing would.
+			if a.connectToolOwnersOnCall(ctx, sessionID, sub, toolName, args) > 0 {
 				sessionServerName, originalName, sessionErr = a.resolveUserTool(sessionID, toolName)
 			}
 		}
@@ -2121,10 +2173,10 @@ func (a *AggregatorServer) answerSignedOutOwner(ctx context.Context, toolName st
 // index -- would otherwise be told "tool not found" for a family tool its
 // cached capabilities and its tokens still cover (#1204). So when the name
 // lies in a declared family's name space, the session's view is assembled the
-// way list_tools assembles it, adopting the person's subject-scoped grants
-// first when that alone does not resolve the name, as the per-server path in
-// CallToolInternal does.
-func (a *AggregatorServer) isFamilyToolForSession(ctx context.Context, toolName, sessionID, sub string) bool {
+// way list_tools assembles it, connecting the session to the members that
+// could own the name first when that alone does not resolve it, as the
+// per-server path in CallToolInternal does.
+func (a *AggregatorServer) isFamilyToolForSession(ctx context.Context, toolName string, args map[string]any, sessionID, sub string) bool {
 	if a.registry.IsFamilyTool(toolName) {
 		return true
 	}
@@ -2132,7 +2184,7 @@ func (a *AggregatorServer) isFamilyToolForSession(ctx context.Context, toolName,
 		return false
 	}
 	a.GetToolsForSession(ctx, sessionID)
-	if !a.registry.IsFamilyTool(toolName) && sub != "" && a.adoptSubjectGrants(ctx, sessionID, sub) > 0 {
+	if !a.registry.IsFamilyTool(toolName) && sub != "" && a.connectToolOwnersOnCall(ctx, sessionID, sub, toolName, args) > 0 {
 		a.GetToolsForSession(ctx, sessionID)
 	}
 	resolved := a.registry.IsFamilyTool(toolName)
@@ -2176,7 +2228,9 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
-		return nil, fmt.Errorf("server not found: %s", serverName)
+		if serverInfo, err = a.awaitServer(ctx, serverName); err != nil {
+			return nil, err
+		}
 	}
 
 	if !serverInfo.RequiresSessionAuth() && serverInfo.Client != nil {
@@ -3146,7 +3200,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
 	}
 	if expired, err := pkgoauth.IsExpired(idToken); expired {
-		return nil, time.Time{}, "", fmt.Errorf("ID token has expired for %s, re-authenticate to refresh: %w", serverName, err)
+		return nil, time.Time{}, "", expiredTokenError("ID token", serverName, err)
 	}
 
 	userID, err := pkgoauth.Subject(idToken)
@@ -3440,6 +3494,14 @@ func (a *AggregatorServer) callToolWithTokenExchangeRetry(
 	if err != nil {
 		if notAuthenticated, ok := errors.AsType[*sessionNotAuthenticatedError](err); ok {
 			return a.authRequiredAnswer(ctx, serverName, originalToolName, args, sessionID, sub, notAuthenticated.reason())
+		}
+		if a.connectRefusedSignIn(serverName, err) {
+			// No pooled connection, and the server refused the session's
+			// stored grant on the handshake: the same loss as a 401 during
+			// the call. The login the answer starts drops the refused grant
+			// before it issues the server's sign-in link.
+			a.makeSessionAuthLossHandler(sessionID, serverName)(err.Error())
+			return a.authRequiredAnswer(ctx, serverName, originalToolName, args, sessionID, sub, "the server rejected this session's credentials")
 		}
 		return nil, fmt.Errorf("failed to connect to server %s: %w", serverName, err)
 	}

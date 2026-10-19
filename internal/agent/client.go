@@ -68,6 +68,7 @@ type Client struct {
 	mu               sync.RWMutex
 	timeout          time.Duration // initialize, listings, resources, prompts
 	callTimeout      time.Duration // tool calls; see DefaultCallTimeout
+	connectRetry     time.Duration // how long Connect retries; see DefaultConnectRetryBudget
 	cacheEnabled     bool
 	formatters       *Formatters
 	NotificationChan chan mcp.JSONRPCNotification
@@ -99,6 +100,7 @@ func (c *Client) SetContinuousListening(enabled bool) {
 // The client is created with default settings:
 //   - 30-second timeout for the handshake, listings, resources and prompts
 //   - DefaultCallTimeout for tool calls
+//   - DefaultConnectRetryBudget for retrying a connection that did not reach the aggregator
 //   - Caching enabled for tools, resources, and prompts
 //   - 10-item notification channel buffer
 //
@@ -116,6 +118,7 @@ func NewClient(endpoint string, logger *Logger, transport TransportType) *Client
 		promptCache:      []mcp.Prompt{},
 		timeout:          30 * time.Second,
 		callTimeout:      DefaultCallTimeout,
+		connectRetry:     DefaultConnectRetryBudget,
 		cacheEnabled:     true,
 		formatters:       NewFormatters(),
 		NotificationChan: make(chan mcp.JSONRPCNotification, 10),
@@ -286,7 +289,7 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 		mcpClient = sseClient
 
 	case TransportStreamableHTTP:
-		var httpOpts []transport.StreamableHTTPCOption
+		httpOpts := []transport.StreamableHTTPCOption{transport.WithHTTPLogger(transportLogger())}
 		if oauthCfg != nil {
 			httpOpts = append(httpOpts, transport.WithHTTPOAuth(*oauthCfg))
 		}
@@ -367,7 +370,23 @@ func (c *Client) queueNotification(notification mcp.JSONRPCNotification) {
 //	}
 //	// Now ready for operations
 //	result, err := client.CallToolSimple(ctx, "core_service_list", nil)
+//
+// A connection that did not reach the aggregator -- a refused or reset
+// connection, or a gateway answering that its upstream call failed -- is
+// retried with a fresh session for up to the connect retry budget
+// (SetConnectRetryBudget), so a replaced aggregator pod is not an error.
 func (c *Client) Connect(ctx context.Context) error {
+	return retryConnect(ctx, c.connectRetry, c.logger, c.connectOnce)
+}
+
+// SetConnectRetryBudget sets how long Connect retries a connection that did not
+// reach the aggregator; zero makes a single attempt.
+func (c *Client) SetConnectRetryBudget(budget time.Duration) {
+	c.connectRetry = budget
+}
+
+// connectOnce creates the MCP client and initializes its session.
+func (c *Client) connectOnce(ctx context.Context) error {
 	// Create and connect MCP client (without notifications for CLI usage)
 	mcpClient, err := c.createAndConnectClient(ctx)
 	if err != nil {
@@ -379,6 +398,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	// Initialize the session
 	if err := c.initialize(ctx); err != nil {
 		_ = c.client.Close()
+		c.client = nil
 		return fmt.Errorf("initialization failed: %w", err)
 	}
 

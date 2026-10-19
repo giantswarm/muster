@@ -349,6 +349,10 @@ type MusterInstance struct {
 	Logs *InstanceLogs
 	// ExpectedTools contains the list of tools expected to be available from MCP servers
 	ExpectedTools []string
+	// ExpectedFamilyMembers maps each family-grouped tool in ExpectedTools to
+	// the MCP servers it is expected on. WaitForReady waits until the tool's
+	// describe_tool trailer lists every one of them, not only its first.
+	ExpectedFamilyMembers map[string][]string
 	// ExpectedMCPServers contains the list of MCP server names expected to be registered.
 	// This includes OAuth-protected servers which may be in "auth_required" state.
 	// Used by WaitForReady to ensure servers are registered before tests run.
@@ -866,8 +870,8 @@ type MCPTestClient interface {
 	CallToolDirect(ctx context.Context, toolName string, args map[string]interface{}) (*mcp.CallToolResult, error)
 	// ListTools returns available MCP tools
 	ListTools(ctx context.Context) ([]string, error)
-	// ListToolsWithSchemas returns available MCP tools with their full schemas
-	ListToolsWithSchemas(ctx context.Context) ([]mcp.Tool, error)
+	// ListCoreToolsWithSchemas returns muster's core_* tools with their input schemas
+	ListCoreToolsWithSchemas(ctx context.Context) ([]mcp.Tool, error)
 	// ReadResource reads an MCP resource by URI
 	ReadResource(ctx context.Context, uri string) (*mcp.ReadResourceResult, error)
 	// InitializeResult returns the negotiated handshake result, or nil when the

@@ -379,11 +379,21 @@ func (d *KubernetesDetector) handleDelete(resourceType ResourceType, obj interfa
 	d.sendChangeEvent(changeEvent)
 }
 
-// sendChangeEvent sends a change event to the output channel.
+// sendChangeEvent sends a change event to the output channel, waiting while
+// the channel is full until the detector stops.
+//
+// Each informer handler runs on its own goroutine behind an unbounded buffer,
+// so waiting here only paces that handler: the initial listing of hundreds of
+// objects reaches the manager in full, and a change arriving during it queues
+// behind the listing instead of being dropped (giantswarm/muster#1469).
 func (d *KubernetesDetector) sendChangeEvent(event ChangeEvent) {
 	d.mu.RLock()
 	changeChan := d.changeChan
 	running := d.running
+	var stopped <-chan struct{}
+	if d.ctx != nil {
+		stopped = d.ctx.Done()
+	}
 	d.mu.RUnlock()
 
 	if !running || changeChan == nil {
@@ -394,8 +404,8 @@ func (d *KubernetesDetector) sendChangeEvent(event ChangeEvent) {
 	case changeChan <- event:
 		logging.Debug("KubernetesDetector", "Emitted change event: %s %s/%s/%s",
 			event.Operation, event.Type, event.Namespace, event.Name)
-	default:
-		logging.Warn("KubernetesDetector", "Change event channel full, dropping event for %s/%s/%s",
+	case <-stopped:
+		logging.Debug("KubernetesDetector", "Detector stopped, not emitting change event for %s/%s/%s",
 			event.Type, event.Namespace, event.Name)
 	}
 }

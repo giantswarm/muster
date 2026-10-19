@@ -25,6 +25,11 @@ spec:
         - ports:
             - port: "{{ .Values.muster.aggregator.port }}"
               protocol: TCP
+            {{- if .Values.muster.credentialProvider.enabled }}
+            # The egress gateway's FetchSecret (mutual TLS decides the caller)
+            - port: "{{ .Values.muster.credentialProvider.port }}"
+              protocol: TCP
+            {{- end }}
             {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
             # Prometheus / Alloy scrapes of the self-hosted /metrics endpoint
             - port: "{{ .Values.muster.observability.metrics.prometheus.port }}"

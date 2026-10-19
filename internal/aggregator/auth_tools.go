@@ -72,6 +72,8 @@ func (p *AuthToolProvider) ExecuteTool(ctx context.Context, toolName string, arg
 		return p.handleAuthLogin(ctx, args)
 	case "auth_logout":
 		return p.handleAuthLogout(ctx, args)
+	case "auth_status":
+		return p.handleAuthStatus(ctx, args)
 	default:
 		return nil, fmt.Errorf("unknown auth tool: %s", toolName)
 	}
@@ -99,25 +101,43 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return errResult, nil
 	}
 
-	if p.aggregator.authRateLimiter != nil && !p.aggregator.authRateLimiter.Allow(sub, serverName) {
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordRateLimitBlock(serverName, sub)
-		}
-		remaining := 0
-		if p.aggregator.authRateLimiter != nil {
-			remaining = p.aggregator.authRateLimiter.RemainingAttempts(sub)
-		}
-		return &api.CallToolResult{
-			Content: []any{fmt.Sprintf(
-				"Rate limit exceeded. Too many authentication attempts.\n\n"+
-					"Please wait a moment before trying again.\n"+
-					"Remaining attempts: %d",
-				remaining,
-			)},
-			IsError: true,
-		}, nil
-	}
+	return p.login(ctx, sessionID, sub, serverName, resetClientRegistration, p.rateLimited), nil
+}
 
+// rateLimited answers the refusal for a caller over the authentication rate
+// limit, or nil when the attempt may go ahead.
+func (p *AuthToolProvider) rateLimited(sub, serverName string) *api.CallToolResult {
+	if p.aggregator.authRateLimiter == nil || p.aggregator.authRateLimiter.Allow(sub, serverName) {
+		return nil
+	}
+	if p.aggregator.authMetrics != nil {
+		p.aggregator.authMetrics.RecordRateLimitBlock(serverName, sub)
+	}
+	return &api.CallToolResult{
+		Content: []any{fmt.Sprintf(
+			"Rate limit exceeded. Too many authentication attempts.\n\n"+
+				"Please wait a moment before trying again.\n"+
+				"Remaining attempts: %d",
+			p.aggregator.authRateLimiter.RemainingAttempts(sub),
+		)},
+		IsError: true,
+	}
+}
+
+// attemptLimit charges one authentication attempt to sub and answers the
+// refusal when sub is over the rate limit, or nil when the attempt may go
+// ahead.
+type attemptLimit func(sub, serverName string) *api.CallToolResult
+
+// login connects the caller's session to serverName with a grant the person
+// already holds, or answers the sign-in challenge that starts a new grant.
+// limit is charged only once the answer needs an OAuth flow: an answer that
+// starts none (already authenticated, no authentication needed, a refusal) is
+// no attempt, so a client that checks a server's connection with
+// core_auth_login does not spend the person's attempts. A nil limit charges
+// nothing: core_auth_status charges its one attempt itself before it issues
+// the links of every server it lists.
+func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName string, resetClientRegistration bool, limit attemptLimit) *api.CallToolResult {
 	// Record the login attempt in metrics
 	if p.aggregator.authMetrics != nil {
 		p.aggregator.authMetrics.RecordLoginAttempt(serverName, sub)
@@ -131,7 +151,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Server '%s' not found. Use list_tools to see available servers.", serverName)},
 			IsError: true,
-		}, nil
+		}
 	}
 
 	if !serverInfo.RequiresSessionAuth() {
@@ -140,12 +160,12 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			return &api.CallToolResult{
 				Content: []any{fmt.Sprintf("Server '%s' is already authenticated and connected.", serverName)},
 				IsError: false,
-			}, nil
+			}
 		}
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Server '%s' does not require authentication.", serverName)},
 			IsError: false,
-		}, nil
+		}
 	}
 
 	// A deactivated server (spec.suspended=true) is held down by the
@@ -165,7 +185,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
 			IsError: true,
-		}, nil
+		}
 	}
 	if suspended {
 		if p.aggregator.authMetrics != nil {
@@ -174,7 +194,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return &api.CallToolResult{
 			Content: []any{suspendedServerMessage(serverName)},
 			IsError: true,
-		}, nil
+		}
 	}
 
 	if p.aggregator.authStore != nil {
@@ -191,7 +211,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			return &api.CallToolResult{
 				Content: []any{fmt.Sprintf("Server '%s' is already authenticated.", serverName)},
 				IsError: false,
-			}, nil
+			}
 		}
 	}
 
@@ -208,7 +228,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 				serverName,
 			)},
 			IsError: true,
-		}, nil
+		}
 	}
 
 	// SSO servers (token exchange or token forwarding) are connected automatically
@@ -225,7 +245,15 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 				serverName,
 			)},
 			IsError: true,
-		}, nil
+		}
+	}
+
+	// From here on the answer needs an OAuth flow: a held grant reused or a
+	// new challenge. That is the attempt the rate limit counts.
+	if limit != nil {
+		if refused := limit(sub, serverName); refused != nil {
+			return refused
+		}
 	}
 
 	// The auth info for this server: the 401-time fields plus whatever the
@@ -243,7 +271,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
 			IsError: true,
-		}, nil
+		}
 	}
 
 	// If still empty, we can't proceed
@@ -260,7 +288,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 				serverName,
 			)},
 			IsError: true,
-		}, nil
+		}
 	}
 
 	// Check if we already have a valid token for this server/issuer (SSO).
@@ -286,7 +314,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 			if p.aggregator.authRateLimiter != nil {
 				p.aggregator.authRateLimiter.Reset(sub)
 			}
-			return connectResult, nil
+			return connectResult
 		}
 
 		// Check if the error is a 401 - token is expired/invalid
@@ -305,7 +333,7 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 					serverName, connectErr,
 				)},
 				IsError: true,
-			}, nil
+			}
 		}
 	}
 
@@ -313,7 +341,10 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 	resource, err := resourceIndicator(authInfo.Resource, serverInfo.URL)
 	if err != nil {
 		logging.Error("AuthTools", err, "Cannot build an auth challenge for server %s", serverName)
-		return nil, err
+		return &api.CallToolResult{
+			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
+			IsError: true,
+		}
 	}
 
 	challenge, err := oauthHandler.CreateAuthChallenge(ctx, api.AuthChallengeParams{
@@ -333,11 +364,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Failed to create authentication challenge: %v", err)},
 			IsError: true,
-		}, nil
+		}
 	}
 
 	// Return the auth challenge as a tool result with the sign-in link
-	return authChallengeResult(serverName, challenge), nil
+	return authChallengeResult(serverName, challenge)
 }
 
 // needsResourceMetadata reports whether an RFC 9728 probe can still add
