@@ -27,6 +27,10 @@ data:
         releasable:
           {{- toYaml . | nindent 10 }}
         {{- end }}
+        {{- with .gitUsers }}
+        gitUsers:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         {{- with .actorBearer }}
         {{- if .enabled }}
         {{- if not .issuer }}{{ fail "muster.credentialProvider.actorBearer.issuer is required" }}{{- end }}
