@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
 
 - **A `filter_tools` query no longer reads every word of every tool.** Since the ranker searches whole descriptions (#1534), each query tokenised and folded the name and description of every candidate tool and threw the result away: over 300 tools with multi-paragraph descriptions, about 7 ms and 55,000 allocations per query, 97% of the call. muster now keeps each tool's tokenised text by tool name and analyses only tools it has not seen or whose description changed; the same query takes about 0.3 ms and 65 allocations. Each entry takes about 5 KB for a tool with a few paragraphs of description. Once the cache holds more than 4,096 tools, it drops those no query has used since its previous clean-up, so tools of removed servers age out while a catalogue of any size stays cached. Rankings are unchanged. ([#1547](https://github.com/giantswarm/muster/issues/1547))
 
+### Fixed
+
+- **Shutdown waits for the orchestrator's reconnects and health probes.** Stopping the orchestrator cancelled its MCPServer maintenance loop but returned at once, so the loop and the reconnects and probes it had started could still run after shutdown. `Stop` now returns once they have finished, and each orchestrator reads its retry and health-check intervals once, when it is created. This also fixes a data race that failed about 6 in 100 runs of the orchestrator tests under `-race`. ([#1583](https://github.com/giantswarm/muster/issues/1583))
+
 ## [5.44.1] - 2026-10-18
 
 ### Fixed
