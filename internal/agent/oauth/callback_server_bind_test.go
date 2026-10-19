@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/giantswarm/muster/v5/internal/signinpage"
 )
 
 // freeLoopbackPort returns a port free on 127.0.0.1 and, where the host has
@@ -55,6 +57,9 @@ func TestCallbackServer_Start_ListensOnBothLoopbacks(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	defer server.Stop()
+
+	// The page waits for the outcome; finish it so each request answers at once.
+	server.Finish(http.StatusOK, signinpage.SignedIn("Muster"))
 
 	hosts := []string{"127.0.0.1"}
 	if hasIPv6Loopback() {

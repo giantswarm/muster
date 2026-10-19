@@ -340,6 +340,40 @@ func (c *Client) RefreshToken(ctx context.Context, tokenEndpoint, refreshToken, 
 	return c.doTokenRequest(ctx, tokenEndpoint, data)
 }
 
+// RevokeToken asks the authorization server to revoke a token (RFC 7009),
+// identified with the client the grant was issued under, the way RefreshToken
+// identifies it; clientSecret is empty for public clients. tokenTypeHint is
+// "refresh_token" or "access_token". RFC 7009 §2.2 answers 200 for a revoked
+// and for an unknown token alike; any other answer is an error carrying the
+// status only, since a body may echo the token.
+func (c *Client) RevokeToken(ctx context.Context, revocationEndpoint, token, tokenTypeHint, clientID, clientSecret string) error {
+	data := url.Values{
+		"token":           {token},
+		"token_type_hint": {tokenTypeHint},
+		"client_id":       {clientID},
+	}
+	if clientSecret != "" {
+		data.Set(FormFieldClientSecret, clientSecret)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, revocationEndpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create revocation request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("revocation request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("revocation endpoint answered status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 // RegisterClient performs OAuth 2.0 Dynamic Client Registration (RFC 7591)
 // against the given registration endpoint. The metadata must not carry a
 // client_id — the authorization server assigns one in the response.

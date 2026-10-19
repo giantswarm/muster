@@ -43,3 +43,14 @@ func TestFailed_ShowsOnlyKnownErrorCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestPending(t *testing.T) {
+	p := Pending("Muster")
+
+	if p.Heading != "Sign-in received" || p.Summary != "Muster is still completing the sign-in" {
+		t.Errorf("unexpected page %+v", p)
+	}
+	if p.Message != "Check where you started the sign-in to see whether it completed. You can close this tab." {
+		t.Errorf("unexpected message %q", p.Message)
+	}
+}
