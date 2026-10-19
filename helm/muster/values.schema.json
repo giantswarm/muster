@@ -296,6 +296,9 @@
                         }
                     }
                 },
+                "mcpServersInAllNamespaces": {
+                    "type": "boolean"
+                },
                 "namespace": {
                     "type": "string"
                 },

@@ -261,7 +261,7 @@ func (a *Adapter) listNamespace() string {
 // serve all namespaces: such a server is unknown to muster.
 func (a *Adapter) object(key string) (namespace, name string, ok bool) {
 	namespace, name = api.MCPServerObject(key, a.namespace)
-	return namespace, name, namespace == a.namespace || a.allNamespaces
+	return namespace, name, namespace == a.namespace || (a.allNamespaces && api.ServedNamespace(namespace, a.namespace))
 }
 
 // toInfo converts an MCPServer object into the API view, with the key of a
@@ -347,9 +347,14 @@ func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, erro
 		return nil, fmt.Errorf("failed to list MCPServers: %w", err)
 	}
 
-	result := make([]api.MCPServerInfo, len(servers))
+	result := make([]api.MCPServerInfo, 0, len(servers))
 	for i := range servers {
-		result[i] = a.toInfo(&servers[i])
+		// Outside muster's namespace only organization namespaces are
+		// served (api.ServedNamespace). Filesystem mode has no namespaces.
+		if a.client.IsKubernetesMode() && !api.ServedNamespace(servers[i].Namespace, a.namespace) {
+			continue
+		}
+		result = append(result, a.toInfo(&servers[i]))
 	}
 
 	return result, nil
@@ -942,7 +947,12 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 	// Per issue #292, Failed phase indicates infrastructure unavailable
 	var filteredServers []api.MCPServerInfo
 	failedCount := 0
+	view := api.CallerVisibility(ctx)
 	for _, server := range allServers {
+		// A server the caller may not list in its namespace is absent.
+		if !view.Sees(server.ServerKey()) {
+			continue
+		}
 		// Adjust server for display (hide raw errors in non-verbose mode)
 		server = adjustServerForDisplay(server, verbose)
 
@@ -993,6 +1003,14 @@ func (a *Adapter) handleMCPServerGet(ctx context.Context, args map[string]interf
 			Content: []interface{}{"name argument is required"},
 			IsError: true,
 		}, nil
+	}
+
+	if view := api.CallerVisibility(ctx); !view.Sees(name) {
+		result := api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to get MCP server")
+		if view.Reason != "" {
+			result.Content = append(result.Content, view.Reason)
+		}
+		return result, nil
 	}
 
 	mcpServer, err := a.GetMCPServer(ctx, name)

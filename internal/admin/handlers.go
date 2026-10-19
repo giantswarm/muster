@@ -217,6 +217,10 @@ func shortID(id string) string {
 
 var templateFuncs = template.FuncMap{
 	"shortID": shortID,
+	// pathSegment escapes a value for one path segment of a link: the key of
+	// a server outside muster's namespace, "<namespace>/<name>", is one
+	// segment ("org-a%2Fgithub"), which the routes' {name} matches whole.
+	"pathSegment": url.PathEscape,
 	"isoTime": func(t time.Time) string {
 		if t.IsZero() {
 			return ""

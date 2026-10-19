@@ -269,8 +269,13 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	}
 
 	// Convert events to a format suitable for CLI table display
+	// Events about an MCP server the caller may not see are dropped.
+	view := api.CallerVisibility(ctx)
 	var events []interface{}
 	for _, event := range result.Events {
+		if !view.SeesEvent(event) {
+			continue
+		}
 		events = append(events, formatEventForDisplay(event))
 	}
 

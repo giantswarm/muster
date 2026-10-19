@@ -334,3 +334,39 @@ func fakeDeps(setup func(*fakeDepsState)) Deps {
 		},
 	}
 }
+
+// The key of a server outside muster's namespace holds a slash
+// ("org-a/github"). The list links to its detail page as one escaped path
+// segment, and the detail route resolves that link to the key.
+func TestHandleMCPDetail_tenantKeyFromTheListLink(t *testing.T) {
+	const key = "org-a/github"
+	ts := newTestServer(t, fakeDeps(func(d *fakeDepsState) {
+		d.mcps = []MCPSummary{{Name: key, Status: "connected"}}
+		d.mcpDetail = &MCPDetail{MCPSummary: MCPSummary{Name: key, Status: "connected", URL: "https://tenant.example.com/mcp"}}
+	}))
+	defer ts.Close()
+
+	list, err := http.Get(ts.URL + "/mcps")
+	if err != nil {
+		t.Fatalf("GET list: %v", err)
+	}
+	body, _ := io.ReadAll(list.Body)
+	_ = list.Body.Close()
+	const link = "/mcps/org-a%2Fgithub"
+	if !strings.Contains(string(body), `href="`+link+`"`) {
+		t.Fatalf("expected the link %s in the list: %s", link, body)
+	}
+
+	detail, err := http.Get(ts.URL + link)
+	if err != nil {
+		t.Fatalf("GET detail: %v", err)
+	}
+	defer func() { _ = detail.Body.Close() }()
+	if detail.StatusCode != http.StatusOK {
+		t.Fatalf("detail of %s: status=%d, want 200", key, detail.StatusCode)
+	}
+	page, _ := io.ReadAll(detail.Body)
+	if !strings.Contains(string(page), "https://tenant.example.com/mcp") {
+		t.Fatalf("expected the tenant server's detail: %s", page)
+	}
+}

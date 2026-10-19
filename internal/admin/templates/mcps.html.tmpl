@@ -14,7 +14,7 @@
   <tbody>
   {{range .Servers}}
     <tr>
-      <td><a href="/mcps/{{.Name}}">{{.Name}}</a></td>
+      <td><a href="/mcps/{{pathSegment .Name}}">{{.Name}}</a></td>
       <td>{{if .Status}}{{.Status}}{{else}}<span class="muted">—</span>{{end}}</td>
       <td>{{if .RequiresAuth}}<span class="pill">required</span>{{else}}<span class="muted">none</span>{{end}}</td>
       <td class="mono">{{if .Issuer}}{{.Issuer}}{{else}}<span class="muted">—</span>{{end}}</td>

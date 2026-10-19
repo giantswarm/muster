@@ -147,9 +147,11 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 
 	// Get server info from registry
 	serverInfo, exists := p.aggregator.registry.GetServerInfo(serverName)
-	if !exists {
+	view := api.CallerVisibility(ctx)
+	if !exists || !view.Sees(serverName) {
+		// A server the caller may not see gets the answer of a missing one.
 		return &api.CallToolResult{
-			Content: []any{fmt.Sprintf("Server '%s' not found. Use list_tools to see available servers.", serverName)},
+			Content: []any{unseenError(view, fmt.Sprintf("Server '%s' not found. Use list_tools to see available servers.", serverName)).Error()},
 			IsError: true,
 		}
 	}

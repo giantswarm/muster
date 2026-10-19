@@ -86,6 +86,14 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 	}
 
 	servers := a.registry.GetAllServers()
+	// A server the caller may not see is not in the status at all.
+	if view := api.CallerVisibility(ctx); view.Restricted() {
+		for name := range servers {
+			if !view.Sees(name) {
+				delete(servers, name)
+			}
+		}
+	}
 	suspended := suspendedServers(ctx, servers)
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
@@ -505,6 +513,10 @@ func (a *AggregatorServer) establishSSOConnection(
 	if sessionID == "" || sub == "" {
 		logging.Warn("Aggregator", "SSO: skipping connection to %s — no session context (hasSessionID=%t, hasSub=%t)",
 			serverInfo.Name, sessionID != "", sub != "")
+		return ssoConnectFailed
+	}
+	// The person's token never reaches a server they may not see.
+	if refuseUnseenServer(ctx, serverInfo.Name, "SSO connect") {
 		return ssoConnectFailed
 	}
 

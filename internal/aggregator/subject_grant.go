@@ -79,6 +79,10 @@ func (a *AggregatorServer) adoptSubjectGrant(ctx context.Context, info *ServerIn
 	if info == nil || sessionID == "" || sub == "" || a.authStore == nil || !holdsSubjectGrants(info) {
 		return false, nil
 	}
+	// Grant adoption never connects a server the caller may not see.
+	if refuseUnseenServer(ctx, info.Name, "adopt the person's grant") {
+		return false, nil
+	}
 	serverName := info.Name
 	if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName); authenticated {
 		return true, nil

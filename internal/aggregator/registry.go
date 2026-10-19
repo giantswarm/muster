@@ -1605,11 +1605,21 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauths
 // servers read already (sessionCapabilities), for a caller that brought the
 // view up to date first (AggregatorServer.sessionView).
 func (r *ServerRegistry) ToolsForSessionView(caps map[string]*oauthstore.Capabilities) []mcp.Tool {
+	return r.ToolsForSessionViewOf(caps, nil)
+}
+
+// ToolsForSessionViewOf is ToolsForSessionView over the servers sees accepts
+// (every server when sees is nil): a server the caller may not see
+// contributes nothing, as if it were not registered.
+func (r *ServerRegistry) ToolsForSessionViewOf(caps map[string]*oauthstore.Capabilities, sees func(serverName string) bool) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var contributions []serverToolContribution
 	for serverName, info := range r.servers {
+		if sees != nil && !sees(serverName) {
+			continue
+		}
 		if c, ok := r.sessionToolContribution(caps, serverName, info); ok {
 			contributions = append(contributions, c)
 		}

@@ -57,6 +57,19 @@ func MCPServerObject(key, musterNamespace string) (namespace, name string) {
 	return namespace, name
 }
 
+// ServedNamespace reports whether muster serves the MCPServer objects of a
+// namespace when it serves other namespaces than its own: its own namespace
+// (or none, in filesystem mode) and the organization namespaces, whose names
+// start with TenantNamePrefix. A server name or toolPrefix in muster's
+// namespace may not start with that prefix (ValidateServerNamespace), so the
+// exposed prefix of a server for everyone ("<toolPrefix>") never equals the
+// exposed prefix of an organization's server ("<namespace>_<toolPrefix>"),
+// whatever the order in which the servers appear. A server in any other
+// namespace is not served at all.
+func ServedNamespace(namespace, musterNamespace string) bool {
+	return namespace == "" || namespace == musterNamespace || strings.HasPrefix(namespace, TenantNamePrefix)
+}
+
 // IsTenantMCPServerKey reports whether a key names a server outside muster's
 // namespace.
 func IsTenantMCPServerKey(key string) bool {

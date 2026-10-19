@@ -215,9 +215,20 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 
 // ExecuteTool executes a tool by name.
 func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
+	// A service of an MCP server the caller may not see is absent: the
+	// lifecycle tools and the status answer as for a missing service.
+	if name, ok := args["name"].(string); ok && toolName != "service_list" {
+		if view := api.CallerVisibility(ctx); a.hiddenMCPServer(view, name) {
+			msg := fmt.Sprintf("service %s not found", name)
+			if view.Reason != "" {
+				msg += ". " + view.Reason
+			}
+			return &api.CallToolResult{Content: []interface{}{msg}, IsError: true}, nil
+		}
+	}
 	switch toolName {
 	case "service_list":
-		return a.handleServiceList()
+		return a.handleServiceList(ctx)
 	case "service_start":
 		return a.handleServiceStart(ctx, args)
 	case "service_stop":
@@ -231,8 +242,16 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	}
 }
 
-func (a *Adapter) handleServiceList() (*api.CallToolResult, error) {
-	svcs := a.GetAllServices()
+func (a *Adapter) handleServiceList(ctx context.Context) (*api.CallToolResult, error) {
+	all := a.GetAllServices()
+	view := api.CallerVisibility(ctx)
+	svcs := make([]api.ServiceStatus, 0, len(all))
+	for _, svc := range all {
+		if svc.ServiceType == string(services.TypeMCPServer) && !view.Sees(svc.Name) {
+			continue
+		}
+		svcs = append(svcs, svc)
+	}
 
 	result := map[string]interface{}{
 		"services": svcs,
@@ -381,4 +400,15 @@ func (a *Adapter) handleServiceStatus(args map[string]interface{}) (*api.CallToo
 		Content: []interface{}{status},
 		IsError: false,
 	}, nil
+}
+
+// hiddenMCPServer reports whether name is the service of an MCP server the
+// caller may not see. A name that is not a registered service may be an
+// MCPServer definition not started yet, so it counts as one.
+func (a *Adapter) hiddenMCPServer(view api.ServerVisibility, name string) bool {
+	if view.Sees(name) {
+		return false
+	}
+	service, exists := a.orchestrator.registry.Get(name)
+	return !exists || service.GetType() == services.TypeMCPServer
 }
