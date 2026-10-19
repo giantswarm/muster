@@ -31,8 +31,11 @@ func (f *listingFactory) factory(string) (ctrlclient.Client, error) {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(musterv1alpha1.AddToScheme(scheme))
 	return fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
-		List: func(context.Context, ctrlclient.WithWatch, ctrlclient.ObjectList, ...ctrlclient.ListOption) error {
+		List: func(ctx context.Context, _ ctrlclient.WithWatch, _ ctrlclient.ObjectList, _ ...ctrlclient.ListOption) error {
 			f.lists.Add(1)
+			if err := ctx.Err(); err != nil {
+				return err // as the API client does for a cancelled request
+			}
 			if err := f.err.Load(); err != nil {
 				return *err
 			}
@@ -59,8 +62,9 @@ func TestVisibility_CachesOnlyCompleteAnswers(t *testing.T) {
 		t.Fatal("a namespace whose list failed is hidden")
 	}
 	lists.err.Store(nil)
+	now = now.Add(incompleteVisibilityTTL)
 	if !v.CallerVisibility(ctx).Sees("github") {
-		t.Fatal("the failed answer was reused; the next request must ask again")
+		t.Fatal("the failed answer was reused past its short TTL; the next request must ask again")
 	}
 	before := lists.lists.Load()
 	v.CallerVisibility(ctx)
@@ -71,6 +75,19 @@ func TestVisibility_CachesOnlyCompleteAnswers(t *testing.T) {
 	v.CallerVisibility(ctx)
 	if lists.lists.Load() == before {
 		t.Error("after the TTL the caller's permissions are read again")
+	}
+
+	// A caller that hung up still gets, and leaves cached, a complete answer.
+	now = now.Add(visibilityTTL)
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if !v.CallerVisibility(cancelled).Sees("github") {
+		t.Error("a cancelled request context made the lists fail")
+	}
+	before = lists.lists.Load()
+	v.CallerVisibility(ctx)
+	if lists.lists.Load() != before {
+		t.Error("the answer of a cancelled request was not cached")
 	}
 
 	before = lists.lists.Load()

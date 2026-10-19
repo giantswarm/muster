@@ -174,3 +174,23 @@ func TestVisibility_NoConnectToAServerTheCallerMayNotSee(t *testing.T) {
 	assert.False(t, pooled, "no connection to the hidden server")
 	assert.False(t, a.ssoTracker.HasSSOFailed("test-user", "kubernetes"), "no SSO attempt was made, so none failed")
 }
+
+// The pool-miss re-init takes no SSO pending slot for a server the session
+// may not see: the fan-out never connects it, so nothing would clear the slot
+// and the person's other sessions would read the server as pending.
+func TestSSOPoolMissNeedingInitOf_SkipsServersTheCallerMayNotSee(t *testing.T) {
+	a := newSuspensionTestServer(t)
+	a.ssoTracker = newSSOTracker()
+	require.NoError(t, a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "kubernetes", ToolPrefix: "kubernetes"},
+		URL:                "http://127.0.0.1:1/mcp",
+		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+		AuthConfig:         &api.MCPServerAuth{Type: api.MCPServerAuthTypeOAuth, ForwardToken: true},
+	}))
+
+	hidden := api.ServersOfNamespacesVisible("muster", nil)
+	assert.False(t, a.ssoPoolMissNeedingInitOf("alice", "s1", seesFunc(hidden)))
+	assert.False(t, a.ssoTracker.IsSSOPendingWithinTimeout("alice", "kubernetes"), "no pending slot for a hidden server")
+
+	assert.True(t, a.ssoPoolMissNeedingInitOf("alice", "s1", nil), "setting off: the pool miss starts the re-init")
+}

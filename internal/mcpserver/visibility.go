@@ -26,6 +26,10 @@ import (
 // RoleBinding that is added or removed takes effect within this time.
 const visibilityTTL = 5 * time.Second
 
+// incompleteVisibilityTTL is how long an answer with an error that is not an
+// RBAC refusal is reused.
+const incompleteVisibilityTTL = time.Second
+
 // visibilityListTimeout bounds one round of lists for one caller.
 const visibilityListTimeout = 5 * time.Second
 
@@ -116,16 +120,20 @@ func (v *Visibility) CallerVisibility(ctx context.Context) api.ServerVisibility 
 		flightCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), visibilityListTimeout)
 		defer cancel()
 		view, complete := v.listAsCaller(flightCtx, token)
-		if complete {
-			v.mu.Lock()
-			for k, cached := range v.cache {
-				if !now.Before(cached.expires) {
-					delete(v.cache, k)
-				}
-			}
-			v.cache[key] = cachedVisibility{view: view, expires: now.Add(visibilityTTL)}
-			v.mu.Unlock()
+		// An incomplete answer is kept only briefly: it must not hide a
+		// namespace for long, nor send every request into a slow API.
+		ttl := visibilityTTL
+		if !complete {
+			ttl = incompleteVisibilityTTL
 		}
+		v.mu.Lock()
+		for k, cached := range v.cache {
+			if !now.Before(cached.expires) {
+				delete(v.cache, k)
+			}
+		}
+		v.cache[key] = cachedVisibility{view: view, expires: now.Add(ttl)}
+		v.mu.Unlock()
 		return view, nil
 	})
 	return result.(api.ServerVisibility)
