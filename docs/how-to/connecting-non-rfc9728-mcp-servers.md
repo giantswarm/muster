@@ -155,6 +155,16 @@ session -- even when other MCPServers share the issuer, where a logout from a
 session-scoped shared issuer would leave the token alone so the other servers
 keep working. Concretely:
 
+- The grant is revoked at the authorization server first (RFC 7009): its
+  refresh token, then its access token, at `revocationEndpoint` or, without
+  one, the `revocation_endpoint` its metadata advertises, identified as the
+  client the grant was issued under. The provider then refuses both tokens
+  (GitLab answers 401) and the next sign-in asks for consent again. A
+  revocation that fails or times out (10 s) is logged
+  (`subject_grant_revocation_failed`, with the issuer and the person) and
+  does not keep the grant in muster; an authorization server without a
+  revocation endpoint (GitHub) keeps the grant on its side until it expires,
+  logged as `subject_grant_revocation_unsupported`.
 - The tokens for that issuer are deleted from every session of the person and
   from the person's grant itself. `muster auth status` shows every server of
   the issuer as not authenticated.
@@ -166,7 +176,8 @@ keep working. Concretely:
   disconnects itself; no session can adopt a revoked grant.
 - The next `core_auth_login` on any of those servers starts a fresh sign-in.
   Whether the browser sees a consent prompt is the authorization server's
-  call: GitHub redirects straight back while the person's authorization of the
+  call: after a revocation it asks again; GitHub, which muster cannot revoke
+  at, redirects straight back while the person's authorization of the
   App still exists on the GitHub side, so revoke it there too if the account
   must be cut off from muster for good.
 
@@ -322,6 +333,43 @@ the server are requested at login, so the forwarded token carries them. As
 with `forwardToken`, the token is not audience-scoped to the server: trust the
 server as much as a `forwardToken` backend. See the
 [MCPServer reference](../reference/crds.md#mcpserverauth-fields).
+
+## Servers outside muster's namespace
+
+With `mcpServersInAllNamespaces`, a server can live in an organization's
+namespace. Its sign-in stays in that namespace: muster files its tokens, its
+subject grants, its pin and its client registration under the namespace and the
+issuer, so it shares nothing with the servers in muster's namespace or with
+another namespace that names the same issuer. A server in muster's namespace
+keeps its stored sign-ins.
+
+- **Its own client.** Such a server signs in with a pin in its namespace
+  (`authorizationServer` with `clientCredentialsSecretRef`), or, when its
+  authorization server offers RFC 7591, with a dynamic registration muster makes
+  for that namespace. muster does not lend it its Client ID Metadata Document
+  client, nor the pin of another namespace: without a pin and a registration
+  endpoint, `core_auth_login` refuses the sign-in. A pin whose client ID is
+  muster's own CIMD URL is refused too.
+- **Its own redirect URI.** The server signs in through
+  `<publicURL>/oauth/ns/<namespace>/callback`. Register that URI with its client
+  (a HubSpot user creates the MCP connector with it). muster accepts an
+  authorization response for the server only there, and refuses one that arrives
+  on another namespace's callback or on the plain callback before any token
+  endpoint receives the code. A new namespace needs a new redirect URI and a new
+  client registration.
+- **The plain callback is muster's namespace's.** Register exactly
+  `<publicURL>/oauth/proxy/callback` for an app of muster's namespace, never a
+  host root or a prefix: an authorization server that matches redirect URIs by
+  prefix would otherwise accept a namespace's callback for it. With
+  `mcpServersInAllNamespaces` on, muster refuses to start when
+  `oauth.mcpClient.callbackPath` is a prefix of `/oauth/ns/` or starts with it.
+- **Its resource.** muster always checks that the resource the server declares is
+  on the server's own origin, whatever document declares it; otherwise it uses the
+  server's URL.
+- **One sign-in across surfaces.** A pin with `grantScope: subject` keeps the
+  person's sign-in across the Dev Portal, Slack and agents, also with only
+  `issuer` and a dynamic registration. Without it, the person signs in once per
+  muster session.
 
 ## When not to use this
 

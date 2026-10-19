@@ -48,7 +48,8 @@ func (r *CallbackResult) IsError() bool {
 }
 
 // CallbackServer is a temporary local HTTP server for receiving OAuth callbacks.
-// It starts, waits for a single callback, then shuts down.
+// It starts, waits for a single callback, shows the sign-in's outcome, then
+// shuts down.
 type CallbackServer struct {
 	port      int
 	server    *http.Server
@@ -58,11 +59,24 @@ type CallbackServer struct {
 	once      sync.Once
 	serverURL string
 
-	// outcomeStatus and outcome are the response to the first callback,
-	// written inside once and shown again to any later delivery.
+	// finishOnce sets outcomeStatus and outcome, the page every callback
+	// request shows, and then closes finished.
+	finishOnce    sync.Once
+	finished      chan struct{}
 	outcomeStatus int
 	outcome       pagekit.Page
 }
+
+const (
+	// callbackWriteTimeout bounds writing a callback response.
+	callbackWriteTimeout = 30 * time.Second
+	// outcomeWait bounds how long a callback request waits for the sign-in's
+	// outcome, leaving time to write the page within callbackWriteTimeout.
+	outcomeWait = callbackWriteTimeout - 10*time.Second
+	// stopAfterPage is how long the server stays up after the first
+	// callback's page, for a caller that does not stop it.
+	stopAfterPage = time.Second
+)
 
 // NewCallbackServer creates a new callback server on the specified port.
 // If port is 0, DefaultCallbackPort is used.
@@ -75,6 +89,7 @@ func NewCallbackServer(port int) *CallbackServer {
 		port:     port,
 		resultCh: make(chan *CallbackResult, 1),
 		errorCh:  make(chan error, 1),
+		finished: make(chan struct{}),
 	}
 }
 
@@ -141,7 +156,7 @@ func (s *CallbackServer) Start(ctx context.Context) (string, error) {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      callbackWriteTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -179,20 +194,36 @@ func (s *CallbackServer) WaitForCallback(ctx context.Context) (*CallbackResult, 
 	}
 }
 
-// handleCallback handles the OAuth callback request.
+// handleCallback handles the OAuth callback request. The page waits for the
+// sign-in's outcome, which the client reports with Finish once it has checked
+// the response and exchanged the code.
 func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
-	// Only the first callback counts. Browsers and redirect pages may load
-	// the callback twice; a later load shows the first one's outcome.
+	// Only the first callback reaches the client. Browsers and redirect pages
+	// may load the callback twice; a later load shows the same outcome.
+	first := false
 	s.once.Do(func() {
+		first = true
 		s.processCallback(r)
 	})
-	pagekit.Render(w, s.outcomeStatus, s.outcome)
+
+	timer := time.NewTimer(outcomeWait)
+	defer timer.Stop()
+	select {
+	case <-s.finished:
+		pagekit.Render(w, s.outcomeStatus, s.outcome)
+	case <-timer.C:
+		pagekit.Render(w, http.StatusAccepted, signinpage.Pending("Muster"))
+	case <-r.Context().Done():
+	}
+
+	if first {
+		time.AfterFunc(stopAfterPage, s.Stop)
+	}
 }
 
-// processCallback processes the OAuth callback request and records the page
-// to answer with. This is called exactly once via sync.Once.
+// processCallback hands the callback's parameters to the client. This is
+// called exactly once via sync.Once.
 func (s *CallbackServer) processCallback(r *http.Request) {
-	// Parse query parameters
 	query := r.URL.Query()
 	result := &CallbackResult{
 		Code:             query.Get("code"),
@@ -202,33 +233,26 @@ func (s *CallbackServer) processCallback(r *http.Request) {
 		ErrorDescription: query.Get("error_description"),
 	}
 
-	switch {
-	case result.IsError():
-		s.outcomeStatus = http.StatusBadRequest
-		s.outcome = signinpage.Failed("The identity provider reported an error", result.Error)
-	case result.Code == "":
-		s.outcomeStatus = http.StatusBadRequest
-		s.outcome = signinpage.Failed("The sign-in response is incomplete", "")
-	default:
-		s.outcomeStatus = http.StatusOK
-		s.outcome = signinpage.SignedIn("Muster")
-	}
-
-	// Send result to channel
 	select {
 	case s.resultCh <- result:
 	default:
 	}
-
-	// Schedule server shutdown after giving time for response to be sent
-	go func() {
-		time.Sleep(1 * time.Second)
-		s.Stop()
-	}()
 }
 
-// Stop gracefully shuts down the callback server.
+// Finish records the sign-in's outcome as the page the callback shows. Only
+// the first call counts.
+func (s *CallbackServer) Finish(status int, page pagekit.Page) {
+	s.finishOnce.Do(func() {
+		s.outcomeStatus = status
+		s.outcome = page
+		close(s.finished)
+	})
+}
+
+// Stop gracefully shuts down the callback server. A callback page still
+// waiting for an outcome reports the sign-in as cancelled.
 func (s *CallbackServer) Stop() {
+	s.Finish(http.StatusBadRequest, signinpage.Failed("The sign-in was cancelled", ""))
 	if s.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

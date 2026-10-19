@@ -111,7 +111,7 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 			if err != nil {
 				return nil, fmt.Errorf("resolve the authorization server of %s: %w", serverName, err)
 			}
-			issuer, scope = authInfo.Issuer, authInfo.Scope
+			issuer, scope = api.ServerIssuerKey(serverName, authInfo.Issuer), authInfo.Scope
 		}
 		if issuer == "" {
 			return nil, fmt.Errorf("unable to determine auth method for server %s: its OAuth issuer is unknown (no RFC 9728 metadata, no spec.auth.authorizationServer pin)", serverName)

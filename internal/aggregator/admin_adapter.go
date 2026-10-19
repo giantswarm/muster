@@ -221,13 +221,13 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 				Raw:   sessionIDToken,
 			})
 		default:
-			if issuer != "" && !seenIssuers[issuer] {
-				if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuer); tok != nil && tok.IDToken != "" {
+			if issuerKey := api.ServerIssuerKey(serverName, issuer); issuer != "" && !seenIssuers[issuerKey] {
+				if tok := oauthHandler.GetFullTokenByIssuer(sessionID, issuerKey); tok != nil && tok.IDToken != "" {
 					detail.Tokens = append(detail.Tokens, admin.SessionToken{
 						Label: fmt.Sprintf("muster → %s (id_token)", serverName),
 						Raw:   tok.IDToken,
 					})
-					seenIssuers[issuer] = true
+					seenIssuers[issuerKey] = true
 				}
 			}
 		}

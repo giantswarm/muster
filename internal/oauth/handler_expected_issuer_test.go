@@ -104,7 +104,7 @@ func TestHandler_HandleCallback_PinnedIdentityExpectedIssuer(t *testing.T) {
 			if tc.iss != "" {
 				query.Set("iss", tc.iss)
 			}
-			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/callback?"+query.Encode(), nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/proxy/callback?"+query.Encode(), nil)
 			recorder := httptest.NewRecorder()
 			handler.HandleCallback(recorder, request)
 

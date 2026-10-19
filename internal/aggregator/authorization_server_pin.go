@@ -43,6 +43,7 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		TokenEndpoint:         as.TokenEndpoint,
 		ExpectedIssuer:        as.ExpectedIssuer,
 		SubjectScoped:         as.SubjectScoped(),
+		RevocationEndpoint:    as.RevocationEndpoint,
 	}
 	if as.ClientCredentialsSecretRef != nil {
 		secrets := api.GetSecretCredentialsHandler()
@@ -56,7 +57,9 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		pin.ClientID, pin.ClientSecret = creds.ClientID, creds.ClientSecret
 	}
 
-	issuer := strings.TrimSuffix(as.Issuer, "/")
+	// Filed under the issuer key: a pin of a server outside muster's
+	// namespace applies to no server outside that namespace.
+	issuer := api.ServerIssuerKey(serverInfo.Name, strings.TrimSuffix(as.Issuer, "/"))
 	pinner.PinIssuer(issuer, pin)
 	logging.InfoWithAttrs("Aggregator", "oauth_authorization_server_pinned",
 		slog.String("server", serverInfo.Name),
@@ -64,6 +67,7 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		slog.Bool("preregisteredClient", pin.ClientID != ""),
 		slog.Bool("pinnedEndpoints", as.HasPinnedEndpoints()),
 		slog.String("expectedIssuer", pin.ExpectedIssuer),
+		slog.String("revocationEndpoint", pin.RevocationEndpoint),
 		slog.Bool("subjectScoped", pin.SubjectScoped))
 	return nil
 }
@@ -78,7 +82,7 @@ func authorizationServerOf(auth *api.MCPServerAuth) *api.MCPServerAuthAuthorizat
 }
 
 // sameAuthorizationServer reports whether two descriptions of an authorization
-// server are the same: issuer, endpoints, expected issuer, client Secret
+// server are the same: issuer, endpoints (revocation included), expected issuer, client Secret
 // reference, grant scope and scopes. A rotated Secret behind an unchanged reference is not a change
 // here; the re-pin every login performs picks that up.
 func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
@@ -89,6 +93,7 @@ func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
 		a.AuthorizationEndpoint != b.AuthorizationEndpoint ||
 		a.TokenEndpoint != b.TokenEndpoint ||
 		a.ExpectedIssuer != b.ExpectedIssuer ||
+		a.RevocationEndpoint != b.RevocationEndpoint ||
 		a.GrantScope != b.GrantScope ||
 		a.Scopes != b.Scopes {
 		return false
@@ -134,16 +139,17 @@ func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, na
 	if !ok {
 		return
 	}
-	issuer := strings.TrimSuffix(prev.Issuer, "/")
+	issuer := api.ServerIssuerKey(name, strings.TrimSuffix(prev.Issuer, "/"))
 
-	// Another server may still describe the issuer; its description takes
-	// over. This server's own current description is applied by the caller.
+	// Another server may still describe the issuer under the same key (its
+	// namespace and issuer); its description takes over. This server's own
+	// current description is applied by the caller.
 	for other, info := range described {
 		if other == name {
 			continue
 		}
 		as := authorizationServerOf(info.AuthConfig)
-		if as == nil || strings.TrimSuffix(as.Issuer, "/") != issuer {
+		if as == nil || api.ServerIssuerKey(other, strings.TrimSuffix(as.Issuer, "/")) != issuer {
 			continue
 		}
 		pinner.UnpinIssuer(issuer)

@@ -136,7 +136,7 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 				status.Issuer = info.AuthInfo.Issuer
 				status.Scope = info.AuthInfo.Scope
 			} else {
-				status.Issuer = knownServerIssuer(info)
+				status.Issuer = api.IssuerURL(knownServerIssuer(info))
 			}
 			// core_auth_login refuses SSO servers in every state, so it is
 			// only advertised where it can succeed: an SSO server's

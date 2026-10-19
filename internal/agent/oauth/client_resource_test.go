@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,15 +16,32 @@ import (
 // metadata with S256 PKCE, so the agent flow gets past its PKCE refusal.
 func newMetadataServer(t *testing.T, issSupported bool) *httptest.Server {
 	t.Helper()
+	return newAuthorizationServer(t, issSupported, 0)
+}
+
+// newAuthorizationServer is newMetadataServer with a token endpoint that
+// answers with tokenStatus: a token for 200, invalid_grant otherwise. A
+// tokenStatus of 0 leaves the endpoint unserved.
+func newAuthorizationServer(t *testing.T, issSupported bool, tokenStatus int) *httptest.Server {
+	t.Helper()
 
 	var metadataJSON []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == pkgoauth.WellKnownAuthorizationServer {
+		switch {
+		case r.URL.Path == pkgoauth.WellKnownAuthorizationServer:
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write(metadataJSON)
-			return
+		case r.URL.Path == "/token" && tokenStatus != 0:
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(tokenStatus)
+			if tokenStatus == http.StatusOK {
+				_, _ = io.WriteString(w, `{"access_token":"at","token_type":"Bearer","expires_in":3600}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"error":"invalid_grant"}`)
+		default:
+			http.NotFound(w, r)
 		}
-		http.NotFound(w, r)
 	}))
 	t.Cleanup(server.Close)
 

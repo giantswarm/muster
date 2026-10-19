@@ -85,33 +85,83 @@ func NewClient(opts ...ClientOption) *Client {
 // It tries RFC 8414 (/.well-known/oauth-authorization-server) first,
 // then falls back to OpenID Connect (/.well-known/openid-configuration).
 //
-// Results are cached with a TTL to reduce network requests.
+// Results are cached with a TTL to reduce network requests. Metadata pinned
+// for the issuer (PinMetadata) answers instead of the network.
 func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*Metadata, error) {
+	return c.discoverMetadata(ctx, issuer, true)
+}
+
+// DiscoverPublishedMetadata is DiscoverMetadata without the pins: it answers
+// only with what the authorization server publishes itself. A caller whose
+// pins are filed under another key (PinnedMetadata) uses it, so a pin made
+// for the plain issuer never stands in for that caller's discovery.
+func (c *Client) DiscoverPublishedMetadata(ctx context.Context, issuer string) (*Metadata, error) {
+	return c.discoverMetadata(ctx, issuer, false)
+}
+
+// PinnedMetadata returns the metadata pinned under key (PinMetadata), or nil.
+func (c *Client) PinnedMetadata(key string) *Metadata {
+	key = strings.TrimSuffix(key, "/")
+	c.metadataMu.RLock()
+	defer c.metadataMu.RUnlock()
+	if entry, ok := c.metadataCache[key]; ok && entry.pinned {
+		return entry.metadata
+	}
+	return nil
+}
+
+// publishedMetadataKeyPrefix starts the cache key of metadata discovered for
+// DiscoverPublishedMetadata. No issuer URL starts with it.
+const publishedMetadataKeyPrefix = "published|"
+
+func (c *Client) discoverMetadata(ctx context.Context, issuer string, usePinned bool) (*Metadata, error) {
 	issuer = strings.TrimSuffix(issuer, "/")
 
-	// Check cache first with read lock
-	c.metadataMu.RLock()
-	if entry, ok := c.metadataCache[issuer]; ok {
-		if entry.pinned || time.Since(entry.fetchedAt) < c.metadataTTL {
-			c.metadataMu.RUnlock()
-			return entry.metadata, nil
-		}
+	// Published metadata wanted next to a pin of the same issuer is cached
+	// under its own key, which no pin uses: the pin cannot hide it, and it
+	// cannot replace the pin.
+	cacheKey := issuer
+	if !usePinned {
+		cacheKey = publishedMetadataKeyPrefix + issuer
 	}
-	c.metadataMu.RUnlock()
 
-	// Use singleflight to deduplicate concurrent fetches
-	result, err, _ := c.metadataGroup.Do(issuer, func() (interface{}, error) {
-		// Double-check cache after acquiring singleflight lock
+	cached := func() *Metadata {
 		c.metadataMu.RLock()
-		if entry, ok := c.metadataCache[issuer]; ok {
-			if entry.pinned || time.Since(entry.fetchedAt) < c.metadataTTL {
-				c.metadataMu.RUnlock()
-				return entry.metadata, nil
-			}
+		defer c.metadataMu.RUnlock()
+		entry, ok := c.metadataCache[cacheKey]
+		if !ok {
+			return nil
 		}
-		c.metadataMu.RUnlock()
+		if entry.pinned {
+			if usePinned {
+				return entry.metadata
+			}
+			return nil
+		}
+		if time.Since(entry.fetchedAt) < c.metadataTTL {
+			return entry.metadata
+		}
+		return nil
+	}
 
-		return c.doDiscoverMetadata(ctx, issuer)
+	// Check cache first with read lock
+	if metadata := cached(); metadata != nil {
+		return metadata, nil
+	}
+
+	// Use singleflight to deduplicate concurrent fetches. A flight that may
+	// answer from a pin is not shared with one that may not.
+	result, err, _ := c.metadataGroup.Do(cacheKey, func() (interface{}, error) {
+		// Double-check cache after acquiring singleflight lock
+		if metadata := cached(); metadata != nil {
+			return metadata, nil
+		}
+		metadata, err := c.doDiscoverMetadata(ctx, issuer)
+		if err != nil {
+			return nil, err
+		}
+		c.cacheMetadata(cacheKey, metadata)
+		return metadata, nil
 	})
 
 	if err != nil {
@@ -171,7 +221,6 @@ func (c *Client) doDiscoverMetadata(ctx context.Context, issuer string) (*Metada
 				}
 				continue
 			}
-			c.cacheMetadata(issuer, metadata)
 			return metadata, nil
 		}
 		c.logger.Debug("AS metadata fetch failed, trying next form",
@@ -338,6 +387,40 @@ func (c *Client) RefreshToken(ctx context.Context, tokenEndpoint, refreshToken, 
 		data.Set(FormFieldClientSecret, clientSecret)
 	}
 	return c.doTokenRequest(ctx, tokenEndpoint, data)
+}
+
+// RevokeToken asks the authorization server to revoke a token (RFC 7009),
+// identified with the client the grant was issued under, the way RefreshToken
+// identifies it; clientSecret is empty for public clients. tokenTypeHint is
+// "refresh_token" or "access_token". RFC 7009 §2.2 answers 200 for a revoked
+// and for an unknown token alike; any other answer is an error carrying the
+// status only, since a body may echo the token.
+func (c *Client) RevokeToken(ctx context.Context, revocationEndpoint, token, tokenTypeHint, clientID, clientSecret string) error {
+	data := url.Values{
+		"token":           {token},
+		"token_type_hint": {tokenTypeHint},
+		"client_id":       {clientID},
+	}
+	if clientSecret != "" {
+		data.Set(FormFieldClientSecret, clientSecret)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, revocationEndpoint, strings.NewReader(data.Encode()))
+	if err != nil {
+		return fmt.Errorf("failed to create revocation request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("revocation request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("revocation endpoint answered status %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // RegisterClient performs OAuth 2.0 Dynamic Client Registration (RFC 7591)

@@ -460,6 +460,17 @@ type MCPServerAuthAuthorizationServer struct {
 	// AuthorizationEndpoint and TokenEndpoint. Default: Issuer.
 	ExpectedIssuer IssuerURL `json:"expectedIssuer,omitempty" yaml:"expectedIssuer,omitempty"`
 
+	// RevocationEndpoint is the authorization server's RFC 7009 token
+	// revocation endpoint. When the person disconnects a subject-scoped grant
+	// (core_auth_logout), muster revokes its refresh and access tokens there
+	// before dropping its copy, so the provider stops honouring them and the
+	// next sign-in asks for consent again. Default: the revocation_endpoint
+	// of the authorization server's metadata; set it for one whose metadata
+	// names none or is pinned through AuthorizationEndpoint and TokenEndpoint
+	// (GitLab: https://gitlab.example.com/oauth/revoke). Without either, the
+	// grant stays valid at the provider until it expires.
+	RevocationEndpoint IssuerURL `json:"revocationEndpoint,omitempty" yaml:"revocationEndpoint,omitempty"`
+
 	// ClientCredentialsSecretRef references a Kubernetes Secret holding a
 	// client registered with this authorization server out of band (a GitHub
 	// App or OAuth App). When set, muster identifies itself with these

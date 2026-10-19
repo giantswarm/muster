@@ -152,7 +152,7 @@ func (c *Client) refreshSubjectGrant(ctx context.Context, userID, issuer string)
 		return usableToken(current)
 	}
 
-	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
+	metadata, err := c.discoverMetadata(ctx, issuer)
 	if err != nil {
 		logging.WarnWithAttrs("OAuth", "subject_grant_refresh_failed",
 			slog.String("issuer", issuer),
@@ -161,6 +161,13 @@ func (c *Client) refreshSubjectGrant(ctx context.Context, userID, issuer string)
 		return usableToken(current)
 	}
 	resolved := c.resolveClient(ctx, issuer, metadata, false)
+	if resolved.Method == ClientIDMethodNone {
+		logging.WarnWithAttrs("OAuth", "subject_grant_refresh_failed",
+			slog.String("issuer", issuer),
+			slog.String("sub", logging.TruncateIdentifier(userID)),
+			slog.String("error", resolved.RegistrationError.Error()))
+		return usableToken(current)
+	}
 
 	fresh, err := c.oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, current.RefreshToken, resolved.ClientID, resolved.ClientSecret)
 	if err != nil {
