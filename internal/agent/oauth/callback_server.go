@@ -48,7 +48,8 @@ func (r *CallbackResult) IsError() bool {
 }
 
 // CallbackServer is a temporary local HTTP server for receiving OAuth callbacks.
-// It starts, waits for a single callback, then shuts down.
+// It starts, waits for a single callback, shows the sign-in's outcome, then
+// shuts down.
 type CallbackServer struct {
 	port      int
 	server    *http.Server
@@ -66,10 +67,16 @@ type CallbackServer struct {
 	outcome       pagekit.Page
 }
 
-// outcomeWait bounds how long a callback request waits for the sign-in's
-// outcome. It stays below the server's WriteTimeout, so the browser always
-// gets a page.
-const outcomeWait = 20 * time.Second
+const (
+	// callbackWriteTimeout bounds writing a callback response.
+	callbackWriteTimeout = 30 * time.Second
+	// outcomeWait bounds how long a callback request waits for the sign-in's
+	// outcome, leaving time to write the page within callbackWriteTimeout.
+	outcomeWait = callbackWriteTimeout - 10*time.Second
+	// stopAfterPage is how long the server stays up after the first
+	// callback's page, for a caller that does not stop it.
+	stopAfterPage = time.Second
+)
 
 // NewCallbackServer creates a new callback server on the specified port.
 // If port is 0, DefaultCallbackPort is used.
@@ -149,7 +156,7 @@ func (s *CallbackServer) Start(ctx context.Context) (string, error) {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		WriteTimeout:      callbackWriteTimeout,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -193,7 +200,9 @@ func (s *CallbackServer) WaitForCallback(ctx context.Context) (*CallbackResult, 
 func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 	// Only the first callback reaches the client. Browsers and redirect pages
 	// may load the callback twice; a later load shows the same outcome.
+	first := false
 	s.once.Do(func() {
+		first = true
 		s.processCallback(r)
 	})
 
@@ -203,12 +212,12 @@ func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) 
 	case <-s.finished:
 		pagekit.Render(w, s.outcomeStatus, s.outcome)
 	case <-timer.C:
-		pagekit.Render(w, http.StatusAccepted, pagekit.Page{
-			Heading: "Sign-in received",
-			Summary: "Muster is still completing the sign-in",
-			Message: "Check where you started the sign-in to see whether it completed. You can close this tab.",
-		})
+		pagekit.Render(w, http.StatusAccepted, signinpage.Pending("Muster"))
 	case <-r.Context().Done():
+	}
+
+	if first {
+		time.AfterFunc(stopAfterPage, s.Stop)
 	}
 }
 

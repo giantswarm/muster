@@ -1,46 +1,14 @@
 package oauth
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
 
-	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
+	"github.com/giantswarm/muster/v5/internal/signinpage"
 )
-
-// newTokenServer starts an authorization server with RFC 8414 metadata and a
-// token endpoint that answers with tokenStatus.
-func newTokenServer(t *testing.T, tokenStatus int) *httptest.Server {
-	t.Helper()
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case pkgoauth.WellKnownAuthorizationServer:
-			_ = json.NewEncoder(w).Encode(pkgoauth.Metadata{
-				Issuer:                        server.URL,
-				AuthorizationEndpoint:         server.URL + "/authorize",
-				TokenEndpoint:                 server.URL + "/token",
-				CodeChallengeMethodsSupported: []string{"S256"},
-			})
-		case "/token":
-			w.WriteHeader(tokenStatus)
-			if tokenStatus == http.StatusOK {
-				_, _ = io.WriteString(w, `{"access_token":"at","token_type":"Bearer","expires_in":3600}`)
-				return
-			}
-			_, _ = io.WriteString(w, `{"error":"invalid_grant"}`)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	t.Cleanup(server.Close)
-	return server
-}
 
 // TestWaitForCallback_PageShowsOutcome covers the browser page after the
 // agent's sign-in: it reports what the client concluded from the callback,
@@ -88,6 +56,14 @@ func TestWaitForCallback_PageShowsOutcome(t *testing.T) {
 			want:        "The sign-in response is incomplete",
 		},
 		{
+			name:        "no parameters",
+			tokenStatus: http.StatusOK,
+			query:       func(*AuthFlow) string { return "" },
+			wantErr:     true,
+			wantStatus:  http.StatusBadRequest,
+			want:        "The sign-in response is incomplete",
+		},
+		{
 			name:        "code exchange fails",
 			tokenStatus: http.StatusBadRequest,
 			query:       func(flow *AuthFlow) string { return "code=c&state=" + url.QueryEscape(flow.State) },
@@ -99,7 +75,7 @@ func TestWaitForCallback_PageShowsOutcome(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			server := newTokenServer(t, tc.tokenStatus)
+			server := newAuthorizationServer(t, false, tc.tokenStatus)
 			client, err := NewClient(ClientConfig{
 				CallbackPort:     freeLoopbackPort(t),
 				TokenStoreConfig: TokenStoreConfig{StorageDir: t.TempDir()},
@@ -150,5 +126,51 @@ func TestWaitForCallback_PageShowsOutcome(t *testing.T) {
 				t.Errorf("expected no success page for a failed sign-in")
 			}
 		})
+	}
+}
+
+// TestEndFlow_LeavesNewerFlowRunning covers a sign-in that ends after a newer
+// one started: it must not stop the newer one's callback server.
+func TestEndFlow_LeavesNewerFlowRunning(t *testing.T) {
+	server := newAuthorizationServer(t, false, http.StatusOK)
+	client, err := NewClient(ClientConfig{
+		CallbackPort:     freeLoopbackPort(t),
+		TokenStoreConfig: TokenStoreConfig{StorageDir: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer func() { _ = client.Close() }()
+
+	if _, err := client.StartAuthFlowWithOptions(t.Context(), "https://mcp.example.com/v1/mcp", server.URL, nil); err != nil {
+		t.Fatalf("first StartAuthFlowWithOptions: %v", err)
+	}
+	older := client.currentFlow
+	if _, err := client.StartAuthFlowWithOptions(t.Context(), "https://mcp.example.com/v1/mcp", server.URL, nil); err != nil {
+		t.Fatalf("second StartAuthFlowWithOptions: %v", err)
+	}
+	newer := client.currentFlow
+
+	client.endFlow(older, http.StatusBadRequest, signinpage.Failed("The sign-in was cancelled", ""))
+
+	if client.currentFlow != newer {
+		t.Fatal("expected the newer flow to stay current")
+	}
+	pageCh := make(chan string, 1)
+	go func() {
+		resp, err := http.Get(newer.CallbackServer.GetRedirectURI() + "?code=c&state=" + url.QueryEscape(newer.State)) //nolint:gosec // G107: the flow's own local callback server
+		if err != nil {
+			pageCh <- err.Error()
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, _ := io.ReadAll(resp.Body)
+		pageCh <- string(body)
+	}()
+	if _, err := client.WaitForCallback(t.Context()); err != nil {
+		t.Fatalf("WaitForCallback for the newer flow: %v", err)
+	}
+	if page := <-pageCh; !strings.Contains(page, "<h1>Signed in</h1>") {
+		t.Errorf("expected the newer flow's page to report success, got %q", page)
 	}
 }

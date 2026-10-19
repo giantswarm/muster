@@ -2,11 +2,16 @@ package oauth
 
 import (
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"testing/synctest"
+	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/signinpage"
 )
@@ -150,4 +155,32 @@ func TestCallbackServer_SecurityHeaders(t *testing.T) {
 	} else if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "frame-ancestors 'none'") {
 		t.Errorf("Content-Security-Policy should forbid loading and framing, got: %s", csp)
 	}
+}
+
+// TestCallbackServer_StopsAfterThePage covers the server freeing its port on
+// its own once the first callback's page is written, for a caller that never
+// stops it.
+func TestCallbackServer_StopsAfterThePage(t *testing.T) {
+	port := freeLoopbackPort(t)
+	server := NewCallbackServer(port)
+	callbackURL, err := server.Start(t.Context())
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	server.Finish(http.StatusOK, signinpage.SignedIn("Muster"))
+
+	resp, err := http.Get(callbackURL + "?code=c&state=s")
+	if err != nil {
+		t.Fatalf("request the callback page: %v", err)
+	}
+	_ = resp.Body.Close()
+
+	require.Eventually(t, func() bool {
+		conn, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", fmt.Sprint(port)))
+		if err != nil {
+			return true
+		}
+		_ = conn.Close()
+		return false
+	}, 5*time.Second, 20*time.Millisecond, "expected the callback server to stop after its page")
 }
