@@ -240,6 +240,7 @@ func TestCallbackServer_SecurityHeaders(t *testing.T) {
 	// Check security headers
 	expectedHeaders := map[string]string{
 		"X-Content-Type-Options": "nosniff",
+		"X-Frame-Options":        "DENY",
 		"Referrer-Policy":        "no-referrer",
 		"Cache-Control":          "no-store",
 	}

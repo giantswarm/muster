@@ -282,6 +282,7 @@ func TestHandler_SecurityHeaders(t *testing.T) {
 			for header, want := range map[string]string{
 				"Content-Type":           "text/html; charset=utf-8",
 				"X-Content-Type-Options": "nosniff",
+				"X-Frame-Options":        "DENY",
 				"Referrer-Policy":        "no-referrer",
 				"Cache-Control":          "no-store",
 			} {
