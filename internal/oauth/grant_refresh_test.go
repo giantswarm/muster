@@ -32,6 +32,9 @@ type rotatingAS struct {
 	expiresIn int
 	// delay stretches every request so concurrent callers overlap.
 	delay time.Duration
+	// beforeAnswer, when set, runs after a request arrived and before it is
+	// answered: another writer acting while the request is in flight.
+	beforeAnswer func()
 }
 
 func newRotatingAS(initialRefreshToken string) *rotatingAS {
@@ -50,6 +53,9 @@ func (a *rotatingAS) handler(t *testing.T) http.HandlerFunc {
 		a.requests.Add(1)
 		if a.delay > 0 {
 			time.Sleep(a.delay)
+		}
+		if a.beforeAnswer != nil {
+			a.beforeAnswer()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if a.respondError != "" {
