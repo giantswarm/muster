@@ -123,6 +123,37 @@ func TestSubjectGrant_RotatedElsewhereKeepsTheGrant(t *testing.T) {
 	}
 }
 
+func TestSubjectGrant_RotatedElsewhereIsNeverDeleted(t *testing.T) {
+	as := newRotatingAS("ghr_other")
+	srv := httptest.NewTLSServer(as.handler(t))
+	defer srv.Close()
+	client, issuer := newGrantClient(t, srv)
+	storeDueGrant(client, issuer, "ghr_initial", "session-a")
+
+	// The other writer's copy carries an access token that is no longer
+	// accepted: the lookup has nothing to hand out, but the grant and its
+	// refresh token stay for the next lookup to redeem.
+	as.beforeAnswer = func() {
+		client.StoreToken("session-a", "alice", &pkgoauth.Token{
+			AccessToken:  "ghu_other_replica",
+			TokenType:    "Bearer",
+			RefreshToken: "ghr_other",
+			ExpiresIn:    3600,
+			ExpiresAt:    time.Now().Add(-time.Minute),
+			Scope:        "repo",
+			Issuer:       issuer,
+		})
+	}
+
+	if got := client.GetByIssuerForUser("session-a", "alice", issuer); got != nil && got.RefreshToken == "ghr_initial" {
+		t.Fatalf("got the redeemed grant %+v", got)
+	}
+	grant := client.tokenStore.GetByIssuerIncludingExpired(subjectSessionID("alice"), issuer)
+	if grant == nil || grant.RefreshToken != "ghr_other" {
+		t.Fatalf("grant after the rejected redemption = %+v, want the other writer's kept", grant)
+	}
+}
+
 func TestValkeyTokenStore_LockGrantRefresh(t *testing.T) {
 	valkeySrv := miniredis.RunT(t)
 	replicaA := newValkeyTokenStoreOn(t, valkeySrv)

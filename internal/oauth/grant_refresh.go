@@ -165,14 +165,15 @@ func (c *Client) refreshSubjectGrant(ctx context.Context, userID, issuer string)
 	fresh, err := c.oauthClient.RefreshToken(ctx, metadata.TokenEndpoint, current.RefreshToken, resolved.ClientID, resolved.ClientSecret)
 	if err != nil {
 		if pkgoauth.IsRefreshTokenRejected(err) {
-			if rotated := c.rotatedSince(subjectKey, issuer, current.RefreshToken); rotated != nil {
+			if stored, replaced := c.replacedSince(subjectKey, issuer, current.RefreshToken); replaced {
 				// Another writer -- a replica without the shared lock, a
 				// new sign-in -- replaced the grant while this request was
-				// in flight: the grant lives on in its copy.
+				// in flight: the grant lives on in its copy, which the
+				// next lookup refreshes if it is due.
 				logging.InfoWithAttrs("OAuth", "subject_grant_rotated_elsewhere",
 					slog.String("issuer", issuer),
 					slog.String("sub", logging.TruncateIdentifier(userID)))
-				return rotated
+				return usableToken(stored)
 			}
 			// The refresh token is dead: revoked at the authorization
 			// server or expired. Nothing here can revive the grant; remove
@@ -222,15 +223,15 @@ func (c *Client) refreshSubjectGrant(ctx context.Context, userID, issuer string)
 	return fresh
 }
 
-// rotatedSince returns the stored grant when it no longer carries the
-// refresh token that was redeemed and its access token is still accepted,
-// nil otherwise.
-func (c *Client) rotatedSince(subjectKey, issuer, redeemed string) *pkgoauth.Token {
+// replacedSince returns the stored grant and true when the store no longer
+// holds the refresh token that was redeemed: the rejection is then about a
+// token that was rotated away, and the grant must not be deleted.
+func (c *Client) replacedSince(subjectKey, issuer, redeemed string) (*pkgoauth.Token, bool) {
 	stored := c.tokenStore.GetByIssuerIncludingExpired(subjectKey, issuer)
 	if stored == nil || stored.RefreshToken == redeemed {
-		return nil
+		return nil, false
 	}
-	return usableToken(stored)
+	return stored, true
 }
 
 // refreshGroup single-flights grant refreshes per issuer and person.
