@@ -255,8 +255,8 @@ func TestCallbackServer_SecurityHeaders(t *testing.T) {
 	csp := resp.Header.Get("Content-Security-Policy")
 	if csp == "" {
 		t.Error("expected Content-Security-Policy header")
-	} else if !strings.Contains(csp, "default-src") {
-		t.Errorf("Content-Security-Policy should contain 'default-src', got: %s", csp)
+	} else if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "frame-ancestors 'none'") {
+		t.Errorf("Content-Security-Policy should forbid loading and framing, got: %s", csp)
 	}
 }
 
@@ -397,13 +397,12 @@ func TestCallbackServer_MultipleCallbacksHandledOnce(t *testing.T) {
 		t.Errorf("expected first code, got %q", result.Code)
 	}
 
-	// Try second callback - should get "already processed" or be rejected
+	// A second callback is not processed: it shows the first one's outcome.
 	resp, err := http.Get(callbackURL + "?code=second-code&state=second-state")
 	if err == nil {
 		defer func() { _ = resp.Body.Close() }()
-		// The second request should be rejected
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Logf("Second callback got status %d (expected 400 BadRequest)", resp.StatusCode)
+		if resp.StatusCode != http.StatusOK {
+			t.Logf("Second callback got status %d (expected the first callback's 200)", resp.StatusCode)
 		}
 	}
 }

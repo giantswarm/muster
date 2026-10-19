@@ -122,15 +122,13 @@ func TestCheckConnectedServersHealth(t *testing.T) {
 // TestRetryLoopProbesOnTheHealthTicker wires the maintenance loop with a short
 // probe interval and asserts that connected servers are probed by it.
 func TestRetryLoopProbesOnTheHealthTicker(t *testing.T) {
-	previous := HealthCheckInterval
-	HealthCheckInterval = 5 * time.Millisecond
-	t.Cleanup(func() { HealthCheckInterval = previous })
-
 	svc := &mockHealthService{
 		mockService: mockService{name: "remote", state: services.StateConnected},
 		probeHealth: services.HealthHealthy,
 	}
 	o, cancel := newHealthTestOrchestrator(t, svc)
+	o.retryInterval = time.Hour
+	o.healthCheckInterval = 5 * time.Millisecond
 
 	done := make(chan struct{})
 	go func() {

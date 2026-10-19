@@ -28,7 +28,7 @@ func TestHandler_HandleCallback_PinnedIdentityExpectedIssuer(t *testing.T) {
 		authEP     = "https://as.example.com/login/oauth/authorize"
 		tokenEP    = "https://as.example.com/login/oauth/access_token"
 
-		issAccepted = "Failed to complete authentication"
+		issAccepted = summaryNotCompleted
 		issRejected = "could not be verified"
 	)
 

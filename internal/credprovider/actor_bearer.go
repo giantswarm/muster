@@ -35,6 +35,10 @@ const (
 
 	// actorSessionPrefix marks the muster session of an actor-JWT caller.
 	actorSessionPrefix = "actor-"
+
+	// actorBearerAuditAction is the audit action of every actor-JWT
+	// authentication, accepted or refused.
+	actorBearerAuditAction = "actor_bearer"
 )
 
 var (
@@ -127,11 +131,11 @@ func (a *ActorBearer) Claims(bearer string) bool {
 func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCaller, error) {
 	sub, exp, err := a.verify(ctx, bearer)
 	if err != nil {
-		return nil, a.refuse(ErrInvalidActorToken, err.Error(), "")
+		return nil, a.refuse(ErrInvalidActorToken, err.Error(), "", nil)
 	}
 	actor, err := actorFromSubject(sub)
 	if err != nil {
-		return nil, a.refuse(ErrInvalidActorToken, err.Error(), sub)
+		return nil, a.refuse(ErrInvalidActorToken, err.Error(), sub, nil)
 	}
 	binding, err := a.store.Get(ctx, actor)
 	if err != nil {
@@ -139,11 +143,10 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 		return nil, ErrBindingsUnavailable
 	}
 	if binding == nil {
-		return nil, a.refuse(ErrActorNotAllowed, "actor is not bound", actor)
+		return nil, a.refuse(ErrActorNotAllowed, "actor is not bound", actor, nil)
 	}
 	if !binding.Allows(MusterProvider) {
-		return nil, a.refuse(ErrActorNotAllowed, "the binding does not list "+MusterProvider, actor,
-			slog.String("sub", binding.Subject), slog.String("session", binding.Session))
+		return nil, a.refuse(ErrActorNotAllowed, "the binding does not list "+MusterProvider, actor, binding)
 	}
 	if err := a.store.Touch(ctx, actor, a.ttl); err != nil {
 		logging.WarnWithAttrs(logSubsystem, "binding_touch_failed", slog.String("actor", actor), slog.String("error", err.Error()))
@@ -151,6 +154,13 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 	// The session is the actor's under this binding: a rebound actor never
 	// inherits another binding's muster session.
 	sum := sha256.Sum256([]byte(actor + "\x00" + binding.Subject + "\x00" + binding.Session))
+	logging.Audit(logging.AuditEvent{
+		Action:  actorBearerAuditAction,
+		Outcome: "success",
+		Subject: logging.TruncateIdentifier(binding.Subject),
+		Target:  MusterProvider,
+		Details: actorAuditDetails(actor, binding),
+	})
 	return &ActorCaller{
 		Actor:     actor,
 		Subject:   binding.Subject,
@@ -160,12 +170,29 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 	}, nil
 }
 
-func (a *ActorBearer) refuse(kind error, reason, actor string, attrs ...slog.Attr) error {
-	logging.WarnWithAttrs(logSubsystem, "actor_bearer_refused", append([]slog.Attr{
-		slog.String("reason", reason),
-		slog.String("actor", actor),
-	}, attrs...)...)
+func (a *ActorBearer) refuse(kind error, reason, actor string, binding *Binding) error {
+	event := logging.AuditEvent{
+		Action:  actorBearerAuditAction,
+		Outcome: "failure",
+		Target:  MusterProvider,
+		Details: actorAuditDetails(actor, binding),
+		Error:   reason,
+	}
+	if binding != nil {
+		event.Subject = logging.TruncateIdentifier(binding.Subject)
+	}
+	logging.Audit(event)
 	return fmt.Errorf("%w: %s", kind, reason)
+}
+
+// actorAuditDetails names the actor and, when it has one, the Session it is
+// bound to.
+func actorAuditDetails(actor string, binding *Binding) string {
+	details := "actor=" + actor
+	if binding != nil && binding.Session != "" {
+		details += " session=" + binding.Session
+	}
+	return details
 }
 
 // IsActorSession reports whether a muster session ID is an actor-JWT
