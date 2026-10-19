@@ -8,7 +8,9 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/synctest"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
@@ -31,19 +33,19 @@ func TestHandler_HandleCallback_MissingParams(t *testing.T) {
 			name:       "missing code",
 			query:      "state=some-state",
 			wantStatus: http.StatusBadRequest,
-			wantInBody: "Authentication session expired",
+			wantInBody: summaryExpiredSession,
 		},
 		{
 			name:       "missing state",
 			query:      "code=some-code",
 			wantStatus: http.StatusBadRequest,
-			wantInBody: "missing required parameters",
+			wantInBody: summaryIncompleteResponse,
 		},
 		{
 			name:       "both missing",
 			query:      "",
 			wantStatus: http.StatusBadRequest,
-			wantInBody: "missing required parameters",
+			wantInBody: summaryIncompleteResponse,
 		},
 	}
 
@@ -86,10 +88,15 @@ func TestHandler_HandleCallback_OAuthError(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	// We now use a generic error message to avoid leaking sensitive information
-	// from OAuth provider error descriptions
-	if !strings.Contains(body, "Authentication was denied or failed") {
-		t.Errorf("Expected body to contain generic error message, got %q", body)
+	// The OAuth error code is shown for support; the provider's description
+	// is not, as it may carry provider details.
+	for _, want := range []string{summaryDenied, "access_denied"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Expected body to contain %q, got %q", want, body)
+		}
+	}
+	if strings.Contains(body, "User denied access") {
+		t.Errorf("Expected body not to contain the error description, got %q", body)
 	}
 }
 
@@ -108,10 +115,10 @@ func TestHandler_HandleCallback_ErrorWithoutValidState(t *testing.T) {
 	handler.HandleCallback(rr, req)
 
 	body := rr.Body.String()
-	if strings.Contains(body, "Authentication was denied or failed") {
+	if strings.Contains(body, summaryDenied) || strings.Contains(body, "access_denied") {
 		t.Errorf("Expected the error response to be rejected, got %q", body)
 	}
-	if !strings.Contains(body, "missing required parameters") {
+	if !strings.Contains(body, summaryIncompleteResponse) {
 		t.Errorf("Expected body to report missing parameters, got %q", body)
 	}
 }
@@ -158,41 +165,107 @@ func TestHandler_ServeHTTP(t *testing.T) {
 	}
 }
 
+// displayNameManager serves MCPServer display names; every other method of
+// the embedded interface panics if called.
+type displayNameManager struct {
+	api.MCPServerManagerHandler
+	names map[string]string
+}
+
+func (m *displayNameManager) GetMCPServer(_ context.Context, name string) (*api.MCPServerInfo, error) {
+	displayName, ok := m.names[name]
+	if !ok {
+		return nil, api.NewMCPServerNotFoundError(name)
+	}
+	return &api.MCPServerInfo{Name: name, DisplayName: displayName}, nil
+}
+
+// useMCPServerManager registers manager for the test and restores the
+// previous one afterwards.
+func useMCPServerManager(t *testing.T, manager api.MCPServerManagerHandler) {
+	t.Helper()
+	previous := api.GetMCPServerManager()
+	api.RegisterMCPServerManager(manager)
+	t.Cleanup(func() { api.RegisterMCPServerManager(previous) })
+}
+
+// unansweredManager never answers a lookup before its context ends.
+type unansweredManager struct {
+	api.MCPServerManagerHandler
+}
+
+func (unansweredManager) GetMCPServer(ctx context.Context, _ string) (*api.MCPServerInfo, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func TestHandler_RenderSuccessPage(t *testing.T) {
+	useMCPServerManager(t, &displayNameManager{names: map[string]string{"mcp-marge": "Marge", "mcp-blank": "  "}})
+
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
 	defer client.Stop()
 
 	handler := NewHandler(client)
 
-	rr := httptest.NewRecorder()
-	handler.renderSuccessPage(rr, testServerName)
-
-	if rr.Code != http.StatusOK {
-		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	tests := []struct {
+		name       string
+		serverName string
+		want       []string
+	}{
+		{
+			name:       "display name",
+			serverName: "mcp-marge",
+			want:       []string{"<title>Signed in to Marge</title>", "Marge is now connected"},
+		},
+		{
+			name:       "no display name",
+			serverName: testServerName,
+			want:       []string{"<title>Signed in to " + testServerName + "</title>", testServerName + " is now connected"},
+		},
+		{
+			name:       "blank display name",
+			serverName: "mcp-blank",
+			want:       []string{"<title>Signed in to mcp-blank</title>", "mcp-blank is now connected"},
+		},
 	}
 
-	body := rr.Body.String()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			handler.renderSuccessPage(t.Context(), rr, tc.serverName)
 
-	// Check for expected content
-	checks := []string{
-		"Authentication Successful",
-		testServerName,
-		"Muster",
-		"close this window",
+			if rr.Code != http.StatusOK {
+				t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+			}
+			body := rr.Body.String()
+			for _, want := range append(tc.want, "<h1>Signed in</h1>", "return to where you started the sign-in") {
+				if !strings.Contains(body, want) {
+					t.Errorf("Expected body to contain %q", want)
+				}
+			}
+			assertNoIDEWording(t, body)
+		})
 	}
+}
 
-	for _, check := range checks {
-		if !strings.Contains(body, check) {
-			t.Errorf("Expected body to contain %q", check)
+// TestHandler_RenderSuccessPage_LookupTimesOut covers a definition source
+// that does not answer: the page falls back to the server name instead of
+// waiting for it.
+func TestHandler_RenderSuccessPage_LookupTimesOut(t *testing.T) {
+	useMCPServerManager(t, unansweredManager{})
+
+	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid profile email")
+	defer client.Stop()
+	handler := NewHandler(client)
+
+	synctest.Test(t, func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		handler.renderSuccessPage(t.Context(), rr, "mcp-marge")
+
+		if !strings.Contains(rr.Body.String(), "mcp-marge is now connected") {
+			t.Errorf("expected the server name on the page, got %q", rr.Body.String())
 		}
-	}
-	assertNoIDEWording(t, body)
-
-	// Check content type
-	contentType := rr.Header().Get("Content-Type")
-	if !strings.Contains(contentType, "text/html") {
-		t.Errorf("Expected Content-Type to be text/html, got %q", contentType)
-	}
+	})
 }
 
 func TestHandler_RenderErrorPage(t *testing.T) {
@@ -202,28 +275,30 @@ func TestHandler_RenderErrorPage(t *testing.T) {
 	handler := NewHandler(client)
 
 	rr := httptest.NewRecorder()
-	handler.renderErrorPage(rr, "Test error message")
+	handler.renderErrorPage(rr, summaryDenied, "access_denied")
 
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("Expected status %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 
 	body := rr.Body.String()
-
-	// Check for expected content
-	checks := []string{
-		"Authentication Failed",
-		"Test error message",
-		"Muster",
-		"try again from where you started the sign-in",
-	}
-
-	for _, check := range checks {
-		if !strings.Contains(body, check) {
-			t.Errorf("Expected body to contain %q", check)
+	for _, want := range []string{
+		"<h1>Sign-in failed</h1>",
+		summaryDenied,
+		"start the sign-in again from where you started it",
+		"<code>access_denied</code>",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("Expected body to contain %q", want)
 		}
 	}
 	assertNoIDEWording(t, body)
+
+	rr = httptest.NewRecorder()
+	handler.renderErrorPage(rr, summaryDenied, "your_account_is_locked_call_555")
+	if strings.Contains(rr.Body.String(), "555") {
+		t.Errorf("Expected an unknown error code not to be shown, got %q", rr.Body.String())
+	}
 }
 
 func TestHandler_SecurityHeaders(t *testing.T) {
@@ -233,35 +308,16 @@ func TestHandler_SecurityHeaders(t *testing.T) {
 	handler := NewHandler(client)
 
 	tests := []struct {
-		name      string
-		render    func(w http.ResponseWriter)
-		headerMap map[string]string
+		name   string
+		render func(w http.ResponseWriter)
 	}{
 		{
-			name: "success page has security headers",
-			render: func(w http.ResponseWriter) {
-				handler.renderSuccessPage(w, "test-server")
-			},
-			headerMap: map[string]string{
-				"X-Content-Type-Options":  "nosniff",
-				"X-Frame-Options":         "DENY",
-				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
-				"Referrer-Policy":         "no-referrer",
-				"Cache-Control":           "no-store, no-cache, must-revalidate",
-			},
+			name:   "success page",
+			render: func(w http.ResponseWriter) { handler.renderSuccessPage(t.Context(), w, "test-server") },
 		},
 		{
-			name: "error page has security headers",
-			render: func(w http.ResponseWriter) {
-				handler.renderErrorPage(w, "test error")
-			},
-			headerMap: map[string]string{
-				"X-Content-Type-Options":  "nosniff",
-				"X-Frame-Options":         "DENY",
-				"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'",
-				"Referrer-Policy":         "no-referrer",
-				"Cache-Control":           "no-store, no-cache, must-revalidate",
-			},
+			name:   "error page",
+			render: func(w http.ResponseWriter) { handler.renderErrorPage(w, summaryInvalidSession, "") },
 		},
 	}
 
@@ -270,10 +326,21 @@ func TestHandler_SecurityHeaders(t *testing.T) {
 			rr := httptest.NewRecorder()
 			tc.render(rr)
 
-			for header, expectedValue := range tc.headerMap {
-				actualValue := rr.Header().Get(header)
-				if actualValue != expectedValue {
-					t.Errorf("Expected header %q to be %q, got %q", header, expectedValue, actualValue)
+			for header, want := range map[string]string{
+				"Content-Type":           "text/html; charset=utf-8",
+				"X-Content-Type-Options": "nosniff",
+				"X-Frame-Options":        "DENY",
+				"Referrer-Policy":        "no-referrer",
+				"Cache-Control":          "no-store",
+			} {
+				if got := rr.Header().Get(header); got != want {
+					t.Errorf("Expected header %q to be %q, got %q", header, want, got)
+				}
+			}
+			csp := rr.Header().Get("Content-Security-Policy")
+			for _, want := range []string{"default-src 'none'", "frame-ancestors 'none'"} {
+				if !strings.Contains(csp, want) {
+					t.Errorf("Expected Content-Security-Policy to contain %q, got %q", want, csp)
 				}
 			}
 		})
@@ -582,7 +649,7 @@ func TestHandler_HandleStart_InvalidState(t *testing.T) {
 		t.Fatalf("Expected status %d, got %d", http.StatusBadRequest, rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"This sign-in link has expired", "Start a new sign-in"} {
+	for _, want := range []string{summaryExpiredLink, "start the sign-in again"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Expected body to contain %q, got %q", want, body)
 		}
@@ -689,7 +756,7 @@ func TestHandler_HandleCallback_DuplicateDeliveryRendersOutcome(t *testing.T) {
 
 	first := httptest.NewRecorder()
 	handler.HandleCallback(first, httptest.NewRequest("GET", callbackPath, nil))
-	if first.Code != http.StatusOK || !strings.Contains(first.Body.String(), "Authentication Successful") {
+	if first.Code != http.StatusOK || !strings.Contains(first.Body.String(), "Signed in") {
 		t.Fatalf("first delivery: expected success page, got status %d body %q", first.Code, first.Body.String())
 	}
 
@@ -698,7 +765,7 @@ func TestHandler_HandleCallback_DuplicateDeliveryRendersOutcome(t *testing.T) {
 	if second.Code != http.StatusOK {
 		t.Errorf("duplicate delivery: expected status %d, got %d (body %q)", http.StatusOK, second.Code, second.Body.String())
 	}
-	if !strings.Contains(second.Body.String(), "Authentication Successful") {
+	if !strings.Contains(second.Body.String(), "Signed in") {
 		t.Errorf("duplicate delivery: expected the success outcome re-rendered, got %q", second.Body.String())
 	}
 	if !strings.Contains(second.Body.String(), "server-1") {
@@ -819,7 +886,7 @@ func TestHandler_HandleCallback_ExchangeSurvivesClientDisconnect(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.HandleCallback(rr, httptest.NewRequest("GET", callbackPath, nil).WithContext(deadCtx))
 
-	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Authentication Successful") {
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "Signed in") {
 		t.Errorf("expected the flow to complete despite the dead request context, got status %d body %q", rr.Code, rr.Body.String())
 	}
 	if n := as.tokenCount.Load(); n != 1 {

@@ -2,9 +2,7 @@ package oauth
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
-	"html/template"
 	"net"
 	"net/http"
 	"strconv"
@@ -12,7 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/pagekit"
+
 	"github.com/giantswarm/muster/v5/internal/netdiag"
+	"github.com/giantswarm/muster/v5/internal/signinpage"
 )
 
 // DefaultCallbackPort is the default port for the local OAuth callback server.
@@ -20,12 +21,6 @@ const DefaultCallbackPort = 3000
 
 // CallbackTimeout is how long to wait for the OAuth callback.
 const CallbackTimeout = 10 * time.Minute
-
-//go:embed templates/callback_success.html
-var callbackSuccessHTML string
-
-//go:embed templates/callback_error.html
-var callbackErrorHTML string
 
 // CallbackResult represents the result of an OAuth callback.
 type CallbackResult struct {
@@ -62,6 +57,11 @@ type CallbackServer struct {
 	errorCh   chan error
 	once      sync.Once
 	serverURL string
+
+	// outcomeStatus and outcome are the response to the first callback,
+	// written inside once and shown again to any later delivery.
+	outcomeStatus int
+	outcome       pagekit.Page
 }
 
 // NewCallbackServer creates a new callback server on the specified port.
@@ -181,28 +181,17 @@ func (s *CallbackServer) WaitForCallback(ctx context.Context) (*CallbackResult, 
 
 // handleCallback handles the OAuth callback request.
 func (s *CallbackServer) handleCallback(w http.ResponseWriter, r *http.Request) {
-	// Only handle once - use sync.Once to ensure idempotency
-	var handled bool
+	// Only the first callback counts. Browsers and redirect pages may load
+	// the callback twice; a later load shows the first one's outcome.
 	s.once.Do(func() {
-		handled = true
-		s.processCallback(w, r)
+		s.processCallback(r)
 	})
-
-	if !handled {
-		http.Error(w, "Callback already processed", http.StatusBadRequest)
-	}
+	pagekit.Render(w, s.outcomeStatus, s.outcome)
 }
 
-// processCallback processes the OAuth callback request.
-// This is called exactly once via sync.Once.
-func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request) {
-	// Set security headers
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'unsafe-inline'")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Cache-Control", "no-store")
-
+// processCallback processes the OAuth callback request and records the page
+// to answer with. This is called exactly once via sync.Once.
+func (s *CallbackServer) processCallback(r *http.Request) {
 	// Parse query parameters
 	query := r.URL.Query()
 	result := &CallbackResult{
@@ -213,24 +202,16 @@ func (s *CallbackServer) processCallback(w http.ResponseWriter, r *http.Request)
 		ErrorDescription: query.Get("error_description"),
 	}
 
-	// Render appropriate HTML response
-	var tmpl *template.Template
-	var data interface{}
-
-	if result.IsError() {
-		tmpl = template.Must(template.New("error").Parse(callbackErrorHTML))
-		data = map[string]string{
-			"Error":       result.Error,
-			"Description": result.ErrorDescription,
-		}
-	} else {
-		tmpl = template.Must(template.New("success").Parse(callbackSuccessHTML))
-		data = map[string]string{}
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := tmpl.Execute(w, data); err != nil {
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	switch {
+	case result.IsError():
+		s.outcomeStatus = http.StatusBadRequest
+		s.outcome = signinpage.Failed("The identity provider reported an error", result.Error)
+	case result.Code == "":
+		s.outcomeStatus = http.StatusBadRequest
+		s.outcome = signinpage.Failed("The sign-in response is incomplete", "")
+	default:
+		s.outcomeStatus = http.StatusOK
+		s.outcome = signinpage.SignedIn("Muster")
 	}
 
 	// Send result to channel
