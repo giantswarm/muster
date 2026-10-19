@@ -145,7 +145,7 @@ func (p *AuthToolProvider) disconnectProviderApp(ctx context.Context, sessionID,
 
 	var b strings.Builder
 	if held {
-		fmt.Fprintf(&b, "Disconnected provider App '%s': your grant was revoked and dropped.", name)
+		fmt.Fprintf(&b, "Disconnected provider App '%s': muster dropped your grant and revoked it at the provider, where the provider offers revocation.", name)
 	} else {
 		fmt.Fprintf(&b, "Provider App '%s' held no grant of yours.", name)
 	}
