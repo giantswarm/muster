@@ -417,6 +417,7 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	// which have no text to match before then. Nor are they paged: the list
 	// is a handful of names.
 	resp.ServersRequiringAuth = pendingUnder(cat.pending(), opts.pattern, opts.caseSensitive)
+	resp.Notice = api.CallerVisibility(ctx).Reason
 	return resp, nil
 }
 

@@ -356,12 +356,20 @@ func CollectRequiredAudiences(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("collect required audiences: %w", err)
 	}
-	if len(servers) == 0 {
-		return nil, nil
-	}
 
 	// Use a map to deduplicate audiences
 	audienceSet := make(map[string]struct{})
+
+	// When muster lists servers as the caller, the session's ID token must be
+	// accepted by the API server, so its audience is in every login.
+	if h := GetMCPServerVisibility(); h != nil {
+		if audience := h.LoginAudience(); audience != "" && dex.ValidateAudience(audience) == nil {
+			audienceSet[audience] = struct{}{}
+		}
+	}
+	if len(servers) == 0 && len(audienceSet) == 0 {
+		return nil, nil
+	}
 
 	for _, server := range servers {
 		// A server outside muster's namespace adds no audience to any login:

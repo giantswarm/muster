@@ -62,11 +62,40 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer and Workflow CRs: muster's namespace |
-| `mcpServersInAllNamespaces` | `bool` | `false` | In Kubernetes mode, watch and serve MCPServer CRs of every namespace, not only of `namespace`. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family` or `auth.type: sigv4`. In `namespace`, a server name or `toolPrefix` may not start with `org-`. Such a server signs in through `/oauth/ns/<namespace>/callback` with a client of its own namespace, and its sign-in is filed under its namespace and issuer ([Servers outside muster's namespace](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)). Leave it off until muster lists servers as the caller ([#1494](https://github.com/giantswarm/muster/issues/1494)). |
+| `mcpServersInAllNamespaces` | `bool` | `false` | In Kubernetes mode, watch MCPServer CRs of every namespace and serve those of `namespace` and of the organization namespaces (names that start with `org-`); a server in any other namespace is not served. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family` or `auth.type: sigv4`. In `namespace`, a server name or `toolPrefix` may not start with `org-`. Such a server signs in through `/oauth/ns/<namespace>/callback` with a client of its own namespace, and its sign-in is filed under its namespace and issuer ([Servers outside muster's namespace](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)). A person sees a server only when Kubernetes RBAC lets them `list` `mcpservers.muster.giantswarm.io` in its namespace, `namespace` included ([Who sees which MCP server](#who-sees-which-mcp-server)). Needs `aggregator.oauth.server` with the `dex` provider; muster refuses to start otherwise. Helm: `muster.mcpServersInAllNamespaces`. |
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage and requires the apiserver: if the Kubernetes client cannot be created at startup (apiserver unreachable, muster CRDs not installed), `muster serve` retries for about half a minute and then exits with an error instead of falling back to the filesystem, so the kubelet restarts it. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
 | `toolsetPresets` | `map[string]Preset` | `{}` | Toolset presets an agent's `X-muster-Toolset` header can name as `preset:<name>`; `read-only`, `none` and `full` are built in and cannot be redefined. See [Toolsets](toolsets.md). |
+
+### Who sees which MCP server
+
+With `mcpServersInAllNamespaces`, muster lists the MCPServer objects as the
+caller, with the session's own Dex ID token, once per namespace that holds
+servers, and keeps the answer for a few seconds per token. The caller sees the
+servers of every namespace where the Kubernetes API lets them `list`
+`mcpservers.muster.giantswarm.io`: their organizations' namespaces, and
+`namespace` through the binding the installation gives every signed-in person
+(agent-platform's `agent-platform:mcpserver-viewer`). muster's ServiceAccount
+gets no new right.
+
+- A server the caller may not see is absent: from the tool, resource and prompt
+  listings, the servers that wait for a sign-in, `auth://status` and
+  `core_auth_status`, `core_mcpserver_list` and `_get`, `core_service_list` and
+  `_status`, a family's members and `core_events`. A call to its tools,
+  `core_service_start`, `_stop`, `_restart` and `core_auth_login` for it answer
+  as for a server that does not exist.
+- muster never connects a session to such a server: the SSO fan-out, the
+  on-demand connect of a tool call and the adoption of a person's grant skip it,
+  so no token is forwarded to it or exchanged for it.
+- A session without an ID token, or whose token the API server does not accept,
+  sees no server at all, not even those of `namespace`, and its calls say to sign
+  in again. muster's login asks for `writesAsCaller.kubernetesAudience`, so a new
+  login carries the audience the API server needs. Where no server in
+  `namespace` asked for that audience before, every session signs in to muster
+  again once.
+- Using a server still needs the server's own authorization: a sign-in, or SSO
+  for a server in `namespace`.
 
 ### Toolset Presets
 

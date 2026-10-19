@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
@@ -188,6 +189,11 @@ func (a *AggregatorServer) relistForRead(ctx context.Context, sessionID, serverN
 // server for a re-listing: the pooled one, else the one a tool call opens
 // (getOrCreateClientForToolCall), which pools it.
 func (a *AggregatorServer) sessionClientForRead(ctx context.Context, serverName, sessionID string) (MCPClient, error) {
+	// No request reaches a server the caller may not see, not even on a
+	// connection pooled before a RoleBinding went.
+	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
+		return nil, unseenError(view, "server "+serverName+" not found in registry")
+	}
 	if a.connPool != nil {
 		if client, ok := a.connPool.Get(sessionID, serverName); ok {
 			return client, nil

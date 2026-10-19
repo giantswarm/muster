@@ -186,6 +186,21 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	}
 }
 
+// eventsOverfetch is how many times its limit a restricted caller's events
+// query reads before the visibility filter.
+const eventsOverfetch = 4
+
+// seenCount returns how many of the events the caller may see.
+func seenCount(view api.ServerVisibility, events []api.EventResult) int {
+	n := 0
+	for _, event := range events {
+		if view.SeesEvent(event) {
+			n++
+		}
+	}
+	return n
+}
+
 // formatEventForDisplay converts an EventResult to a map suitable for CLI table display.
 func formatEventForDisplay(event api.EventResult) map[string]interface{} {
 	eventMap := map[string]interface{}{
@@ -259,8 +274,22 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	// AggregatorServer.startEventFollow). This handler always returns the
 	// point-in-time query result.
 
+	// Events about an MCP server the caller may not see are dropped. The
+	// limit applies to what the caller may see: a restricted caller's query
+	// reads a few times the limit, and everything only when the filter left
+	// too few.
+	view := api.CallerVisibility(ctx)
+	limit := options.Limit
+	if view.Restricted() && limit > 0 {
+		options.Limit = limit * eventsOverfetch
+	}
+
 	// Execute the query
 	result, err := a.QueryEvents(ctx, options)
+	if err == nil && view.Restricted() && limit > 0 && result.TotalCount > options.Limit && seenCount(view, result.Events) < limit {
+		options.Limit = 0
+		result, err = a.QueryEvents(ctx, options)
+	}
 	if err != nil {
 		return &api.CallToolResult{
 			IsError: true,
@@ -271,6 +300,12 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	// Convert events to a format suitable for CLI table display
 	var events []interface{}
 	for _, event := range result.Events {
+		if !view.SeesEvent(event) {
+			continue
+		}
+		if limit > 0 && len(events) == limit {
+			break
+		}
 		events = append(events, formatEventForDisplay(event))
 	}
 

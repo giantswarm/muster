@@ -434,6 +434,11 @@ const (
 // This type is shared between the aggregator (producer) and agent (consumer).
 type AuthStatusResponse struct {
 	Servers []ServerAuthStatus `json:"servers"`
+
+	// Notice says why the session sees no MCP server at all and that the
+	// person must sign in again, when muster lists servers as the caller and
+	// the Kubernetes API does not accept the session's token.
+	Notice string `json:"notice,omitempty"`
 }
 
 // ServerAuthStatus represents the authentication status of a single MCP server.

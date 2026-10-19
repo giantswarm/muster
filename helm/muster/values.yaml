@@ -295,6 +295,16 @@ muster:
     # ("dex-k8s-authenticator").
     kubernetesAudience: ""
 
+  # Serve the MCPServer objects of the organization namespaces (names that
+  # start with org-) next to those of muster's namespace (agent-permissions
+  # D9). A person then sees a server only
+  # when Kubernetes RBAC lets them list mcpservers in its namespace, and muster
+  # lists them with the person's own Dex ID token, so muster's login asks for
+  # writesAsCaller.kubernetesAudience. Needs muster.oauth.server with the dex
+  # provider. Before you switch it on, bind list on mcpservers in muster's
+  # namespace to every person who must keep seeing the servers for everyone.
+  mcpServersInAllNamespaces: false
+
   # Toolset presets: named selections of the tool catalogue that an agent's
   # X-Muster-Toolset header (or the filter_tools toolset argument) can reference
   # as preset:<name>. Rendered verbatim into muster's config.yaml as

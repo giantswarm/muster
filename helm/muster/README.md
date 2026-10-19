@@ -97,6 +97,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.namespace | string | `""` |  |
 | muster.debug | bool | `false` |  |
 | muster.writesAsCaller.kubernetesAudience | string | `""` |  |
+| muster.mcpServersInAllNamespaces | bool | `false` |  |
 | muster.toolsetPresets | object | `{}` |  |
 | muster.credentialProvider.enabled | bool | `false` |  |
 | muster.credentialProvider.port | int | `50051` |  |
