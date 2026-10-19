@@ -408,6 +408,18 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 // AuthConfig inside registration may be nil; in either case the server is
 // flagged as requiring per-session authentication.
 func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthRegistration) error {
+	// A tenant server is adopted before the lock: the first adoption in a
+	// namespace may sweep the stores, and other registrations need not wait
+	// for it. The entry is written only after it.
+	if aggregatorServer := am.GetAggregatorServer(); aggregatorServer != nil {
+		adoptCtx, cancelAdopt := context.WithTimeout(context.Background(), tenantForgetTimeout)
+		err := aggregatorServer.adoptTenantServer(adoptCtx, registration.ServerRegistration, pendingIssuerKeys(registration))
+		cancelAdopt()
+		if err != nil {
+			return err
+		}
+	}
+
 	am.mu.Lock()
 	defer am.mu.Unlock()
 
@@ -427,13 +439,6 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 		previousHeaders = previous.Headers
 		previousHeadersFrom = previous.HeadersFrom
 		previouslyRegistered = true
-	}
-
-	adoptCtx, cancelAdopt := context.WithTimeout(context.Background(), tenantForgetTimeout)
-	err := am.aggregatorServer.adoptTenantServer(adoptCtx, registration.ServerRegistration, pendingIssuerKeys(registration))
-	cancelAdopt()
-	if err != nil {
-		return err
 	}
 
 	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuth(registration); err != nil {

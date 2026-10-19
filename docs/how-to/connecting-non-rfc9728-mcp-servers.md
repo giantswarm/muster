@@ -413,14 +413,10 @@ keeps its stored sign-ins.
   the people's tokens and subject grants, the client registrations, the flows
   in progress and the sessions' sign-in marks. When a server is deleted and
   others stay, the issuers that only it named are forgotten. A server that
-  appears later in a namespace of the same name starts with nothing, also when
-  muster was down while the old namespace went: muster records the
-  Kubernetes UIDs of the servers that own a namespace's sign-ins, and before a
-  server with an unknown UID registers in a namespace none of whose recorded
-  servers exists any more, it forgets the namespace's sign-ins. A restart
-  signs nobody out. The first time a tenant server registers after the
-  upgrade to this version, its namespace's sign-ins from before are forgotten
-  once.
+  appears later in a namespace of the same name, or under the name of a
+  deleted server, starts with nothing, also when muster was down while the
+  old one went: muster tells servers apart by their Kubernetes UID. A restart
+  signs nobody out.
 
 ## When not to use this
 

@@ -82,29 +82,38 @@ func (ts *TokenStore) DeleteIssuers(_ context.Context, match func(string) bool) 
 }
 
 // DeleteIssuers removes every token whose issuer key matches, in every
-// session hash. The user index keeps its session IDs: it is a reverse lookup
-// only, and its entries expire with the sessions.
+// session hash: one HKEYS round trip and one HDEL round trip per SCAN page.
+// The user index keeps its session IDs: it is a reverse lookup only, and its
+// entries expire with the sessions.
 func (s *ValkeyTokenStore) DeleteIssuers(ctx context.Context, match func(string) bool) error {
-	tokenPrefix := s.keyPrefix + "oauth:token:"
 	userPrefix := s.keyPrefix + "oauth:token:user:"
-	return scanKeys(ctx, s.client, tokenPrefix+"*", func(key string) error {
-		if strings.HasPrefix(key, userPrefix) {
-			return nil
+	return scanPages(ctx, s.client, s.keyPrefix+"oauth:token:*", func(page []string) error {
+		var keys []string
+		cmds := make(valkey.Commands, 0, len(page))
+		for _, key := range page {
+			if strings.HasPrefix(key, userPrefix) {
+				continue
+			}
+			keys = append(keys, key)
+			cmds = append(cmds, s.client.B().Hkeys().Key(key).Build())
 		}
-		fields, err := s.client.Do(ctx, s.client.B().Hkeys().Key(key).Build()).AsStrSlice()
-		if err != nil {
-			return err
-		}
-		var matching []string
-		for _, field := range fields {
-			if issuer, _ := parseFieldName(field); match(issuer) {
-				matching = append(matching, field)
+		var deletes valkey.Commands
+		for i, result := range s.client.DoMulti(ctx, cmds...) {
+			fields, err := result.AsStrSlice()
+			if err != nil {
+				return err
+			}
+			var matching []string
+			for _, field := range fields {
+				if issuer, _ := parseFieldName(field); match(issuer) {
+					matching = append(matching, field)
+				}
+			}
+			if len(matching) > 0 {
+				deletes = append(deletes, s.client.B().Hdel().Key(keys[i]).Field(matching...).Build())
 			}
 		}
-		if len(matching) == 0 {
-			return nil
-		}
-		return s.client.Do(ctx, s.client.B().Hdel().Key(key).Field(matching...).Build()).Error()
+		return doAll(ctx, s.client, deletes)
 	})
 }
 
@@ -151,40 +160,62 @@ func (ss *StateStore) DeleteIssuers(_ context.Context, match func(string) bool) 
 	return nil
 }
 
-// DeleteIssuers removes the flows in progress whose issuer key matches. A
-// state that cannot be read is left to its TTL.
+// DeleteIssuers removes the flows in progress whose issuer key matches: one
+// GET round trip and one DEL round trip per SCAN page. A state that cannot
+// be read is left to its TTL.
 func (s *ValkeyStateStore) DeleteIssuers(ctx context.Context, match func(string) bool) error {
-	return scanKeys(ctx, s.client, s.keyPrefix+"oauth:state:*", func(key string) error {
-		stored, err := s.client.Do(ctx, s.client.B().Get().Key(key).Build()).ToString()
-		if err != nil {
-			if valkey.IsValkeyNil(err) {
-				return nil
+	return scanPages(ctx, s.client, s.keyPrefix+"oauth:state:*", func(page []string) error {
+		cmds := make(valkey.Commands, 0, len(page))
+		for _, key := range page {
+			cmds = append(cmds, s.client.B().Get().Key(key).Build())
+		}
+		var deletes valkey.Commands
+		for i, result := range s.client.DoMulti(ctx, cmds...) {
+			stored, err := result.ToString()
+			if err != nil {
+				if valkey.IsValkeyNil(err) {
+					continue
+				}
+				return err
 			}
-			return err
+			plaintext, err := s.decryptValue(stored)
+			if err != nil {
+				logging.Warn("OAuth", "ValkeyStateStore: cannot read a state while forgetting issuers: %v", err)
+				continue
+			}
+			var entry valkeyStateEntry
+			if err := json.Unmarshal(plaintext, &entry); err != nil || !match(entry.Issuer) {
+				continue
+			}
+			deletes = append(deletes, s.client.B().Del().Key(page[i]).Build())
 		}
-		plaintext, err := s.decryptValue(stored)
-		if err != nil {
-			logging.Warn("OAuth", "ValkeyStateStore: cannot read a state while forgetting issuers: %v", err)
-			return nil
-		}
-		var entry valkeyStateEntry
-		if err := json.Unmarshal(plaintext, &entry); err != nil || !match(entry.Issuer) {
-			return nil
-		}
-		return s.client.Do(ctx, s.client.B().Del().Key(key).Build()).Error()
+		return doAll(ctx, s.client, deletes)
 	})
 }
 
-// scanKeys calls visit for every key that matches pattern.
-func scanKeys(ctx context.Context, client valkey.Client, pattern string, visit func(key string) error) error {
+// doAll sends cmds in one round trip and returns the first error.
+func doAll(ctx context.Context, client valkey.Client, cmds valkey.Commands) error {
+	if len(cmds) == 0 {
+		return nil
+	}
+	for _, result := range client.DoMulti(ctx, cmds...) {
+		if err := result.Error(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// scanPages calls visit with every SCAN page of the keys that match pattern.
+func scanPages(ctx context.Context, client valkey.Client, pattern string, visit func(page []string) error) error {
 	var cursor uint64
 	for {
 		entry, err := client.Do(ctx, client.B().Scan().Cursor(cursor).Match(pattern).Count(forgetScanCount).Build()).AsScanEntry()
 		if err != nil {
 			return err
 		}
-		for _, key := range entry.Elements {
-			if err := visit(key); err != nil {
+		if len(entry.Elements) > 0 {
+			if err := visit(entry.Elements); err != nil {
 				return err
 			}
 		}

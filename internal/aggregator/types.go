@@ -153,6 +153,10 @@ type ServerInfo struct {
 	// Defaults to "default" if not specified.
 	Namespace string
 
+	// UID is the Kubernetes UID of the server's MCPServer object
+	// (ServerRegistration.UID). Empty in filesystem mode.
+	UID string
+
 	// Client is the MCP client instance used to communicate with the server
 	Client MCPClient
 

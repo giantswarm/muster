@@ -1302,7 +1302,10 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 	logging.InfoWithAttrs("Aggregator", "RegisterServer called",
 		slog.String("server", registration.Name))
 
-	if err := a.adoptTenantServer(ctx, registration, nil); err != nil {
+	adoptCtx, cancelAdopt := context.WithTimeout(ctx, tenantForgetTimeout)
+	err := a.adoptTenantServer(adoptCtx, registration, nil)
+	cancelAdopt()
+	if err != nil {
 		return err
 	}
 
@@ -1439,7 +1442,7 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		// when it never reached the registry: a session may hold sign-ins of
 		// an earlier registration.
 		forgetCtx, cancel := context.WithTimeout(context.Background(), tenantForgetTimeout)
-		a.forgetTenantServer(forgetCtx, name, info)
+		a.forgetTenantServer(forgetCtx, name)
 		cancel()
 	}
 	if !reconnecting || (tracked && (err != nil || !removed)) {

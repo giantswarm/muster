@@ -328,6 +328,14 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 			IsError: true,
 		}
 	}
+	// A tenant server's record names the key before a flow or a token is
+	// stored under it, so the key goes with the server.
+	if err := p.aggregator.recordTenantIssuer(ctx, serverInfo, issuerKey); err != nil {
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "signin_not_ready")
+		}
+		return &api.CallToolResult{Content: []any{signInNotReadyMessage(serverName, err)}, IsError: true}
+	}
 	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, issuerKey)
 
 	if token != nil && token.AccessToken != "" {
