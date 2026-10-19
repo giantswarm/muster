@@ -28,8 +28,9 @@ const (
 	// useAPI answers the bare token for a Bearer API call.
 	useAPI = "api"
 
-	// gitUser is the user name GitHub takes with a token as password.
-	gitUser = "x-access-token"
+	// DefaultGitUser is the user name GitHub takes with a token as password,
+	// answered for a provider without a GitUsers entry.
+	DefaultGitUser = "x-access-token"
 
 	// actorSPIFFEPrefix is the form of every Substrate actor identity.
 	actorSPIFFEPrefix = "spiffe://substrate-actor.local/actor/"
@@ -48,6 +49,8 @@ type Provider struct {
 	authority  string
 	gateway    string
 	releasable map[string]string
+	// gitUsers is the git user name per releasable provider.
+	gitUsers map[string]string
 	// musterBearer lets a binding list MusterProvider.
 	musterBearer bool
 	ttl          time.Duration
@@ -63,6 +66,10 @@ type Options struct {
 	GatewayIdentity string
 	// Releasable maps provider instance to grant issuer.
 	Releasable map[string]string
+	// GitUsers maps a releasable provider instance to the user name sent
+	// with its token for git (DefaultGitUser without an entry). GitLab
+	// takes an OAuth access token only as oauth2.
+	GitUsers map[string]string
 	// MusterBearer lets a binding list MusterProvider, for an actor that
 	// calls muster itself with its actor JWT (ActorBearer).
 	MusterBearer bool
@@ -93,6 +100,16 @@ func NewProvider(o Options) (*Provider, error) {
 		}
 		releasable[provider] = strings.TrimSuffix(issuer, "/")
 	}
+	gitUsers := make(map[string]string, len(o.GitUsers))
+	for provider, user := range o.GitUsers {
+		if _, ok := releasable[provider]; !ok {
+			return nil, fmt.Errorf("credential provider: gitUsers entry %q: the provider is not releasable", provider)
+		}
+		if user == "" || strings.Contains(user, ":") {
+			return nil, fmt.Errorf("credential provider: gitUsers entry %q: %q is not a git user name", provider, user)
+		}
+		gitUsers[provider] = user
+	}
 	if o.Store == nil || o.Grants == nil {
 		return nil, fmt.Errorf("credential provider: a binding store and a grant source are required")
 	}
@@ -100,6 +117,7 @@ func NewProvider(o Options) (*Provider, error) {
 		authority:    o.Authority,
 		gateway:      o.GatewayIdentity,
 		releasable:   releasable,
+		gitUsers:     gitUsers,
 		musterBearer: o.MusterBearer,
 		ttl:          o.BindingTTL,
 		store:        o.Store,
@@ -173,7 +191,11 @@ func (p *Provider) FetchSecret(ctx context.Context, req *credproviderpb.FetchSec
 
 	secret := token.AccessToken
 	if use == useGit {
-		secret = base64.StdEncoding.EncodeToString([]byte(gitUser + ":" + token.AccessToken))
+		user := p.gitUsers[provider]
+		if user == "" {
+			user = DefaultGitUser
+		}
+		secret = base64.StdEncoding.EncodeToString([]byte(user + ":" + token.AccessToken))
 	}
 	logging.InfoWithAttrs(logSubsystem, "credential_released", append(who,
 		slog.String("actor", actor),
