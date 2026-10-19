@@ -223,8 +223,8 @@ func (c *Client) PinIssuer(issuer string, pin IssuerPin, metadata *pkgoauth.Meta
 	c.pinsMu.Lock()
 	c.pins[issuer] = &pin
 	c.pinsMu.Unlock()
-	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t expectedIssuer=%q",
-		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil, pin.ExpectedIssuer)
+	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t expectedIssuer=%q revocationEndpoint=%q",
+		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil, pin.ExpectedIssuer, pin.RevocationEndpoint)
 }
 
 // UnpinIssuer forgets the operator's description of an authorization server:

@@ -65,6 +65,7 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		slog.Bool("preregisteredClient", pin.ClientID != ""),
 		slog.Bool("pinnedEndpoints", as.HasPinnedEndpoints()),
 		slog.String("expectedIssuer", pin.ExpectedIssuer),
+		slog.String("revocationEndpoint", pin.RevocationEndpoint),
 		slog.Bool("subjectScoped", pin.SubjectScoped))
 	return nil
 }
