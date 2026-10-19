@@ -173,7 +173,8 @@ The data path stays the gateway's; muster only answers whose token, and only to 
 - **FetchSecret.** On its own gRPC port, muster serves `CredentialProvider.FetchSecret` over
   mutual TLS and answers only a client certificate that chains to `clientCAFile` and names
   `gatewayIdentity`. For `ate-secret://<authority>/<provider>/git` it answers
-  `base64("x-access-token:<token>")` (the gateway's rule adds `Basic `), for
+  `base64("<user>:<token>")` (the gateway's rule adds `Basic `), `<user>` the provider's
+  `gitUsers` entry or `x-access-token`, GitHub's; a GitLab instance sets `oauth2`, for
   `.../<provider>/api` the token itself (the rule adds `Bearer `), when the actor is bound,
   the provider is in its binding and listed in `releasable`, and the person holds the grant.
   Anything else is refused (`PERMISSION_DENIED`, or `NOT_FOUND` without a grant). Only the
@@ -215,6 +216,9 @@ aggregator:
     bindingTTL: 336h                 # default: 14 days, the Session idle TTL
     releasable:                      # provider instance -> grant issuer (grantScope: subject)
       github: https://github.com/apps/my-workspaces-app
+      gitlab: https://gitlab.example.com
+    gitUsers:                        # releasable instance -> git user name (default: x-access-token)
+      gitlab: oauth2                 # GitLab accepts an OAuth token over git only as oauth2
     actorBearer:
       enabled: true                  # default: false
       issuer: https://idp.substrate.svc   # ate-api's --actor-jwt-issuer

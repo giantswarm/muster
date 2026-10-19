@@ -105,6 +105,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.credentialProvider.authority | string | `"muster.giantswarm.io"` |  |
 | muster.credentialProvider.bindingTTL | string | `"336h"` |  |
 | muster.credentialProvider.releasable | object | `{}` |  |
+| muster.credentialProvider.gitUsers | object | `{}` |  |
 | muster.credentialProvider.actorBearer.enabled | bool | `false` |  |
 | muster.credentialProvider.actorBearer.issuer | string | `""` |  |
 | muster.credentialProvider.actorBearer.jwksUrl | string | `""` |  |
