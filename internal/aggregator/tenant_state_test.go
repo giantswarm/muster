@@ -297,7 +297,8 @@ func TestTenantSignIns_DiscoveredIssuerGoesWithTheServer(t *testing.T) {
 
 // A tenant server registered without a challenge (RegisterServer) is
 // adopted the same way, and a registration whose namespace muster cannot
-// list is refused, so it never serves on state of another namespace.
+// list, of an object that is gone, or without a UID is refused, so it never
+// serves on state of another namespace.
 func TestTenantSignIns_AdoptionOnEveryRegistration(t *testing.T) {
 	const key = "org-b/fixture"
 	t.Run("connected registration", func(t *testing.T) {
@@ -323,6 +324,12 @@ func TestTenantSignIns_AdoptionOnEveryRegistration(t *testing.T) {
 		require.Error(t, f.register(key, "uid-1", tenantTestIssuer))
 		_, registered := f.am.aggregatorServer.registry.GetServerInfo(key)
 		assert.False(t, registered)
+	})
+	t.Run("an object that no longer exists", func(t *testing.T) {
+		f := newTenantFixture(t, "memory")
+		f.define(key, "uid-2")
+		// A late 401 of the replaced object's service.
+		require.Error(t, f.register(key, "uid-1", tenantTestIssuer))
 	})
 	t.Run("no UID", func(t *testing.T) {
 		f := newTenantFixture(t, "memory")

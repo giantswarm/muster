@@ -78,6 +78,11 @@ func (a *AggregatorServer) adoptTenantServer(ctx context.Context, reg ServerRegi
 	if err != nil {
 		return fmt.Errorf("list the MCPServers of namespace %s: %w", namespace, err)
 	}
+	if !live[reg.UID] {
+		// A registration of an object that is gone already (a retry, a late
+		// 401 of a replaced object's service).
+		return fmt.Errorf("server %s: the MCPServer object %s no longer exists", reg.Name, reg.UID)
+	}
 	if err := a.sweepTenantNamespace(ctx, namespace, owners, live, reg.Name); err != nil {
 		return err
 	}
@@ -105,20 +110,19 @@ func (a *AggregatorServer) recordTenantIssuer(ctx context.Context, info *ServerI
 	return a.recordIssuerKeys(ctx, namespace, info.UID, owner, []string{issuerKey})
 }
 
-// recordIssuerKeys adds keys to a server's record and writes it when it
-// changed (or is new).
+// recordIssuerKeys adds the keys the record does not hold yet (all of a new
+// record's) to a server's record.
 func (a *AggregatorServer) recordIssuerKeys(ctx context.Context, namespace, uid string, owner oauthstore.TenantOwner, keys []string) error {
-	changed := owner.IssuerKeys == nil
+	add := oauthstore.TenantOwner{Server: owner.Server}
 	for _, key := range keys {
-		if key != "" && !slices.Contains(owner.IssuerKeys, key) {
-			owner.IssuerKeys = append(owner.IssuerKeys, key)
-			changed = true
+		if key != "" && !slices.Contains(owner.IssuerKeys, key) && !slices.Contains(add.IssuerKeys, key) {
+			add.IssuerKeys = append(add.IssuerKeys, key)
 		}
 	}
-	if !changed {
+	if owner.IssuerKeys != nil && len(add.IssuerKeys) == 0 {
 		return nil
 	}
-	if err := a.tenantOwners.SetOwner(ctx, namespace, uid, owner); err != nil {
+	if err := a.tenantOwners.AddOwner(ctx, namespace, uid, add); err != nil {
 		return fmt.Errorf("record %s as an owner of namespace %s: %w", owner.Server, namespace, err)
 	}
 	return nil

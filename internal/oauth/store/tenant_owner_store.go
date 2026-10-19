@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/valkey-io/valkey-go"
@@ -29,8 +29,10 @@ type TenantOwner struct {
 type TenantOwnerStore interface {
 	// Owners returns the recorded servers of the namespace by UID.
 	Owners(ctx context.Context, namespace string) (map[string]TenantOwner, error)
-	// SetOwner records (or replaces) a server of the namespace.
-	SetOwner(ctx context.Context, namespace, uid string, owner TenantOwner) error
+	// AddOwner records a server of the namespace and adds issuer keys to
+	// its record, atomically: two writers adding keys to the same server
+	// lose none.
+	AddOwner(ctx context.Context, namespace, uid string, owner TenantOwner) error
 	// RemoveOwners forgets servers of the namespace; only these, so a
 	// server another replica recorded meanwhile stays.
 	RemoveOwners(ctx context.Context, namespace string, uids ...string) error
@@ -60,15 +62,21 @@ func (s *InMemoryTenantOwnerStore) Owners(_ context.Context, namespace string) (
 	return owners, nil
 }
 
-// SetOwner implements TenantOwnerStore.
-func (s *InMemoryTenantOwnerStore) SetOwner(_ context.Context, namespace, uid string, owner TenantOwner) error {
+// AddOwner implements TenantOwnerStore.
+func (s *InMemoryTenantOwnerStore) AddOwner(_ context.Context, namespace, uid string, owner TenantOwner) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.owners[namespace] == nil {
 		s.owners[namespace] = make(map[string]TenantOwner)
 	}
-	owner.IssuerKeys = slices.Clone(owner.IssuerKeys)
-	s.owners[namespace][uid] = owner
+	recorded := s.owners[namespace][uid]
+	recorded.Server = owner.Server
+	for _, key := range owner.IssuerKeys {
+		if !slices.Contains(recorded.IssuerKeys, key) {
+			recorded.IssuerKeys = append(recorded.IssuerKeys, key)
+		}
+	}
+	s.owners[namespace][uid] = recorded
 	return nil
 }
 
@@ -86,15 +94,21 @@ func (s *InMemoryTenantOwnerStore) RemoveOwners(_ context.Context, namespace str
 }
 
 // ValkeyTenantOwnerStore keeps the records in Valkey, one hash per
-// namespace, with no TTL: a record is small and lives as long as its
-// server.
+// namespace with one field per server and one per issuer key, so adding a
+// key is one HSET and never overwrites another writer's. No TTL: a record
+// is small and lives as long as its server.
 //
 //	Key:    {keyPrefix}tenant_owners:{namespace}
-//	Fields: {uid} -> JSON(TenantOwner)
+//	Fields: {uid} -> {server key}
+//	        {uid}/key/{issuer key} -> ""
 type ValkeyTenantOwnerStore struct {
 	client    valkey.Client
 	keyPrefix string
 }
+
+// tenantOwnerKeyField separates a UID from an issuer key in a field name. A
+// Kubernetes UID holds no "/".
+const tenantOwnerKeyField = "/key/"
 
 // NewValkeyTenantOwnerStore returns a store on the shared Valkey client.
 func NewValkeyTenantOwnerStore(client valkey.Client, keyPrefix string) *ValkeyTenantOwnerStore {
@@ -105,29 +119,38 @@ func (s *ValkeyTenantOwnerStore) key(namespace string) string {
 	return s.keyPrefix + "tenant_owners:" + namespace
 }
 
-// Owners implements TenantOwnerStore. A record that does not parse keeps its
-// UID with no server or keys, so it still counts as an owner.
+// Owners implements TenantOwnerStore. An issuer key whose server field is
+// missing still makes its UID an owner.
 func (s *ValkeyTenantOwnerStore) Owners(ctx context.Context, namespace string) (map[string]TenantOwner, error) {
 	fields, err := s.client.Do(ctx, s.client.B().Hgetall().Key(s.key(namespace)).Build()).AsStrMap()
 	if err != nil {
 		return nil, err
 	}
-	owners := make(map[string]TenantOwner, len(fields))
-	for uid, value := range fields {
-		var owner TenantOwner
-		_ = json.Unmarshal([]byte(value), &owner)
+	owners := make(map[string]TenantOwner)
+	for field, value := range fields {
+		uid, issuerKey, isKey := strings.Cut(field, tenantOwnerKeyField)
+		owner := owners[uid]
+		if isKey {
+			owner.IssuerKeys = append(owner.IssuerKeys, issuerKey)
+		} else {
+			owner.Server = value
+		}
+		owners[uid] = owner
+	}
+	for uid, owner := range owners {
+		slices.Sort(owner.IssuerKeys)
 		owners[uid] = owner
 	}
 	return owners, nil
 }
 
-// SetOwner implements TenantOwnerStore.
-func (s *ValkeyTenantOwnerStore) SetOwner(ctx context.Context, namespace, uid string, owner TenantOwner) error {
-	value, err := json.Marshal(owner)
-	if err != nil {
-		return err
+// AddOwner implements TenantOwnerStore.
+func (s *ValkeyTenantOwnerStore) AddOwner(ctx context.Context, namespace, uid string, owner TenantOwner) error {
+	cmd := s.client.B().Hset().Key(s.key(namespace)).FieldValue().FieldValue(uid, owner.Server)
+	for _, issuerKey := range owner.IssuerKeys {
+		cmd = cmd.FieldValue(uid+tenantOwnerKeyField+issuerKey, "")
 	}
-	return s.client.Do(ctx, s.client.B().Hset().Key(s.key(namespace)).FieldValue().FieldValue(uid, string(value)).Build()).Error()
+	return s.client.Do(ctx, cmd.Build()).Error()
 }
 
 // RemoveOwners implements TenantOwnerStore.
@@ -135,5 +158,19 @@ func (s *ValkeyTenantOwnerStore) RemoveOwners(ctx context.Context, namespace str
 	if len(uids) == 0 {
 		return nil
 	}
-	return s.client.Do(ctx, s.client.B().Hdel().Key(s.key(namespace)).Field(uids...).Build()).Error()
+	fields, err := s.client.Do(ctx, s.client.B().Hkeys().Key(s.key(namespace)).Build()).AsStrSlice()
+	if err != nil {
+		return err
+	}
+	var remove []string
+	for _, field := range fields {
+		uid, _, _ := strings.Cut(field, tenantOwnerKeyField)
+		if slices.Contains(uids, uid) {
+			remove = append(remove, field)
+		}
+	}
+	if len(remove) == 0 {
+		return nil
+	}
+	return s.client.Do(ctx, s.client.B().Hdel().Key(s.key(namespace)).Field(remove...).Build()).Error()
 }
