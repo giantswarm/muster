@@ -62,7 +62,8 @@ that run their own OAuth.
 |---|---|
 | `/.well-known/oauth-client.json` | muster's client metadata document (CIMD), the `client_id` it presents to authorization servers that support it |
 | `/oauth/proxy/start` | Starts a login to a remote server; `core_auth_login` returns URLs pointing here. An optional `redirect` parameter, checked against `postLoginRedirectAllowlist`, sends the browser on after the login |
-| `/oauth/proxy/callback` | Return from the remote authorization server (`oauth.mcpClient.callbackPath`) |
+| `/oauth/proxy/callback` | Return from the remote authorization server (`oauth.mcpClient.callbackPath`) for the servers in muster's namespace |
+| `/oauth/ns/<namespace>/callback` | Return from the remote authorization server for the servers of `<namespace>` (with `mcpServersInAllNamespaces`); a flow is accepted only on the callback of its own namespace |
 
 ## Credential provider
 

@@ -347,3 +347,33 @@ func TestKnownServerIssuer(t *testing.T) {
 	both := &ServerInfo{AuthInfo: &AuthInfo{Issuer: "https://a.example.com"}, AuthConfig: pinned.AuthConfig}
 	assert.Equal(t, "https://b.example.com", knownServerIssuer(both), "the pin wins over what the probe recorded: it is the key the grants are filed under (#1174)")
 }
+
+// A server outside muster's namespace on the issuer of muster's github
+// servers keeps its sign-in apart from theirs (D9, Q20): signing out of it
+// removes its own token, which the shared issuer would otherwise keep, and
+// leaves muster's servers connected; a subject-scoped tenant pin revokes only
+// the tenant's grant.
+func TestHandleAuthLogout_TenantServerOnASharedIssuer(t *testing.T) {
+	tenantKey := api.IssuerKey("org-a", logoutTestIssuer)
+	for _, subjectScoped := range []bool{false, true} {
+		f := newLogoutFixture(t, subjectScoped)
+		if subjectScoped {
+			f.handler.subjectScoped[tenantKey] = true
+		}
+		require.NoError(t, f.agg.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "org-a/github", ToolPrefix: "github"},
+			URL:                "https://tenant-github.example.com/mcp",
+			AuthInfo:           &AuthInfo{Issuer: logoutTestIssuer, Scope: "repo"},
+		}))
+		require.NoError(t, f.agg.authStore.MarkAuthenticated(context.Background(), logoutSessionA, "org-a/github"))
+
+		result := f.logout(t, logoutSessionA, logoutTestSubject, "org-a/github")
+		assert.False(t, result.IsError, resultText(result))
+
+		assert.Equal(t, []clearCall{{logoutSessionA, logoutTestSubject, tenantKey}}, f.handler.clearedForUser,
+			"subjectScoped=%v: the tenant's own token goes, under its key", subjectScoped)
+		assert.True(t, f.connected(t, logoutSessionA, "github"), "subjectScoped=%v", subjectScoped)
+		assert.True(t, f.connected(t, logoutSessionB, "github-pro"), "subjectScoped=%v", subjectScoped)
+		assert.NotContains(t, resultText(result), "disconnected as well")
+	}
+}

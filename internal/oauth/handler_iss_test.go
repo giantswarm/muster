@@ -126,7 +126,7 @@ func TestHandler_HandleCallback_IssValidation(t *testing.T) {
 				query.Set("iss", iss)
 			}
 
-			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/callback?"+query.Encode(), nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/proxy/callback?"+query.Encode(), nil)
 			recorder := httptest.NewRecorder()
 			handler.HandleCallback(recorder, request)
 
@@ -165,7 +165,7 @@ func TestHandler_HandleCallback_SendsResourceOnTokenRequest(t *testing.T) {
 		"state": {encodedState},
 		"iss":   {authServer.URL},
 	}
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/callback?"+query.Encode(), nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/proxy/callback?"+query.Encode(), nil)
 	recorder := httptest.NewRecorder()
 	handler.HandleCallback(recorder, request)
 
@@ -284,7 +284,7 @@ func TestHandler_HandleCallback_IssFallbackIgnoresTrailingSlash(t *testing.T) {
 				"state": {encodedState},
 				"iss":   {tc.iss},
 			}
-			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/callback?"+query.Encode(), nil)
+			request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/proxy/callback?"+query.Encode(), nil)
 			recorder := httptest.NewRecorder()
 			handler.HandleCallback(recorder, request)
 

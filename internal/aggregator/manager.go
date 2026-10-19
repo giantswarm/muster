@@ -85,6 +85,9 @@ func NewAggregatorManager(ctx context.Context, config AggregatorConfig, orchestr
 
 	// Initialize OAuth manager if enabled (OAuth MCP client/proxy for authenticating TO remote MCP servers)
 	if config.OAuth.Enabled {
+		if err := config.OAuth.ValidateNamespaceCallback(); err != nil {
+			return nil, err
+		}
 		var oauthOpts []oauth.ManagerOption
 		if vClient := manager.aggregatorServer.getValkeyClient(); vClient != nil {
 			keyPrefix := manager.aggregatorServer.getValkeyKeyPrefix()
@@ -579,7 +582,7 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 
 	var issuer, scope string
 	if serverInfo.AuthInfo != nil {
-		issuer = serverInfo.AuthInfo.Issuer
+		issuer = api.ServerIssuerKey(serverName, serverInfo.AuthInfo.Issuer)
 		scope = serverInfo.AuthInfo.Scope
 	}
 

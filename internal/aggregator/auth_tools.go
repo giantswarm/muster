@@ -298,14 +298,19 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	// stored for SSO forwarding and cannot be used for bearer authentication.
 	// For a subject-scoped issuer this also finds the grant another session
 	// of the same person completed, so the login connects without a browser.
-	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, authInfo.Issuer)
+	//
+	// Every store lookup and the challenge use the issuer key: for a server
+	// outside muster's namespace it carries the namespace, so no token, pin,
+	// registration or grant of another namespace is found.
+	issuerKey := api.ServerIssuerKey(serverName, authInfo.Issuer)
+	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, issuerKey)
 
 	if token != nil && token.AccessToken != "" {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
-			serverName, authInfo.Issuer)
+			serverName, issuerKey)
 
 		// Try to establish connection using the existing token
-		connectResult, connectErr := p.tryConnectWithToken(ctx, serverName, serverInfo.URL, authInfo.Issuer, authInfo.Scope, token.AccessToken)
+		connectResult, connectErr := p.tryConnectWithToken(ctx, serverName, serverInfo.URL, issuerKey, authInfo.Scope, token.AccessToken)
 		if connectErr == nil {
 			// Record success and reset rate limiter for this user
 			if p.aggregator.authMetrics != nil {
@@ -320,7 +325,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 		// Check if the error is a 401 - token is expired/invalid
 		if is401Error(connectErr) {
 			logging.Info("AuthTools", "Token for server %s is expired/invalid, clearing and requesting fresh auth", serverName)
-			api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, authInfo.Issuer)
+			api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, issuerKey)
 		} else {
 			// Some other error - report it
 			logging.Error("AuthTools", connectErr, "Failed to connect to server %s with existing token", serverName)
@@ -338,7 +343,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	}
 
 	// No token or token was cleared - need to create an auth challenge
-	resource, err := resourceIndicator(authInfo.Resource, serverInfo.URL)
+	resource, err := resourceIndicator(tenantResource(serverName, authInfo.Resource, serverInfo.URL), serverInfo.URL)
 	if err != nil {
 		logging.Error("AuthTools", err, "Cannot build an auth challenge for server %s", serverName)
 		return &api.CallToolResult{
@@ -351,7 +356,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 		SessionID:               sessionID,
 		UserID:                  sub,
 		ServerName:              serverName,
-		Issuer:                  authInfo.Issuer,
+		Issuer:                  issuerKey,
 		Resource:                resource,
 		Scope:                   authInfo.Scope,
 		ResetClientRegistration: resetClientRegistration,
@@ -385,6 +390,22 @@ func needsResourceMetadata(authInfo *AuthInfo, serverURL string) bool {
 		return false
 	}
 	return authInfo.Issuer == "" || authInfo.Scope == "" || authInfo.Resource == ""
+}
+
+// tenantResource returns the resource a server declared, or "" when the
+// server is outside muster's namespace and the declared resource is not on
+// its own origin: a tenant server's declaration is always checked, whatever
+// document it came from, so its sign-in never gets a token bound to another
+// server. resourceIndicator then derives the resource from the server's URL.
+func tenantResource(serverName, declared, serverURL string) string {
+	if declared == "" || !api.IsTenantMCPServerKey(serverName) {
+		return declared
+	}
+	if err := pkgoauth.ValidateAdvertisedResource(declared, serverURL); err != nil {
+		logging.Warn("AuthTools", "Dropping the resource declared by %s, a server outside muster's namespace: %v", serverName, err)
+		return ""
+	}
+	return declared
 }
 
 // resourceIndicator returns the RFC 8707 `resource` value for a backend, or an
@@ -625,15 +646,17 @@ func (p *AuthToolProvider) isIssuerExclusiveToServer(sessionID, serverName, issu
 // (spec.auth.authorizationServer.issuer) when there is one -- the key the
 // server's grants are filed under, whatever the endpoint advertises -- else
 // what the 401 probe or a login recorded in AuthInfo. Empty when neither says.
+// It is the issuer key (api.ServerIssuerKey), so two servers share an issuer
+// here only when they are in the same namespace.
 func knownServerIssuer(info *ServerInfo) string {
 	if info == nil {
 		return ""
 	}
 	if as := authorizationServerOf(info.AuthConfig); as != nil {
-		return strings.TrimSuffix(as.Issuer, "/")
+		return api.ServerIssuerKey(info.Name, strings.TrimSuffix(as.Issuer, "/"))
 	}
 	if info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
-		return info.AuthInfo.Issuer
+		return api.ServerIssuerKey(info.Name, info.AuthInfo.Issuer)
 	}
 	return ""
 }
@@ -654,7 +677,7 @@ func (p *AuthToolProvider) resolveServerIssuer(ctx context.Context, info *Server
 		logging.Debug("AuthTools", "Cannot resolve the issuer of %s for logout: %v", info.Name, err)
 		return ""
 	}
-	return metadata.Issuer
+	return api.ServerIssuerKey(info.Name, metadata.Issuer)
 }
 
 // is401Error checks if an error indicates a 401 Unauthorized response

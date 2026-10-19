@@ -85,32 +85,69 @@ func NewClient(opts ...ClientOption) *Client {
 // It tries RFC 8414 (/.well-known/oauth-authorization-server) first,
 // then falls back to OpenID Connect (/.well-known/openid-configuration).
 //
-// Results are cached with a TTL to reduce network requests.
+// Results are cached with a TTL to reduce network requests. Metadata pinned
+// for the issuer (PinMetadata) answers instead of the network.
 func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*Metadata, error) {
+	return c.discoverMetadata(ctx, issuer, true)
+}
+
+// DiscoverPublishedMetadata is DiscoverMetadata without the pins: it answers
+// only with what the authorization server publishes itself. A caller whose
+// pins are filed under another key (PinnedMetadata) uses it, so a pin made
+// for the plain issuer never stands in for that caller's discovery.
+func (c *Client) DiscoverPublishedMetadata(ctx context.Context, issuer string) (*Metadata, error) {
+	return c.discoverMetadata(ctx, issuer, false)
+}
+
+// PinnedMetadata returns the metadata pinned under key (PinMetadata), or nil.
+func (c *Client) PinnedMetadata(key string) *Metadata {
+	key = strings.TrimSuffix(key, "/")
+	c.metadataMu.RLock()
+	defer c.metadataMu.RUnlock()
+	if entry, ok := c.metadataCache[key]; ok && entry.pinned {
+		return entry.metadata
+	}
+	return nil
+}
+
+func (c *Client) discoverMetadata(ctx context.Context, issuer string, usePinned bool) (*Metadata, error) {
 	issuer = strings.TrimSuffix(issuer, "/")
 
-	// Check cache first with read lock
-	c.metadataMu.RLock()
-	if entry, ok := c.metadataCache[issuer]; ok {
-		if entry.pinned || time.Since(entry.fetchedAt) < c.metadataTTL {
-			c.metadataMu.RUnlock()
-			return entry.metadata, nil
-		}
-	}
-	c.metadataMu.RUnlock()
-
-	// Use singleflight to deduplicate concurrent fetches
-	result, err, _ := c.metadataGroup.Do(issuer, func() (interface{}, error) {
-		// Double-check cache after acquiring singleflight lock
+	cached := func() *Metadata {
 		c.metadataMu.RLock()
-		if entry, ok := c.metadataCache[issuer]; ok {
-			if entry.pinned || time.Since(entry.fetchedAt) < c.metadataTTL {
-				c.metadataMu.RUnlock()
-				return entry.metadata, nil
-			}
+		defer c.metadataMu.RUnlock()
+		entry, ok := c.metadataCache[issuer]
+		if !ok {
+			return nil
 		}
-		c.metadataMu.RUnlock()
+		if entry.pinned {
+			if usePinned {
+				return entry.metadata
+			}
+			return nil
+		}
+		if time.Since(entry.fetchedAt) < c.metadataTTL {
+			return entry.metadata
+		}
+		return nil
+	}
 
+	// Check cache first with read lock
+	if metadata := cached(); metadata != nil {
+		return metadata, nil
+	}
+
+	// Use singleflight to deduplicate concurrent fetches. A flight that may
+	// answer from a pin is not shared with one that may not.
+	flight := issuer
+	if !usePinned {
+		flight = "published|" + issuer
+	}
+	result, err, _ := c.metadataGroup.Do(flight, func() (interface{}, error) {
+		// Double-check cache after acquiring singleflight lock
+		if metadata := cached(); metadata != nil {
+			return metadata, nil
+		}
 		return c.doDiscoverMetadata(ctx, issuer)
 	})
 

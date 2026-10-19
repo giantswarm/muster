@@ -38,6 +38,10 @@ func holdsSubjectGrants(info *ServerInfo) bool {
 // restart the registry entry carries only the pin; a session already
 // authenticated to the server -- its mark and grant persisted -- must still
 // be able to build a connection from it.
+//
+// The issuer is the issuer key (api.ServerIssuerKey): for a server outside
+// muster's namespace it carries the namespace, so its tokens are never found
+// under another namespace's issuer.
 func sessionOAuthIssuer(info *ServerInfo) (issuer, scope string) {
 	if info == nil {
 		return "", ""
@@ -45,17 +49,16 @@ func sessionOAuthIssuer(info *ServerInfo) (issuer, scope string) {
 	if info.AuthInfo != nil {
 		issuer, scope = info.AuthInfo.Issuer, info.AuthInfo.Scope
 	}
-	if info.AuthConfig == nil || info.AuthConfig.AuthorizationServer == nil {
-		return issuer, scope
+	if info.AuthConfig != nil && info.AuthConfig.AuthorizationServer != nil {
+		as := info.AuthConfig.AuthorizationServer
+		if issuer == "" {
+			issuer = strings.TrimSuffix(as.Issuer, "/")
+		}
+		if scope == "" {
+			scope = as.Scopes
+		}
 	}
-	as := info.AuthConfig.AuthorizationServer
-	if issuer == "" {
-		issuer = strings.TrimSuffix(as.Issuer, "/")
-	}
-	if scope == "" {
-		scope = as.Scopes
-	}
-	return issuer, scope
+	return api.ServerIssuerKey(info.Name, issuer), scope
 }
 
 // adoptSubjectGrant connects sessionID to the server with the grant the

@@ -2,11 +2,13 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 	"sync"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
@@ -42,6 +44,16 @@ const (
 	// rejection so front-ends can show the real reason instead of claiming
 	// the AS supports neither mechanism.
 	ClientIDMethodDCRFailed = "dcr-failed"
+)
+
+// ClientIDMethodNone marks a flow of a server outside muster's namespace that
+// has no client: no pin with a client and no registration of its own. muster
+// does not lend it its CIMD client, so the flow is refused.
+const ClientIDMethodNone = "none"
+
+var (
+	errTenantNoClient  = errors.New("a server outside muster's namespace signs in with its own pin (spec.auth.authorizationServer.clientCredentialsSecretRef) or with a dynamic client registration, and this authorization server offers neither")
+	errTenantPinIsCIMD = errors.New("a server outside muster's namespace may not pin muster's own client ID metadata document URL as its client")
 )
 
 // ClientIDMethodPreregistered marks a client the operator registered with
@@ -173,9 +185,46 @@ func (c *Client) GetStateStore() StateStorer {
 	return c.stateStore
 }
 
-// GetRedirectURI returns the full redirect URI for OAuth callbacks.
+// GetRedirectURI returns the full redirect URI for OAuth callbacks of the
+// servers in muster's namespace.
 func (c *Client) GetRedirectURI() string {
 	return strings.TrimSuffix(c.publicURL, "/") + c.callbackPath
+}
+
+// redirectURIFor returns the redirect URI of the flows filed under an issuer
+// key (api.IssuerKey): the plain callback for muster's namespace, and the
+// namespace's own callback for a server outside it. The callback accepts a
+// flow only on the redirect URI of the flow's namespace.
+func (c *Client) redirectURIFor(issuerKey string) string {
+	namespace, _ := api.SplitIssuerKey(issuerKey)
+	if namespace == "" {
+		return c.GetRedirectURI()
+	}
+	return strings.TrimSuffix(c.publicURL, "/") + config.OAuthProxyNamespaceCallbackPath(namespace)
+}
+
+// callbackPathFor returns the path of redirectURIFor.
+func (c *Client) callbackPathFor(issuerKey string) string {
+	namespace, _ := api.SplitIssuerKey(issuerKey)
+	if namespace == "" {
+		return c.callbackPath
+	}
+	return config.OAuthProxyNamespaceCallbackPath(namespace)
+}
+
+// discoverMetadata returns the authorization server metadata for an issuer
+// key. For muster's namespace the key is the issuer and a pin made for it
+// answers, as before. For a server outside it only the pin filed under the
+// key answers; otherwise the metadata comes from the plain issuer's own
+// discovery document, never from a pin of muster's namespace.
+func (c *Client) discoverMetadata(ctx context.Context, issuerKey string) (*pkgoauth.Metadata, error) {
+	if !api.IsTenantIssuerKey(issuerKey) {
+		return c.oauthClient.DiscoverMetadata(ctx, issuerKey)
+	}
+	if metadata := c.oauthClient.PinnedMetadata(issuerKey); metadata != nil {
+		return metadata, nil
+	}
+	return c.oauthClient.DiscoverPublishedMetadata(ctx, api.IssuerURL(issuerKey))
 }
 
 // GetCIMDURL returns the URL where the Client ID Metadata Document is served.
@@ -323,13 +372,20 @@ func (c *Client) DeleteByIssuerForUser(sessionID, userID, issuer string) {
 // being completed (code exchange, token refresh) uses the stored credentials
 // as they are: they are the identification the flow started with.
 func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkgoauth.Metadata, allowRegistration bool) *resolvedClient {
+	tenant := api.IsTenantIssuerKey(issuer)
+
 	// An operator-registered client wins over every discovered mechanism:
 	// it exists precisely because the AS accepts nothing else.
 	if pin := c.issuerPin(issuer); pin != nil && pin.ClientID != "" {
+		if tenant && pin.ClientID == c.clientID {
+			return &resolvedClient{Method: ClientIDMethodNone, RegistrationError: errTenantPinIsCIMD}
+		}
 		return &resolvedClient{ClientID: pin.ClientID, ClientSecret: pin.ClientSecret, Method: ClientIDMethodPreregistered}
 	}
 
-	if metadata.ClientIDMetadataDocumentSupported {
+	// muster's one CIMD client is for the servers of muster's namespace. A
+	// server outside it signs in with its own pin or its own registration.
+	if metadata.ClientIDMetadataDocumentSupported && !tenant {
 		return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodCIMD}
 	}
 
@@ -365,6 +421,9 @@ func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkg
 		}
 	}
 
+	if tenant {
+		return &resolvedClient{Method: ClientIDMethodNone, RegistrationError: errTenantNoClient}
+	}
 	return &resolvedClient{ClientID: c.clientID, Method: ClientIDMethodCIMDFallback}
 }
 
@@ -377,7 +436,7 @@ func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkg
 // same RFC 8707 value as the authorization request.
 func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams) (string, *resolvedClient, error) {
 	issuer := params.Issuer
-	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
+	metadata, err := c.discoverMetadata(ctx, issuer)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
@@ -393,6 +452,9 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 	// Resolve the client identification for this issuer, registering via
 	// RFC 7591 when the AS supports DCR but not CIMD.
 	resolved := c.resolveClient(ctx, issuer, metadata, true)
+	if resolved.Method == ClientIDMethodNone {
+		return "", nil, fmt.Errorf("authorization server %q: %w", api.IssuerURL(issuer), resolved.RegistrationError)
+	}
 
 	pkce, err := pkgoauth.GeneratePKCE()
 	if err != nil {
@@ -418,7 +480,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 			return c.oauthClient.BuildAuthorizationURL(pkgoauth.AuthorizationRequest{
 				AuthorizationEndpoint: metadata.AuthorizationEndpoint,
 				ClientID:              resolved.ClientID,
-				RedirectURI:           c.GetRedirectURI(),
+				RedirectURI:           c.redirectURIFor(issuer),
 				State:                 encodedState,
 				Scope:                 params.Scope,
 				Resource:              params.Resource,
@@ -457,7 +519,7 @@ func (c *Client) GetStartURL(encodedState string) string {
 // the next sign-in registers muster again instead of failing the same way.
 func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, resource, requestedScope string) (*pkgoauth.Token, error) {
 	// Fetch OAuth metadata using shared client
-	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
+	metadata, err := c.discoverMetadata(ctx, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
@@ -466,13 +528,17 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, r
 	// Registration is not attempted here: any DCR registration happened in
 	// GenerateAuthURL, and its credentials are read back from the store.
 	resolved := c.resolveClient(ctx, issuer, metadata, false)
+	if resolved.Method == ClientIDMethodNone {
+		return nil, fmt.Errorf("authorization server %q: %w", api.IssuerURL(issuer), resolved.RegistrationError)
+	}
 
-	// Exchange code using shared client
+	// Exchange code using shared client. RFC 6749 §4.1.3: the same
+	// redirect_uri as the authorization request.
 	token, err := c.oauthClient.ExchangeCode(
 		ctx,
 		metadata.TokenEndpoint,
 		code,
-		c.GetRedirectURI(),
+		c.redirectURIFor(issuer),
 		resolved.ClientID,
 		resolved.ClientSecret,
 		codeVerifier,
@@ -541,8 +607,8 @@ func (c *Client) GetClientMetadata() *pkgoauth.ClientMetadata {
 	}
 }
 
-// DiscoverMetadata fetches OAuth metadata for an issuer.
+// DiscoverMetadata fetches OAuth metadata for an issuer key (api.IssuerKey).
 // This is exposed for external access to metadata discovery.
 func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*pkgoauth.Metadata, error) {
-	return c.oauthClient.DiscoverMetadata(ctx, issuer)
+	return c.discoverMetadata(ctx, issuer)
 }
