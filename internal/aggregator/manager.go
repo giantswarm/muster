@@ -366,6 +366,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 	toolPrefix, _ := serviceData["toolPrefix"].(string)
 	family, _ := serviceData["family"].(*api.MCPServerFamily)
 	namespace, _ := serviceData["namespace"].(string)
+	uid, _ := serviceData[api.ServiceDataUID].(string)
 	timeout, _ := serviceData["timeout"].(time.Duration)
 	maxCallDuration, _ := serviceData["maxCallDuration"].(time.Duration)
 
@@ -382,6 +383,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 	registration := ServerRegistration{
 		Name:            serverName,
 		Namespace:       namespace,
+		UID:             uid,
 		ToolPrefix:      toolPrefix,
 		Family:          family,
 		Timeout:         timeout,
@@ -425,6 +427,13 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 		previousHeaders = previous.Headers
 		previousHeadersFrom = previous.HeadersFrom
 		previouslyRegistered = true
+	}
+
+	adoptCtx, cancelAdopt := context.WithTimeout(context.Background(), tenantForgetTimeout)
+	err := am.aggregatorServer.adoptTenantServer(adoptCtx, registration.ServerRegistration, pendingIssuerKeys(registration))
+	cancelAdopt()
+	if err != nil {
+		return err
 	}
 
 	if err := am.aggregatorServer.GetRegistry().RegisterPendingAuth(registration); err != nil {
@@ -864,6 +873,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 	toolPrefix, _ := serviceData["toolPrefix"].(string)
 	family, _ := serviceData["family"].(*api.MCPServerFamily)
 	namespace, _ := serviceData["namespace"].(string)
+	uid, _ := serviceData[api.ServiceDataUID].(string)
 	meta, _ := serviceData["meta"].(map[string]string)
 	headers, _ := serviceData["headers"].(map[string]string)
 	headersFrom, _ := serviceData["headersFrom"].([]api.MCPServerHeaderFrom)
@@ -881,6 +891,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 		ServerRegistration: ServerRegistration{
 			Name:            service.GetName(),
 			Namespace:       namespace,
+			UID:             uid,
 			ToolPrefix:      toolPrefix,
 			Family:          family,
 			Timeout:         timeout,

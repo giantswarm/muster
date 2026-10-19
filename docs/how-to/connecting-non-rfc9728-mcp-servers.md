@@ -370,6 +370,57 @@ keeps its stored sign-ins.
   person's sign-in across the Dev Portal, Slack and agents, also with only
   `issuer` and a dynamic registration. Without it, the person signs in once per
   muster session.
+- **Its client Secret, readable by muster by name only.** The pin's
+  `clientCredentialsSecretRef` names a Secret in the server's own namespace.
+  The muster chart gives muster's ServiceAccount no read there, and must not:
+  `rbac.additionalSecretNamespaces` would give it every Secret of the
+  namespace. Declare, with the server, a Role that gives muster `get` on that
+  one Secret, and its RoleBinding:
+
+  ```yaml
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: Role
+  metadata:
+    name: muster-read-hubspot-client
+    namespace: org-sales
+  rules:
+    - apiGroups: [""]
+      resources: [secrets]
+      verbs: [get]
+      resourceNames: [hubspot-client]
+  ---
+  apiVersion: rbac.authorization.k8s.io/v1
+  kind: RoleBinding
+  metadata:
+    name: muster-read-hubspot-client
+    namespace: org-sales
+  roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: Role
+    name: muster-read-hubspot-client
+  subjects:
+    - kind: ServiceAccount
+      name: muster            # muster's ServiceAccount
+      namespace: muster       # muster's namespace
+  ```
+
+  muster reads the Secret with one `get` by name, with no cache, so it needs no
+  `list` or `watch`. Without the Role, `core_auth_login` answers that the
+  server's sign-in is not ready, names the Secret and says which Role is
+  missing; the listings still show the server.
+- **Its sign-ins go with it.** When the namespace's last server is deleted, or
+  the namespace goes, muster forgets everything it stored for the namespace:
+  the people's tokens and subject grants, the client registrations, the flows
+  in progress and the sessions' sign-in marks. When a server is deleted and
+  others stay, the issuers that only it named are forgotten. A server that
+  appears later in a namespace of the same name starts with nothing, also when
+  muster was down while the old namespace went: muster records the
+  Kubernetes UIDs of the servers that own a namespace's sign-ins, and before a
+  server with an unknown UID registers in a namespace none of whose recorded
+  servers exists any more, it forgets the namespace's sign-ins. A restart
+  signs nobody out. The first time a tenant server registers after the
+  upgrade to this version, its namespace's sign-ins from before are forgotten
+  once.
 
 ## When not to use this
 

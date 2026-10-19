@@ -218,17 +218,20 @@ func TestGetServiceData(t *testing.T) {
 
 // TestGetServiceData_Namespace: the aggregator manager registers servers from
 // service data, so the definition's namespace has to travel with it or the
-// registry entry falls back to "default".
+// registry entry falls back to "default", and so does its UID, without which
+// a tenant server is not registered.
 func TestGetServiceData_Namespace(t *testing.T) {
 	svc, err := NewService(&api.MCPServer{
 		Name:      "github",
 		Namespace: "agent-platform",
+		UID:       "uid-1",
 		Type:      api.MCPServerTypeStreamableHTTP,
 		URL:       "https://api.githubcopilot.com/mcp/",
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, "agent-platform", svc.GetServiceData()["namespace"])
+	assert.Equal(t, "uid-1", svc.GetServiceData()[api.ServiceDataUID])
 }
 
 // TestConfigurationChanged verifies that ConfigurationChanged correctly detects

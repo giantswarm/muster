@@ -204,6 +204,11 @@ func (a *Adapter) UnpinIssuer(issuer string) {
 	a.manager.UnpinIssuer(issuer)
 }
 
+// ForgetTenantIssuers implements api.TenantIssuerForgetter.
+func (a *Adapter) ForgetTenantIssuers(ctx context.Context, namespace string, issuerKeys []string) error {
+	return a.manager.ForgetTenantIssuers(ctx, namespace, issuerKeys)
+}
+
 // GetFullTokenByIssuerForUser implements api.SubjectGrantHandler.
 func (a *Adapter) GetFullTokenByIssuerForUser(sessionID, userID, issuer string) *api.OAuthToken {
 	return fullTokenToAPIToken(a.manager.GetTokenByIssuerForUser(sessionID, userID, issuer))
@@ -346,3 +351,4 @@ var _ api.OAuthHandler = (*Adapter)(nil)
 
 // Ensure Adapter can probe a token exchange's token endpoint
 var _ api.TokenEndpointProber = (*Adapter)(nil)
+var _ api.TenantIssuerForgetter = (*Adapter)(nil)

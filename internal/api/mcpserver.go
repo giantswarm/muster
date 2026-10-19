@@ -28,6 +28,13 @@ type MCPServer struct {
 	// Runtime information taken from the resource's metadata, not persisted.
 	Namespace string `yaml:"-" json:"-"`
 
+	// UID is the Kubernetes UID of the MCPServer resource. A server outside
+	// muster's namespace is told apart from an earlier one of the same name
+	// (a namespace deleted and created again) by it, so it never gets that
+	// one's sign-ins. Empty in filesystem mode. Runtime information taken
+	// from the resource's metadata, not persisted.
+	UID string `yaml:"-" json:"-"`
+
 	// Type specifies how this MCP server should be executed.
 	// Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events
 	Type MCPServerType `yaml:"type" json:"type"`
@@ -450,6 +457,7 @@ func (i MCPServerInfo) ToMCPServer() *MCPServer {
 	return &MCPServer{
 		Name:        i.ServerKey(),
 		Namespace:   i.Namespace,
+		UID:         i.UID,
 		Type:        MCPServerType(i.Type),
 		Description: i.Description,
 		ToolPrefix:  i.ToolPrefix,
@@ -689,6 +697,10 @@ type MCPServerInfo struct {
 	// core_service_*, core_mcpserver_get and core_auth_* tools take the key.
 	Key string `json:"key,omitempty"`
 
+	// UID is the Kubernetes UID of the MCPServer resource (see
+	// MCPServer.UID). Empty in filesystem mode.
+	UID string `json:"-"`
+
 	// Labels mirrors the MCPServer resource's metadata.labels in both storage
 	// modes. Toolset presets select servers by label (label: rules, #1168) —
 	// notably agent-platform.giantswarm.io/tool-group — and read this live.
@@ -899,3 +911,7 @@ type MCPServerLifecycleAsCaller interface {
 	StopMCPServerAsCaller(ctx context.Context, name string) (result *CallToolResult, handled bool, err error)
 	RestartMCPServerAsCaller(ctx context.Context, name string) (result *CallToolResult, handled bool, err error)
 }
+
+// ServiceDataUID is the service data key of an MCPServer service's
+// Kubernetes UID (MCPServer.UID), absent in filesystem mode.
+const ServiceDataUID = "uid"

@@ -14,7 +14,8 @@ import (
 // TestHandleAuthRequiredServer_CarriesNamespace: the pending-auth registration
 // the 401 hook files carries the MCPServer's namespace, so the aggregator's
 // entry — and every Secret read that defaults to it — names the resource's own
-// namespace rather than "default".
+// namespace rather than "default", and its UID, which the aggregator tells a
+// tenant server apart from an earlier one of the same name by.
 func TestHandleAuthRequiredServer_CarriesNamespace(t *testing.T) {
 	stub := &stubAggregator{}
 	swapAggregatorHandler(t, stub)
@@ -23,6 +24,7 @@ func TestHandleAuthRequiredServer_CarriesNamespace(t *testing.T) {
 	o.handleAuthRequiredServer(&api.MCPServer{
 		Name:      "github",
 		Namespace: "agent-platform",
+		UID:       "uid-1",
 		Type:      api.MCPServerTypeStreamableHTTP,
 		URL:       "https://api.githubcopilot.com/mcp/",
 		Auth:      &api.MCPServerAuth{Type: "oauth"},
@@ -32,5 +34,6 @@ func TestHandleAuthRequiredServer_CarriesNamespace(t *testing.T) {
 	require.Len(t, registrations, 1)
 	assert.Equal(t, "github", registrations[0].Name)
 	assert.Equal(t, "agent-platform", registrations[0].Namespace)
+	assert.Equal(t, "uid-1", registrations[0].UID)
 	assert.Equal(t, "https://api.githubcopilot.com/mcp/", registrations[0].URL)
 }

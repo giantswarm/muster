@@ -148,6 +148,16 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	// Get server info from registry
 	serverInfo, exists := p.aggregator.registry.GetServerInfo(serverName)
 	view := api.CallerVisibility(ctx)
+	if !exists && view.Sees(serverName) && api.IsTenantMCPServerKey(serverName) {
+		// Listed (its definition exists) but not registered yet: say why
+		// rather than "not found".
+		if reason := tenantSignInNotReady(ctx, serverName); reason != nil {
+			if p.aggregator.authMetrics != nil {
+				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "signin_not_ready")
+			}
+			return &api.CallToolResult{Content: []any{signInNotReadyMessage(serverName, reason)}, IsError: true}
+		}
+	}
 	if !exists || !view.Sees(serverName) {
 		// A server the caller may not see gets the answer of a missing one.
 		return &api.CallToolResult{
@@ -270,8 +280,12 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 		if p.aggregator.authMetrics != nil {
 			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "authorization_server_pin_failed")
 		}
+		message := fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)
+		if api.IsTenantMCPServerKey(serverName) {
+			message = signInNotReadyMessage(serverName, err)
+		}
 		return &api.CallToolResult{
-			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
+			Content: []any{message},
 			IsError: true,
 		}
 	}

@@ -154,6 +154,10 @@ type PendingAuthRegistration struct {
 	// namespace its events are filed under. Empty in filesystem mode.
 	Namespace string
 
+	// UID is the Kubernetes UID of the MCPServer resource (MCPServer.UID).
+	// Empty in filesystem mode.
+	UID string
+
 	// URL is the remote server endpoint.
 	URL string
 

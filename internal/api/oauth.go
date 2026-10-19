@@ -165,6 +165,18 @@ type IssuerPinner interface {
 	UnpinIssuer(issuer string)
 }
 
+// TenantIssuerForgetter is implemented by an OAuthHandler whose stored state
+// can be forgotten per organization namespace: the people's tokens and
+// subject grants, the client registrations and the flows in progress filed
+// under the namespace's issuer keys (IssuerKey). Kept separate from
+// OAuthHandler for the same reason as IssuerPinner.
+type TenantIssuerForgetter interface {
+	// ForgetTenantIssuers removes the state filed under issuerKeys, or under
+	// every issuer key of the namespace when issuerKeys is empty. An empty
+	// namespace (muster's own) forgets nothing.
+	ForgetTenantIssuers(ctx context.Context, namespace string, issuerKeys []string) error
+}
+
 // SubjectGrantHandler is implemented by an OAuthHandler that files
 // subject-scoped grants under the person's identity in addition to the
 // session, so lookups can fall back to them.

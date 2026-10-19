@@ -1,6 +1,7 @@
 package oauth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -45,6 +46,9 @@ type StateStorer interface {
 
 	// Delete removes a state entry by nonce.
 	Delete(nonce string)
+
+	// DeleteIssuers removes the flows whose issuer key matches.
+	DeleteIssuers(ctx context.Context, match func(issuer string) bool) error
 
 	// Stop releases resources (background goroutines, connections, etc.).
 	Stop()

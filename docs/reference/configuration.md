@@ -62,7 +62,7 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer and Workflow CRs: muster's namespace |
-| `mcpServersInAllNamespaces` | `bool` | `false` | In Kubernetes mode, watch MCPServer CRs of every namespace and serve those of `namespace` and of the organization namespaces (names that start with `org-`); a server in any other namespace is not served. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family` or `auth.type: sigv4`. In `namespace`, a server name or `toolPrefix` may not start with `org-`. Such a server signs in through `/oauth/ns/<namespace>/callback` with a client of its own namespace, and its sign-in is filed under its namespace and issuer ([Servers outside muster's namespace](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)). A person sees a server only when Kubernetes RBAC lets them `list` `mcpservers.muster.giantswarm.io` in its namespace, `namespace` included ([Who sees which MCP server](#who-sees-which-mcp-server)). Needs `aggregator.oauth.server` with the `dex` provider; muster refuses to start otherwise. Helm: `muster.mcpServersInAllNamespaces`. |
+| `mcpServersInAllNamespaces` | `bool` | `false` | In Kubernetes mode, watch MCPServer CRs of every namespace and serve those of `namespace` and of the organization namespaces (names that start with `org-`); a server in any other namespace is not served. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family` or `auth.type: sigv4`. In `namespace`, a server name or `toolPrefix` may not start with `org-`. Such a server signs in through `/oauth/ns/<namespace>/callback` with a client of its own namespace, and its sign-in is filed under its namespace and issuer and goes when the namespace's servers go; its pin's client Secret is read through a Role in its namespace with `get` on that Secret alone ([Servers outside muster's namespace](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)). A person sees a server only when Kubernetes RBAC lets them `list` `mcpservers.muster.giantswarm.io` in its namespace, `namespace` included ([Who sees which MCP server](#who-sees-which-mcp-server)). Needs `aggregator.oauth.server` with the `dex` provider; muster refuses to start otherwise. Helm: `muster.mcpServersInAllNamespaces`. |
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage and requires the apiserver: if the Kubernetes client cannot be created at startup (apiserver unreachable, muster CRDs not installed), `muster serve` retries for about half a minute and then exits with an error instead of falling back to the filesystem, so the kubelet restarts it. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
@@ -96,6 +96,15 @@ gets no new right.
   again once.
 - Using a server still needs the server's own authorization: a sign-in, or SSO
   for a server in `namespace`.
+- A server outside `namespace` that the caller sees but whose sign-in cannot
+  start yet (muster may not read its pin's client Secret, or has not connected
+  to it) is answered by `core_auth_login` with "the server's sign-in is not
+  ready" and the reason, not as a missing server. muster reads such a Secret
+  only through a Role in the server's namespace that gives its ServiceAccount
+  `get` on that Secret alone ([Its client Secret](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)).
+- The sign-ins of such a server go with its namespace's servers: a server that
+  appears later in a namespace of the same name starts with none of the old
+  namespace's tokens, grants, client registrations or flows.
 
 ### Toolset Presets
 
