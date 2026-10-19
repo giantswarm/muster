@@ -61,7 +61,8 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer and Workflow CRs |
+| `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer and Workflow CRs: muster's namespace |
+| `mcpServersInAllNamespaces` | `bool` | `false` | In Kubernetes mode, watch and serve MCPServer CRs of every namespace, not only of `namespace`. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family` or `auth.type: sigv4`. In `namespace`, a server name or `toolPrefix` may not start with `org-`. Leave it off until muster keeps a tenant server's sign-in in its namespace ([#1493](https://github.com/giantswarm/muster/issues/1493)) and lists servers as the caller ([#1494](https://github.com/giantswarm/muster/issues/1494)). |
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage and requires the apiserver: if the Kubernetes client cannot be created at startup (apiserver unreachable, muster CRDs not installed), `muster serve` retries for about half a minute and then exits with an error instead of falling back to the filesystem, so the kubelet restarts it. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
@@ -143,7 +144,8 @@ The data path stays the gateway's; muster only answers whose token, and only to 
 - **FetchSecret.** On its own gRPC port, muster serves `CredentialProvider.FetchSecret` over
   mutual TLS and answers only a client certificate that chains to `clientCAFile` and names
   `gatewayIdentity`. For `ate-secret://<authority>/<provider>/git` it answers
-  `base64("x-access-token:<token>")` (the gateway's rule adds `Basic `), for
+  `base64("<user>:<token>")` (the gateway's rule adds `Basic `), `<user>` the provider's
+  `gitUsers` entry or `x-access-token`, GitHub's; a GitLab instance sets `oauth2`, for
   `.../<provider>/api` the token itself (the rule adds `Bearer `), when the actor is bound,
   the provider is in its binding and listed in `releasable`, and the person holds the grant.
   Anything else is refused (`PERMISSION_DENIED`, or `NOT_FOUND` without a grant). Only the
@@ -185,6 +187,9 @@ aggregator:
     bindingTTL: 336h                 # default: 14 days, the Session idle TTL
     releasable:                      # provider instance -> grant issuer (grantScope: subject)
       github: https://github.com/apps/my-workspaces-app
+      gitlab: https://gitlab.example.com
+    gitUsers:                        # releasable instance -> git user name (default: x-access-token)
+      gitlab: oauth2                 # GitLab accepts an OAuth token over git only as oauth2
     actorBearer:
       enabled: true                  # default: false
       issuer: https://idp.substrate.svc   # ate-api's --actor-jwt-issuer

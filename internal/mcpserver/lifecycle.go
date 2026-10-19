@@ -69,8 +69,14 @@ func (a *Adapter) lifecycleTarget(ctx context.Context, name string) (*musterv1al
 	}
 
 	// The read stays on the SA client — only the spec mutation itself switches
-	// to the caller's identity, same as create/update/delete.
-	existing, err := a.client.GetMCPServer(ctx, name, a.namespace)
+	// to the caller's identity, same as create/update/delete. name is the
+	// server's key: "<namespace>/<name>" for a server outside muster's
+	// namespace.
+	namespace, objectName, ok := a.object(name)
+	if !ok {
+		return nil, api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to look up MCP server"), true
+	}
+	existing, err := a.client.GetMCPServer(ctx, objectName, namespace)
 	if err != nil {
 		// Fail closed on every lookup error, NotFound included: MCPServer and
 		// unknown names must not reach the imperative path with muster's
@@ -95,12 +101,16 @@ func (a *Adapter) commitLifecycleWrite(ctx context.Context, existing *musterv1al
 		return gateResult, nil
 	}
 
-	name := existing.Name
+	objectName, namespace := existing.Name, existing.Namespace
+	if namespace == "" {
+		namespace = a.namespace
+	}
+	name := api.MCPServerKey(namespace, objectName, a.namespace)
 	mutate(existing)
 	err := writer.UpdateMCPServer(ctx, existing)
 	if errors.IsConflict(err) {
 		err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
-			fresh, getErr := a.client.GetMCPServer(ctx, name, a.namespace)
+			fresh, getErr := a.client.GetMCPServer(ctx, objectName, namespace)
 			if getErr != nil {
 				return getErr
 			}

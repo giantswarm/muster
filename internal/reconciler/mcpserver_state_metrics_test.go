@@ -42,6 +42,9 @@ func newMetricHarness(t *testing.T) *metricHarness {
 	manager := NewMockMCPServerManager()
 	registry := NewMockServiceRegistry()
 	reconciler := NewMCPServerReconciler(NewMockOrchestratorAPI(), manager, registry)
+	// muster's namespace: the requests below name it, so the servers are
+	// muster's own and keyed by their bare names.
+	reconciler.Namespace = "muster-test"
 
 	// Swap the constructor's global-meter instruments for ones on the private
 	// provider, releasing the global callback registration first.

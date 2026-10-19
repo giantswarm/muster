@@ -37,6 +37,10 @@ type KubernetesDetector struct {
 	// namespace is the Kubernetes namespace to watch (empty for all namespaces)
 	namespace string
 
+	// mcpServersInAllNamespaces widens the watch of MCPServer objects to every
+	// namespace; the other types stay in namespace.
+	mcpServersInAllNamespaces bool
+
 	// cache is the controller-runtime cache for watching resources
 	cache cache.Cache
 
@@ -117,18 +121,8 @@ func (d *KubernetesDetector) Start(ctx context.Context, changes chan<- ChangeEve
 	d.running = true
 	d.mu.Unlock()
 
-	// Create cache options
-	cacheOpts := cache.Options{
-		Scheme: d.scheme,
-	}
-	if d.namespace != "" {
-		cacheOpts.DefaultNamespaces = map[string]cache.Config{
-			d.namespace: {},
-		}
-	}
-
 	// Create the cache
-	c, err := cache.New(d.restConfig, cacheOpts)
+	c, err := cache.New(d.restConfig, d.cacheOptions())
 	if err != nil {
 		d.mu.Lock()
 		d.running = false
@@ -168,6 +162,37 @@ func (d *KubernetesDetector) Start(ctx context.Context, changes chan<- ChangeEve
 	d.mu.RUnlock()
 	logging.Info("KubernetesDetector", "Started watching Kubernetes resources in namespace: %s (%d informers)", d.namespaceDisplay(), informers)
 	return nil
+}
+
+// WatchMCPServersInAllNamespaces widens the watch of MCPServer objects to
+// every namespace. Workflow objects stay in the detector's namespace. Call it
+// before Start.
+func (d *KubernetesDetector) WatchMCPServersInAllNamespaces() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.mcpServersInAllNamespaces = true
+}
+
+// cacheOptions scopes the watch per resource type: every type to the
+// detector's namespace (all namespaces when it is empty), and MCPServer
+// objects to all namespaces when the detector is told so.
+func (d *KubernetesDetector) cacheOptions() cache.Options {
+	opts := cache.Options{
+		Scheme: d.scheme,
+	}
+	if d.namespace == "" {
+		return opts
+	}
+	opts.DefaultNamespaces = map[string]cache.Config{
+		d.namespace: {},
+	}
+	if d.mcpServersInAllNamespaces {
+		// An empty, non-nil map caches the type in all namespaces.
+		opts.ByObject = map[client.Object]cache.ByObject{
+			&musterv1alpha1.MCPServer{}: {Namespaces: map[string]cache.Config{}},
+		}
+	}
+	return opts
 }
 
 // errUnsupportedResourceType marks a type the detector has no informer for, a
@@ -446,6 +471,9 @@ func (d *KubernetesDetector) RemoveResourceType(resourceType ResourceType) error
 func (d *KubernetesDetector) namespaceDisplay() string {
 	if d.namespace == "" {
 		return "all namespaces"
+	}
+	if d.mcpServersInAllNamespaces {
+		return d.namespace + " (MCPServer objects in all namespaces)"
 	}
 	return d.namespace
 }

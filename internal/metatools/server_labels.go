@@ -10,7 +10,7 @@ import (
 )
 
 // ServerLabelsSource builds, for one request, the lookup that resolves an
-// MCPServer name to its resource labels. The lookup is consulted lazily by
+// MCPServer key (api.MCPServerKey) to its resource labels. The lookup is consulted lazily by
 // label: preset rules only, so the source must defer any listing until the
 // first call.
 type ServerLabelsSource func(ctx context.Context) toolset.ServerLabels
@@ -39,8 +39,11 @@ func MCPServerLabels(ctx context.Context) toolset.ServerLabels {
 				logging.Warn("metatools", "toolset label rules resolve to nothing: listing MCPServers failed: %v", err)
 				return
 			}
+			// Keyed like the registry: the bare name in muster's namespace,
+			// "<namespace>/<name>" outside it, so a tenant's server never
+			// takes the labels of a server for everyone with the same name.
 			for _, s := range servers {
-				labels[s.Name] = s.Labels
+				labels[s.ServerKey()] = s.Labels
 			}
 		})
 		return labels[server]

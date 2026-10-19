@@ -12,6 +12,12 @@ type MusterConfig struct {
 	Namespace      string               `yaml:"namespace,omitempty"`      // Namespace for MCPServer and Workflow discovery
 	Kubernetes     bool                 `yaml:"kubernetes,omitempty"`     // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
 	WritesAsCaller WritesAsCallerConfig `yaml:"writesAsCaller,omitempty"` // Caller-identity writes: kubernetesAudience override
+	// MCPServersInAllNamespaces makes muster watch and serve MCPServer objects
+	// of every namespace in Kubernetes mode, not only of Namespace. Workflow
+	// objects, events and the broker's default Secret namespace stay in
+	// Namespace. A server outside Namespace is keyed and exposed with its
+	// namespace and gets no identity from muster. Off by default.
+	MCPServersInAllNamespaces bool `yaml:"mcpServersInAllNamespaces,omitempty"`
 	// ToolsetPresets are the installation's toolset presets (chart value
 	// muster.toolsetPresets): named selections of the catalogue an agent's
 	// X-Muster-Toolset header can reference as preset:<name>. read-only, none
@@ -128,6 +134,12 @@ type CredentialProviderConfig struct {
 	// grants are ever answered: the workspace App, never the login App.
 	// Example: {github: https://github.com/apps/giantswarm-workspaces}
 	Releasable map[string]string `yaml:"releasable,omitempty"`
+
+	// GitUsers maps a Releasable provider instance to the user name sent
+	// with its token for git (default "x-access-token", GitHub's). A GitLab
+	// instance takes "oauth2", the only login GitLab accepts an OAuth access
+	// token with. Example: {gitlab: oauth2}
+	GitUsers map[string]string `yaml:"gitUsers,omitempty"`
 
 	// ActorBearer lets a bound Session's sandbox call muster itself as its
 	// person, with no credential in the sandbox. Disabled by default.
