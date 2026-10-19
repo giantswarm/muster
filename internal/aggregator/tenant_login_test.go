@@ -22,6 +22,7 @@ func TestHandleAuthLogin_ChallengeOfATenantServer(t *testing.T) {
 		declared     string
 		wantIssuer   string
 		wantResource string
+		issuer       string // default: issuer
 	}{
 		{name: "tenant, resource of another server", server: "org-a/miro", declared: "https://shared.example.com/mcp",
 			wantIssuer: "ns:org-a:" + issuer, wantResource: "http://127.0.0.1:1/mcp"},
@@ -29,18 +30,30 @@ func TestHandleAuthLogin_ChallengeOfATenantServer(t *testing.T) {
 			wantIssuer: "ns:org-a:" + issuer, wantResource: "http://127.0.0.1:1/other"},
 		{name: "muster's namespace", server: "miro", declared: "https://shared.example.com/mcp",
 			wantIssuer: issuer, wantResource: "https://shared.example.com/mcp"},
+		{name: "muster's namespace naming a tenant's issuer key is refused", server: "miro",
+			issuer: "ns:org-a:" + issuer},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newSuspensionTestServer(t)
 			registerSuspendableServer(t, a.registry, tc.server, false, api.StateAuthRequired)
-			getServerInfo(t, a.registry, tc.server).SetAuthInfo(&AuthInfo{Issuer: issuer, Scope: "mcp:read", Resource: tc.declared})
+			named := issuer
+			if tc.issuer != "" {
+				named = tc.issuer
+			}
+			getServerInfo(t, a.registry, tc.server).SetAuthInfo(&AuthInfo{Issuer: named, Scope: "mcp:read", Resource: tc.declared})
 			handler := &challengeMockOAuthHandler{issuerMockOAuthHandler: issuerMockOAuthHandler{enabled: true}}
 			api.RegisterOAuthHandler(handler)
 			t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 			result, err := NewAuthToolProvider(a).handleAuthLogin(testSessionCtx(), map[string]any{"server": tc.server})
 			require.NoError(t, err)
+			if tc.wantIssuer == "" {
+				assert.True(t, result.IsError)
+				assert.Contains(t, result.Content[0], "does not accept")
+				assert.Empty(t, handler.challenged, "no flow starts")
+				return
+			}
 			require.False(t, result.IsError, "%v", result.Content)
 
 			require.Len(t, handler.challenged, 1)

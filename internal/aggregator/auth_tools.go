@@ -303,6 +303,15 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	// outside muster's namespace it carries the namespace, so no token, pin,
 	// registration or grant of another namespace is found.
 	issuerKey := api.ServerIssuerKey(serverName, authInfo.Issuer)
+	if issuerKey == "" {
+		if p.aggregator.authMetrics != nil {
+			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "issuer_discovery_failed")
+		}
+		return &api.CallToolResult{
+			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': it names the issuer %q, which muster does not accept (it reads as the issuer key of a server in another namespace).", serverName, authInfo.Issuer)},
+			IsError: true,
+		}
+	}
 	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, issuerKey)
 
 	if token != nil && token.AccessToken != "" {
