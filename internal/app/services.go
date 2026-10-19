@@ -243,6 +243,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		}
 		// Forwards --extra-ca-file for the token-exchange internal-deployment heuristic
 		mergedOAuthMCPClientConfig.ExtraCAFile = cfg.ExtraCAFile
+		mergedOAuthMCPClientConfig.ServesOtherNamespaces = mcpServersInAllNamespaces
 
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{

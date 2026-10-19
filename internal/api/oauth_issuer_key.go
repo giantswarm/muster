@@ -19,7 +19,14 @@ const (
 // servers or with another namespace that names the same issuer.
 //
 // The plain issuer is used only where muster calls the network: IssuerURL.
+//
+// A plain issuer that already reads as a key of another namespace is no
+// issuer: a server of muster's namespace whose own metadata names
+// "ns:org-a:https://..." gets "", so it can never reach org-a's sign-ins.
 func IssuerKey(namespace, issuer string) string {
+	if strings.HasPrefix(issuer, issuerKeyPrefix) {
+		return ""
+	}
 	if namespace == "" || issuer == "" {
 		return issuer
 	}

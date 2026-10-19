@@ -110,13 +110,25 @@ func (c *Client) PinnedMetadata(key string) *Metadata {
 	return nil
 }
 
+// publishedMetadataKeyPrefix starts the cache key of metadata discovered for
+// DiscoverPublishedMetadata. No issuer URL starts with it.
+const publishedMetadataKeyPrefix = "published|"
+
 func (c *Client) discoverMetadata(ctx context.Context, issuer string, usePinned bool) (*Metadata, error) {
 	issuer = strings.TrimSuffix(issuer, "/")
+
+	// Published metadata wanted next to a pin of the same issuer is cached
+	// under its own key, which no pin uses: the pin cannot hide it, and it
+	// cannot replace the pin.
+	cacheKey := issuer
+	if !usePinned {
+		cacheKey = publishedMetadataKeyPrefix + issuer
+	}
 
 	cached := func() *Metadata {
 		c.metadataMu.RLock()
 		defer c.metadataMu.RUnlock()
-		entry, ok := c.metadataCache[issuer]
+		entry, ok := c.metadataCache[cacheKey]
 		if !ok {
 			return nil
 		}
@@ -139,16 +151,17 @@ func (c *Client) discoverMetadata(ctx context.Context, issuer string, usePinned 
 
 	// Use singleflight to deduplicate concurrent fetches. A flight that may
 	// answer from a pin is not shared with one that may not.
-	flight := issuer
-	if !usePinned {
-		flight = "published|" + issuer
-	}
-	result, err, _ := c.metadataGroup.Do(flight, func() (interface{}, error) {
+	result, err, _ := c.metadataGroup.Do(cacheKey, func() (interface{}, error) {
 		// Double-check cache after acquiring singleflight lock
 		if metadata := cached(); metadata != nil {
 			return metadata, nil
 		}
-		return c.doDiscoverMetadata(ctx, issuer)
+		metadata, err := c.doDiscoverMetadata(ctx, issuer)
+		if err != nil {
+			return nil, err
+		}
+		c.cacheMetadata(cacheKey, metadata)
+		return metadata, nil
 	})
 
 	if err != nil {
@@ -208,7 +221,6 @@ func (c *Client) doDiscoverMetadata(ctx context.Context, issuer string) (*Metada
 				}
 				continue
 			}
-			c.cacheMetadata(issuer, metadata)
 			return metadata, nil
 		}
 		c.logger.Debug("AS metadata fetch failed, trying next form",

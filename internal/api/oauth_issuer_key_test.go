@@ -21,6 +21,8 @@ func TestIssuerKey(t *testing.T) {
 		{name: "a tenant carries its namespace", serverKey: "org-a/github", issuer: issuer + "/", wantKey: "ns:org-a:" + issuer, wantNamespace: "org-a", wantPlain: issuer},
 		{name: "another tenant gets another key", serverKey: "org-b/github", issuer: issuer, wantKey: "ns:org-b:" + issuer, wantNamespace: "org-b", wantPlain: issuer},
 		{name: "no issuer stays empty", serverKey: "org-a/github", issuer: "", wantKey: ""},
+		{name: "muster's namespace cannot name a tenant's key as its issuer", serverKey: "github", issuer: "ns:org-a:" + issuer, wantKey: ""},
+		{name: "nor can a tenant name another tenant's key", serverKey: "org-b/github", issuer: "ns:org-a:" + issuer, wantKey: ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

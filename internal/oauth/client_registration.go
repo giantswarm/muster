@@ -191,6 +191,9 @@ func (c *Client) registrationMetadataFor(issuerKey string) *pkgoauth.ClientMetad
 // must present the same client identification the token was issued under.
 func (c *Client) GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string) {
 	if pin := c.issuerPin(issuer); pin != nil && pin.ClientID != "" {
+		if api.IsTenantIssuerKey(issuer) && pin.ClientID == c.clientID {
+			return "", ""
+		}
 		return pin.ClientID, pin.ClientSecret
 	}
 	metadata, err := c.discoverMetadata(ctx, issuer)

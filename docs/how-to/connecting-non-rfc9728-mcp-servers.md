@@ -349,9 +349,9 @@ keeps its stored sign-ins.
 - **The plain callback is muster's namespace's.** Register exactly
   `<publicURL>/oauth/proxy/callback` for an app of muster's namespace, never a
   host root or a prefix: an authorization server that matches redirect URIs by
-  prefix would otherwise accept a namespace's callback for it. muster refuses to
-  start when `oauth.mcpClient.callbackPath` is a prefix of `/oauth/ns/` or
-  starts with it.
+  prefix would otherwise accept a namespace's callback for it. With
+  `mcpServersInAllNamespaces` on, muster refuses to start when
+  `oauth.mcpClient.callbackPath` is a prefix of `/oauth/ns/` or starts with it.
 - **Its resource.** muster always checks that the resource the server declares is
   on the server's own origin, whatever document declares it; otherwise it uses the
   server's URL.

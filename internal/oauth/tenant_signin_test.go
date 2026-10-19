@@ -145,6 +145,9 @@ func TestClient_TenantSignIn_UsesOnlyAClientOfItsNamespace(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "client ID metadata document") {
 			t.Fatalf("GenerateAuthURL = %v, want the refusal of the CIMD URL as a tenant client", err)
 		}
+		if id, _ := client.GetClientCredentialsForIssuer(context.Background(), tenantKey); id != "" {
+			t.Errorf("refresh client = %q, want none for a refused pin", id)
+		}
 	})
 }
 
@@ -210,6 +213,32 @@ func TestHandler_HandleCallback_FlowOnlyOnItsNamespaceRedirectURI(t *testing.T) 
 	}
 }
 
+// An error response on another namespace's redirect URI changes nothing: the
+// namespace check runs before an invalid_client answer drops the flow's
+// registration (N12).
+func TestHandler_HandleCallback_ErrorOnAnotherRedirectURIKeepsTheRegistration(t *testing.T) {
+	// An AS that does not send iss, so the iss check lets the response through.
+	authServer := newAuthorizationServer(t, authorizationServerOptions{})
+	defer authServer.Close()
+	client := NewClient("client-id", tenantPublicURL, "/oauth/proxy/callback", "openid")
+	defer client.Stop()
+	tenantKey := api.IssuerKey("org-a", authServer.URL)
+	client.credStore.Store(tenantKey, &pkgoauth.ClientCredentials{Issuer: tenantKey, ClientID: "org-a-registration"})
+	encodedState := storeCallbackState(t, client, tenantKey)
+
+	query := url.Values{"error": {pkgoauth.ErrInvalidClient}, "state": {encodedState}}
+	recorder := httptest.NewRecorder()
+	NewHandler(client).HandleCallback(recorder,
+		httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/proxy/callback?"+query.Encode(), nil))
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", recorder.Code, http.StatusBadRequest)
+	}
+	if creds := client.credStore.Get(tenantKey); creds == nil || creds.ClientID != "org-a-registration" {
+		t.Errorf("registration = %+v, want org-a's registration kept", creds)
+	}
+}
+
 // A tenant's issuer key never reaches the login ID token muster forwards for
 // its own SSO, even when the tenant pins muster's own issuer (N4), and a
 // tenant's subject grant is never released by the token broker (N5).
@@ -242,7 +271,10 @@ func TestAdapter_TenantKeyReachesNoTokenOfMustersNamespace(t *testing.T) {
 	if got := adapter.SubjectGrantForRelease(context.Background(), "user", github); got != nil {
 		t.Errorf("the broker's plain issuer released %+v, want no tenant grant", got)
 	}
-	if got := adapter.SubjectGrantForRelease(context.Background(), "user", tenantGitHub); got == nil || got.AccessToken != "tenant-grant" {
-		t.Errorf("the tenant's own key = %+v, want its grant (it is filed, only never released to a plain target)", got)
+	if got := adapter.SubjectGrantForRelease(context.Background(), "user", tenantGitHub); got != nil {
+		t.Errorf("a release naming the tenant's key = %+v, want none", got)
+	}
+	if got := api.FullTokenByIssuerForUser(adapter, "other-session", "user", tenantGitHub); got == nil || got.AccessToken != "tenant-grant" {
+		t.Errorf("the tenant's own sessions = %+v, want its grant (it is filed, only never released)", got)
 	}
 }

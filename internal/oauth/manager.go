@@ -323,8 +323,11 @@ func (m *Manager) GetTokenByIssuerForUser(sessionID, userID, issuer string) *pkg
 // SubjectGrantForRelease returns the person's grant for a subject-scoped
 // issuer, refreshed when due, for release to a trusted relying party through
 // the token broker; nil when the person holds none. See Client.SubjectGrant.
+//
+// A grant of a server outside muster's namespace is never released: a relying
+// party names a plain issuer, and a tenant key is refused if named.
 func (m *Manager) SubjectGrantForRelease(ctx context.Context, userID, issuer string) *pkgoauth.Token {
-	if m == nil {
+	if m == nil || api.IsTenantIssuerKey(issuer) {
 		return nil
 	}
 	return m.client.SubjectGrant(ctx, userID, issuer)

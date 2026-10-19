@@ -27,7 +27,12 @@ func OAuthProxyNamespaceCallbackPath(namespace string) string {
 // namespace callbacks, or that starts with their prefix. An authorization
 // server that matches a redirect URI by prefix would otherwise accept a
 // namespace's redirect URI for a client of muster's namespace, or the reverse.
+// It applies only when muster serves other namespaces (ServesOtherNamespaces):
+// otherwise no flow uses a namespace callback.
 func (c *OAuthMCPClientConfig) ValidateNamespaceCallback() error {
+	if !c.ServesOtherNamespaces {
+		return nil
+	}
 	callbackPath := c.CallbackPath
 	if callbackPath == "" {
 		callbackPath = DefaultOAuthProxyCallbackPath
