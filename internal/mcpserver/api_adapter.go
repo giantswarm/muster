@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
@@ -210,6 +211,9 @@ type Adapter struct {
 	// namespace, not only of namespace.
 	allNamespaces bool
 
+	// unserved records the objects of unserved namespaces already logged.
+	unserved sync.Map
+
 	// gate switches session-initiated spec mutations (create/update/delete)
 	// from the shared SA-backed client to a per-call client bearing the
 	// caller's own dex id_token (issue #1056). Always enabled in Kubernetes
@@ -277,6 +281,16 @@ func (a *Adapter) toInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	}
 	info.ProtocolVersion = serviceProtocolVersion(info.ServerKey())
 	return info
+}
+
+// logUnservedOnce says once per object that muster ignores an MCPServer in a
+// namespace it does not serve (api.ServedNamespace).
+func (a *Adapter) logUnservedOnce(namespace, name string) {
+	if _, seen := a.unserved.LoadOrStore(namespace+"/"+name, struct{}{}); seen {
+		return
+	}
+	logging.Warn("MCPServer", "Ignoring MCPServer %s/%s: outside muster's namespace %q only organization namespaces (names starting with %q) are served",
+		namespace, name, a.namespace, api.TenantNamePrefix)
 }
 
 // refuseTenantKey answers a core_mcpserver_* write that names a server outside
@@ -352,6 +366,7 @@ func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, erro
 		// Outside muster's namespace only organization namespaces are
 		// served (api.ServedNamespace). Filesystem mode has no namespaces.
 		if a.client.IsKubernetesMode() && !api.ServedNamespace(servers[i].Namespace, a.namespace) {
+			a.logUnservedOnce(servers[i].Namespace, servers[i].Name)
 			continue
 		}
 		result = append(result, a.toInfo(&servers[i]))
@@ -970,6 +985,9 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 		"mcpServers": filteredServers,
 		"total":      len(filteredServers),
 		"mode":       getClientMode(a.client),
+	}
+	if view.Reason != "" {
+		result["notice"] = view.Reason
 	}
 
 	// Add failed count if any servers were hidden

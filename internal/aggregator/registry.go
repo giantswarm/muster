@@ -1341,10 +1341,27 @@ func (r *ServerRegistry) ResolvePromptName(exposedName string) (serverName, orig
 // Returns empty strings and an error if the URI cannot be resolved, is ambiguous
 // (exposed by more than one server), or refers to a different item type.
 func (r *ServerRegistry) ResolveResourceName(exposedURI string) (serverName, originalURI string, err error) {
+	return r.ResolveResourceNameOf(exposedURI, nil)
+}
+
+// ResolveResourceNameOf is ResolveResourceName over the servers sees accepts
+// (every server when nil): a server the caller may not see neither serves the
+// URI nor is named in the answer.
+func (r *ServerRegistry) ResolveResourceNameOf(exposedURI string, sees func(string) bool) (serverName, originalURI string, err error) {
 	r.nameMu.RLock()
-	providers := r.resourceMappings[exposedURI]
+	all := r.resourceMappings[exposedURI]
 	m, otherKind := r.nameMapping[exposedURI]
 	r.nameMu.RUnlock()
+
+	providers := all
+	if sees != nil {
+		providers = nil
+		for _, p := range all {
+			if sees(p.serverName) {
+				providers = append(providers, p)
+			}
+		}
+	}
 
 	switch {
 	case len(providers) == 1:

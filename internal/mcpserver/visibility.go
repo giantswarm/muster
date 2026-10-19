@@ -5,7 +5,10 @@ import (
 	"crypto/sha256"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -23,8 +26,11 @@ import (
 // RoleBinding that is added or removed takes effect within this time.
 const visibilityTTL = 5 * time.Second
 
-// visibilityListTimeout bounds the caller's list in one namespace.
+// visibilityListTimeout bounds one round of lists for one caller.
 const visibilityListTimeout = 5 * time.Second
+
+// visibilityListConcurrency is how many namespaces are listed at a time.
+const visibilityListConcurrency = 8
 
 // Visibility answers which MCP servers a caller may see (agent-permissions
 // D9): muster lists MCPServer objects as the caller, with the caller's own ID
@@ -46,6 +52,10 @@ type Visibility struct {
 	// at most once per visibilityTTL for every caller together.
 	namespaces        []string
 	namespacesExpires time.Time
+
+	// flights coalesces the rounds of lists of one token, and the read of
+	// the namespaces, across concurrent requests.
+	flights singleflight.Group
 }
 
 type cachedVisibility struct {
@@ -99,87 +109,133 @@ func (v *Visibility) CallerVisibility(ctx context.Context) api.ServerVisibility 
 	}
 	v.mu.Unlock()
 
-	view := v.listAsCaller(ctx, token)
-
-	v.mu.Lock()
-	for k, cached := range v.cache {
-		if !now.Before(cached.expires) {
-			delete(v.cache, k)
+	// Concurrent requests of one token share one round of lists. The round
+	// does not end with the request that started it: a client that hangs up
+	// must not leave the others without an answer.
+	result, _, _ := v.flights.Do(string(key[:]), func() (any, error) {
+		flightCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), visibilityListTimeout)
+		defer cancel()
+		view, complete := v.listAsCaller(flightCtx, token)
+		if complete {
+			v.mu.Lock()
+			for k, cached := range v.cache {
+				if !now.Before(cached.expires) {
+					delete(v.cache, k)
+				}
+			}
+			v.cache[key] = cachedVisibility{view: view, expires: now.Add(visibilityTTL)}
+			v.mu.Unlock()
 		}
-	}
-	v.cache[key] = cachedVisibility{view: view, expires: now.Add(visibilityTTL)}
-	v.mu.Unlock()
-	return view
+		return view, nil
+	})
+	return result.(api.ServerVisibility)
 }
 
 // listAsCaller lists the MCPServer objects of each namespace that holds
-// servers with the caller's token. RBAC does not filter a list across
-// namespaces, so there is one list per namespace.
-func (v *Visibility) listAsCaller(ctx context.Context, token string) api.ServerVisibility {
+// servers with the caller's token, a few namespaces at a time. RBAC does not
+// filter a list across namespaces, so there is one list per namespace.
+// complete is false when an answer was neither a list nor an RBAC refusal (a
+// timeout, an API error): the view then hides that namespace (fail closed)
+// but is not cached, so the next request asks again.
+func (v *Visibility) listAsCaller(ctx context.Context, token string) (view api.ServerVisibility, complete bool) {
 	if v.factory == nil {
-		return api.NoServerVisible("muster has no Kubernetes API access to tell which MCP servers you may see; check the muster deployment configuration.")
+		return api.NoServerVisible("muster has no Kubernetes API access to tell which MCP servers you may see; check the muster deployment configuration."), true
 	}
 	caller, err := v.factory(token)
 	if err != nil {
 		logging.Warn("MCPServerVisibility", "Cannot build a client with the caller's token: %v", err)
-		return api.NoServerVisible("muster cannot tell which MCP servers you may see: " + err.Error())
+		return api.NoServerVisible("muster cannot tell which MCP servers you may see: " + err.Error()), false
 	}
 
+	namespaces, complete := v.namespacesWithServers(ctx)
+	allowed := make([]bool, len(namespaces))
+	var unauthorized, transient atomic.Bool
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, visibilityListConcurrency)
+	for i, namespace := range namespaces {
+		wg.Add(1)
+		slots <- struct{}{}
+		go func(i int, namespace string) {
+			defer wg.Done()
+			defer func() { <-slots }()
+			err := caller.List(ctx, &musterv1alpha1.MCPServerList{}, ctrlclient.InNamespace(namespace), ctrlclient.Limit(1))
+			switch {
+			case err == nil:
+				allowed[i] = true
+			case apierrors.IsUnauthorized(err):
+				unauthorized.Store(true)
+			case apierrors.IsForbidden(err):
+				// The caller may not list servers there: they stay hidden.
+			default:
+				// Fail closed for this namespace: an answer muster cannot
+				// read is no permission, for this request only.
+				transient.Store(true)
+				logging.Warn("MCPServerVisibility", "Listing MCP servers in namespace %s as the caller failed: %v", namespace, err)
+			}
+		}(i, namespace)
+	}
+	wg.Wait()
+
+	if unauthorized.Load() {
+		return api.NoServerVisible(callerwrite.ReloginError("The Kubernetes API rejected your session token, so muster shows you no MCP server.")), true
+	}
 	var visible []string
-	for _, namespace := range v.namespacesWithServers(ctx) {
-		listCtx, cancel := context.WithTimeout(ctx, visibilityListTimeout)
-		err := caller.List(listCtx, &musterv1alpha1.MCPServerList{}, ctrlclient.InNamespace(namespace), ctrlclient.Limit(1))
-		cancel()
-		switch {
-		case err == nil:
+	for i, namespace := range namespaces {
+		if allowed[i] {
 			visible = append(visible, namespace)
-		case apierrors.IsUnauthorized(err):
-			return api.NoServerVisible(callerwrite.ReloginError("The Kubernetes API rejected your session token, so muster shows you no MCP server."))
-		case apierrors.IsForbidden(err):
-			// The caller may not list servers there: they stay hidden.
-		default:
-			// Fail closed for this namespace: an answer muster cannot read is
-			// no permission.
-			logging.Warn("MCPServerVisibility", "Listing MCP servers in namespace %s as the caller failed: %v", namespace, err)
 		}
 	}
-	return api.ServersOfNamespacesVisible(v.musterNamespace, visible)
+	return api.ServersOfNamespacesVisible(v.musterNamespace, visible), complete && !transient.Load()
 }
 
 // namespacesWithServers returns muster's namespace and every namespace that
-// holds an MCPServer object muster serves, read as muster.
-func (v *Visibility) namespacesWithServers(ctx context.Context) []string {
+// holds an MCPServer object muster serves, read as muster once per
+// visibilityTTL for every caller together. complete is false when the read
+// failed: the answer is then muster's namespace alone and is not cached.
+func (v *Visibility) namespacesWithServers(ctx context.Context) (namespaces []string, complete bool) {
 	now := v.now()
 	v.mu.Lock()
 	if v.namespaces != nil && now.Before(v.namespacesExpires) {
 		namespaces := v.namespaces
 		v.mu.Unlock()
-		return namespaces
+		return namespaces, true
 	}
 	v.mu.Unlock()
 
-	set := map[string]bool{v.musterNamespace: true}
-	if v.servers != nil {
-		servers, err := v.servers.ListMCPServers(ctx, "")
-		if err != nil {
-			logging.Warn("MCPServerVisibility", "Cannot list the namespaces that hold MCP servers: %v", err)
-		}
-		for i := range servers {
-			if api.ServedNamespace(servers[i].Namespace, v.musterNamespace) {
-				set[servers[i].Namespace] = true
+	result, _, _ := v.flights.Do("namespaces", func() (any, error) {
+		set := map[string]bool{v.musterNamespace: true}
+		ok := true
+		if v.servers != nil {
+			servers, err := v.servers.ListMCPServers(ctx, "")
+			if err != nil {
+				ok = false
+				logging.Warn("MCPServerVisibility", "Cannot list the namespaces that hold MCP servers: %v", err)
+			}
+			for i := range servers {
+				if api.ServedNamespace(servers[i].Namespace, v.musterNamespace) {
+					set[servers[i].Namespace] = true
+				}
 			}
 		}
-	}
-	namespaces := make([]string, 0, len(set))
-	for namespace := range set {
-		namespaces = append(namespaces, namespace)
-	}
-	sort.Strings(namespaces)
+		read := make([]string, 0, len(set))
+		for namespace := range set {
+			read = append(read, namespace)
+		}
+		sort.Strings(read)
+		if ok {
+			v.mu.Lock()
+			v.namespaces, v.namespacesExpires = read, now.Add(visibilityTTL)
+			v.mu.Unlock()
+		}
+		return namespaceRead{namespaces: read, complete: ok}, nil
+	})
+	r := result.(namespaceRead)
+	return r.namespaces, r.complete
+}
 
-	v.mu.Lock()
-	v.namespaces, v.namespacesExpires = namespaces, now.Add(visibilityTTL)
-	v.mu.Unlock()
-	return namespaces
+type namespaceRead struct {
+	namespaces []string
+	complete   bool
 }
 
 var _ api.MCPServerVisibilityHandler = (*Visibility)(nil)

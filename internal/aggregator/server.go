@@ -1786,7 +1786,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// exchange per-request instead of on the backoff schedule.
 			// A fan-out already running for the session (a sign-in's, whose
 			// fast servers made the session live) covers the misses.
-			if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
+			if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil &&
+				a.ssoPoolMissNeedingInitOf(sso.userID, sessionID, seesFunc(api.CallerVisibility(server.ContextWithCallerTokens(context.Background(), sso.tokens)))) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 				a.beginSessionBootstrap(sso)
@@ -2059,7 +2060,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		instanceArg := a.registry.FamilyInstanceArgFor(toolName)
 		explicitServer, _ := args[instanceArg].(string)
 		if explicitServer == "" {
-			providers := a.registry.GetToolServerNames(toolName)
+			providers := seenNames(api.CallerVisibility(ctx), a.registry.GetToolServerNames(toolName))
 			sort.Strings(providers)
 			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the %q parameter is required",
 				toolName, strings.Join(providers, ", "), instanceArg)
@@ -3728,7 +3729,7 @@ func (a *AggregatorServer) ReadResource(ctx context.Context, uri, serverName str
 	if serverName != "" {
 		originalURI, err = a.registry.ResolveResourceNameForServer(uri, serverName)
 	} else {
-		serverName, originalURI, err = a.registry.ResolveResourceName(uri)
+		serverName, originalURI, err = a.registry.ResolveResourceNameOf(uri, seesFunc(api.CallerVisibility(ctx)))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve resource URI: %w", err)

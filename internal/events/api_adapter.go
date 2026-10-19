@@ -259,6 +259,15 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	// AggregatorServer.startEventFollow). This handler always returns the
 	// point-in-time query result.
 
+	// Events about an MCP server the caller may not see are dropped. The
+	// limit applies to what the caller may see, so a restricted caller's
+	// query runs without it and is cut after the filter.
+	view := api.CallerVisibility(ctx)
+	limit := options.Limit
+	if view.Restricted() {
+		options.Limit = 0
+	}
+
 	// Execute the query
 	result, err := a.QueryEvents(ctx, options)
 	if err != nil {
@@ -269,12 +278,13 @@ func (a *Adapter) handleEventsQuery(ctx context.Context, args map[string]interfa
 	}
 
 	// Convert events to a format suitable for CLI table display
-	// Events about an MCP server the caller may not see are dropped.
-	view := api.CallerVisibility(ctx)
 	var events []interface{}
 	for _, event := range result.Events {
 		if !view.SeesEvent(event) {
 			continue
+		}
+		if limit > 0 && len(events) == limit {
+			break
 		}
 		events = append(events, formatEventForDisplay(event))
 	}

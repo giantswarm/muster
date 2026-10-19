@@ -257,6 +257,9 @@ func (a *Adapter) handleServiceList(ctx context.Context) (*api.CallToolResult, e
 		"services": svcs,
 		"total":    len(svcs),
 	}
+	if view.Reason != "" {
+		result["notice"] = view.Reason
+	}
 
 	return &api.CallToolResult{
 		Content: []interface{}{result},
