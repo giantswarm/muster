@@ -36,6 +36,16 @@ func SignedIn(name string) pagekit.Page {
 	}
 }
 
+// Pending returns the page for a sign-in whose outcome name has not reported
+// in time.
+func Pending(name string) pagekit.Page {
+	return pagekit.Page{
+		Heading: "Sign-in received",
+		Summary: name + " is still completing the sign-in",
+		Message: "Check where you started the sign-in to see whether it completed. You can close this tab.",
+	}
+}
+
 // Failed returns the page for a failed sign-in. summary names the cause.
 // errorCode is the error parameter of the authorization response, if any; it
 // is shown only when it is a known error code.

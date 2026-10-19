@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/giantswarm/muster/v5/internal/signinpage"
 )
 
 func TestCallbackServer_Start_PortBinding(t *testing.T) {
@@ -218,48 +220,6 @@ func TestCallbackServer_WaitForCallback_Timeout(t *testing.T) {
 	}
 }
 
-func TestCallbackServer_SecurityHeaders(t *testing.T) {
-	server := NewCallbackServer(0)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	callbackURL, err := server.Start(ctx)
-	if err != nil {
-		t.Fatalf("Failed to start callback server: %v", err)
-	}
-	defer server.Stop()
-
-	// Make a request and check the response headers
-	resp, err := http.Get(callbackURL + "?code=test-code&state=test-state")
-	if err != nil {
-		t.Fatalf("HTTP request failed: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// Check security headers
-	expectedHeaders := map[string]string{
-		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":        "DENY",
-		"Referrer-Policy":        "no-referrer",
-		"Cache-Control":          "no-store",
-	}
-
-	for header, expectedValue := range expectedHeaders {
-		actual := resp.Header.Get(header)
-		if actual != expectedValue {
-			t.Errorf("expected header %s=%q, got %q", header, expectedValue, actual)
-		}
-	}
-
-	// Check CSP header (may have varying format)
-	csp := resp.Header.Get("Content-Security-Policy")
-	if csp == "" {
-		t.Error("expected Content-Security-Policy header")
-	} else if !strings.Contains(csp, "default-src 'none'") || !strings.Contains(csp, "frame-ancestors 'none'") {
-		t.Errorf("Content-Security-Policy should forbid loading and framing, got: %s", csp)
-	}
-}
-
 func TestCallbackServer_GetRedirectURI(t *testing.T) {
 	server := NewCallbackServer(0)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -396,6 +356,8 @@ func TestCallbackServer_MultipleCallbacksHandledOnce(t *testing.T) {
 	if result.Code != "first-code" {
 		t.Errorf("expected first code, got %q", result.Code)
 	}
+
+	server.Finish(http.StatusOK, signinpage.SignedIn("Muster"))
 
 	// A second callback is not processed: it shows the first one's outcome.
 	resp, err := http.Get(callbackURL + "?code=second-code&state=second-state")

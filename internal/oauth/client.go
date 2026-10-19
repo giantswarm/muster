@@ -77,6 +77,11 @@ type IssuerPin struct {
 	// to equal instead of the pinned identity; empty for the identity itself.
 	// The identity stays the grant key either way.
 	ExpectedIssuer string
+
+	// RevocationEndpoint is the RFC 7009 endpoint a disconnect revokes the
+	// person's grant at, in place of the one the metadata advertises; empty
+	// to use the metadata's.
+	RevocationEndpoint string
 }
 
 // subjectSessionID is the token-store session under which a subject-scoped
@@ -267,8 +272,8 @@ func (c *Client) PinIssuer(issuer string, pin IssuerPin, metadata *pkgoauth.Meta
 	c.pinsMu.Lock()
 	c.pins[issuer] = &pin
 	c.pinsMu.Unlock()
-	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t expectedIssuer=%q",
-		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil, pin.ExpectedIssuer)
+	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t expectedIssuer=%q revocationEndpoint=%q",
+		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil, pin.ExpectedIssuer, pin.RevocationEndpoint)
 }
 
 // UnpinIssuer forgets the operator's description of an authorization server:
@@ -347,7 +352,14 @@ func (c *Client) GetByIssuerForUser(sessionID, userID, issuer string) *pkgoauth.
 // DeleteByIssuerForUser removes the session's tokens for an issuer and, for a
 // subject-scoped issuer, the person's grant as well: an explicit sign-out from
 // the server disconnects the person, not just this session.
+//
+// Before the person's grant goes, it is revoked at the authorization server
+// (see revokeSubjectGrant), so the provider stops honouring the tokens and
+// the next sign-in asks for consent again.
 func (c *Client) DeleteByIssuerForUser(sessionID, userID, issuer string) {
+	if userID != "" && c.subjectScoped(issuer) {
+		c.revokeSubjectGrant(userID, issuer)
+	}
 	c.tokenStore.DeleteByIssuer(sessionID, issuer)
 	if userID != "" && c.subjectScoped(issuer) {
 		// Every session of the person filed its copy with the user id, the

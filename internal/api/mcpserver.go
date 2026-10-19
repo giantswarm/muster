@@ -245,6 +245,11 @@ type MCPServerAuthAuthorizationServer struct {
 	// the grant key. Only with pinned endpoints. See the v1alpha1 CRD field.
 	ExpectedIssuer string `yaml:"expectedIssuer,omitempty" json:"expectedIssuer,omitempty"`
 
+	// RevocationEndpoint is the RFC 7009 endpoint a disconnect revokes a
+	// subject-scoped grant at, in place of the metadata's revocation_endpoint.
+	// See the v1alpha1 CRD field.
+	RevocationEndpoint string `yaml:"revocationEndpoint,omitempty" json:"revocationEndpoint,omitempty"`
+
 	// ClientCredentialsSecretRef references the Secret holding a client
 	// registered with this authorization server out of band; muster then uses
 	// it instead of CIMD or dynamic registration. See the v1alpha1 CRD field.

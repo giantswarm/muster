@@ -11,8 +11,10 @@ import (
 
 	mcpoauth "github.com/giantswarm/mcp-oauth"
 	"github.com/giantswarm/mcp-oauth/providers"
+	"github.com/giantswarm/pagekit"
 	"golang.org/x/oauth2"
 
+	"github.com/giantswarm/muster/v5/internal/signinpage"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
@@ -26,6 +28,10 @@ var agentOAuthScopes = []string{"openid", "profile", "email", "groups", "offline
 
 // DefaultHTTPTimeout is the default timeout for HTTP requests.
 const DefaultHTTPTimeout = 30 * time.Second
+
+// summaryUnverifiedResponse is the callback page's summary when the
+// authorization response fails the state or iss check.
+const summaryUnverifiedResponse = "The sign-in response could not be verified"
 
 // SilentAuthTimeout is the timeout for silent re-authentication attempts.
 // This is shorter than the interactive timeout since silent auth should complete
@@ -308,10 +314,15 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 	// Wait for callback
 	result, err := flow.CallbackServer.WaitForCallback(timeoutCtx)
 	if err != nil {
-		c.mu.Lock()
-		c.cancelCurrentFlow()
-		c.mu.Unlock()
+		c.endFlow(flow, http.StatusBadRequest, signinpage.Failed("The sign-in was cancelled", ""))
 		return nil, fmt.Errorf("callback failed: %w", err)
+	}
+
+	// A response with neither a code nor an error is incomplete, whatever
+	// its state; saying so keeps the page from suggesting tampering.
+	if result.Code == "" && !result.IsError() {
+		c.endFlow(flow, http.StatusBadRequest, signinpage.Failed("The sign-in response is incomplete", ""))
+		return nil, errors.New("authorization response carried no code")
 	}
 
 	// Verify state - critical security check to prevent CSRF attacks
@@ -321,9 +332,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"expected_state_len", len(flow.State),
 			"received_state_len", len(result.State),
 		)
-		c.mu.Lock()
-		c.cancelCurrentFlow()
-		c.mu.Unlock()
+		c.endFlow(flow, http.StatusBadRequest, signinpage.Failed(summaryUnverifiedResponse, ""))
 		return nil, errors.New("state mismatch - possible CSRF attack")
 	}
 
@@ -336,9 +345,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"server_url", flow.ServerURL,
 			"issuer_url", flow.IssuerURL,
 		)
-		c.mu.Lock()
-		c.cancelCurrentFlow()
-		c.mu.Unlock()
+		c.endFlow(flow, http.StatusBadRequest, signinpage.Failed(summaryUnverifiedResponse, ""))
 		return nil, fmt.Errorf("authorization response carried no iss although %q advertises authorization_response_iss_parameter_supported", flow.IssuerURL)
 	}
 	if result.Iss != "" {
@@ -352,9 +359,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 				"expected_iss", expected,
 				"received_iss", result.Iss,
 			)
-			c.mu.Lock()
-			c.cancelCurrentFlow()
-			c.mu.Unlock()
+			c.endFlow(flow, http.StatusBadRequest, signinpage.Failed(summaryUnverifiedResponse, ""))
 			return nil, fmt.Errorf("iss mismatch: got %q, expected %q", result.Iss, expected)
 		}
 	}
@@ -367,9 +372,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"error_description", result.ErrorDescription,
 			"silent_mode", flow.Options != nil && flow.Options.Silent,
 		)
-		c.mu.Lock()
-		c.cancelCurrentFlow()
-		c.mu.Unlock()
+		c.endFlow(flow, http.StatusBadRequest, signinpage.Failed("The identity provider reported an error", result.Error))
 
 		// Use mcp-oauth to parse the error - this returns SilentAuthError for
 		// login_required, consent_required, and interaction_required errors
@@ -384,9 +387,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"issuer_url", flow.IssuerURL,
 			"error", err.Error(),
 		)
-		c.mu.Lock()
-		c.cancelCurrentFlow()
-		c.mu.Unlock()
+		c.endFlow(flow, http.StatusBadRequest, signinpage.Failed("The sign-in could not be completed", ""))
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
@@ -404,12 +405,21 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 		)
 	}
 
-	// Clean up flow
-	c.mu.Lock()
-	c.cancelCurrentFlow()
-	c.mu.Unlock()
-
+	c.endFlow(flow, http.StatusOK, signinpage.SignedIn("Muster"))
 	return token, nil
+}
+
+// endFlow shows the sign-in's outcome on the flow's callback page and stops
+// the flow. It leaves a newer flow that has replaced this one running.
+func (c *Client) endFlow(flow *AuthFlow, status int, page pagekit.Page) {
+	flow.CallbackServer.Finish(status, page)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.currentFlow == flow {
+		c.cancelCurrentFlow()
+		return
+	}
+	flow.CallbackServer.Stop()
 }
 
 // CompleteAuthFlow is a convenience method that combines StartAuthFlow and WaitForCallback.

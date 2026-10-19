@@ -146,6 +146,7 @@ func convertCRDAuthToAPI(src *musterv1alpha1.MCPServerAuth) *api.MCPServerAuth {
 			AuthorizationEndpoint:      src.AuthorizationServer.AuthorizationEndpoint.Normalize(),
 			TokenEndpoint:              src.AuthorizationServer.TokenEndpoint.Normalize(),
 			ExpectedIssuer:             src.AuthorizationServer.ExpectedIssuer.Normalize(),
+			RevocationEndpoint:         src.AuthorizationServer.RevocationEndpoint.Normalize(),
 			ClientCredentialsSecretRef: convertCRDSecretRefToAPI(src.AuthorizationServer.ClientCredentialsSecretRef),
 			GrantScope:                 src.AuthorizationServer.GrantScope,
 		}
@@ -186,12 +187,14 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 		authorizationEndpoint := musterv1alpha1.IssuerURL(src.AuthorizationServer.AuthorizationEndpoint)
 		tokenEndpoint := musterv1alpha1.IssuerURL(src.AuthorizationServer.TokenEndpoint)
 		expectedIssuer := musterv1alpha1.IssuerURL(src.AuthorizationServer.ExpectedIssuer)
+		revocationEndpoint := musterv1alpha1.IssuerURL(src.AuthorizationServer.RevocationEndpoint)
 		auth.AuthorizationServer = &musterv1alpha1.MCPServerAuthAuthorizationServer{
 			Issuer:                     musterv1alpha1.IssuerURL(issuer.Normalize()),
 			Scopes:                     src.AuthorizationServer.Scopes,
 			AuthorizationEndpoint:      musterv1alpha1.IssuerURL(authorizationEndpoint.Normalize()),
 			TokenEndpoint:              musterv1alpha1.IssuerURL(tokenEndpoint.Normalize()),
 			ExpectedIssuer:             musterv1alpha1.IssuerURL(expectedIssuer.Normalize()),
+			RevocationEndpoint:         musterv1alpha1.IssuerURL(revocationEndpoint.Normalize()),
 			ClientCredentialsSecretRef: convertAPISecretRefToCRD(src.AuthorizationServer.ClientCredentialsSecretRef),
 			GrantScope:                 src.AuthorizationServer.GrantScope,
 		}
