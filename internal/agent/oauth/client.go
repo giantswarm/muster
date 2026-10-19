@@ -13,6 +13,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers"
 	"golang.org/x/oauth2"
 
+	"github.com/giantswarm/muster/v5/internal/signinpage"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
@@ -26,6 +27,10 @@ var agentOAuthScopes = []string{"openid", "profile", "email", "groups", "offline
 
 // DefaultHTTPTimeout is the default timeout for HTTP requests.
 const DefaultHTTPTimeout = 30 * time.Second
+
+// summaryUnverifiedResponse is the callback page's summary when the
+// authorization response fails the state or iss check.
+const summaryUnverifiedResponse = "The sign-in response could not be verified"
 
 // SilentAuthTimeout is the timeout for silent re-authentication attempts.
 // This is shorter than the interactive timeout since silent auth should complete
@@ -321,6 +326,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"expected_state_len", len(flow.State),
 			"received_state_len", len(result.State),
 		)
+		flow.CallbackServer.Finish(http.StatusBadRequest, signinpage.Failed(summaryUnverifiedResponse, ""))
 		c.mu.Lock()
 		c.cancelCurrentFlow()
 		c.mu.Unlock()
@@ -336,6 +342,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"server_url", flow.ServerURL,
 			"issuer_url", flow.IssuerURL,
 		)
+		flow.CallbackServer.Finish(http.StatusBadRequest, signinpage.Failed(summaryUnverifiedResponse, ""))
 		c.mu.Lock()
 		c.cancelCurrentFlow()
 		c.mu.Unlock()
@@ -352,6 +359,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 				"expected_iss", expected,
 				"received_iss", result.Iss,
 			)
+			flow.CallbackServer.Finish(http.StatusBadRequest, signinpage.Failed(summaryUnverifiedResponse, ""))
 			c.mu.Lock()
 			c.cancelCurrentFlow()
 			c.mu.Unlock()
@@ -367,6 +375,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"error_description", result.ErrorDescription,
 			"silent_mode", flow.Options != nil && flow.Options.Silent,
 		)
+		flow.CallbackServer.Finish(http.StatusBadRequest, signinpage.Failed("The identity provider reported an error", result.Error))
 		c.mu.Lock()
 		c.cancelCurrentFlow()
 		c.mu.Unlock()
@@ -374,6 +383,14 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 		// Use mcp-oauth to parse the error - this returns SilentAuthError for
 		// login_required, consent_required, and interaction_required errors
 		return nil, mcpoauth.ParseOAuthError(result.Error, result.ErrorDescription)
+	}
+
+	if result.Code == "" {
+		flow.CallbackServer.Finish(http.StatusBadRequest, signinpage.Failed("The sign-in response is incomplete", ""))
+		c.mu.Lock()
+		c.cancelCurrentFlow()
+		c.mu.Unlock()
+		return nil, errors.New("authorization response carried no code")
 	}
 
 	// Exchange code for tokens
@@ -384,6 +401,7 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"issuer_url", flow.IssuerURL,
 			"error", err.Error(),
 		)
+		flow.CallbackServer.Finish(http.StatusBadRequest, signinpage.Failed("The sign-in could not be completed", ""))
 		c.mu.Lock()
 		c.cancelCurrentFlow()
 		c.mu.Unlock()
@@ -403,6 +421,8 @@ func (c *Client) WaitForCallback(ctx context.Context) (*oauth2.Token, error) {
 			"error", err.Error(),
 		)
 	}
+
+	flow.CallbackServer.Finish(http.StatusOK, signinpage.SignedIn("Muster"))
 
 	// Clean up flow
 	c.mu.Lock()
