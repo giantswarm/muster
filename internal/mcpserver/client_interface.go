@@ -116,6 +116,10 @@ type baseMCPClient struct {
 	// progress routes the server's notifications/progress to the callers of
 	// the tool calls in flight (see progress.go).
 	progress progressRouter
+
+	// listenMode makes a streamable-http client negotiate protocol revision
+	// 2026-07-28 for subscriptions/listen (client_listen.go).
+	listenMode bool
 }
 
 // OnSessionRecovered registers a handler called after the client lost its
