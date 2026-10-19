@@ -210,6 +210,16 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	}
 	mcpServerAdapter.Register()
 
+	// With MCPServer objects of every namespace, muster lists servers as the
+	// caller: a person sees the servers of the namespaces where RBAC lets them
+	// list mcpservers (agent-permissions D9).
+	if mcpServersInAllNamespaces {
+		if err := validateListsAsCaller(mergeOAuthServerConfig(cfg)); err != nil {
+			return nil, err
+		}
+		api.RegisterMCPServerVisibility(mcpserverPkg.NewVisibility(musterClient, callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience, namespace))
+	}
+
 	// Initialize and register credentials adapter for loading OAuth client credentials from secrets
 	credentialsAdapter := mcpserverPkg.NewCredentialsAdapter(musterClient)
 	credentialsAdapter.Register()
@@ -462,3 +472,14 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 // Note: Removed the individual adapter creation functions as they're now replaced by the unified muster client approach
 
 // Note: MCPServer service creation moved to orchestrator for proper dependency management
+
+// validateListsAsCaller refuses mcpServersInAllNamespaces without muster's
+// OAuth server on Dex: muster lists servers with the session's Dex ID token,
+// and the Kubernetes API accepts no other (a Google token, or no token at
+// all, would show every person no server).
+func validateListsAsCaller(serverCfg config.OAuthServerConfig) error {
+	if !serverCfg.Enabled || serverCfg.Provider != "dex" {
+		return fmt.Errorf("mcpServersInAllNamespaces needs muster's OAuth server with the dex provider (aggregator.oauth.server.enabled and provider: dex): muster lists MCP servers with the session's Dex ID token")
+	}
+	return nil
+}

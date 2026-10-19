@@ -86,11 +86,20 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 	}
 
 	servers := a.registry.GetAllServers()
+	// A server the caller may not see is not in the status at all.
+	view := api.CallerVisibility(ctx)
+	if view.Restricted() {
+		for name := range servers {
+			if !view.Sees(name) {
+				delete(servers, name)
+			}
+		}
+	}
 	suspended := suspendedServers(ctx, servers)
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
 	}
-	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers))}
+	response := pkgoauth.AuthStatusResponse{Servers: make([]pkgoauth.ServerAuthStatus, 0, len(servers)), Notice: view.Reason}
 
 	for name, info := range servers {
 		usesTokenExchange := ShouldUseTokenExchange(info)
@@ -459,12 +468,19 @@ const initSSOTimeout = 15 * time.Second
 // second session's re-init is deferred until the first exchange clears the
 // slot or the pending timeout expires.
 func (a *AggregatorServer) ssoPoolMissNeedingInit(userID, sessionID string) bool {
+	return a.ssoPoolMissNeedingInitOf(userID, sessionID, nil)
+}
+
+// ssoPoolMissNeedingInitOf is ssoPoolMissNeedingInit over the servers sees
+// accepts (every server when nil): a server the session may not see is never
+// connected, so it takes no pending slot the fan-out would never clear.
+func (a *AggregatorServer) ssoPoolMissNeedingInitOf(userID, sessionID string, sees func(string) bool) bool {
 	if a.connPool == nil || a.registry == nil {
 		return false
 	}
 	found := false
 	for _, info := range a.registry.GetAllServers() {
-		if !info.RequiresSessionAuth() {
+		if !info.RequiresSessionAuth() || (sees != nil && !sees(info.Name)) {
 			continue
 		}
 		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
@@ -505,6 +521,10 @@ func (a *AggregatorServer) establishSSOConnection(
 	if sessionID == "" || sub == "" {
 		logging.Warn("Aggregator", "SSO: skipping connection to %s — no session context (hasSessionID=%t, hasSub=%t)",
 			serverInfo.Name, sessionID != "", sub != "")
+		return ssoConnectFailed
+	}
+	// The person's token never reaches a server they may not see.
+	if refuseUnseenServer(ctx, serverInfo.Name, "SSO connect") {
 		return ssoConnectFailed
 	}
 

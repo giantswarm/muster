@@ -206,8 +206,15 @@ func (p sessionBootstrapPlan) empty() bool {
 func (a *AggregatorServer) planSessionBootstrap(sso ssoSession) sessionBootstrapPlan {
 	var plan sessionBootstrapPlan
 	servers := a.registry.GetAllServers()
-	var skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure int
+	// The fan-out connects only servers the person may see, judged with the
+	// session's own ID token.
+	view := api.CallerVisibility(server.ContextWithCallerTokens(context.Background(), sso.tokens))
+	var skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure, skippedNotVisible int
 	for _, info := range servers {
+		if !view.Sees(info.Name) {
+			skippedNotVisible++
+			continue
+		}
 		if !info.RequiresSessionAuth() {
 			skippedNotAuthRequired++
 			continue
@@ -232,8 +239,8 @@ func (a *AggregatorServer) planSessionBootstrap(sso ssoSession) sessionBootstrap
 		plan.sso = append(plan.sso, info)
 	}
 
-	logging.Info("Aggregator", "SSO: initSSOForSession filter results: total=%d, pending=%d, grants=%d, skippedNotAuthRequired=%d, skippedNotSSO=%d, skippedPriorFailure=%d",
-		len(servers), len(plan.sso), len(plan.grants), skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure)
+	logging.Info("Aggregator", "SSO: initSSOForSession filter results: total=%d, pending=%d, grants=%d, skippedNotAuthRequired=%d, skippedNotSSO=%d, skippedPriorFailure=%d, skippedNotVisible=%d",
+		len(servers), len(plan.sso), len(plan.grants), skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure, skippedNotVisible)
 	return plan
 }
 

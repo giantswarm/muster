@@ -6,6 +6,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/server"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -65,6 +66,10 @@ func (a *AggregatorServer) startEventFollow(ctx context.Context, options api.Eve
 	logging.Debug("Aggregator", "Started event follow stream for session %s",
 		logging.TruncateIdentifier(sessionID))
 
+	// Each event is judged with the caller's token, so an event about an MCP
+	// server the caller may not see is never pushed.
+	viewCtx := server.ContextWithCallerTokens(context.Background(), server.CallerTokensFromContext(ctx))
+
 	go func() {
 		defer a.removeEventFollow(sessionID, follow)
 		for {
@@ -74,6 +79,20 @@ func (a *AggregatorServer) startEventFollow(ctx context.Context, options api.Eve
 			case ev, ok := <-ch:
 				if !ok {
 					return
+				}
+				view := api.CallerVisibility(viewCtx)
+				if view.Reason != "" {
+					// The session's token is no longer accepted: the stream
+					// ends with the reason instead of going silent.
+					_ = a.mcpServer.SendNotificationToSpecificClient(sessionID, eventFollowNotificationMethod, map[string]any{
+						"type":    "Warning",
+						"reason":  "SignInRequired",
+						"message": view.Reason,
+					})
+					return
+				}
+				if !view.SeesEvent(ev) {
+					continue
 				}
 				params := map[string]any{
 					"timestamp":     ev.Timestamp.Format("2006-01-02 15:04:05"),

@@ -186,6 +186,10 @@ type FilterToolsResponse struct {
 	// would unlock — nor by the other filters, which have no text to match
 	// before the sign-in.
 	ServersRequiringAuth []api.ServerAuthInfo `json:"servers_requiring_auth,omitempty"`
+	// Notice says why the caller sees no MCP server at all and that the
+	// person must sign in again (a session whose token the Kubernetes API
+	// does not accept, when muster lists servers as the caller).
+	Notice string `json:"notice,omitempty"`
 }
 
 // FilterCriteria describes the filter parameters applied.

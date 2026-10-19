@@ -1786,7 +1786,8 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// exchange per-request instead of on the backoff schedule.
 			// A fan-out already running for the session (a sign-in's, whose
 			// fast servers made the session live) covers the misses.
-			if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil && a.ssoPoolMissNeedingInit(sso.userID, sessionID) {
+			if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil &&
+				a.ssoPoolMissNeedingInitOf(sso.userID, sessionID, seesFunc(api.CallerVisibility(server.ContextWithCallerTokens(context.Background(), sso.tokens)))) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 				a.beginSessionBootstrap(sso)
@@ -1932,20 +1933,22 @@ func (a *AggregatorServer) GetTools() []mcp.Tool {
 // ID, re-listed first when they predate a change seen on their server
 // (sessionView). For non-OAuth servers, tools are read from ServerInfo (same
 // as GetAllTools).
+//
+// A server the caller of ctx may not see contributes nothing (visibility.go).
 func (a *AggregatorServer) GetToolsForSession(ctx context.Context, sessionID string) []mcp.Tool {
-	return a.registry.ToolsForSessionView(a.sessionView(ctx, sessionID))
+	return a.registry.ToolsForSessionViewOf(a.sessionView(ctx, sessionID), seesFunc(api.CallerVisibility(ctx)))
 }
 
 // GetResourcesForSession returns a session-specific view of all available resources.
 // For OAuth servers, resources are read from the CapabilityStore keyed by session ID.
 func (a *AggregatorServer) GetResourcesForSession(ctx context.Context, sessionID string) []api.ResourceOrigin {
-	return a.registry.ResourcesForSessionView(a.sessionView(ctx, sessionID))
+	return seenResources(api.CallerVisibility(ctx), a.registry.ResourcesForSessionView(a.sessionView(ctx, sessionID)))
 }
 
 // GetPromptsForSession returns a session-specific view of all available prompts.
 // For OAuth servers, prompts are read from the CapabilityStore keyed by session ID.
 func (a *AggregatorServer) GetPromptsForSession(ctx context.Context, sessionID string) []api.PromptOrigin {
-	return a.registry.PromptsForSessionView(a.sessionView(ctx, sessionID))
+	return seenPrompts(api.CallerVisibility(ctx), a.registry.PromptsForSessionView(a.sessionView(ctx, sessionID)))
 }
 
 // sessionToolFilter is the WithToolFilter callback for MCP tools/list.
@@ -2057,7 +2060,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 		instanceArg := a.registry.FamilyInstanceArgFor(toolName)
 		explicitServer, _ := args[instanceArg].(string)
 		if explicitServer == "" {
-			providers := a.registry.GetToolServerNames(toolName)
+			providers := seenNames(api.CallerVisibility(ctx), a.registry.GetToolServerNames(toolName))
 			sort.Strings(providers)
 			return nil, fmt.Errorf("tool %s is provided by a family on servers %s; the %q parameter is required",
 				toolName, strings.Join(providers, ", "), instanceArg)
@@ -2101,6 +2104,9 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 				sessionServerName, originalName, sessionErr = a.resolveUserTool(sessionID, toolName)
 			}
 		}
+		if view := api.CallerVisibility(ctx); sessionErr == nil && !view.Sees(sessionServerName) {
+			return nil, unseenError(view, "tool not found: "+toolName)
+		}
 		if sessionErr == nil {
 			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
@@ -2132,7 +2138,8 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 	if family := a.registry.FamilyOfExposedName(toolName); family != "" {
 		return nil, a.familyToolUnavailableError(ctx, toolName, family, sessionID)
 	}
-	return nil, fmt.Errorf("tool not found: %s", toolName)
+	// A caller who sees no server is told why.
+	return nil, unseenError(api.CallerVisibility(ctx), "tool not found: "+toolName)
 }
 
 // signInRetriedKey marks a call routed again after its sign-in answer
@@ -2205,6 +2212,11 @@ func (a *AggregatorServer) isFamilyToolForSession(ctx context.Context, toolName 
 // tool that fell back to per-server names).
 func (a *AggregatorServer) familyToolUnavailableError(ctx context.Context, toolName, family, sessionID string) error {
 	members, visible := a.registry.FamilyMembersForSession(ctx, a.capabilityStore, sessionID, family)
+	view := api.CallerVisibility(ctx)
+	members, visible = seenNames(view, members), seenNames(view, visible)
+	if len(members) == 0 {
+		return unseenError(view, "tool not found: "+toolName)
+	}
 	if len(visible) > 0 {
 		return fmt.Errorf("tool %s is not exposed under family %q by any member this session is connected to (%s)",
 			toolName, family, strings.Join(visible, ", "))
@@ -2226,6 +2238,9 @@ func (a *AggregatorServer) familyToolUnavailableError(ctx context.Context, toolN
 // It encapsulates the global-client vs. session-scoped vs. token-exchange
 // branching that previously lived inline in CallToolInternal.
 func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (res *mcp.CallToolResult, err error) {
+	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
+		return nil, unseenError(view, "tool not found: "+toolName)
+	}
 	start := time.Now()
 	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
 	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
@@ -3285,6 +3300,11 @@ func (a *AggregatorServer) getOrCreateClientForToolCall(
 	if !exists {
 		return nil, nil, fmt.Errorf("server %s not found in registry", serverName)
 	}
+	// No connection, no forwarded and no exchanged token for a server the
+	// caller may not see.
+	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
+		return nil, nil, unseenError(view, fmt.Sprintf("server %s not found in registry", serverName))
+	}
 
 	if a.authStore == nil {
 		return nil, nil, fmt.Errorf("auth store not initialized")
@@ -3709,10 +3729,13 @@ func (a *AggregatorServer) ReadResource(ctx context.Context, uri, serverName str
 	if serverName != "" {
 		originalURI, err = a.registry.ResolveResourceNameForServer(uri, serverName)
 	} else {
-		serverName, originalURI, err = a.registry.ResolveResourceName(uri)
+		serverName, originalURI, err = a.registry.ResolveResourceNameOf(uri, seesFunc(api.CallerVisibility(ctx)))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve resource URI: %w", err)
+	}
+	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
+		return nil, unseenError(view, "failed to resolve resource URI: resource not found: "+uri)
 	}
 
 	// Get the backend client
@@ -3737,6 +3760,9 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 	serverName, originalName, err := a.registry.ResolvePromptName(name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve prompt name: %w", err)
+	}
+	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
+		return nil, unseenError(view, "failed to resolve prompt name: prompt not found: "+name)
 	}
 
 	// Get the backend client
@@ -3787,11 +3813,12 @@ func needsManualLogin(info *ServerInfo) bool {
 func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.ServerAuthInfo {
 	sessionID := getSessionIDFromContext(ctx)
 	servers := a.registry.GetAllServers()
+	view := api.CallerVisibility(ctx)
 
 	var authRequired []api.ServerAuthInfo
 
 	for name, info := range servers {
-		if !needsManualLogin(info) || info.IsDown() {
+		if !needsManualLogin(info) || info.IsDown() || !view.Sees(name) {
 			continue
 		}
 

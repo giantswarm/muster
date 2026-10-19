@@ -201,6 +201,20 @@ tests:
           path: data["config.yaml"]
           pattern: "writesAsCaller:\n  kubernetesAudience: \"custom-audience\""
 
+  - it: omits mcpServersInAllNamespaces by default (muster serves its own namespace only)
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "mcpServersInAllNamespaces"
+
+  - it: renders mcpServersInAllNamespaces when switched on
+    set:
+      muster.mcpServersInAllNamespaces: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\nmcpServersInAllNamespaces: true\n"
+
   - it: omits toolsetPresets by default (only the built-in presets exist)
     asserts:
       - notMatchRegex:

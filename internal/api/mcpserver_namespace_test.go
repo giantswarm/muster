@@ -91,6 +91,25 @@ func TestCollectRequiredAudiencesSkipsTenantServers(t *testing.T) {
 	assert.Equal(t, []string{"dex-k8s-authenticator"}, audiences)
 }
 
+// TestCollectRequiredAudiencesAddsTheLoginAudienceOfVisibility: when muster
+// lists servers as the caller, every login asks for the API server's
+// audience, so the session's ID token is accepted there (D9).
+func TestCollectRequiredAudiencesAddsTheLoginAudienceOfVisibility(t *testing.T) {
+	RegisterMCPServerManager(&audienceManager{})
+	t.Cleanup(func() { RegisterMCPServerManager(nil) })
+	RegisterMCPServerVisibility(loginAudience("dex-k8s-authenticator"))
+	t.Cleanup(func() { RegisterMCPServerVisibility(nil) })
+
+	audiences, err := CollectRequiredAudiences(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"dex-k8s-authenticator"}, audiences)
+}
+
+type loginAudience string
+
+func (a loginAudience) CallerVisibility(context.Context) ServerVisibility { return AllServersVisible() }
+func (a loginAudience) LoginAudience() string                             { return string(a) }
+
 type audienceManager struct {
 	MCPServerManagerHandler
 	servers []MCPServerInfo

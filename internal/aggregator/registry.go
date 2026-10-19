@@ -1341,10 +1341,27 @@ func (r *ServerRegistry) ResolvePromptName(exposedName string) (serverName, orig
 // Returns empty strings and an error if the URI cannot be resolved, is ambiguous
 // (exposed by more than one server), or refers to a different item type.
 func (r *ServerRegistry) ResolveResourceName(exposedURI string) (serverName, originalURI string, err error) {
+	return r.ResolveResourceNameOf(exposedURI, nil)
+}
+
+// ResolveResourceNameOf is ResolveResourceName over the servers sees accepts
+// (every server when nil): a server the caller may not see neither serves the
+// URI nor is named in the answer.
+func (r *ServerRegistry) ResolveResourceNameOf(exposedURI string, sees func(string) bool) (serverName, originalURI string, err error) {
 	r.nameMu.RLock()
-	providers := r.resourceMappings[exposedURI]
+	all := r.resourceMappings[exposedURI]
 	m, otherKind := r.nameMapping[exposedURI]
 	r.nameMu.RUnlock()
+
+	providers := all
+	if sees != nil {
+		providers = nil
+		for _, p := range all {
+			if sees(p.serverName) {
+				providers = append(providers, p)
+			}
+		}
+	}
 
 	switch {
 	case len(providers) == 1:
@@ -1605,11 +1622,21 @@ func (r *ServerRegistry) GetAllToolsForSession(ctx context.Context, store oauths
 // servers read already (sessionCapabilities), for a caller that brought the
 // view up to date first (AggregatorServer.sessionView).
 func (r *ServerRegistry) ToolsForSessionView(caps map[string]*oauthstore.Capabilities) []mcp.Tool {
+	return r.ToolsForSessionViewOf(caps, nil)
+}
+
+// ToolsForSessionViewOf is ToolsForSessionView over the servers sees accepts
+// (every server when sees is nil): a server the caller may not see
+// contributes nothing, as if it were not registered.
+func (r *ServerRegistry) ToolsForSessionViewOf(caps map[string]*oauthstore.Capabilities, sees func(serverName string) bool) []mcp.Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var contributions []serverToolContribution
 	for serverName, info := range r.servers {
+		if sees != nil && !sees(serverName) {
+			continue
+		}
 		if c, ok := r.sessionToolContribution(caps, serverName, info); ok {
 			contributions = append(contributions, c)
 		}

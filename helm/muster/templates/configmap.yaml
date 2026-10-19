@@ -167,6 +167,9 @@ data:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- end }}
+    {{- if .Values.muster.mcpServersInAllNamespaces }}
+    mcpServersInAllNamespaces: true
+    {{- end }}
     {{- with .Values.muster.writesAsCaller.kubernetesAudience }}
     writesAsCaller:
       kubernetesAudience: {{ . | quote }}
