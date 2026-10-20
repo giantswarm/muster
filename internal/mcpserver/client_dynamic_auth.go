@@ -251,6 +251,10 @@ func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 			return authErr
 		}
 
+		if listenErr := c.checkListenInitializeError(c.url, err); listenErr != nil {
+			return listenErr
+		}
+
 		// A 4xx (path not served yet, legacy SSE) or a 429/503 transient
 		// refusal is typed with the status and the Retry-After, so the
 		// person's session connect names the real cause instead of "likely a

@@ -191,6 +191,10 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 			return authErr
 		}
 
+		if listenErr := c.checkListenInitializeError(c.url, err); listenErr != nil {
+			return listenErr
+		}
+
 		// Anything else the endpoint answered the initialize with: a 4xx (the
 		// path is not served yet, or the server speaks only legacy SSE) or a
 		// 429/503 transient refusal is typed with the status mcp-go dropped

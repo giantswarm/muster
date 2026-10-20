@@ -45,8 +45,9 @@ func NewMusterTokenStore(sessionID, userID, issuer string, oauthHandler api.OAut
 // Returns transport.ErrNoToken when no token is available, which signals
 // mcp-go to initiate the OAuth authorization flow.
 //
-// Unlike the previous implementation, this does NOT call RefreshTokenIfNeeded.
-// mcp-go decides when to refresh based on the ExpiresAt field.
+// mcp-go decides when to refresh based on the ExpiresAt field, and refreshes
+// only a token whose Issuer is the authorization server's metadata issuer: the
+// plain issuer of the store's key.
 func (s *MusterTokenStore) GetToken(ctx context.Context) (*transport.Token, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -70,6 +71,7 @@ func (s *MusterTokenStore) GetToken(ctx context.Context) (*transport.Token, erro
 	}
 
 	return &transport.Token{
+		Issuer:       api.IssuerURL(s.issuer),
 		AccessToken:  fullToken.AccessToken,
 		TokenType:    "Bearer",
 		RefreshToken: fullToken.RefreshToken,
