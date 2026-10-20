@@ -53,6 +53,9 @@ func NewAgentTokenStore(serverURL, clientID string, tokenStore *TokenStore) *Age
 // Returns transport.ErrNoToken when no token is available, which signals
 // mcp-go to initiate the OAuth authorization flow.
 //
+// The token carries the issuer it was stored with: mcp-go refreshes only a
+// token whose issuer matches the authorization server's metadata.
+//
 // The expiry handed to mcp-go is the store's own: the stored one less
 // tokenExpiryBuffer. mcp-go refreshes only a token it sees as expired, while
 // the store calls a token invalid tokenExpiryBuffer earlier; with the stored
@@ -79,6 +82,7 @@ func (s *AgentTokenStore) GetToken(ctx context.Context) (*transport.Token, error
 	s.mu.Unlock()
 
 	return &transport.Token{
+		Issuer:       storedToken.IssuerURL,
 		AccessToken:  storedToken.AccessToken,
 		TokenType:    storedToken.TokenType,
 		RefreshToken: storedToken.RefreshToken,
@@ -115,6 +119,9 @@ func (s *AgentTokenStore) SaveToken(ctx context.Context, token *transport.Token)
 		idToken = s.refreshedIDToken
 		s.idToken = idToken
 		s.refreshedIDToken = ""
+	}
+	if token.Issuer != "" {
+		s.issuerURL = token.Issuer
 	}
 	issuerURL := s.issuerURL
 	s.mu.Unlock()

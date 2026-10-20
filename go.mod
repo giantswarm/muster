@@ -23,7 +23,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/mark3labs/mcp-go v1.2.1
+	github.com/mark3labs/mcp-go v1.3.0
 	github.com/mark3labs/mcp-go/otel v0.54.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
@@ -208,10 +208,10 @@ replace github.com/prometheus/prometheus v0.51.0 => github.com/prometheus/promet
 
 replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
 
-// The Giant Swarm line of mcp-go: v1.2.1 plus the two streamable-http fixes
+// The Giant Swarm line of mcp-go: v1.3.0 plus the two streamable-http fixes
 // that stop request notifications from being dropped or sent after the
 // response, and the request body bound of the HTTP transports
-// (CVE-2026-108859) (giantswarm/mcp-go FORK.md and fork/). Pinned to v1.2.1
+// (CVE-2026-108859) (giantswarm/mcp-go FORK.md and fork/). Pinned to v1.3.0
 // only, so an mcp-go bump leaves the line and the progress tests show whether
 // upstream carries the fixes; moving the pin follows FORK.md "Moving the pin".
-replace github.com/mark3labs/mcp-go v1.2.1 => github.com/giantswarm/mcp-go v1.1.2-0.20261012161203-458027152b2b
+replace github.com/mark3labs/mcp-go v1.3.0 => github.com/giantswarm/mcp-go v1.1.2-0.20261020060120-17fa7f3a8f53

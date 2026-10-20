@@ -72,6 +72,17 @@ func (b *baseMCPClient) checkListenHandshake(url string, result *mcp.InitializeR
 	return fmt.Errorf("%s answered with protocol %s: %w", url, result.ProtocolVersion, ErrSubscriptionsListenUnsupported)
 }
 
+// checkListenInitializeError refuses a listen-mode connection whose server
+// rejected 2026-07-28 at server/discover: mcp-go returns the server's
+// UnsupportedProtocolVersionError rather than falling back to the initialize
+// handshake. Caller holds b.mu.
+func (b *baseMCPClient) checkListenInitializeError(url string, err error) error {
+	if !b.listenMode || !mcp.IsUnsupportedProtocolVersion(err) {
+		return nil
+	}
+	return fmt.Errorf("%s: %w: %w", url, ErrSubscriptionsListenUnsupported, err)
+}
+
 // ListenResources opens a subscriptions/listen stream; see ResourceListener.
 // The lock is not held while the stream is open, so Close can end it.
 func (b *baseMCPClient) ListenResources(ctx context.Context, uris []string) error {
