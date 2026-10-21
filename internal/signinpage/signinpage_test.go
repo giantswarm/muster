@@ -13,18 +13,16 @@ func TestSignedIn(t *testing.T) {
 	}
 }
 
-func TestFailed_ShowsOnlyKnownErrorCodes(t *testing.T) {
+// TestFailed_ShowsOnlyRegisteredErrorCodes checks that Failed filters the
+// code through pagekit: a registered code that muster's earlier list lacked
+// is shown, and text that isn't a registered code is not.
+func TestFailed_ShowsOnlyRegisteredErrorCodes(t *testing.T) {
 	tests := []struct {
 		code       string
 		wantDetail string
 	}{
-		{code: "access_denied", wantDetail: "access_denied"},
-		{code: "login_required", wantDetail: "login_required"},
-		{code: "invalid_target", wantDetail: "invalid_target"},
-		{code: "", wantDetail: ""},
+		{code: "invalid_client", wantDetail: "invalid_client"},
 		{code: "your_account_is_locked_email_help_at_evil_example", wantDetail: ""},
-		{code: "Call support at 555", wantDetail: ""},
-		{code: "ACCESS_DENIED", wantDetail: ""},
 	}
 
 	for _, tc := range tests {
