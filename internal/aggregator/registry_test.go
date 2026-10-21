@@ -325,19 +325,6 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		assert.Equal(t, "x_kubernetes_list", tools[0].Name)
 	})
 
-	t.Run("a property called description is an argument, not an annotation", func(t *testing.T) {
-		withProps := func(props map[string]any) mcp.Tool {
-			return mcp.Tool{Name: "create", InputSchema: mcp.ToolInputSchema{Type: "object", Properties: props}}
-		}
-		a := withProps(map[string]any{"name": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}})
-		b := withProps(map[string]any{"name": map[string]any{"type": "string"}})
-		assert.NotEqual(t, inputSchemaFingerprint(a), inputSchemaFingerprint(b))
-
-		c := withProps(map[string]any{"name": map[string]any{"type": "string", "enum": []any{"a"}}})
-		d := withProps(map[string]any{"name": map[string]any{"type": "string", "enum": []any{"a", "b"}}})
-		assert.NotEqual(t, inputSchemaFingerprint(c), inputSchemaFingerprint(d))
-	})
-
 	t.Run("a description tie goes to the longer description", func(t *testing.T) {
 		registry := NewServerRegistry("x")
 		require.NoError(t, registry.Register(ctx, ServerRegistration{

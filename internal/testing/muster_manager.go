@@ -23,8 +23,10 @@ import (
 	"github.com/giantswarm/muster/v5/internal/listenfds"
 	"github.com/giantswarm/muster/v5/internal/netdiag"
 	"github.com/giantswarm/muster/v5/internal/testing/mock"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
 )
 
@@ -2146,14 +2148,18 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 	familyMembers := map[string][]string{}
 
 	// Identify family groups whose members would fall back to per-server
-	// prefixing: same family.name but diverging family.instanceArg, or same
-	// (family.name, tool.name) with diverging descriptions. For those tools,
+	// prefixing: same family.name but diverging family.instanceArg, or, for
+	// one (family.name, tool.name), a member outside the largest input-schema
+	// group (toolset.SplitFamilyTool, the aggregator's rule). For those,
 	// expect x_<server>_<tool> instead of x_<family.name>_<tool>.
 	familyArgs := map[string]string{}       // family name -> first-seen instanceArg
 	familyArgDivergent := map[string]bool{} // family name -> true when args disagree
 	type toolKey struct{ family, name string }
-	toolDescriptions := map[toolKey]string{}
-	toolDivergent := map[toolKey]bool{}
+	type memberTools struct {
+		servers []string
+		tools   []mcp.Tool
+	}
+	toolMembers := map[toolKey]*memberTools{}
 	for _, mcpServer := range config.MCPServers {
 		family, ok := mcpServer.Config["family"].(map[string]interface{})
 		if !ok {
@@ -2180,15 +2186,24 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 					if name == "" {
 						continue
 					}
-					desc, _ := toolMap["description"].(string)
 					key := toolKey{family: familyName, name: name}
-					if prev, seen := toolDescriptions[key]; seen && prev != desc {
-						toolDivergent[key] = true
-					} else if !seen {
-						toolDescriptions[key] = desc
+					if toolMembers[key] == nil {
+						toolMembers[key] = &memberTools{}
 					}
+					toolMembers[key].servers = append(toolMembers[key].servers, mcpServer.Name)
+					toolMembers[key].tools = append(toolMembers[key].tools, mockToolSchema(toolMap))
 				}
 			}
+		}
+	}
+	toolDivergent := map[toolKey]map[string]bool{} // members outside the family tool's schema group
+	for key, members := range toolMembers {
+		_, rest := toolset.SplitFamilyTool(members.servers, members.tools)
+		for _, server := range rest.Servers {
+			if toolDivergent[key] == nil {
+				toolDivergent[key] = map[string]bool{}
+			}
+			toolDivergent[key][server] = true
 		}
 	}
 
@@ -2254,7 +2269,7 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 							}
 							grouped := familyName != "" &&
 								!familyArgDivergent[familyName] &&
-								!toolDivergent[toolKey{family: familyName, name: name}] &&
+								!toolDivergent[toolKey{family: familyName, name: name}][mcpServer.Name] &&
 								!instanceArgCollides
 							if grouped {
 								prefixedName = fmt.Sprintf("x_%s_%s", familyName, name)
@@ -2275,6 +2290,19 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 	}
 
 	return expectedTools, familyMembers
+}
+
+// mockToolSchema returns the name and input schema a mock server's tool
+// entry declares, as the aggregator receives them.
+func mockToolSchema(toolMap map[string]interface{}) mcp.Tool {
+	name, _ := toolMap["name"].(string)
+	tool := mcp.Tool{Name: name}
+	if schema, ok := toolMap["input_schema"]; ok {
+		if raw, err := json.Marshal(schema); err == nil {
+			tool.RawInputSchema = raw
+		}
+	}
+	return tool
 }
 
 // Cleanup cleans up all temporary directories created by this manager

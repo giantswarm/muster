@@ -2,7 +2,6 @@ package aggregator
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"slices"
@@ -714,7 +713,7 @@ type serverToolContribution struct {
 //   - A family tool groups by name and input schema, never by description:
 //     members whose tool differs only in its own or its arguments'
 //     descriptions share one exposed tool carrying the most common
-//     description (see familyGroup). When members' input schemas accept
+//     description (see toolset.SplitFamilyTool). When members' input schemas accept
 //     different arguments, the largest schema group keeps the
 //     family name and every other member falls back to per-server prefixing
 //     for that tool; other tools in the family still group.
@@ -810,19 +809,19 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			r.removeFamilyTool(r.familyExposedName(key.family, key.toolName))
 			continue
 		}
-		group, rest := familyGroup(entry.servers, entry.tools)
-		if len(rest.servers) > 0 {
+		group, rest := toolset.SplitFamilyTool(entry.servers, entry.tools)
+		if len(rest.Servers) > 0 {
 			logging.Warn("Aggregator",
 				"family %q tool %q accepts different arguments on servers %v than on %v; those fall back to per-server prefixing for this tool",
-				key.family, key.toolName, rest.servers, group.servers)
-			soloTools = append(soloTools, r.perServerTools(rest.servers, rest.tools)...)
+				key.family, key.toolName, rest.Servers, group.Servers)
+			soloTools = append(soloTools, r.perServerTools(rest.Servers, rest.Tools)...)
 		}
 
-		sortedServers := append([]string(nil), group.servers...)
+		sortedServers := append([]string(nil), group.Servers...)
 		sort.Strings(sortedServers)
 
-		exposedTool := group.tools[0]
-		exposedTool.Description = commonDescription(group.tools)
+		exposedTool := group.Tools[0]
+		exposedTool.Description = toolset.CommonDescription(group.Tools)
 		exposedTool.Name = r.familyExposedName(key.family, key.toolName)
 		toolset.SetFamilyMembers(&exposedTool, entry.instanceArg, sortedServers)
 		// The exposed name carries the family, so the family is the owning
@@ -1022,153 +1021,6 @@ func (r *ServerRegistry) removeFamilyTool(exposedName string) {
 	r.nameMu.Lock()
 	defer r.nameMu.Unlock()
 	delete(r.familyMappings, exposedName)
-}
-
-// toolGroup is a set of family members and their contribution of one tool,
-// servers[i] contributing tools[i].
-type toolGroup struct {
-	servers []string
-	tools   []mcp.Tool
-}
-
-// familyGroup splits the members contributing one family tool by the
-// arguments their input schema accepts (inputSchemaFingerprint). The largest schema group keeps the family name (a tie goes to the
-// group of the alphabetically first server, so the choice is stable across
-// listings); rest holds the members of every other schema group, which fall
-// back to per-server names. Descriptions take no part: members whose tool
-// differs only in its own or its arguments' descriptions are one group.
-func familyGroup(servers []string, tools []mcp.Tool) (group, rest toolGroup) {
-	type schemaGroup struct {
-		toolGroup
-		first string
-	}
-	var groups []*schemaGroup
-	bySchema := make(map[string]*schemaGroup)
-	for i, sn := range servers {
-		fp := inputSchemaFingerprint(tools[i])
-		g, ok := bySchema[fp]
-		if !ok {
-			g = &schemaGroup{first: sn}
-			bySchema[fp] = g
-			groups = append(groups, g)
-		}
-		g.servers = append(g.servers, sn)
-		g.tools = append(g.tools, tools[i])
-		g.first = min(g.first, sn)
-	}
-	best := slices.MaxFunc(groups, func(a, b *schemaGroup) int {
-		if c := len(a.servers) - len(b.servers); c != 0 {
-			return c
-		}
-		return strings.Compare(b.first, a.first)
-	})
-	for _, g := range groups {
-		if g == best {
-			continue
-		}
-		rest.servers = append(rest.servers, g.servers...)
-		rest.tools = append(rest.tools, g.tools...)
-	}
-	return best.toolGroup, rest
-}
-
-// inputSchemaFingerprint returns a canonical JSON encoding of the arguments
-// the tool's input schema accepts, raw or structured: the annotation keywords
-// (description, title, examples, $comment) are dropped at every level, so two
-// versions of a server that only reword a tool's argument descriptions
-// compare equal, and key order does not matter.
-func inputSchemaFingerprint(tool mcp.Tool) string {
-	raw := []byte(tool.RawInputSchema)
-	if len(raw) == 0 {
-		var err error
-		if raw, err = json.Marshal(tool.InputSchema); err != nil {
-			return ""
-		}
-	}
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return string(raw)
-	}
-	canonical, err := json.Marshal(stripSchemaAnnotations(v))
-	if err != nil {
-		return string(raw)
-	}
-	return string(canonical)
-}
-
-// schemaAnnotations are the JSON Schema keywords that describe an argument
-// without changing which values it accepts.
-var schemaAnnotations = map[string]bool{schemaDescriptionKeyword: true, "title": true, "examples": true, "$comment": true}
-
-// schemaDescriptionKeyword is the JSON Schema keyword of an argument's
-// description.
-const schemaDescriptionKeyword = "description"
-
-// schemaNameMaps are the JSON Schema keywords whose value maps names (of
-// properties or definitions) to schemas: their keys are names, never
-// keywords, so a property called "description" is kept.
-var schemaNameMaps = map[string]bool{"properties": true, "patternProperties": true, "$defs": true, "definitions": true, "dependentSchemas": true}
-
-// schemaValues are the JSON Schema keywords whose value is data, not a
-// schema, and is compared as it is.
-var schemaValues = map[string]bool{"enum": true, "const": true, "default": true, "required": true}
-
-// stripSchemaAnnotations returns the schema node without its annotation
-// keywords, recursing into every subschema.
-func stripSchemaAnnotations(node any) any {
-	switch n := node.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(n))
-		for k, v := range n {
-			switch {
-			case schemaAnnotations[k]:
-			case schemaValues[k]:
-				out[k] = v
-			case schemaNameMaps[k]:
-				if names, ok := v.(map[string]any); ok {
-					stripped := make(map[string]any, len(names))
-					for name, sub := range names {
-						stripped[name] = stripSchemaAnnotations(sub)
-					}
-					out[k] = stripped
-				} else {
-					out[k] = v
-				}
-			default:
-				out[k] = stripSchemaAnnotations(v)
-			}
-		}
-		return out
-	case []any:
-		out := make([]any, len(n))
-		for i, v := range n {
-			out[i] = stripSchemaAnnotations(v)
-		}
-		return out
-	default:
-		return node
-	}
-}
-
-// commonDescription returns the description most of the tools carry. A tie
-// goes to the longest description, as a newer member tends to describe a tool
-// more fully, then to the alphabetically first, so the choice is stable.
-func commonDescription(tools []mcp.Tool) string {
-	counts := make(map[string]int, len(tools))
-	for _, t := range tools {
-		counts[t.Description]++
-	}
-	var best string
-	bestCount := 0
-	for d, n := range counts {
-		switch {
-		case n > bestCount,
-			n == bestCount && len(d) > len(best),
-			n == bestCount && len(d) == len(best) && d < best:
-			best, bestCount = d, n
-		}
-	}
-	return best
 }
 
 // instanceArgCollides reports whether instanceArg matches a property name on
