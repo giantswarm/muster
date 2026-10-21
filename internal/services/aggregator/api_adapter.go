@@ -168,6 +168,26 @@ func (a *APIAdapter) GetAvailableTools() []string {
 	return server.GetAvailableTools()
 }
 
+// ServerHasTools reports whether the server registered under name lists at
+// least one tool.
+func (a *APIAdapter) ServerHasTools(name string) bool {
+	if a.service == nil {
+		return false
+	}
+
+	manager := a.service.GetManager()
+	if manager == nil {
+		return false
+	}
+
+	server := manager.GetAggregatorServer()
+	if server == nil {
+		return false
+	}
+
+	return server.ServerHasTools(name)
+}
+
 // UpdateCapabilities updates the aggregator's capabilities
 func (a *APIAdapter) UpdateCapabilities() {
 	if a.service == nil {

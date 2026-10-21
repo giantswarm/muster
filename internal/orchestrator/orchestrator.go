@@ -598,7 +598,11 @@ func (o *Orchestrator) StartService(name string) error {
 	return nil
 }
 
-// waitForMCPServerRegistration waits for an MCP server to be registered with the aggregator.
+// waitForMCPServerRegistration waits until the aggregator's registry entry for
+// the server, under its key, lists the server's tools. It asks for the entry,
+// not for a tool name derived from the key: a server outside muster's
+// namespace (key "<namespace>/<name>") or with its own toolPrefix exposes its
+// tools under another prefix (#1621).
 func (o *Orchestrator) waitForMCPServerRegistration(serverName string) error {
 	aggregator := api.GetAggregator()
 	if aggregator == nil {
@@ -610,14 +614,9 @@ func (o *Orchestrator) waitForMCPServerRegistration(serverName string) error {
 	deadline := time.Now().Add(timeout)
 
 	for time.Now().Before(deadline) {
-		availableTools := aggregator.GetAvailableTools()
-		prefix := "x_" + serverName + "_"
-
-		for _, tool := range availableTools {
-			if len(tool) > len(prefix) && tool[:len(prefix)] == prefix {
-				logging.Debug("Orchestrator", "MCP server %s registered with aggregator (found tool %s)", serverName, tool)
-				return nil
-			}
+		if aggregator.ServerHasTools(serverName) {
+			logging.Debug("Orchestrator", "MCP server %s registered with aggregator", serverName)
+			return nil
 		}
 
 		time.Sleep(interval)
