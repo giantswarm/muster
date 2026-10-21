@@ -1,72 +1,24 @@
 # Meta-tools
 
-Generated from the provider (`make tools-doc`): every meta-tool's description, annotations and arguments as an MCP client lists them on connect. See [MCP tools](mcp-tools.md) for what they answer.
+Generated from the registered meta-tools (`make tools-doc`): every description and input schema exactly as an MCP client lists them on connect. Through `muster agent --mcp-server`, `call_tool` also takes `timeout`, which the agent consumes. [MCP tools](mcp-tools.md) covers what each one answers.
 
-## `list_tools`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
-
-```text
-List one page of your tools as one-line summaries, plus the servers a sign-in would unlock (servers_requiring_auth).
-
-Costly: the catalogue holds hundreds of tools and every page stays in your context, so do not page through it to find a tool: filter_tools finds one, describe_tool gives its schema. truncated says more pages exist at offset + limit.
-```
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `limit` | number | false | Maximum number of tools in this page (default: 50) |
-| `offset` | number | false | Number of tools to skip before this page (default: 0) |
-
-## `describe_tool`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
-
-```text
-Get one tool's full description, input schema, origin and annotations, and the call_tool call that runs it.
-```
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | true | Name of the tool to describe |
-
-## `list_core_tools`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
-
-```text
-List muster's own core tools (core_*), apart from the tools of the MCP servers it aggregates.
-```
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `include_schema` | boolean | false | Whether to include full tool specifications with input schemas (default: true) |
-
-## `filter_tools`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
-
-```text
-Find tools by name pattern, description, labels or a ranked natural-language query, as a small summarised page.
-
-A tool you cannot find may sit behind a sign-in: servers_requiring_auth names each server whose tools the pattern could match, and its auth_tool with that server's name starts the sign-in. describe_tool gives a chosen tool's full description and schema. The response's toolset names the toolset bounding you: the toolset argument, else X-Muster-Toolset.
-```
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `toolset` | array | false | Toolset selectors to resolve for you: preset:&lt;name&gt;, server:&lt;name&gt;, workflow:&lt;name&gt;, tool:&lt;name&gt;, at most 32; never wider than X-Muster-Toolset |
-| `include_presets` | boolean | false | Include the known toolset presets (name, description, built_in) in the response (default: false) |
-| `pattern` | string | false | Glob on tool names (e.g. x_slack_*); it also picks the servers_requiring_auth entries whose tool prefix it could match |
-| `description_filter` | string | false | Filter by description content (case-insensitive substring match) |
-| `query` | string | false | Natural-language query: matches come best-first with a score, a name match weighing most; tools that match no word are dropped |
-| `labels` | object | false | Label facets to scope discovery, as key=value pairs. A tool must carry every given label to match (e.g. {"category": "observability"}). |
-| `case_sensitive` | boolean | false | Whether pattern matching should be case-sensitive (default: false) |
-| `include_schema` | boolean | false | Whether to include full input schemas and full descriptions instead of one-line summaries (default: false) |
-| `limit` | number | false | Maximum number of tools in this page (default: 5) |
-| `offset` | number | false | Number of matching tools to skip before this page (default: 0) |
+| Tool | Kind |
+|---|---|
+| `call_tool` | write, destructive |
+| `describe_prompt` | read-only |
+| `describe_resource` | read-only |
+| `describe_tool` | read-only |
+| `filter_prompts` | read-only |
+| `filter_resources` | read-only |
+| `filter_tools` | read-only |
+| `get_prompt` | read-only |
+| `get_resource` | read-only |
+| `list_core_tools` | read-only |
+| `list_prompts` | read-only |
+| `list_resources` | read-only |
+| `list_tools` | read-only |
 
 ## `call_tool`
-
-Annotations: readOnly: false, destructive: true, idempotent: false, openWorld: true.
 
 ```text
 Execute a catalogue tool by name: aggregated tools are callable only this way, never by their own name.
@@ -74,22 +26,128 @@ Execute a catalogue tool by name: aggregated tools are callable only this way, n
 Write name first, then arguments: a name written after a long arguments object gets lost in it. A request that declares a toolset (X-Muster-Toolset) can only call tools inside it.
 ```
 
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | true | Name of the tool to call. Always set, and written before arguments. |
-| `arguments` | object | false | Arguments to pass to the tool (as JSON object) |
+```json
+{
+  "properties": {
+    "arguments": {
+      "description": "Arguments to pass to the tool (as JSON object)",
+      "type": "object"
+    },
+    "name": {
+      "description": "Name of the tool to call. Always set, and written before arguments.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}
+```
 
-## `list_resources`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
+## `describe_prompt`
 
 ```text
-List the resources of the connected MCP servers, each with the server exposing it.
+Describe one prompt by name: its description and arguments.
+```
+
+```json
+{
+  "properties": {
+    "name": {
+      "description": "Name of the prompt to describe",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}
+```
+
+## `describe_resource`
+
+```text
+Describe one resource by URI: its name, description, MIME type and server, not its contents.
+```
+
+```json
+{
+  "properties": {
+    "server": {
+      "description": "Server to describe the resource from. Only needed when several servers expose the same URI; list_resources reports the server for every entry",
+      "type": "string"
+    },
+    "uri": {
+      "description": "URI of the resource to describe",
+      "type": "string"
+    }
+  },
+  "required": [
+    "uri"
+  ],
+  "type": "object"
+}
+```
+
+## `describe_tool`
+
+```text
+Get one tool's full description, input schema, origin and annotations, and the call_tool call that runs it.
+```
+
+```json
+{
+  "properties": {
+    "name": {
+      "description": "Name of the tool to describe",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}
+```
+
+## `filter_prompts`
+
+```text
+Filter the prompts by name pattern and/or source server, one page at a time; names are x_<server>_<name>.
+```
+
+```json
+{
+  "properties": {
+    "case_sensitive": {
+      "description": "Match case-sensitively (default false)",
+      "type": "boolean"
+    },
+    "limit": {
+      "description": "Maximum number of results to return per page",
+      "type": "number"
+    },
+    "offset": {
+      "description": "Number of matches to skip before the returned page",
+      "type": "number"
+    },
+    "pattern": {
+      "description": "Glob pattern to match against the prompt name (e.g. \"x_myserver_*\")",
+      "type": "string"
+    },
+    "server": {
+      "description": "Only return prompts exposed by this server",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
 ```
 
 ## `filter_resources`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
 
 ```text
 Filter the resources by URI pattern and/or source server, one page at a time.
@@ -97,85 +155,221 @@ Filter the resources by URI pattern and/or source server, one page at a time.
 A URI with a scheme carries no server prefix, so scope to one server with server, not the URI.
 ```
 
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `pattern` | string | false | Glob pattern to match against the resource URI (e.g. "board://*") |
-| `server` | string | false | Only return resources exposed by this server |
-| `case_sensitive` | boolean | false | Match case-sensitively (default false) |
-| `limit` | number | false | Maximum number of results to return per page |
-| `offset` | number | false | Number of matches to skip before the returned page |
-
-## `describe_resource`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
-
-```text
-Describe one resource by URI: its name, description, MIME type and server, not its contents.
+```json
+{
+  "properties": {
+    "case_sensitive": {
+      "description": "Match case-sensitively (default false)",
+      "type": "boolean"
+    },
+    "limit": {
+      "description": "Maximum number of results to return per page",
+      "type": "number"
+    },
+    "offset": {
+      "description": "Number of matches to skip before the returned page",
+      "type": "number"
+    },
+    "pattern": {
+      "description": "Glob pattern to match against the resource URI (e.g. \"board://*\")",
+      "type": "string"
+    },
+    "server": {
+      "description": "Only return resources exposed by this server",
+      "type": "string"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
 ```
 
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `uri` | string | true | URI of the resource to describe |
-| `server` | string | false | Server to describe the resource from. Only needed when several servers expose the same URI; list_resources reports the server for every entry |
-
-## `get_resource`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: true.
+## `filter_tools`
 
 ```text
-Read the contents of one resource by URI.
+Find tools by name pattern, description, labels or a ranked natural-language query, as a small summarised page.
+
+A tool you cannot find may sit behind a sign-in: servers_requiring_auth names each server whose tools the pattern could match, and its auth_tool with that server's name starts the sign-in. describe_tool gives a chosen tool's full description and schema. The response's toolset names the toolset bounding you: the toolset argument, else X-Muster-Toolset.
 ```
 
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `uri` | string | true | URI of the resource to retrieve |
-| `server` | string | false | Server to read from. Only needed when several servers expose the same URI; list_resources reports the server for every entry |
-
-## `list_prompts`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
-
-```text
-List the prompts of the connected MCP servers.
+```json
+{
+  "properties": {
+    "case_sensitive": {
+      "default": false,
+      "description": "Whether pattern matching should be case-sensitive",
+      "type": "boolean"
+    },
+    "description_filter": {
+      "description": "Filter by description content (case-insensitive substring match)",
+      "type": "string"
+    },
+    "include_presets": {
+      "default": false,
+      "description": "Include the known toolset presets (name, description, built_in) in the response",
+      "type": "boolean"
+    },
+    "include_schema": {
+      "default": false,
+      "description": "Whether to include full input schemas and full descriptions instead of one-line summaries",
+      "type": "boolean"
+    },
+    "labels": {
+      "description": "Label facets to scope discovery, as key=value pairs. A tool must carry every given label to match (e.g. {\"category\": \"observability\"}).",
+      "type": "object"
+    },
+    "limit": {
+      "default": 5,
+      "description": "Maximum number of tools in this page",
+      "type": "number"
+    },
+    "offset": {
+      "default": 0,
+      "description": "Number of matching tools to skip before this page",
+      "type": "number"
+    },
+    "pattern": {
+      "description": "Glob on tool names (e.g. x_slack_*); it also picks the servers_requiring_auth entries whose tool prefix it could match",
+      "type": "string"
+    },
+    "query": {
+      "description": "Natural-language query: matches come best-first with a score, a name match weighing most; tools that match no word are dropped",
+      "type": "string"
+    },
+    "toolset": {
+      "description": "Toolset selectors to resolve for you: preset:<name>, server:<name>, workflow:<name>, tool:<name>, at most 32; never wider than X-Muster-Toolset",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
 ```
-
-## `filter_prompts`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
-
-```text
-Filter the prompts by name pattern and/or source server, one page at a time; names are x_<server>_<name>.
-```
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `pattern` | string | false | Glob pattern to match against the prompt name (e.g. "x_myserver_*") |
-| `server` | string | false | Only return prompts exposed by this server |
-| `case_sensitive` | boolean | false | Match case-sensitively (default false) |
-| `limit` | number | false | Maximum number of results to return per page |
-| `offset` | number | false | Number of matches to skip before the returned page |
-
-## `describe_prompt`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: false.
-
-```text
-Describe one prompt by name: its description and arguments.
-```
-
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | true | Name of the prompt to describe |
 
 ## `get_prompt`
-
-Annotations: readOnly: true, destructive: false, idempotent: true, openWorld: true.
 
 ```text
 Render one prompt by name with the given arguments.
 ```
 
-| Argument | Type | Required | Description |
-|---|---|---|---|
-| `name` | string | true | Name of the prompt to get |
-| `arguments` | object | false | Arguments to pass to the prompt (as JSON object with string values) |
+```json
+{
+  "properties": {
+    "arguments": {
+      "description": "Arguments to pass to the prompt (as JSON object with string values)",
+      "type": "object"
+    },
+    "name": {
+      "description": "Name of the prompt to get",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}
+```
+
+## `get_resource`
+
+```text
+Read the contents of one resource by URI.
+```
+
+```json
+{
+  "properties": {
+    "server": {
+      "description": "Server to read from. Only needed when several servers expose the same URI; list_resources reports the server for every entry",
+      "type": "string"
+    },
+    "uri": {
+      "description": "URI of the resource to retrieve",
+      "type": "string"
+    }
+  },
+  "required": [
+    "uri"
+  ],
+  "type": "object"
+}
+```
+
+## `list_core_tools`
+
+```text
+List muster's own core tools (core_*), apart from the tools of the MCP servers it aggregates.
+```
+
+```json
+{
+  "properties": {
+    "include_schema": {
+      "default": true,
+      "description": "Whether to include full tool specifications with input schemas",
+      "type": "boolean"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
+```
+
+## `list_prompts`
+
+```text
+List the prompts of the connected MCP servers.
+```
+
+```json
+{
+  "properties": {},
+  "required": [],
+  "type": "object"
+}
+```
+
+## `list_resources`
+
+```text
+List the resources of the connected MCP servers, each with the server exposing it.
+```
+
+```json
+{
+  "properties": {},
+  "required": [],
+  "type": "object"
+}
+```
+
+## `list_tools`
+
+```text
+List one page of your tools as summaries, plus servers a sign-in would unlock; to find a tool use filter_tools.
+
+Costly: the catalogue can hold hundreds of tools and every page stays in your context, so do not page through it to find one. describe_tool gives a tool's schema. truncated says more pages exist at offset + limit.
+```
+
+```json
+{
+  "properties": {
+    "limit": {
+      "default": 50,
+      "description": "Maximum number of tools in this page",
+      "type": "number"
+    },
+    "offset": {
+      "default": 0,
+      "description": "Number of tools to skip before this page",
+      "type": "number"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
+```

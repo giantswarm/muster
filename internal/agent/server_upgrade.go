@@ -38,10 +38,10 @@ func RegisterClientToolsOnServer(ctx context.Context, mcpServer *server.MCPServe
 //
 // The definitions — names, descriptions, arguments, annotations — are the
 // provider's own, so what an AI assistant sees through the local agent is
-// exactly what the
-// aggregator advertises: a new meta-tool, argument or description reaches the
-// bridge without a hand-maintained copy that can fall behind (the copy this
-// replaced still described filter_tools as returning full specifications).
+// exactly what the aggregator advertises: a new meta-tool, argument or
+// description reaches the bridge without a hand-maintained copy that can fall
+// behind (the copy this replaced still described filter_tools as returning
+// full specifications).
 // The one exception is call_tool's timeout argument, which the bridge itself
 // consumes (callTimeoutArg).
 func registerAgentTools(m *MCPServer) {

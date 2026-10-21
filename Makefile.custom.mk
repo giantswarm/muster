@@ -140,8 +140,8 @@ govulncheck: ## Run govulncheck to scan for known vulnerabilities
 ##@ Documentation
 
 .PHONY: tools-doc
-tools-doc: ## Regenerate docs/reference/meta-tools.md from the meta-tool definitions.
-	TOOLS_DOC_UPDATE=1 go test -count=1 -run TestToolsDocIsCurrent ./internal/metatools/
+tools-doc: ## Regenerate docs/reference/meta-tools.md from the registered meta-tools.
+	TOOLS_DOC_UPDATE=1 go test -count=1 -run TestToolsDocIsCurrent ./internal/aggregator/
 
 DOCS_REQUIREMENTS := requirements-docs.txt
 

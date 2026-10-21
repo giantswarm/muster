@@ -257,7 +257,7 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 			// in the caller's own session. Open world: it reaches the
 			// server's authorization server. Read-only agents therefore keep
 			// the ability to connect SSO-protected servers as the person.
-			Annotations: toolAnnotations(api.ReadOnlyAnnotations().OpenWorld(true)),
+			Annotations: api.MCPToolAnnotation(api.ReadOnlyAnnotations().OpenWorld(true)),
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -270,9 +270,8 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 						"description": "Name of the provider App to grant (a provider instance, e.g. github or gitlab); set server or app",
 					},
 					"reset_client_registration": map[string]any{
-						"type": "boolean",
-						api.FieldDescription: "Discard muster's stored dynamic client registration (RFC 7591) with this server's authorization server and register anew before issuing the sign-in link. " +
-							"Use when sign-ins fail with invalid_client although muster reports a stored registration; other users' tokens from that authorization server may need a fresh sign-in afterwards.",
+						"type":               "boolean",
+						api.FieldDescription: "Register muster's client anew first (RFC 7591); only when sign-ins fail with invalid_client. Other users may have to sign in again.",
 					},
 				},
 			},
@@ -285,14 +284,13 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 			// nothing on the platform until the person completes them in
 			// their own session. Open world: it reaches the authorization
 			// servers.
-			Annotations: toolAnnotations(api.ReadOnlyAnnotations().OpenWorld(true)),
+			Annotations: api.MCPToolAnnotation(api.ReadOnlyAnnotations().OpenWorld(true)),
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
 					authURLsArg: map[string]any{
-						"type": "boolean",
-						api.FieldDescription: "Issue the sign-in link (auth_url) of every server in auth_required or reauth_required, as core_auth_login would; " +
-							"a server whose grant you already hold is connected instead. The links are yours alone and expire after a few minutes.",
+						"type":               "boolean",
+						api.FieldDescription: "Also issue the sign-in link (auth_url) of each server in auth_required or reauth_required; links are yours alone and expire in minutes.",
 					},
 				},
 			},
@@ -303,7 +301,7 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 			// A write: it discards the caller's stored grant for the server
 			// (idempotent, nothing else is touched), so it stays outside the
 			// read-only preset.
-			Annotations: toolAnnotations(api.WriteAnnotations(false, true)),
+			Annotations: api.MCPToolAnnotation(api.WriteAnnotations(false, true)),
 			InputSchema: mcp.ToolInputSchema{
 				Type: "object",
 				Properties: map[string]any{
@@ -328,19 +326,13 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 	return tools, steps
 }
 
-// toolAnnotations projects a provider's declared annotations onto the MCP
-// shape. Nil declares none: every hint stays unset, as before.
-func toolAnnotations(a *api.ToolAnnotations) mcp.ToolAnnotation {
-	return api.MCPToolAnnotation(a)
-}
-
 // applyToolAnnotations sets the provider's declared annotations on tool;
 // a tool whose provider declares none is left untouched.
 func applyToolAnnotations(tool *mcp.Tool, a *api.ToolAnnotations) {
 	if a == nil {
 		return
 	}
-	tool.Annotations = toolAnnotations(a)
+	tool.Annotations = api.MCPToolAnnotation(a)
 }
 
 // convertToMCPResult converts an internal tool result to MCP format.

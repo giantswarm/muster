@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/giantswarm/mcp-toolkit/tooldesc"
+
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
 
@@ -31,8 +33,9 @@ const defaultListLimit = 50
 const defaultFilterLimit = 5
 
 // summaryMaxLen caps the length (in runes) of the one-line summary the
-// discovery tier emits in place of a tool's full description.
-const summaryMaxLen = 120
+// discovery tier emits in place of a tool's full description: the limit the
+// servers' tooldesc checks hold their summary lines to.
+const summaryMaxLen = tooldesc.SummaryMax
 
 // filterToolsOptions configures a single query against the caller's catalogue.
 // It is built explicitly by each caller: handleFilterTools applies cheap

@@ -55,6 +55,12 @@ func (p *Provider) Presets() *toolset.Registry {
 	return p.presets
 }
 
+// readOnlyMetaTool annotates the meta-tools that only read. They are open
+// world: every one reads the session's catalogue, and listing it first
+// connects the session to the servers the person already granted
+// (adoptSubjectGrants), which reaches those servers.
+var readOnlyMetaTool = api.ReadOnlyAnnotations().OpenWorld(true)
+
 // GetTools returns metadata for all meta-tools this provider offers.
 // This implements the api.ToolProvider interface for tool discovery.
 //
@@ -68,32 +74,35 @@ func (p *Provider) Presets() *toolset.Registry {
 //   - []api.ToolMetadata: List of all meta-tools provided
 func (p *Provider) GetTools() []api.ToolMetadata {
 	return []api.ToolMetadata{
+		// Tools
 		{
 			Name: "list_tools",
 			Description: toolDescription(
-				"List one page of your tools as one-line summaries, plus the servers a sign-in would unlock (servers_requiring_auth).",
-				"Costly: the catalogue holds hundreds of tools and every page stays in your context, so do not page through it to find a tool: "+
-					"filter_tools finds one, describe_tool gives its schema. truncated says more pages exist at offset + limit."),
-			Annotations: api.ReadOnlyAnnotations(),
+				"List one page of your tools as summaries, plus servers a sign-in would unlock; to find a tool use filter_tools.",
+				"Costly: the catalogue can hold hundreds of tools and every page stays in your context, so do not page through it to find one. "+
+					"describe_tool gives a tool's schema. truncated says more pages exist at offset + limit."),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        ArgLimit,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
-					Description: "Maximum number of tools in this page (default: 50)",
+					Description: "Maximum number of tools in this page",
+					Default:     defaultListLimit,
 				},
 				{
 					Name:        ArgOffset,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
-					Description: "Number of tools to skip before this page (default: 0)",
+					Description: "Number of tools to skip before this page",
+					Default:     0,
 				},
 			},
 		},
 		{
 			Name:        "describe_tool",
 			Description: toolDescription("Get one tool's full description, input schema, origin and annotations, and the call_tool call that runs it.", ""),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
@@ -106,13 +115,14 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		{
 			Name:        "list_core_tools",
 			Description: toolDescription("List muster's own core tools (core_*), apart from the tools of the MCP servers it aggregates.", ""),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "include_schema",
 					Type:        api.ArgTypeBoolean,
 					Required:    false,
-					Description: "Whether to include full tool specifications with input schemas (default: true)",
+					Description: "Whether to include full tool specifications with input schemas",
+					Default:     true,
 				},
 			},
 		},
@@ -123,7 +133,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 				"A tool you cannot find may sit behind a sign-in: servers_requiring_auth names each server whose tools the pattern could match, "+
 					"and its auth_tool with that server's name starts the sign-in. describe_tool gives a chosen tool's full description and schema. "+
 					"The response's toolset names the toolset bounding you: the toolset argument, else X-Muster-Toolset."),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "toolset",
@@ -139,7 +149,8 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Name:        "include_presets",
 					Type:        api.ArgTypeBoolean,
 					Required:    false,
-					Description: "Include the known toolset presets (name, description, built_in) in the response (default: false)",
+					Description: "Include the known toolset presets (name, description, built_in) in the response",
+					Default:     false,
 				},
 				{
 					Name:        "pattern",
@@ -169,25 +180,29 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Name:        "case_sensitive",
 					Type:        api.ArgTypeBoolean,
 					Required:    false,
-					Description: "Whether pattern matching should be case-sensitive (default: false)",
+					Description: "Whether pattern matching should be case-sensitive",
+					Default:     false,
 				},
 				{
 					Name:        "include_schema",
 					Type:        api.ArgTypeBoolean,
 					Required:    false,
-					Description: "Whether to include full input schemas and full descriptions instead of one-line summaries (default: false)",
+					Description: "Whether to include full input schemas and full descriptions instead of one-line summaries",
+					Default:     false,
 				},
 				{
 					Name:        ArgLimit,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
-					Description: "Maximum number of tools in this page (default: 5)",
+					Description: "Maximum number of tools in this page",
+					Default:     defaultFilterLimit,
 				},
 				{
 					Name:        ArgOffset,
 					Type:        api.ArgTypeNumber,
 					Required:    false,
-					Description: "Number of matching tools to skip before this page (default: 0)",
+					Description: "Number of matching tools to skip before this page",
+					Default:     0,
 				},
 			},
 		},
@@ -214,11 +229,11 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			},
 		},
 
-		// Resource tools
+		// Resources
 		{
 			Name:        "list_resources",
 			Description: toolDescription("List the resources of the connected MCP servers, each with the server exposing it.", ""),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args:        []api.ArgMetadata{},
 		},
 		{
@@ -226,7 +241,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Description: toolDescription(
 				"Filter the resources by URI pattern and/or source server, one page at a time.",
 				"A URI with a scheme carries no server prefix, so scope to one server with server, not the URI."),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "pattern",
@@ -263,7 +278,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		{
 			Name:        "describe_resource",
 			Description: toolDescription("Describe one resource by URI: its name, description, MIME type and server, not its contents.", ""),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "uri",
@@ -282,7 +297,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		{
 			Name:        "get_resource",
 			Description: toolDescription("Read the contents of one resource by URI.", ""),
-			Annotations: api.ReadOnlyAnnotations().OpenWorld(true),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "uri",
@@ -299,17 +314,17 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			},
 		},
 
-		// Prompt tools
+		// Prompts
 		{
 			Name:        "list_prompts",
 			Description: toolDescription("List the prompts of the connected MCP servers.", ""),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args:        []api.ArgMetadata{},
 		},
 		{
 			Name:        "filter_prompts",
 			Description: toolDescription("Filter the prompts by name pattern and/or source server, one page at a time; names are x_<server>_<name>.", ""),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "pattern",
@@ -346,7 +361,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		{
 			Name:        "describe_prompt",
 			Description: toolDescription("Describe one prompt by name: its description and arguments.", ""),
-			Annotations: api.ReadOnlyAnnotations(),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
@@ -359,7 +374,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 		{
 			Name:        "get_prompt",
 			Description: toolDescription("Render one prompt by name with the given arguments.", ""),
-			Annotations: api.ReadOnlyAnnotations().OpenWorld(true),
+			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
 				{
 					Name:        "name",
