@@ -7,7 +7,8 @@ import (
 )
 
 // registeredAggregator is an aggregator whose registry lists tools for the
-// servers in withTools, and whose catalogue exposes them under exposedTools.
+// servers in withTools. exposedTools is the catalogue as muster exposes it:
+// the wait must not need it, and before #1621 it searched it for "x_<key>_".
 type registeredAggregator struct {
 	stubAggregator
 	withTools    map[string]bool

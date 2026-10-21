@@ -2723,6 +2723,9 @@ func (a *AggregatorServer) ServerHasTools(name string) bool {
 	if !exists {
 		return false
 	}
+	if info.RequiresSessionAuth() {
+		return false
+	}
 	info.mu.RLock()
 	defer info.mu.RUnlock()
 	return len(info.Tools) > 0
