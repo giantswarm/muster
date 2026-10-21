@@ -3,6 +3,8 @@ package oauth
 import (
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 func TestToken_IsExpired(t *testing.T) {
@@ -202,5 +204,32 @@ func TestMetadata_SupportsS256PKCE(t *testing.T) {
 				t.Errorf("SupportsS256PKCE() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSetExpiryFromJWTAccessToken(t *testing.T) {
+	exp := time.Now().Add(time.Hour).Truncate(time.Second)
+	access, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"exp": exp.Unix()}).SignedString([]byte("k"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token := &Token{AccessToken: access}
+	token.setExpiryFromJWTAccessToken()
+	if !token.ExpiresAt.Equal(exp) || token.ExpiresIn <= 0 {
+		t.Errorf("a JWT access token without expires_in: ExpiresAt %v ExpiresIn %d, want its exp %v", token.ExpiresAt, token.ExpiresIn, exp)
+	}
+
+	answered := &Token{AccessToken: access, ExpiresIn: 60}
+	answered.SetExpiresAtFromExpiresIn()
+	answered.setExpiryFromJWTAccessToken()
+	if answered.ExpiresAt.After(time.Now().Add(2 * time.Minute)) {
+		t.Errorf("expires_in wins over the exp claim: ExpiresAt %v", answered.ExpiresAt)
+	}
+
+	opaque := &Token{AccessToken: "gho_opaque"}
+	opaque.setExpiryFromJWTAccessToken()
+	if !opaque.ExpiresAt.IsZero() {
+		t.Errorf("an opaque token keeps no expiry: %v", opaque.ExpiresAt)
 	}
 }

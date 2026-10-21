@@ -286,9 +286,48 @@ aggregator:
         name: gitlab-workspaces-app
       scopes: api read_user
       gitUser: oauth2
+    - name: chatgpt
+      flow: chatgptDeviceCode        # OpenAI's device-code sign-in
 ```
 
 The Helm chart renders this from `muster.providerApps`; it needs `muster.oauth.mcpClient`.
+
+##### A person's ChatGPT subscription (`flow: chatgptDeviceCode`)
+
+An App with `flow: chatgptDeviceCode` connects a person's ChatGPT subscription with
+OpenAI's device-code sign-in, the one `codex login --device-auth` runs. A server cannot take
+codex's browser sign-in, which redirects to a listener on the person's machine.
+
+- **Defaults.** `issuer: https://auth.openai.com`, the Codex CLI's public client
+  (`clientID: app_EMoamEEZ73f0CkXaXp7hrann`, no secret), the endpoints
+  `<issuer>/oauth/authorize` and `<issuer>/oauth/token`, and the scope codex signs in with.
+  A `clientCredentialsSecretRef` is refused: the client is public.
+- **Connecting.** `core_auth_login app=chatgpt` asks OpenAI for a one-time code and answers
+  it with OpenAI's device page (`structuredContent`: `status: pending`, `userCode`,
+  `verificationUrl`, `expiresAt`). muster polls OpenAI at the interval OpenAI names, redeems
+  the authorization code it is handed with its PKCE verifier, and files the tokens as the
+  person's grant. A code not entered within 15 minutes is given up. While a code is
+  outstanding, `core_auth_login` answers the same code.
+- **Status.** `auth://status` and `core_auth_status` report the App `pending` with the code,
+  the page and the code's expiry while one is outstanding, `connected` once the grant is
+  filed, and `auth_required` otherwise, with `last_failure` saying why the last sign-in ended
+  without a grant (the code expired; device-code sign-in is not enabled for the account,
+  which OpenAI answers with 404 and the person enables in ChatGPT under Settings → Security,
+  or their workspace admin in the workspace permissions). Reading the status never starts a
+  sign-in. The code and its poll live on the replica that issued it, and a restart of
+  that replica drops them (the person connects again for a new code); the grant is in the
+  shared token store, where every replica finds it.
+- **Refreshing and releasing.** The grant is refreshed with the same client under the
+  cross-replica refresh lock: OpenAI rotates the refresh token on every use, so muster must
+  be the login's only refresher. The access token's lifetime is read from its `exp`, since
+  OpenAI's answer carries no `expires_in`. The credential provider releases the access token
+  as `ate-secret://<authority>/chatgpt/api`; the refresh token never leaves muster. The
+  ChatGPT account id is in the grant's ID token (`https://api.openai.com/auth` →
+  `chatgpt_account_id`).
+- **Disconnecting.** `core_auth_logout app=chatgpt` ends an outstanding code and drops the
+  grant; OpenAI publishes no revocation endpoint for this client.
+- **Encryption.** The chart refuses the App without `muster.oauth.server.encryptionKey`: a
+  person's ChatGPT login is stored only encrypted.
 
 ### Auth Configuration
 

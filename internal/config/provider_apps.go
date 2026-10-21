@@ -7,6 +7,55 @@ import (
 	"strings"
 )
 
+// ProviderAppFlowChatGPTDeviceCode is the flow of a provider App a person
+// connects their ChatGPT subscription with: OpenAI's device-code sign-in.
+const ProviderAppFlowChatGPTDeviceCode = "chatgptDeviceCode"
+
+// ChatGPT sign-in defaults, the Codex CLI's: its public client and OpenAI's
+// authorization server.
+const (
+	ChatGPTClientID = "app_EMoamEEZ73f0CkXaXp7hrann"
+	ChatGPTIssuer   = "https://auth.openai.com"
+	ChatGPTScopes   = "openid profile email offline_access"
+)
+
+// ProviderAppsWithDefaults returns the Apps with what a device-code App
+// leaves out filled in (providerAppWithDefaults).
+func ProviderAppsWithDefaults(apps []ProviderAppConfig) []ProviderAppConfig {
+	if len(apps) == 0 {
+		return apps
+	}
+	out := make([]ProviderAppConfig, len(apps))
+	for i, app := range apps {
+		out[i] = providerAppWithDefaults(app)
+	}
+	return out
+}
+
+// providerAppWithDefaults fills in what a device-code App leaves out: the
+// Codex CLI's client, OpenAI's endpoints under the issuer, and the scope
+// codex signs in with. Any other App is returned unchanged.
+func providerAppWithDefaults(app ProviderAppConfig) ProviderAppConfig {
+	if app.Flow != ProviderAppFlowChatGPTDeviceCode {
+		return app
+	}
+	if app.Issuer == "" {
+		app.Issuer = ChatGPTIssuer
+	}
+	issuer := strings.TrimSuffix(app.Issuer, "/")
+	if app.ClientID == "" && app.ClientCredentialsSecretRef == nil {
+		app.ClientID = ChatGPTClientID
+	}
+	if app.AuthorizationEndpoint == "" && app.TokenEndpoint == "" {
+		app.AuthorizationEndpoint = issuer + "/oauth/authorize"
+		app.TokenEndpoint = issuer + "/oauth/token"
+	}
+	if app.Scopes == "" {
+		app.Scopes = ChatGPTScopes
+	}
+	return app
+}
+
 // providerAppName is the shape of a provider App's name: it is a credential
 // URI path segment and the suffix of an HTTP header name.
 var providerAppName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -54,6 +103,18 @@ func ValidateProviderApps(apps []ProviderAppConfig) error {
 		}
 		if ref := app.ClientCredentialsSecretRef; ref != nil && ref.Name == "" {
 			return fmt.Errorf("providerApps %s: clientCredentialsSecretRef.name is required", app.Name)
+		}
+		if app.ClientID != "" && app.ClientCredentialsSecretRef != nil {
+			return fmt.Errorf("providerApps %s: set either clientID or clientCredentialsSecretRef, not both", app.Name)
+		}
+		switch app.Flow {
+		case "":
+		case ProviderAppFlowChatGPTDeviceCode:
+			if app.ClientCredentialsSecretRef != nil {
+				return fmt.Errorf("providerApps %s: flow %s signs in as a public client: set clientID, not clientCredentialsSecretRef", app.Name, app.Flow)
+			}
+		default:
+			return fmt.Errorf("providerApps %s: flow %q is not one of \"\", %q", app.Name, app.Flow, ProviderAppFlowChatGPTDeviceCode)
 		}
 		if strings.Contains(app.GitUser, ":") {
 			return fmt.Errorf("providerApps %s: gitUser %q must not contain a colon", app.Name, app.GitUser)

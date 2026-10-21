@@ -120,6 +120,7 @@ func (s *providerAppSet) pin(ctx context.Context, name string) error {
 		ExpectedIssuer:        app.ExpectedIssuer,
 		SubjectScoped:         true,
 		RevocationEndpoint:    app.RevocationEndpoint,
+		ClientID:              app.ClientID,
 	}
 	var loadErr error
 	if ref := app.ClientCredentialsSecretRef; ref != nil {

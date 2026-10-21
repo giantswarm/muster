@@ -10,6 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	configPkg "github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
@@ -72,8 +73,11 @@ func (p *AuthToolProvider) grantProviderApp(ctx context.Context, sessionID, sub,
 	if token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, app.Issuer); token != nil && token.AccessToken != "" {
 		return &api.CallToolResult{
 			Content:           []any{fmt.Sprintf("Provider App '%s' is %s: muster holds your grant.", name, api.AuthMsgAlreadyAuthenticated)},
-			StructuredContent: map[string]any{"status": string(pkgoauth.SessionServerStatusConnected), providerAppArg: name},
+			StructuredContent: map[string]any{statusField: string(pkgoauth.SessionServerStatusConnected), providerAppArg: name},
 		}
+	}
+	if app.Flow == configPkg.ProviderAppFlowChatGPTDeviceCode {
+		return p.grantDeviceCodeApp(ctx, sessionID, sub, app, limit)
 	}
 	if limit != nil {
 		if refused := limit(sub, flow); refused != nil {
@@ -129,6 +133,7 @@ func (p *AuthToolProvider) disconnectProviderApp(ctx context.Context, sessionID,
 			IsError: true,
 		}
 	}
+	a.deviceSignIns.cancel(sub, name)
 	held := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, app.Issuer) != nil
 	api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, app.Issuer)
 	siblings := a.disconnectIssuerForSubject(ctx, sessionID, sub, "", app.Issuer)
@@ -143,10 +148,16 @@ func (p *AuthToolProvider) disconnectProviderApp(ctx context.Context, sessionID,
 		Details: fmt.Sprintf("issuer=%s held=%t", app.Issuer, held),
 	})
 
+	// A device-code App's provider publishes no revocation endpoint for its
+	// client: the grant is dropped in muster only.
+	revoked := held && app.Flow != configPkg.ProviderAppFlowChatGPTDeviceCode
 	var b strings.Builder
-	if held {
+	switch {
+	case revoked:
 		fmt.Fprintf(&b, "Disconnected provider App '%s': muster dropped your grant and revoked it at the provider, where the provider offers revocation.", name)
-	} else {
+	case held:
+		fmt.Fprintf(&b, "Disconnected provider App '%s': muster dropped your grant. The provider offers no revocation for it; no Session gets it from muster any more.", name)
+	default:
 		fmt.Fprintf(&b, "Provider App '%s' held no grant of yours.", name)
 	}
 	if len(siblings) > 0 {
@@ -154,13 +165,13 @@ func (p *AuthToolProvider) disconnectProviderApp(ctx context.Context, sessionID,
 	}
 	return &api.CallToolResult{
 		Content:           []any{b.String()},
-		StructuredContent: map[string]any{"status": "disconnected", providerAppArg: name, "revoked": held},
+		StructuredContent: map[string]any{statusField: "disconnected", providerAppArg: name, "revoked": revoked, "dropped": held},
 	}
 }
 
 // answerGrantRequired answers a tool result in which a server with
 // spec.auth.providerApps names Apps the call needs and the person did not
-// grant ({"status": "grant_required", "apps": [...]}): auth_required with each
+// grant ({statusField: "grant_required", "apps": [...]}): auth_required with each
 // App's sign-in link. Every other result is returned unchanged, so a call that
 // needs no missing grant is never refused.
 func (a *AggregatorServer) answerGrantRequired(ctx context.Context, serverName, sessionID, sub string, result *mcp.CallToolResult) *mcp.CallToolResult {
@@ -187,11 +198,15 @@ func (a *AggregatorServer) answerGrantRequired(ctx context.Context, serverName, 
 		}
 		login := provider.grantProviderApp(ctx, sessionID, sub, name, limit)
 		url := challengeURL(login)
-		if url == "" && !login.IsError {
+		code, pending := pendingDeviceCode(login)
+		if url == "" && !pending && !login.IsError {
 			continue // granted meanwhile
 		}
 		entry := map[string]any{providerAppArg: name}
-		if url != "" {
+		if pending {
+			entry["userCode"], entry["verificationUrl"] = code["userCode"], code["verificationUrl"]
+			lines = append(lines, fmt.Sprintf("- %s: open %v and enter the code %v", name, code["verificationUrl"], code["userCode"]))
+		} else if url != "" {
 			entry["authUrl"] = url
 			lines = append(lines, fmt.Sprintf("- %s: %s", name, url))
 		} else {
@@ -209,7 +224,7 @@ func (a *AggregatorServer) answerGrantRequired(ctx context.Context, serverName, 
 		slog.Int("apps", len(missing)))
 
 	structured := map[string]any{
-		"status":                string(pkgoauth.SessionServerStatusAuthRequired),
+		statusField:             string(pkgoauth.SessionServerStatusAuthRequired),
 		"server":                serverName,
 		pkgoauth.FieldGrantApps: missing,
 	}
@@ -231,7 +246,7 @@ func grantRequiredApps(result *mcp.CallToolResult) []string {
 		return nil
 	}
 	structured, ok := result.StructuredContent.(map[string]any)
-	if !ok || structured["status"] != pkgoauth.StatusGrantRequired {
+	if !ok || structured[statusField] != pkgoauth.StatusGrantRequired {
 		return nil
 	}
 	raw, _ := structured[pkgoauth.FieldGrantApps].([]any)
@@ -263,7 +278,11 @@ func (p *AuthToolProvider) providerAppStatuses(ctx context.Context, sessionID, s
 		if token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, app.Issuer); token == nil || token.AccessToken == "" {
 			status.Status = pkgoauth.SessionServerStatusAuthRequired
 			status.AuthTool = "core_auth_login"
-			if withURLs {
+			if app.Flow == configPkg.ProviderAppFlowChatGPTDeviceCode {
+				// A device code is issued by core_auth_login only: a status
+				// read never starts a sign-in the person did not ask for.
+				a.deviceCodeStatus(sub, &status)
+			} else if withURLs {
 				login := p.grantProviderApp(ctx, sessionID, sub, name, nil)
 				if url := challengeURL(login); url != "" {
 					status.AuthURL = url
