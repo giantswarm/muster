@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -27,6 +28,11 @@ type BindRequest struct {
 	Session string `json:"session"`
 	// Providers are the provider instances the Session may use.
 	Providers []string `json:"providers"`
+	// Toolset is the agent's toolset, the inline selectors that bound every
+	// request the actor makes to muster (X-Muster-Toolset grammar). Absent
+	// binds none: the actor's requests are unscoped unless they send the
+	// header.
+	Toolset []string `json:"toolset,omitempty"`
 }
 
 // HandleBind is PUT /session-bindings: binds the actor to the calling person.
@@ -66,7 +72,17 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	b := Binding{Subject: sub, Session: req.Session, Providers: req.Providers, BoundAt: time.Now().UTC()}
+	// An unknown preset is no bind error: presets are configuration that can
+	// change under a running Session, and every meta-tool call of the Session
+	// names it, as for a header.
+	if req.Toolset != nil {
+		if _, err := toolset.ParseInline(req.Toolset); err != nil {
+			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+
+	b := Binding{Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset, BoundAt: time.Now().UTC()}
 	err := p.store.Put(r.Context(), req.Actor, b, p.ttl)
 	if errors.Is(err, ErrBoundToAnother) {
 		logging.WarnWithAttrs(logSubsystem, "bind_refused",
@@ -83,7 +99,7 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 	logging.InfoWithAttrs(logSubsystem, "session_bound",
 		slog.String("sub", sub), slog.String("session", req.Session),
 		slog.String("actor", req.Actor), slog.Any("providers", req.Providers),
-		slog.Duration("ttl", p.ttl))
+		slog.Any("toolset", req.Toolset), slog.Duration("ttl", p.ttl))
 	w.WriteHeader(http.StatusNoContent)
 }
 

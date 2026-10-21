@@ -121,3 +121,30 @@ func TestValkeyStoreSealsAndHashes(t *testing.T) {
 	assert.NotContains(t, value, "alice", "the value is sealed")
 	assert.Equal(t, time.Hour, srv.TTL(keys[0]))
 }
+
+// A binding written before bindings carried a toolset reads as one without:
+// its actor keeps the implicit full access it was bound with.
+func TestValkeyStoreReadsBindingsWithoutAToolset(t *testing.T) {
+	srv := miniredis.RunT(t)
+	client, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{srv.Addr()}, DisableCache: true})
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	store := NewValkeyStore(client, "muster:", nil)
+	require.NoError(t, store.Put(context.Background(), testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+	keys := srv.Keys()
+	require.Len(t, keys, 1)
+	value, err := srv.Get(keys[0])
+	require.NoError(t, err)
+	assert.NotContains(t, value, "toolset", "no toolset is stored as none")
+
+	require.NoError(t, srv.Set(keys[0], `{"sub":"alice","session":"kagent/s1","providers":["muster"],"boundAt":"2026-10-20T12:00:00Z"}`))
+	b, err := store.Get(context.Background(), testActor)
+	require.NoError(t, err)
+	require.NotNil(t, b)
+	assert.Nil(t, b.Toolset)
+
+	require.NoError(t, store.Put(context.Background(), testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}, Toolset: []string{"preset:read-only"}}, time.Hour))
+	b, err = store.Get(context.Background(), testActor)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"preset:read-only"}, b.Toolset)
+}

@@ -57,11 +57,14 @@ func (p *Provider) ExecuteTool(ctx context.Context, toolName string, args map[st
 	// inline cap, or an unknown preset is an error on every meta-tool call
 	// (D12) — never a silent fall-back to the unscoped catalogue and never
 	// silent degradation to the selectors that did parse.
-	if ts, present, err := toolset.FromContext(ctx); err != nil {
-		return errorResult(err.Error()), nil
-	} else if present {
-		if err := p.presets.Check(ts); err != nil {
+	// The toolset bound to a Session is held to the same rule.
+	for _, parse := range []func(context.Context) (toolset.Toolset, bool, error){toolset.BoundFromContext, toolset.FromContext} {
+		if ts, present, err := parse(ctx); err != nil {
 			return errorResult(err.Error()), nil
+		} else if present {
+			if err := p.presets.Check(ts); err != nil {
+				return errorResult(err.Error()), nil
+			}
 		}
 	}
 
@@ -294,9 +297,9 @@ func (p *Provider) handleGetResource(ctx context.Context, args map[string]any) (
 		return errResult, nil
 	}
 
-	// With a toolset declared, a resource is readable only when its server is
-	// inside the toolset. Without one the read is unchanged.
-	if _, present, _ := toolset.FromContext(ctx); present {
+	// With a toolset bounding the request, a resource is readable only when
+	// its server is inside the toolset. Without one the read is unchanged.
+	if toolset.Scoped(ctx) {
 		resources, cat, errResult := p.scopedResources(ctx, handler)
 		if errResult != nil {
 			return errResult, nil
@@ -576,9 +579,9 @@ func (p *Provider) handleGetPrompt(ctx context.Context, args map[string]any) (*a
 		return errResult, nil
 	}
 
-	// With a toolset declared, a prompt is available only when its server is
-	// inside the toolset. Without one the call is unchanged.
-	if _, present, _ := toolset.FromContext(ctx); present {
+	// With a toolset bounding the request, a prompt is available only when its
+	// server is inside the toolset. Without one the call is unchanged.
+	if toolset.Scoped(ctx) {
 		prompts, cat, errResult := p.scopedPrompts(ctx, handler)
 		if errResult != nil {
 			return errResult, nil
