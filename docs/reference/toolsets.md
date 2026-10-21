@@ -30,6 +30,27 @@ The platform's Generic `agent` chart renders this header from its `toolset` valu
 agent's muster tool entry (`headersFrom`), so an agent declares its toolset once, on its own
 release.
 
+### The toolset bound to a Session
+
+A request that authenticates with Substrate's actor JWT (the [actor bearer](configuration.md))
+is served as the person its Session binding names, and within the toolset that binding carries:
+the `toolset` the component starting the Session sent with `PUT /session-bindings`, the agent's
+toolset at the Session's start. It applies to every such request, with or without the header:
+
+- without `X-muster-Toolset`, the request resolves within the bound toolset;
+- with it, the header resolves **within** the bound toolset: it narrows it and never widens it,
+  and a header asking for more gets the bound toolset and no error;
+- a binding without a `toolset` bounds nothing: the request is scoped by its header alone, as
+  for a request that authenticates as the person;
+- `preset:none` resolves to nothing; an unknown preset in a binding fails every meta-tool call
+  of the Session with the error naming it, as in a header.
+
+A refusal of a name outside the bound toolset names it, for example `tool "x_k8s_delete" is
+outside the toolset [preset:read-only] bound to the session`; `filter_tools` echoes it as
+`toolset_bound`, and the actor bearer's audit line carries it (`toolset=[...]`). When a header
+and the bound toolset differ, muster logs `toolset header resolved within the bound toolset`
+with both. A request that authenticates with a person's bearer is never bound.
+
 ### Inline selector grammar
 
 | Selector | Selects |
@@ -209,8 +230,8 @@ for example a server the caller has not signed in to; `preset:none` is never rep
 toolset could select once listed, by the same rules as `call_tool`, sorted by name, each with
 `name`, `auth_tool`, `tool_prefix` and, for a family member, `family`: the part of the toolset a
 sign-in would unlock) and `presets` (`[{name, description, built_in}]`, built-ins
-first). When the request also carries `X-muster-Toolset`, the argument resolves **within** the
-header's toolset and never widens it. Argument errors use the header's texts.
+first). When the request also carries `X-muster-Toolset` or a bound toolset, the argument
+resolves **within** them and never widens them. Argument errors use the header's texts.
 
 `toolset` names the toolset the returned tools were resolved within, whichever way it was
 declared. Without a `toolset` argument, a request carrying `X-muster-Toolset` gets the header's
@@ -218,7 +239,8 @@ selectors echoed (as declared, e.g. `["preset:read-only"]`), with `toolset_unmat
 against them — the one place an agent whose toolset is set by its deployment can learn what
 bounds it, and how an operator reading a transcript sees which toolset a discovery call ran
 under. With both header and argument the argument is echoed, as it is the narrower of the two.
-An unscoped request carries no `toolset`. `presets` accompanies the argument or
+Without either, a bound Session's request gets the bound toolset echoed. A bound Session's
+response also carries `toolset_bound`. An unscoped request carries no `toolset`. `presets` accompanies the argument or
 `include_presets` only: a header-declared toolset alone does not add them, so the discovery
 calls of an agent scoped by header stay as small as unscoped ones.
 
@@ -234,9 +256,9 @@ Every entry of `list_tools` / `filter_tools`, and `describe_tool`, carries:
 
 ## Composition, not authorization
 
-The toolset is declared by the request. A client that omits the header reaches everything the
-invoking human may reach — which is what it could reach before toolsets existed. Enforcing a
-toolset against an agent runtime's will needs an agent identity muster can trust; when that
-exists, muster resolves the toolset from the identity through the same seam
-(`toolset.SourceFromRequest`) and presets, resolution, the refusal and the scenarios carry over
-unchanged.
+A toolset narrows what an agent reaches within the invoking person's access; it never grants
+more. Where the request authenticates as the person (a forwarded token), the toolset is declared
+by the request: a client that omits the header reaches everything the person may reach, which is
+what it could reach before toolsets existed. Where it authenticates with the actor JWT of a bound
+Session, the toolset is bound to the Session at its start and no process in the sandbox can
+widen it; the person's own access and the backend's authorization remain the boundary.

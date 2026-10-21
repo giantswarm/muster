@@ -47,6 +47,7 @@ func (s *stubAggregator) MissingToolsForSession(context.Context, []string) []str
 	return nil
 }
 func (s *stubAggregator) GetAvailableTools() []string { return nil }
+func (s *stubAggregator) ServerHasTools(string) bool  { return false }
 func (s *stubAggregator) UpdateCapabilities()         {}
 func (s *stubAggregator) DeregisterServer(string) error {
 	return nil

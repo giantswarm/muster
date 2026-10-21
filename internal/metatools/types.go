@@ -162,8 +162,13 @@ type FilterToolsResponse struct {
 	Tools         []ToolInfo `json:"tools"`
 	// Toolset echoes the selectors of the toolset the tools above were
 	// resolved within: the toolset argument when one was given, else the
-	// request's X-Muster-Toolset. Absent when the request is unscoped.
+	// request's X-Muster-Toolset, else the toolset bound to its Session.
+	// Absent when the request is unscoped.
 	Toolset []string `json:"toolset,omitempty"`
+	// ToolsetBound echoes the selectors of the toolset bound to the
+	// request's Session: every other toolset resolves within it. Absent for
+	// a request of no bound Session or a binding without a toolset.
+	ToolsetBound []string `json:"toolset_bound,omitempty"`
 	// ToolsetUnmatched lists the selectors of that toolset that select no tool
 	// for the caller.
 	ToolsetUnmatched []string `json:"toolset_unmatched,omitempty"`

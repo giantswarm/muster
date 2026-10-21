@@ -13,7 +13,7 @@
               "type": "string"
             },
             "reset_client_registration": {
-              "description": "Discard muster's stored dynamic client registration (RFC 7591) with this server's authorization server and register anew before issuing the sign-in link. Use when sign-ins fail with invalid_client although muster reports a stored registration; other users' tokens from that authorization server may need a fresh sign-in afterwards.",
+              "description": "Register muster's client anew first (RFC 7591); only when sign-ins fail with invalid_client. Other users may have to sign in again.",
               "type": "boolean"
             },
             "server": {
@@ -41,7 +41,7 @@
           "description": "Arguments for core_auth_status tool",
           "properties": {
             "auth_urls": {
-              "description": "Issue the sign-in link (auth_url) of every server in auth_required or reauth_required, as core_auth_login would; a server whose grant you already hold is connected instead. The links are yours alone and expire after a few minutes.",
+              "description": "Also issue the sign-in link (auth_url) of each server in auth_required or reauth_required; links are yours alone and expire in minutes.",
               "type": "boolean"
             }
           },
@@ -134,14 +134,14 @@
               "description": "Authentication configuration for remote servers",
               "properties": {
                 "authorizationServer": {
-                  "description": "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing. With authorizationEndpoint/tokenEndpoint, clientCredentialsSecretRef and grantScope it also describes an authorization server muster cannot discover or register with (GitHub).",
+                  "description": "Pins the OAuth authorization server where the MCP server has no RFC 9728 metadata; with endpoints and a client, one muster can't discover (GitHub)",
                   "properties": {
                     "authorizationEndpoint": {
-                      "description": "Authorization endpoint of an authorization server without an RFC 8414 discovery document; set together with tokenEndpoint (muster then performs no discovery and assumes S256 PKCE)",
+                      "description": "Authorization endpoint of a server without RFC 8414 discovery; set with tokenEndpoint (muster then does no discovery and assumes S256 PKCE)",
                       "type": "string"
                     },
                     "clientCredentialsSecretRef": {
-                      "description": "Secret holding a client registered with the authorization server out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+                      "description": "Secret holding a client registered out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
                       "properties": {
                         "clientIdKey": {
                           "description": "Secret key holding the client ID (default: client-id)",
@@ -166,11 +166,11 @@
                       "type": "object"
                     },
                     "expectedIssuer": {
-                      "description": "Issuer identifier the authorization server puts in the RFC 9207 iss parameter of its authorization responses when that differs from issuer, which stays the identity the grants are filed under (two GitHub Apps: each pinned under https://github.com/apps/\u003cslug\u003e with expectedIssuer https://github.com/login/oauth); needs authorizationEndpoint and tokenEndpoint; default: issuer",
+                      "description": "The RFC 9207 iss of authorization responses where it differs from issuer, which stays the grant key; needs both endpoints; default: issuer",
                       "type": "string"
                     },
                     "grantScope": {
-                      "description": "Whom a token from this authorization server belongs to: session (default; bound to the login session that obtained it) or subject (filed under the person's identity too, so any later session of the same person reuses it until core_auth_logout on this server or sign out everywhere)",
+                      "description": "Whose token: session (default, the login session that got it) or subject (the person's; later sessions reuse it until core_auth_logout or sign-out)",
                       "enum": [
                         "session",
                         "subject"
@@ -178,7 +178,7 @@
                       "type": "string"
                     },
                     "issuer": {
-                      "description": "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash) of the authorization server the sign-in runs against and the grants are filed under; takes precedence over the one the endpoint's RFC 9728 metadata names",
+                      "description": "OAuth/OIDC issuer URL (HTTPS, no trailing slash) the sign-in runs against and grants are filed under; wins over the one RFC 9728 metadata names",
                       "type": "string"
                     },
                     "scopes": {
@@ -196,7 +196,7 @@
                   "type": "object"
                 },
                 "forwardIdentity": {
-                  "description": "Send the session's ID token in the X-Muster-Id-Token header next to the pinned grant (needs type oauth and authorizationServer); like forwardToken, the token is not audience-scoped to the server",
+                  "description": "Send the session's ID token in X-Muster-Id-Token next to the pinned grant (needs oauth and authorizationServer); not audience-scoped to the server",
                   "type": "boolean"
                 },
                 "forwardToken": {
@@ -211,7 +211,7 @@
                   "type": "array"
                 },
                 "sigv4": {
-                  "description": "AWS Signature Version 4 request signing, using muster's own machine identity. Required when type is sigv4, and rejected otherwise. Only valid with type streamable-http.",
+                  "description": "AWS SigV4 request signing with muster's own machine identity; required when type is sigv4, rejected otherwise; streamable-http only",
                   "properties": {
                     "region": {
                       "description": "SigV4 signing region; must match the region in the server URL",
@@ -232,7 +232,7 @@
                   "type": "object"
                 },
                 "tokenExchange": {
-                  "description": "RFC 8693 Token Exchange for cross-cluster SSO; exchanges muster's local token for one issued by the remote cluster's IdP (takes precedence over forwardToken)",
+                  "description": "RFC 8693 Token Exchange for cross-cluster SSO: trades muster's local token for one from the remote cluster's IdP (wins over forwardToken)",
                   "properties": {
                     "clientCredentialsSecretRef": {
                       "description": "Kubernetes Secret with client credentials for the remote Dex token endpoint",
@@ -307,7 +307,7 @@
               "type": "string"
             },
             "displayName": {
-              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "description": "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it",
               "type": "string"
             },
             "env": {
@@ -339,7 +339,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "description": "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom",
               "type": "object"
             },
             "headersFrom": {
@@ -398,7 +398,7 @@
               "description": "How progress the server reports on a tool call affects that call's budget",
               "properties": {
                 "maxDuration": {
-                  "description": "Seconds a tool call that reports progress may run in all; each progress notification restarts timeout up to it (at least timeout, at most 3600, default 3600)",
+                  "description": "Seconds a tool call reporting progress may run in all; each notification restarts timeout up to it (timeout to 3600, default 3600)",
                   "type": "integer"
                 }
               },
@@ -505,14 +505,14 @@
               "description": "Authentication configuration for remote servers",
               "properties": {
                 "authorizationServer": {
-                  "description": "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing. With authorizationEndpoint/tokenEndpoint, clientCredentialsSecretRef and grantScope it also describes an authorization server muster cannot discover or register with (GitHub).",
+                  "description": "Pins the OAuth authorization server where the MCP server has no RFC 9728 metadata; with endpoints and a client, one muster can't discover (GitHub)",
                   "properties": {
                     "authorizationEndpoint": {
-                      "description": "Authorization endpoint of an authorization server without an RFC 8414 discovery document; set together with tokenEndpoint (muster then performs no discovery and assumes S256 PKCE)",
+                      "description": "Authorization endpoint of a server without RFC 8414 discovery; set with tokenEndpoint (muster then does no discovery and assumes S256 PKCE)",
                       "type": "string"
                     },
                     "clientCredentialsSecretRef": {
-                      "description": "Secret holding a client registered with the authorization server out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+                      "description": "Secret holding a client registered out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
                       "properties": {
                         "clientIdKey": {
                           "description": "Secret key holding the client ID (default: client-id)",
@@ -537,11 +537,11 @@
                       "type": "object"
                     },
                     "expectedIssuer": {
-                      "description": "Issuer identifier the authorization server puts in the RFC 9207 iss parameter of its authorization responses when that differs from issuer, which stays the identity the grants are filed under (two GitHub Apps: each pinned under https://github.com/apps/\u003cslug\u003e with expectedIssuer https://github.com/login/oauth); needs authorizationEndpoint and tokenEndpoint; default: issuer",
+                      "description": "The RFC 9207 iss of authorization responses where it differs from issuer, which stays the grant key; needs both endpoints; default: issuer",
                       "type": "string"
                     },
                     "grantScope": {
-                      "description": "Whom a token from this authorization server belongs to: session (default; bound to the login session that obtained it) or subject (filed under the person's identity too, so any later session of the same person reuses it until core_auth_logout on this server or sign out everywhere)",
+                      "description": "Whose token: session (default, the login session that got it) or subject (the person's; later sessions reuse it until core_auth_logout or sign-out)",
                       "enum": [
                         "session",
                         "subject"
@@ -549,7 +549,7 @@
                       "type": "string"
                     },
                     "issuer": {
-                      "description": "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash) of the authorization server the sign-in runs against and the grants are filed under; takes precedence over the one the endpoint's RFC 9728 metadata names",
+                      "description": "OAuth/OIDC issuer URL (HTTPS, no trailing slash) the sign-in runs against and grants are filed under; wins over the one RFC 9728 metadata names",
                       "type": "string"
                     },
                     "scopes": {
@@ -567,7 +567,7 @@
                   "type": "object"
                 },
                 "forwardIdentity": {
-                  "description": "Send the session's ID token in the X-Muster-Id-Token header next to the pinned grant (needs type oauth and authorizationServer); like forwardToken, the token is not audience-scoped to the server",
+                  "description": "Send the session's ID token in X-Muster-Id-Token next to the pinned grant (needs oauth and authorizationServer); not audience-scoped to the server",
                   "type": "boolean"
                 },
                 "forwardToken": {
@@ -582,7 +582,7 @@
                   "type": "array"
                 },
                 "sigv4": {
-                  "description": "AWS Signature Version 4 request signing, using muster's own machine identity. Required when type is sigv4, and rejected otherwise. Only valid with type streamable-http.",
+                  "description": "AWS SigV4 request signing with muster's own machine identity; required when type is sigv4, rejected otherwise; streamable-http only",
                   "properties": {
                     "region": {
                       "description": "SigV4 signing region; must match the region in the server URL",
@@ -603,7 +603,7 @@
                   "type": "object"
                 },
                 "tokenExchange": {
-                  "description": "RFC 8693 Token Exchange for cross-cluster SSO; exchanges muster's local token for one issued by the remote cluster's IdP (takes precedence over forwardToken)",
+                  "description": "RFC 8693 Token Exchange for cross-cluster SSO: trades muster's local token for one from the remote cluster's IdP (wins over forwardToken)",
                   "properties": {
                     "clientCredentialsSecretRef": {
                       "description": "Kubernetes Secret with client credentials for the remote Dex token endpoint",
@@ -678,7 +678,7 @@
               "type": "string"
             },
             "displayName": {
-              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "description": "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it",
               "type": "string"
             },
             "env": {
@@ -710,7 +710,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "description": "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom",
               "type": "object"
             },
             "headersFrom": {
@@ -769,7 +769,7 @@
               "description": "How progress the server reports on a tool call affects that call's budget",
               "properties": {
                 "maxDuration": {
-                  "description": "Seconds a tool call that reports progress may run in all; each progress notification restarts timeout up to it (at least timeout, at most 3600, default 3600)",
+                  "description": "Seconds a tool call reporting progress may run in all; each notification restarts timeout up to it (timeout to 3600, default 3600)",
                   "type": "integer"
                 }
               },
@@ -819,14 +819,14 @@
               "description": "Authentication configuration for remote servers",
               "properties": {
                 "authorizationServer": {
-                  "description": "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing. With authorizationEndpoint/tokenEndpoint, clientCredentialsSecretRef and grantScope it also describes an authorization server muster cannot discover or register with (GitHub).",
+                  "description": "Pins the OAuth authorization server where the MCP server has no RFC 9728 metadata; with endpoints and a client, one muster can't discover (GitHub)",
                   "properties": {
                     "authorizationEndpoint": {
-                      "description": "Authorization endpoint of an authorization server without an RFC 8414 discovery document; set together with tokenEndpoint (muster then performs no discovery and assumes S256 PKCE)",
+                      "description": "Authorization endpoint of a server without RFC 8414 discovery; set with tokenEndpoint (muster then does no discovery and assumes S256 PKCE)",
                       "type": "string"
                     },
                     "clientCredentialsSecretRef": {
-                      "description": "Secret holding a client registered with the authorization server out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+                      "description": "Secret holding a client registered out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
                       "properties": {
                         "clientIdKey": {
                           "description": "Secret key holding the client ID (default: client-id)",
@@ -851,11 +851,11 @@
                       "type": "object"
                     },
                     "expectedIssuer": {
-                      "description": "Issuer identifier the authorization server puts in the RFC 9207 iss parameter of its authorization responses when that differs from issuer, which stays the identity the grants are filed under (two GitHub Apps: each pinned under https://github.com/apps/\u003cslug\u003e with expectedIssuer https://github.com/login/oauth); needs authorizationEndpoint and tokenEndpoint; default: issuer",
+                      "description": "The RFC 9207 iss of authorization responses where it differs from issuer, which stays the grant key; needs both endpoints; default: issuer",
                       "type": "string"
                     },
                     "grantScope": {
-                      "description": "Whom a token from this authorization server belongs to: session (default; bound to the login session that obtained it) or subject (filed under the person's identity too, so any later session of the same person reuses it until core_auth_logout on this server or sign out everywhere)",
+                      "description": "Whose token: session (default, the login session that got it) or subject (the person's; later sessions reuse it until core_auth_logout or sign-out)",
                       "enum": [
                         "session",
                         "subject"
@@ -863,7 +863,7 @@
                       "type": "string"
                     },
                     "issuer": {
-                      "description": "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash) of the authorization server the sign-in runs against and the grants are filed under; takes precedence over the one the endpoint's RFC 9728 metadata names",
+                      "description": "OAuth/OIDC issuer URL (HTTPS, no trailing slash) the sign-in runs against and grants are filed under; wins over the one RFC 9728 metadata names",
                       "type": "string"
                     },
                     "scopes": {
@@ -881,7 +881,7 @@
                   "type": "object"
                 },
                 "forwardIdentity": {
-                  "description": "Send the session's ID token in the X-Muster-Id-Token header next to the pinned grant (needs type oauth and authorizationServer); like forwardToken, the token is not audience-scoped to the server",
+                  "description": "Send the session's ID token in X-Muster-Id-Token next to the pinned grant (needs oauth and authorizationServer); not audience-scoped to the server",
                   "type": "boolean"
                 },
                 "forwardToken": {
@@ -896,7 +896,7 @@
                   "type": "array"
                 },
                 "sigv4": {
-                  "description": "AWS Signature Version 4 request signing, using muster's own machine identity. Required when type is sigv4, and rejected otherwise. Only valid with type streamable-http.",
+                  "description": "AWS SigV4 request signing with muster's own machine identity; required when type is sigv4, rejected otherwise; streamable-http only",
                   "properties": {
                     "region": {
                       "description": "SigV4 signing region; must match the region in the server URL",
@@ -917,7 +917,7 @@
                   "type": "object"
                 },
                 "tokenExchange": {
-                  "description": "RFC 8693 Token Exchange for cross-cluster SSO; exchanges muster's local token for one issued by the remote cluster's IdP (takes precedence over forwardToken)",
+                  "description": "RFC 8693 Token Exchange for cross-cluster SSO: trades muster's local token for one from the remote cluster's IdP (wins over forwardToken)",
                   "properties": {
                     "clientCredentialsSecretRef": {
                       "description": "Kubernetes Secret with client credentials for the remote Dex token endpoint",
@@ -992,7 +992,7 @@
               "type": "string"
             },
             "displayName": {
-              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "description": "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it",
               "type": "string"
             },
             "env": {
@@ -1024,7 +1024,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "description": "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom",
               "type": "object"
             },
             "headersFrom": {
@@ -1083,7 +1083,7 @@
               "description": "How progress the server reports on a tool call affects that call's budget",
               "properties": {
                 "maxDuration": {
-                  "description": "Seconds a tool call that reports progress may run in all; each progress notification restarts timeout up to it (at least timeout, at most 3600, default 3600)",
+                  "description": "Seconds a tool call reporting progress may run in all; each notification restarts timeout up to it (timeout to 3600, default 3600)",
                   "type": "integer"
                 }
               },
@@ -1246,7 +1246,7 @@
                   },
                   "condition": {
                     "additionalProperties": false,
-                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                     "properties": {
                       "args": {
                         "description": "Arguments for the condition tool",
@@ -1338,7 +1338,7 @@
                   },
                   "condition": {
                     "additionalProperties": false,
-                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                     "properties": {
                       "args": {
                         "description": "Arguments for the condition tool",
@@ -1412,7 +1412,7 @@
                             },
                             "condition": {
                               "additionalProperties": false,
-                              "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                              "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                               "properties": {
                                 "args": {
                                   "description": "Arguments for the condition tool",
@@ -1496,7 +1496,7 @@
                     "type": "string"
                   },
                   "output": {
-                    "description": "Whether this step's result is included in the workflow's returned document. Every step result is always referenceable by later steps via {{.results.stepId.field}} regardless of this flag.",
+                    "description": "Include this step's result in the workflow's answer; later steps read every result via {{.results.stepId.field}} either way.",
                     "type": "boolean"
                   },
                   "parallel": {
@@ -1515,7 +1515,7 @@
                         },
                         "condition": {
                           "additionalProperties": false,
-                          "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                          "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                           "properties": {
                             "args": {
                               "description": "Arguments for the condition tool",
@@ -1758,7 +1758,7 @@
                   },
                   "condition": {
                     "additionalProperties": false,
-                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                     "properties": {
                       "args": {
                         "description": "Arguments for the condition tool",
@@ -1850,7 +1850,7 @@
                   },
                   "condition": {
                     "additionalProperties": false,
-                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                     "properties": {
                       "args": {
                         "description": "Arguments for the condition tool",
@@ -1924,7 +1924,7 @@
                             },
                             "condition": {
                               "additionalProperties": false,
-                              "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                              "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                               "properties": {
                                 "args": {
                                   "description": "Arguments for the condition tool",
@@ -2008,7 +2008,7 @@
                     "type": "string"
                   },
                   "output": {
-                    "description": "Whether this step's result is included in the workflow's returned document. Every step result is always referenceable by later steps via {{.results.stepId.field}} regardless of this flag.",
+                    "description": "Include this step's result in the workflow's answer; later steps read every result via {{.results.stepId.field}} either way.",
                     "type": "boolean"
                   },
                   "parallel": {
@@ -2027,7 +2027,7 @@
                         },
                         "condition": {
                           "additionalProperties": false,
-                          "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                          "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                           "properties": {
                             "args": {
                               "description": "Arguments for the condition tool",
@@ -2187,7 +2187,7 @@
                   },
                   "condition": {
                     "additionalProperties": false,
-                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                     "properties": {
                       "args": {
                         "description": "Arguments for the condition tool",
@@ -2279,7 +2279,7 @@
                   },
                   "condition": {
                     "additionalProperties": false,
-                    "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                    "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                     "properties": {
                       "args": {
                         "description": "Arguments for the condition tool",
@@ -2353,7 +2353,7 @@
                             },
                             "condition": {
                               "additionalProperties": false,
-                              "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                              "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                               "properties": {
                                 "args": {
                                   "description": "Arguments for the condition tool",
@@ -2437,7 +2437,7 @@
                     "type": "string"
                   },
                   "output": {
-                    "description": "Whether this step's result is included in the workflow's returned document. Every step result is always referenceable by later steps via {{.results.stepId.field}} regardless of this flag.",
+                    "description": "Include this step's result in the workflow's answer; later steps read every result via {{.results.stepId.field}} either way.",
                     "type": "boolean"
                   },
                   "parallel": {
@@ -2456,7 +2456,7 @@
                         },
                         "condition": {
                           "additionalProperties": false,
-                          "description": "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+                          "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
                           "properties": {
                             "args": {
                               "description": "Arguments for the condition tool",

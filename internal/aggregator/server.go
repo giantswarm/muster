@@ -2715,6 +2715,22 @@ func (a *AggregatorServer) GetAvailableTools() []string {
 	return allToolNames
 }
 
+// ServerHasTools reports whether the server registered under name lists at
+// least one tool in the registry. A server registered pending a sign-in
+// lists none, and neither does one whose capability fetch has not landed yet.
+func (a *AggregatorServer) ServerHasTools(name string) bool {
+	info, exists := a.registry.GetServerInfo(name)
+	if !exists {
+		return false
+	}
+	if info.RequiresSessionAuth() {
+		return false
+	}
+	info.mu.RLock()
+	defer info.mu.RUnlock()
+	return len(info.Tools) > 0
+}
+
 // UpdateCapabilities tells the aggregator that a workflow definition -- a
 // workflow_<name> tool -- was created, changed or deleted. It is called by
 // the workflow tools and by the workflow reconciler (for a Workflow resource

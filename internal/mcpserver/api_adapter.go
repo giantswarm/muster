@@ -648,7 +648,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			},
 			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
-		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it"},
+		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it"},
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start; on update, omitted keeps the current value"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
@@ -663,7 +663,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 			api.SchemaKeyDescription:          "Environment variables for the server",
 		}},
-		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom", Schema: map[string]interface{}{
+		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom", Schema: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 			api.SchemaKeyDescription:          "HTTP headers for remote servers",
@@ -700,7 +700,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyProperties: map[string]interface{}{
 				"maxDuration": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeInteger),
-					api.SchemaKeyDescription: "Seconds a tool call that reports progress may run in all; each progress notification restarts timeout up to it (at least timeout, at most 3600, default 3600)",
+					api.SchemaKeyDescription: "Seconds a tool call reporting progress may run in all; each notification restarts timeout up to it (timeout to 3600, default 3600)",
 				},
 			},
 		}},
@@ -715,7 +715,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 				},
 				"sigv4": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeObject),
-					api.SchemaKeyDescription: "AWS Signature Version 4 request signing, using muster's own machine identity. Required when type is sigv4, and rejected otherwise. Only valid with type streamable-http.",
+					api.SchemaKeyDescription: "AWS SigV4 request signing with muster's own machine identity; required when type is sigv4, rejected otherwise; streamable-http only",
 					api.SchemaKeyProperties: map[string]interface{}{
 						"region": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
@@ -738,7 +738,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 				},
 				"forwardIdentity": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
-					api.SchemaKeyDescription: "Send the session's ID token in the X-Muster-Id-Token header next to the pinned grant (needs type oauth and authorizationServer); like forwardToken, the token is not audience-scoped to the server",
+					api.SchemaKeyDescription: "Send the session's ID token in X-Muster-Id-Token next to the pinned grant (needs oauth and authorizationServer); not audience-scoped to the server",
 				},
 				"requiredAudiences": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeArray),
@@ -747,11 +747,11 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 				},
 				"authorizationServer": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeObject),
-					api.SchemaKeyDescription: "Pins the OAuth authorization server when the MCP server does not publish RFC 9728 Protected Resource Metadata; skips PRM probing. With authorizationEndpoint/tokenEndpoint, clientCredentialsSecretRef and grantScope it also describes an authorization server muster cannot discover or register with (GitHub).",
+					api.SchemaKeyDescription: "Pins the OAuth authorization server where the MCP server has no RFC 9728 metadata; with endpoints and a client, one muster can't discover (GitHub)",
 					api.SchemaKeyProperties: map[string]interface{}{
 						"issuer": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "OAuth 2.0 / OIDC issuer URL (HTTPS, no trailing slash) of the authorization server the sign-in runs against and the grants are filed under; takes precedence over the one the endpoint's RFC 9728 metadata names",
+							api.SchemaKeyDescription: "OAuth/OIDC issuer URL (HTTPS, no trailing slash) the sign-in runs against and grants are filed under; wins over the one RFC 9728 metadata names",
 						},
 						"scopes": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
@@ -759,7 +759,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						},
 						"authorizationEndpoint": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "Authorization endpoint of an authorization server without an RFC 8414 discovery document; set together with tokenEndpoint (muster then performs no discovery and assumes S256 PKCE)",
+							api.SchemaKeyDescription: "Authorization endpoint of a server without RFC 8414 discovery; set with tokenEndpoint (muster then does no discovery and assumes S256 PKCE)",
 						},
 						"tokenEndpoint": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
@@ -767,11 +767,11 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						},
 						"expectedIssuer": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "Issuer identifier the authorization server puts in the RFC 9207 iss parameter of its authorization responses when that differs from issuer, which stays the identity the grants are filed under (two GitHub Apps: each pinned under https://github.com/apps/<slug> with expectedIssuer https://github.com/login/oauth); needs authorizationEndpoint and tokenEndpoint; default: issuer",
+							api.SchemaKeyDescription: "The RFC 9207 iss of authorization responses where it differs from issuer, which stays the grant key; needs both endpoints; default: issuer",
 						},
 						"clientCredentialsSecretRef": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeObject),
-							api.SchemaKeyDescription: "Secret holding a client registered with the authorization server out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+							api.SchemaKeyDescription: "Secret holding a client registered out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
 							api.SchemaKeyProperties: map[string]interface{}{
 								"name": map[string]interface{}{
 									api.SchemaKeyType:        string(api.ArgTypeString),
@@ -794,7 +794,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						},
 						"grantScope": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "Whom a token from this authorization server belongs to: session (default; bound to the login session that obtained it) or subject (filed under the person's identity too, so any later session of the same person reuses it until core_auth_logout on this server or sign out everywhere)",
+							api.SchemaKeyDescription: "Whose token: session (default, the login session that got it) or subject (the person's; later sessions reuse it until core_auth_logout or sign-out)",
 							api.SchemaKeyEnum:        []string{"session", api.GrantScopeSubject},
 						},
 					},
@@ -802,7 +802,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 				},
 				"tokenExchange": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeObject),
-					api.SchemaKeyDescription: "RFC 8693 Token Exchange for cross-cluster SSO; exchanges muster's local token for one issued by the remote cluster's IdP (takes precedence over forwardToken)",
+					api.SchemaKeyDescription: "RFC 8693 Token Exchange for cross-cluster SSO: trades muster's local token for one from the remote cluster's IdP (wins over forwardToken)",
 					api.SchemaKeyProperties: map[string]interface{}{
 						"enabled": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeBoolean),
@@ -883,7 +883,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_detect",
 			Annotations: api.ReadOnlyAnnotations().OpenWorld(true),
-			Description: "Probe a remote MCP server URL to detect its transport (streamable-http or sse). Detection never fails on unreachable servers: the result reports transport \"unknown\" instead, so callers can fall back to manual selection.",
+			Description: "Probe a remote MCP server URL to detect its transport (streamable-http or sse).\n\nAn unreachable server does not fail it: the result reports transport \"unknown\"; ask the person which transport to use.",
 			Args: []api.ArgMetadata{
 				{Name: "url", Type: api.ArgTypeString, Required: true, Description: "Server endpoint URL to probe"},
 				{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers to send with the probe requests", Schema: map[string]interface{}{

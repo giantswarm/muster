@@ -23,6 +23,11 @@ type Binding struct {
 	// Providers are the provider instances (credential URI first segment)
 	// the Session may use.
 	Providers []string `json:"providers"`
+	// Toolset is the agent's toolset at the Session's start: the inline
+	// selectors that bound every request the actor makes to muster. nil binds
+	// none (implicit full access); a binding stored before toolsets were bound
+	// reads as nil.
+	Toolset []string `json:"toolset,omitempty"`
 	// BoundAt is when the binding was last written.
 	BoundAt time.Time `json:"boundAt"`
 }
