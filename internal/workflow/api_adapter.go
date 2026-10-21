@@ -2665,7 +2665,7 @@ func getWorkflowSubStepSchema(nested bool) map[string]interface{} {
 	}
 	description := "A tool-call sub-step"
 	if nested {
-		properties["forEach"] = getWorkflowForEachSchema("A nested loop, one level deep, only in a forEach body (not in parallel or onFailure); its sub-steps are tool calls and its `as` must differ from the outer loop's. Mutually exclusive with tool.", false)
+		properties["forEach"] = getWorkflowForEachSchema("A nested loop, one level deep, only in a forEach body; its sub-steps are tool calls, its `as` differs from the outer loop's. Exclusive with tool.", false)
 		description = "A sub-step: a tool call or, in a forEach body, a nested forEach"
 	}
 	return map[string]interface{}{

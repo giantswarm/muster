@@ -93,13 +93,13 @@ func getWorkflowForEachSchema(description string, bodyNests bool) map[string]int
 			},
 			"parallelism": map[string]interface{}{
 				api.SchemaKeyType:        string(api.ArgTypeInteger),
-				api.SchemaKeyDescription: fmt.Sprintf("How many iterations may run at once, 1 to %d (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.", api.MaxForEachParallelism),
+				api.SchemaKeyDescription: fmt.Sprintf("Iterations run at once, 1 to %d (default one after another). Results stay in item order; a nested loop has at most outer x inner calls in flight.", api.MaxForEachParallelism),
 				"minimum":                1,
 				"maximum":                api.MaxForEachParallelism,
 			},
 			"steps": map[string]interface{}{
 				api.SchemaKeyType:        string(api.ArgTypeArray),
-				api.SchemaKeyDescription: "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {<sub-step id>: result}, error (for a failed iteration)}.",
+				api.SchemaKeyDescription: "Body run for each item. After the loop the step's id holds one record per iteration: {index, item, status, results, error}.",
 				api.SchemaKeyItems:       getWorkflowSubStepSchema(bodyNests),
 				"minItems":               1,
 			},
@@ -112,7 +112,7 @@ func getWorkflowForEachSchema(description string, bodyNests bool) map[string]int
 func getWorkflowPaginateSchema() map[string]interface{} {
 	return map[string]interface{}{
 		api.SchemaKeyType:                 string(api.ArgTypeObject),
-		api.SchemaKeyDescription:          "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+		api.SchemaKeyDescription:          "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
 		api.SchemaKeyAdditionalProperties: false,
 		api.SchemaKeyProperties: map[string]interface{}{
 			"itemsField": map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString), api.SchemaKeyDescription: "Where a page's list is, a dotted path (default \"items\")"},
@@ -132,6 +132,6 @@ func getWorkflowPaginateSchema() map[string]interface{} {
 func getWorkflowJQSchema() map[string]interface{} {
 	return map[string]interface{}{
 		api.SchemaKeyType:        string(api.ArgTypeString),
-		api.SchemaKeyDescription: "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+		api.SchemaKeyDescription: "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
 	}
 }

@@ -1297,7 +1297,7 @@
                     "type": "string"
                   },
                   "jq": {
-                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                     "type": "string"
                   },
                   "output": {
@@ -1306,7 +1306,7 @@
                   },
                   "paginate": {
                     "additionalProperties": false,
-                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                     "properties": {
                       "itemsField": {
                         "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -1425,13 +1425,13 @@
                         "type": "string"
                       },
                       "parallelism": {
-                        "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                        "description": "Iterations run at once, 1 to 50 (default one after another). Results stay in item order; a nested loop has at most outer x inner calls in flight.",
                         "maximum": 50,
                         "minimum": 1,
                         "type": "integer"
                       },
                       "steps": {
-                        "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                        "description": "Body run for each item. After the loop the step's id holds one record per iteration: {index, item, status, results, error}.",
                         "items": {
                           "additionalProperties": false,
                           "description": "A sub-step: a tool call or, in a forEach body, a nested forEach",
@@ -1494,7 +1494,7 @@
                             },
                             "forEach": {
                               "additionalProperties": false,
-                              "description": "A nested loop, one level deep, only in a forEach body (not in parallel or onFailure); its sub-steps are tool calls and its `as` must differ from the outer loop's. Mutually exclusive with tool.",
+                              "description": "A nested loop, one level deep, only in a forEach body; its sub-steps are tool calls, its `as` differs from the outer loop's. Exclusive with tool.",
                               "properties": {
                                 "as": {
                                   "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
@@ -1505,13 +1505,13 @@
                                   "type": "string"
                                 },
                                 "parallelism": {
-                                  "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                                  "description": "Iterations run at once, 1 to 50 (default one after another). Results stay in item order; a nested loop has at most outer x inner calls in flight.",
                                   "maximum": 50,
                                   "minimum": 1,
                                   "type": "integer"
                                 },
                                 "steps": {
-                                  "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                                  "description": "Body run for each item. After the loop the step's id holds one record per iteration: {index, item, status, results, error}.",
                                   "items": {
                                     "additionalProperties": false,
                                     "description": "A tool-call sub-step",
@@ -1577,7 +1577,7 @@
                                         "type": "string"
                                       },
                                       "jq": {
-                                        "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                                        "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                                         "type": "string"
                                       },
                                       "output": {
@@ -1586,7 +1586,7 @@
                                       },
                                       "paginate": {
                                         "additionalProperties": false,
-                                        "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                                        "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                                         "properties": {
                                           "itemsField": {
                                             "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -1638,7 +1638,7 @@
                               "type": "string"
                             },
                             "jq": {
-                              "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                              "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                               "type": "string"
                             },
                             "output": {
@@ -1647,7 +1647,7 @@
                             },
                             "paginate": {
                               "additionalProperties": false,
-                              "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                              "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                               "properties": {
                                 "itemsField": {
                                   "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -1699,7 +1699,7 @@
                     "type": "string"
                   },
                   "jq": {
-                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                     "type": "string"
                   },
                   "output": {
@@ -1708,7 +1708,7 @@
                   },
                   "paginate": {
                     "additionalProperties": false,
-                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                     "properties": {
                       "itemsField": {
                         "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -1798,7 +1798,7 @@
                           "type": "string"
                         },
                         "jq": {
-                          "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                          "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                           "type": "string"
                         },
                         "output": {
@@ -1807,7 +1807,7 @@
                         },
                         "paginate": {
                           "additionalProperties": false,
-                          "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                          "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                           "properties": {
                             "itemsField": {
                               "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -2069,7 +2069,7 @@
                     "type": "string"
                   },
                   "jq": {
-                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                     "type": "string"
                   },
                   "output": {
@@ -2078,7 +2078,7 @@
                   },
                   "paginate": {
                     "additionalProperties": false,
-                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                     "properties": {
                       "itemsField": {
                         "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -2197,13 +2197,13 @@
                         "type": "string"
                       },
                       "parallelism": {
-                        "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                        "description": "Iterations run at once, 1 to 50 (default one after another). Results stay in item order; a nested loop has at most outer x inner calls in flight.",
                         "maximum": 50,
                         "minimum": 1,
                         "type": "integer"
                       },
                       "steps": {
-                        "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                        "description": "Body run for each item. After the loop the step's id holds one record per iteration: {index, item, status, results, error}.",
                         "items": {
                           "additionalProperties": false,
                           "description": "A sub-step: a tool call or, in a forEach body, a nested forEach",
@@ -2266,7 +2266,7 @@
                             },
                             "forEach": {
                               "additionalProperties": false,
-                              "description": "A nested loop, one level deep, only in a forEach body (not in parallel or onFailure); its sub-steps are tool calls and its `as` must differ from the outer loop's. Mutually exclusive with tool.",
+                              "description": "A nested loop, one level deep, only in a forEach body; its sub-steps are tool calls, its `as` differs from the outer loop's. Exclusive with tool.",
                               "properties": {
                                 "as": {
                                   "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
@@ -2277,13 +2277,13 @@
                                   "type": "string"
                                 },
                                 "parallelism": {
-                                  "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                                  "description": "Iterations run at once, 1 to 50 (default one after another). Results stay in item order; a nested loop has at most outer x inner calls in flight.",
                                   "maximum": 50,
                                   "minimum": 1,
                                   "type": "integer"
                                 },
                                 "steps": {
-                                  "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                                  "description": "Body run for each item. After the loop the step's id holds one record per iteration: {index, item, status, results, error}.",
                                   "items": {
                                     "additionalProperties": false,
                                     "description": "A tool-call sub-step",
@@ -2349,7 +2349,7 @@
                                         "type": "string"
                                       },
                                       "jq": {
-                                        "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                                        "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                                         "type": "string"
                                       },
                                       "output": {
@@ -2358,7 +2358,7 @@
                                       },
                                       "paginate": {
                                         "additionalProperties": false,
-                                        "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                                        "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                                         "properties": {
                                           "itemsField": {
                                             "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -2410,7 +2410,7 @@
                               "type": "string"
                             },
                             "jq": {
-                              "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                              "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                               "type": "string"
                             },
                             "output": {
@@ -2419,7 +2419,7 @@
                             },
                             "paginate": {
                               "additionalProperties": false,
-                              "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                              "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                               "properties": {
                                 "itemsField": {
                                   "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -2471,7 +2471,7 @@
                     "type": "string"
                   },
                   "jq": {
-                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                     "type": "string"
                   },
                   "output": {
@@ -2480,7 +2480,7 @@
                   },
                   "paginate": {
                     "additionalProperties": false,
-                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                     "properties": {
                       "itemsField": {
                         "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -2570,7 +2570,7 @@
                           "type": "string"
                         },
                         "jq": {
-                          "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                          "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                           "type": "string"
                         },
                         "output": {
@@ -2579,7 +2579,7 @@
                         },
                         "paginate": {
                           "additionalProperties": false,
-                          "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                          "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                           "properties": {
                             "itemsField": {
                               "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -2758,7 +2758,7 @@
                     "type": "string"
                   },
                   "jq": {
-                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                     "type": "string"
                   },
                   "output": {
@@ -2767,7 +2767,7 @@
                   },
                   "paginate": {
                     "additionalProperties": false,
-                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                     "properties": {
                       "itemsField": {
                         "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -2886,13 +2886,13 @@
                         "type": "string"
                       },
                       "parallelism": {
-                        "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                        "description": "Iterations run at once, 1 to 50 (default one after another). Results stay in item order; a nested loop has at most outer x inner calls in flight.",
                         "maximum": 50,
                         "minimum": 1,
                         "type": "integer"
                       },
                       "steps": {
-                        "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                        "description": "Body run for each item. After the loop the step's id holds one record per iteration: {index, item, status, results, error}.",
                         "items": {
                           "additionalProperties": false,
                           "description": "A sub-step: a tool call or, in a forEach body, a nested forEach",
@@ -2955,7 +2955,7 @@
                             },
                             "forEach": {
                               "additionalProperties": false,
-                              "description": "A nested loop, one level deep, only in a forEach body (not in parallel or onFailure); its sub-steps are tool calls and its `as` must differ from the outer loop's. Mutually exclusive with tool.",
+                              "description": "A nested loop, one level deep, only in a forEach body; its sub-steps are tool calls, its `as` differs from the outer loop's. Exclusive with tool.",
                               "properties": {
                                 "as": {
                                   "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
@@ -2966,13 +2966,13 @@
                                   "type": "string"
                                 },
                                 "parallelism": {
-                                  "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                                  "description": "Iterations run at once, 1 to 50 (default one after another). Results stay in item order; a nested loop has at most outer x inner calls in flight.",
                                   "maximum": 50,
                                   "minimum": 1,
                                   "type": "integer"
                                 },
                                 "steps": {
-                                  "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                                  "description": "Body run for each item. After the loop the step's id holds one record per iteration: {index, item, status, results, error}.",
                                   "items": {
                                     "additionalProperties": false,
                                     "description": "A tool-call sub-step",
@@ -3038,7 +3038,7 @@
                                         "type": "string"
                                       },
                                       "jq": {
-                                        "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                                        "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                                         "type": "string"
                                       },
                                       "output": {
@@ -3047,7 +3047,7 @@
                                       },
                                       "paginate": {
                                         "additionalProperties": false,
-                                        "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                                        "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                                         "properties": {
                                           "itemsField": {
                                             "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -3099,7 +3099,7 @@
                               "type": "string"
                             },
                             "jq": {
-                              "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                              "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                               "type": "string"
                             },
                             "output": {
@@ -3108,7 +3108,7 @@
                             },
                             "paginate": {
                               "additionalProperties": false,
-                              "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                              "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                               "properties": {
                                 "itemsField": {
                                   "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -3160,7 +3160,7 @@
                     "type": "string"
                   },
                   "jq": {
-                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                     "type": "string"
                   },
                   "output": {
@@ -3169,7 +3169,7 @@
                   },
                   "paginate": {
                     "additionalProperties": false,
-                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                     "properties": {
                       "itemsField": {
                         "description": "Where a page's list is, a dotted path (default \"items\")",
@@ -3259,7 +3259,7 @@
                           "type": "string"
                         },
                         "jq": {
-                          "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                          "description": "jq program reshaping the step's result (a loop's: its records) before it is stored; $input, $vars in scope; one value, e.g. '[.items[].metadata.name]'",
                           "type": "string"
                         },
                         "output": {
@@ -3268,7 +3268,7 @@
                         },
                         "paginate": {
                           "additionalProperties": false,
-                          "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                          "description": "Tool steps only: follow the next-page token and store every page's items as one list, with pagination.pages and pagination.truncated.",
                           "properties": {
                             "itemsField": {
                               "description": "Where a page's list is, a dotted path (default \"items\")",
