@@ -344,6 +344,13 @@ muster:
   #     clientCredentialsSecretRef: {name: gitlab-workspaces-app}
   #     scopes: api read_user
   #     gitUser: oauth2
+  #   # A person's ChatGPT subscription, connected with OpenAI's device-code
+  #   # sign-in (the person enters a code at OpenAI; core_auth_login answers
+  #   # it, auth://status reports pending until it is entered). Defaults: the
+  #   # Codex CLI's public client and https://auth.openai.com's endpoints.
+  #   # Needs muster.oauth.server.encryptionKey.
+  #   - name: chatgpt
+  #     flow: chatgptDeviceCode
   providerApps: []
 
   # Credential provider for Substrate's egress gateway: a workspace Session's

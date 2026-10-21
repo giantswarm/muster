@@ -50,6 +50,9 @@ data:
       {{- end }}
       {{- with .Values.muster.providerApps }}
       {{- if not $.Values.muster.oauth.mcpClient.enabled }}{{ fail "muster.providerApps needs muster.oauth.mcpClient.enabled" }}{{- end }}
+      {{- range . }}
+      {{- if and (eq (.flow | default "") "chatgptDeviceCode") (not $.Values.muster.oauth.server.encryptionKey) }}{{ fail (printf "muster.providerApps %s (flow chatgptDeviceCode) needs muster.oauth.server.encryptionKey: a person's ChatGPT login is stored only encrypted" .name) }}{{- end }}
+      {{- end }}
       providerApps:
         {{- toYaml . | nindent 8 }}
       {{- end }}

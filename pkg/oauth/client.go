@@ -541,6 +541,7 @@ func (c *Client) doTokenRequest(ctx context.Context, tokenEndpoint string, data 
 
 	// Calculate expiration if not set
 	token.SetExpiresAtFromExpiresIn()
+	token.setExpiryFromJWTAccessToken()
 
 	return &token, nil
 }

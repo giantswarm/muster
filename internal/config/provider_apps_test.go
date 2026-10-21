@@ -32,6 +32,9 @@ func TestValidateProviderApps(t *testing.T) {
 		"bad revocation":          {{Name: "x", Issuer: github.Issuer, RevocationEndpoint: "ftp://x"}},
 		"secret ref without name": {{Name: "x", Issuer: github.Issuer, ClientCredentialsSecretRef: &BrokerSecretRefConfig{}}},
 		"git user with a colon":   {{Name: "x", Issuer: github.Issuer, GitUser: "a:b"}},
+		"client id and secret":    {{Name: "x", Issuer: github.Issuer, ClientID: "c", ClientCredentialsSecretRef: &BrokerSecretRefConfig{Name: "s"}}},
+		"unknown flow":            {{Name: "x", Issuer: github.Issuer, Flow: "deviceCode"}},
+		"device code with secret": {{Name: "x", Issuer: github.Issuer, Flow: ProviderAppFlowChatGPTDeviceCode, ClientCredentialsSecretRef: &BrokerSecretRefConfig{Name: "s"}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			assert.Error(t, ValidateProviderApps(apps))
@@ -58,4 +61,31 @@ aggregator:
 	assert.Equal(t, "gitlab-app", app.ClientCredentialsSecretRef.Name)
 	assert.Equal(t, "oauth2", app.GitUser)
 	assert.Equal(t, "api read_user", app.Scopes)
+}
+
+func TestProviderAppsWithDefaults(t *testing.T) {
+	assert.Nil(t, ProviderAppsWithDefaults(nil))
+
+	got := ProviderAppsWithDefaults([]ProviderAppConfig{
+		{Name: "chatgpt", Flow: ProviderAppFlowChatGPTDeviceCode},
+		{Name: "gitlab", Issuer: "https://gitlab.example.com"},
+	})
+	assert.Equal(t, ProviderAppConfig{
+		Name:                  "chatgpt",
+		Flow:                  ProviderAppFlowChatGPTDeviceCode,
+		Issuer:                "https://auth.openai.com",
+		ClientID:              "app_EMoamEEZ73f0CkXaXp7hrann",
+		AuthorizationEndpoint: "https://auth.openai.com/oauth/authorize",
+		TokenEndpoint:         "https://auth.openai.com/oauth/token",
+		Scopes:                "openid profile email offline_access",
+	}, got[0], "the Codex CLI's client and OpenAI's endpoints")
+	assert.Equal(t, ProviderAppConfig{Name: "gitlab", Issuer: "https://gitlab.example.com"}, got[1], "another App is left alone")
+	require.NoError(t, ValidateProviderApps(got))
+
+	own := ProviderAppsWithDefaults([]ProviderAppConfig{
+		{Name: "chatgpt", Flow: ProviderAppFlowChatGPTDeviceCode, Issuer: "https://auth.example.com/", ClientID: "own", Scopes: "openid"},
+	})[0]
+	assert.Equal(t, "own", own.ClientID)
+	assert.Equal(t, "openid", own.Scopes)
+	assert.Equal(t, "https://auth.example.com/oauth/token", own.TokenEndpoint)
 }

@@ -112,6 +112,24 @@ func (t *Token) SetExpiresAtFromExpiresIn() {
 	}
 }
 
+// setExpiryFromJWTAccessToken sets the lifetime of a token response without
+// expires_in from its access token's exp claim, when the access token is a
+// JWT (OpenAI's ChatGPT sign-in answers so). Without it the token would
+// count as never expiring and never be refreshed.
+func (t *Token) setExpiryFromJWTAccessToken() {
+	if t.ExpiresIn > 0 || !t.ExpiresAt.IsZero() || t.AccessToken == "" {
+		return
+	}
+	exp, err := Expiry(t.AccessToken)
+	if err != nil {
+		return
+	}
+	if lifetime := time.Until(exp); lifetime > 0 {
+		t.ExpiresIn = int(lifetime / time.Second)
+	}
+	t.ExpiresAt = exp
+}
+
 // Scopes returns the scope as a slice of individual scopes.
 func (t *Token) Scopes() []string {
 	if t.Scope == "" {
@@ -403,6 +421,13 @@ const (
 	// This is distinct from auth_required (initial auth needed) -- reauth_required
 	// means a previously working session has degraded.
 	SessionServerStatusReauthRequired SessionServerStatus = "reauth_required"
+
+	// SessionServerStatusPending indicates that a provider App's device-code
+	// sign-in is outstanding: the person was given a code to enter at the
+	// provider and muster waits for it. It resolves to "connected" once the
+	// code is entered, or to "auth_required" with the failure when the code
+	// expires or the provider refuses the sign-in.
+	SessionServerStatusPending SessionServerStatus = "pending"
 )
 
 // Display constants for user-facing output.
@@ -450,7 +475,8 @@ type ProviderAppAuthStatus struct {
 	// Name is the provider instance the App belongs to.
 	Name string `json:"name"`
 	// Status is SessionServerStatusConnected when the person holds the grant,
-	// SessionServerStatusAuthRequired otherwise.
+	// SessionServerStatusPending while a device-code sign-in waits for its
+	// code, SessionServerStatusAuthRequired otherwise.
 	Status SessionServerStatus `json:"status"`
 	// AuthTool is the tool that starts the grant, for an App awaiting it.
 	AuthTool string `json:"auth_tool,omitempty"`
@@ -458,6 +484,16 @@ type ProviderAppAuthStatus struct {
 	AuthURL string `json:"auth_url,omitempty"`
 	// Error says why no sign-in link could be issued.
 	Error string `json:"error,omitempty"`
+	// UserCode is the code a pending device-code sign-in waits for, to be
+	// entered at VerificationURL before CodeExpiresAt. Show it to the person
+	// only.
+	UserCode        string     `json:"user_code,omitempty"`
+	VerificationURL string     `json:"verification_url,omitempty"`
+	CodeExpiresAt   *time.Time `json:"code_expires_at,omitempty"`
+	// LastFailure says why the person's last device-code sign-in ended
+	// without a grant (the code expired, the provider refused it); cleared by
+	// the next sign-in.
+	LastFailure string `json:"last_failure,omitempty"`
 }
 
 // ServerAuthStatus represents the authentication status of a single MCP server.

@@ -103,6 +103,10 @@ type AggregatorServer struct {
 	// once in muster, apart from any MCPServer (provider_apps.go).
 	providerApps *providerAppSet
 
+	// deviceSignIns are the device-code sign-ins of provider Apps this
+	// replica polls (provider_app_device.go).
+	deviceSignIns *deviceSignIns
+
 	errorCallback func(error) // Callback for propagating async errors in the aggregator upwards
 
 	// Transport-specific server instances for different communication protocols
@@ -797,6 +801,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 
 	return &AggregatorServer{
 		providerApps:      providerApps,
+		deviceSignIns:     newDeviceSignIns(),
 		config:            aggConfig,
 		registry:          NewServerRegistry(aggConfig.MusterPrefix),
 		toolManager:       newActiveItemManager(),
@@ -1216,6 +1221,7 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	}
 
 	a.stopCredentialProvider(ctx)
+	a.deviceSignIns.shutdown()
 
 	// Cancel context to signal shutdown to all background routines
 	if cancelFunc != nil {

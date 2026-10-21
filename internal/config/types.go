@@ -131,6 +131,16 @@ type ProviderAppConfig struct {
 	// registered out of band. Its namespace defaults to muster's.
 	ClientCredentialsSecretRef *BrokerSecretRefConfig `yaml:"clientCredentialsSecretRef,omitempty"`
 
+	// ClientID is a public client (one without a secret) the App signs in
+	// and refreshes as, instead of ClientCredentialsSecretRef. Default for
+	// flow chatgptDeviceCode: the Codex CLI's client.
+	ClientID string `yaml:"clientID,omitempty"`
+
+	// Flow is how a person signs in: empty for the browser authorization
+	// code flow, ProviderAppFlowChatGPTDeviceCode for OpenAI's device-code
+	// sign-in to ChatGPT, whose code the person enters at OpenAI.
+	Flow string `yaml:"flow,omitempty"`
+
 	// Scopes is the space-separated scope requested at sign-in.
 	Scopes string `yaml:"scopes,omitempty"`
 

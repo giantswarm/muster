@@ -63,3 +63,24 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'credentialProvider:\n\s+enabled: true'
+  - it: refuses a ChatGPT App without the token encryption key
+    set:
+      muster.providerApps:
+        - name: chatgpt
+          flow: chatgptDeviceCode
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.providerApps chatgpt (flow chatgptDeviceCode) needs muster.oauth.server.encryptionKey: a person's ChatGPT login is stored only encrypted"
+  - it: renders a ChatGPT App with the token encryption key
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.existingSecret: muster-oauth
+      muster.oauth.server.baseUrl: https://muster.example.test
+      muster.oauth.server.encryptionKey: true
+      muster.providerApps:
+        - name: chatgpt
+          flow: chatgptDeviceCode
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '\n  providerApps:\n    - flow: chatgptDeviceCode\n      name: chatgpt'
