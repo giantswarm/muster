@@ -14,9 +14,9 @@ timeout: "2m"
 #        x_k8s-single_list_pods is exposed with the original schema intact;
 #        x_kubernetes_list_pods is NOT exposed.
 #
-# Pattern matches description-divergence handling (same family.name + same
-# tool with different descriptions falls back per-server for that tool);
-# the instanceArg collision is detected at the same per-tool gate.
+# Pattern matches input-schema divergence handling (a member whose tool has
+# a different input schema falls back per-server for that tool); the
+# instanceArg collision is detected at the same per-tool gate.
 
 pre_configuration:
   mcp_servers:

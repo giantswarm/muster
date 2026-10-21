@@ -1,24 +1,18 @@
-name: "mcpserver-family-partial-description-divergence-strict"
-description: "When one tool's description diverges within a family, ONLY that tool falls back to per-server prefixing; other tools still group and the diverging tool's family-prefixed name must not be exposed"
+name: "mcpserver-family-partial-schema-divergence-strict"
+description: "When one member's input schema for a tool differs within a family, ONLY that member falls back to per-server prefixing for that tool; the other members keep the family-prefixed name"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "family", "aggregator", "fallback"]
 timeout: "2m"
 
 # Given: Three MCP servers share family.name=kubernetes. They expose two
-#        tools: list_pods (description consistent across all three) and
-#        delete_pod (description diverges on one of the three).
+#        tools: list_pods (same schema everywhere) and delete_pod, whose
+#        input schema on k8s-b carries an extra argument.
 # When:  The aggregator lists tools.
-# Then:  - list_pods groups as x_kubernetes_list_pods with a 3-element enum
-#        - delete_pod falls back: x_k8s-{a,b,c}_delete_pod are exposed but
-#          x_kubernetes_delete_pod is NOT.
-#
-# Tighter than mcpserver-family-description-divergence.yaml because that
-# scenario only verifies the per-server fallback works for the diverging
-# tool and the family grouping works for the matching tool — it does NOT
-# pin that the diverging tool's family-prefixed name is absent. A regression
-# that over-eagerly falls back the entire family (or under-eagerly exposes
-# both grouped and per-server names) would slip past the existing test.
+# Then:  - list_pods groups as x_kubernetes_list_pods across all three
+#        - delete_pod groups as x_kubernetes_delete_pod across k8s-a and k8s-c
+#          (the largest schema group), and k8s-b exposes it only as
+#          x_k8s-b_delete_pod: x_kubernetes_delete_pod does not route to k8s-b.
 
 pre_configuration:
   mcp_servers:
@@ -60,12 +54,13 @@ pre_configuration:
             responses:
               - response: { source: "k8s-b" }
           - name: "delete_pod"
-            description: "Delete pod (force, no grace period)"   # diverges
-            input_schema:
+            description: "Delete pod (idempotent)"
+            input_schema:                                   # diverges: extra argument
               type: "object"
               properties:
                 namespace: { type: "string" }
                 name:      { type: "string" }
+                force:     { type: "boolean" }
             responses:
               - response: { source: "k8s-b" }
     - name: "k8s-c"
@@ -83,7 +78,7 @@ pre_configuration:
             responses:
               - response: { source: "k8s-c" }
           - name: "delete_pod"
-            description: "Delete pod (idempotent)"     # matches k8s-a, diverges from k8s-b
+            description: "Delete pod (idempotent)"
             input_schema:
               type: "object"
               properties:
@@ -123,7 +118,7 @@ steps:
       json_path:
         state: "running"
 
-  # Consistent-description tool still groups across all three.
+  # Same schema everywhere: list_pods groups across all three.
   - id: "matching-tool-groups-a"
     tool: "x_kubernetes_list_pods"
     args:
@@ -151,46 +146,48 @@ steps:
       success: true
       contains: ["k8s-c"]
 
-  # Diverging-description tool: per-server fallback works for all three.
-  - id: "diverging-tool-per-server-a"
-    tool: "x_k8s-a_delete_pod"
-    args:
-      namespace: "default"
-      name:      "pod-1"
-    expected:
-      success: true
-      contains: ["k8s-a"]
-
-  - id: "diverging-tool-per-server-b"
-    tool: "x_k8s-b_delete_pod"
-    args:
-      namespace: "default"
-      name:      "pod-2"
-    expected:
-      success: true
-      contains: ["k8s-b"]
-
-  - id: "diverging-tool-per-server-c"
-    tool: "x_k8s-c_delete_pod"
-    args:
-      namespace: "default"
-      name:      "pod-3"
-    expected:
-      success: true
-      contains: ["k8s-c"]
-
-  # The negative assertion the existing scenario does not make: the diverging
-  # tool's family-prefixed name MUST NOT be exposed.
-  - id: "diverging-tool-family-name-absent"
-    description: "x_kubernetes_delete_pod must not exist; only the per-server fallback names are exposed for the diverging tool"
+  # Same schema on k8s-a and k8s-c: they keep the family name.
+  - id: "schema-group-keeps-family-name-a"
     tool: "x_kubernetes_delete_pod"
     args:
       management_cluster: "k8s-a"
       namespace: "default"
       name:      "pod-1"
     expected:
+      success: true
+      contains: ["k8s-a"]
+
+  - id: "schema-group-keeps-family-name-c"
+    tool: "x_kubernetes_delete_pod"
+    args:
+      management_cluster: "k8s-c"
+      namespace: "default"
+      name:      "pod-3"
+    expected:
+      success: true
+      contains: ["k8s-c"]
+
+  # k8s-b's schema differs: it falls back to its per-server name.
+  - id: "diverging-member-per-server-b"
+    tool: "x_k8s-b_delete_pod"
+    args:
+      namespace: "default"
+      name:      "pod-2"
+      force:     true
+    expected:
+      success: true
+      contains: ["k8s-b"]
+
+  - id: "diverging-member-not-under-family-name"
+    description: "x_kubernetes_delete_pod must not route to k8s-b, whose input schema differs"
+    tool: "x_kubernetes_delete_pod"
+    args:
+      management_cluster: "k8s-b"
+      namespace: "default"
+      name:      "pod-2"
+    expected:
       success: false
-      error_contains: ['not exposed under family "kubernetes"']
+      error_contains: ["k8s-b"]
 
 cleanup:
   - id: "cleanup-stop-a"

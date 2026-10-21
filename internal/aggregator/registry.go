@@ -710,9 +710,13 @@ type serverToolContribution struct {
 //     serverFamilies state: any family whose members declare different
 //     family.instanceArg falls back ENTIRELY to per-server prefixing for
 //     all its tools — independent of whether their tool sets overlap.
-//   - Per-tool divergence within a non-fallback family (diverging
-//     descriptions) falls back only that specific tool to per-server
-//     prefixing; other tools in the family still group.
+//   - A family tool groups by name and input schema, never by description:
+//     members whose tool differs only in its own or its arguments'
+//     descriptions share one exposed tool carrying the most common
+//     description (see toolset.SplitFamilyTool). When members' input schemas accept
+//     different arguments, the largest schema group keeps the
+//     family name and every other member falls back to per-server prefixing
+//     for that tool; other tools in the family still group.
 //   - Tools in a non-fallback family emit a single exposed tool per
 //     original tool name with a required instance-selector enum.
 func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribution) []mcp.Tool {
@@ -736,8 +740,6 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 	type familyEntry struct {
 		servers     []string
 		tools       []mcp.Tool // parallel to servers
-		description string
-		descMatches bool
 		instanceArg string
 	}
 
@@ -774,17 +776,12 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 				familyBuckets[key] = &familyEntry{
 					servers:     []string{c.serverName},
 					tools:       []mcp.Tool{tool},
-					description: tool.Description,
-					descMatches: true,
 					instanceArg: c.family.InstanceArg,
 				}
 				continue
 			}
 			entry.servers = append(entry.servers, c.serverName)
 			entry.tools = append(entry.tools, tool)
-			if tool.Description != entry.description {
-				entry.descMatches = false
-			}
 		}
 	}
 
@@ -804,14 +801,6 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 
 	for _, key := range familyKeys {
 		entry := familyBuckets[key]
-		if !entry.descMatches {
-			logging.Warn("Aggregator",
-				"family %q tool %q has divergent descriptions across servers %v; falling back to per-server prefixing for this tool",
-				key.family, key.toolName, entry.servers)
-			soloTools = append(soloTools, r.perServerTools(entry.servers, entry.tools)...)
-			r.removeFamilyTool(r.familyExposedName(key.family, key.toolName))
-			continue
-		}
 		if instanceArgCollides(entry.tools, entry.instanceArg) {
 			logging.Warn("Aggregator",
 				"family %q tool %q already declares an input property named %q on at least one contributor; family.instanceArg collides — falling back to per-server prefixing for this tool",
@@ -820,11 +809,21 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			r.removeFamilyTool(r.familyExposedName(key.family, key.toolName))
 			continue
 		}
+		group, rest := toolset.SplitFamilyTool(entry.servers, entry.tools)
+		if len(rest.Servers) > 0 {
+			logging.Warn("Aggregator",
+				"family %q tool %q accepts different arguments on servers %v than on %v; those fall back to per-server prefixing for this tool",
+				key.family, key.toolName, rest.Servers, group.Servers)
+			soloTools = append(soloTools, r.perServerTools(rest.Servers, rest.Tools)...)
+		}
 
-		sortedServers := append([]string(nil), entry.servers...)
+		sortedServers := append([]string(nil), group.Servers...)
 		sort.Strings(sortedServers)
 
-		exposedTool := entry.tools[0]
+		// The exposed tool is the contribution of a member carrying the
+		// common description, so its annotations come with it.
+		description := toolset.CommonDescription(group.Tools)
+		exposedTool := group.Tools[slices.IndexFunc(group.Tools, func(t mcp.Tool) bool { return t.Description == description })]
 		exposedTool.Name = r.familyExposedName(key.family, key.toolName)
 		toolset.SetFamilyMembers(&exposedTool, entry.instanceArg, sortedServers)
 		// The exposed name carries the family, so the family is the owning
