@@ -307,7 +307,7 @@
               "type": "string"
             },
             "displayName": {
-              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "description": "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it",
               "type": "string"
             },
             "env": {
@@ -339,7 +339,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "description": "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom",
               "type": "object"
             },
             "headersFrom": {
@@ -678,7 +678,7 @@
               "type": "string"
             },
             "displayName": {
-              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "description": "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it",
               "type": "string"
             },
             "env": {
@@ -710,7 +710,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "description": "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom",
               "type": "object"
             },
             "headersFrom": {
@@ -992,7 +992,7 @@
               "type": "string"
             },
             "displayName": {
-              "description": "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it",
+              "description": "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it",
               "type": "string"
             },
             "env": {
@@ -1024,7 +1024,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom",
+              "description": "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom",
               "type": "object"
             },
             "headersFrom": {

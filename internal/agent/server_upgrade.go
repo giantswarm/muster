@@ -36,8 +36,9 @@ func RegisterClientToolsOnServer(ctx context.Context, mcpServer *server.MCPServe
 // All handlers use the transport bridge pattern and forward to the server's
 // meta-tool of the same name, arguments passed through untouched.
 //
-// The definitions — names, descriptions, arguments — are the provider's own,
-// so what an AI assistant sees through the local agent is exactly what the
+// The definitions — names, descriptions, arguments, annotations — are the
+// provider's own, so what an AI assistant sees through the local agent is
+// exactly what the
 // aggregator advertises: a new meta-tool, argument or description reaches the
 // bridge without a hand-maintained copy that can fall behind (the copy this
 // replaced still described filter_tools as returning full specifications).
@@ -53,6 +54,7 @@ func registerAgentTools(m *MCPServer) {
 			Name:        meta.Name,
 			Description: meta.Description,
 			InputSchema: api.InputSchemaFromArgs(args),
+			Annotations: api.MCPToolAnnotation(meta.Annotations),
 		}
 		m.mcpServer.AddTool(tool, m.forwardToServerMetaTool(meta.Name))
 	}

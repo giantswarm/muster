@@ -251,7 +251,7 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 	authTools := []mcp.Tool{
 		{
 			Name:        corePrefix + "auth_login",
-			Description: "Authenticate to an OAuth-protected MCP server, or grant a provider App (app) once for every server that receives its grant",
+			Description: "Authenticate to an OAuth-protected MCP server, or grant a provider App (app) once for all servers receiving its grant",
 			// Read-only: the call issues a sign-in link for the caller and
 			// changes nothing on the platform; the grant that follows lands
 			// in the caller's own session. Open world: it reaches the
@@ -279,8 +279,8 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 		},
 		{
 			Name: corePrefix + "auth_status",
-			Description: "Your authentication state on every MCP server: whether it is connected, needs your grant or comes with your muster sign-in, " +
-				"and with auth_urls the sign-in link that starts each missing grant",
+			Description: "Your authentication state on every MCP server: connected, needs your grant, or comes with your muster sign-in.\n\n" +
+				"With auth_urls, also the sign-in link that starts each missing grant.",
 			// Read-only like core_auth_login: the links it issues change
 			// nothing on the platform until the person completes them in
 			// their own session. Open world: it reaches the authorization
@@ -331,15 +331,7 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 // toolAnnotations projects a provider's declared annotations onto the MCP
 // shape. Nil declares none: every hint stays unset, as before.
 func toolAnnotations(a *api.ToolAnnotations) mcp.ToolAnnotation {
-	if a == nil {
-		return mcp.ToolAnnotation{}
-	}
-	return mcp.ToolAnnotation{
-		ReadOnlyHint:    a.ReadOnlyHint,
-		DestructiveHint: a.DestructiveHint,
-		IdempotentHint:  a.IdempotentHint,
-		OpenWorldHint:   a.OpenWorldHint,
-	}
+	return api.MCPToolAnnotation(a)
 }
 
 // applyToolAnnotations sets the provider's declared annotations on tool;

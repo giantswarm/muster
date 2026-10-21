@@ -648,7 +648,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			},
 			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
-		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Human-friendly name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; a blank value sets none, and on update removes it"},
+		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it"},
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start; on update, omitted keeps the current value"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
@@ -663,7 +663,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 			api.SchemaKeyDescription:          "Environment variables for the server",
 		}},
-		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http and sse only); no credential: a value in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused, use headersFrom", Schema: map[string]interface{}{
+		{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom", Schema: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
 			api.SchemaKeyDescription:          "HTTP headers for remote servers",
@@ -883,7 +883,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_detect",
 			Annotations: api.ReadOnlyAnnotations().OpenWorld(true),
-			Description: "Probe a remote MCP server URL to detect its transport (streamable-http or sse). Detection never fails on unreachable servers: the result reports transport \"unknown\" instead, so callers can fall back to manual selection.",
+			Description: "Probe a remote MCP server URL to detect its transport (streamable-http or sse).\n\nAn unreachable server does not fail it: the result reports transport \"unknown\", so choose one yourself.",
 			Args: []api.ArgMetadata{
 				{Name: "url", Type: api.ArgTypeString, Required: true, Description: "Server endpoint URL to probe"},
 				{Name: "headers", Type: api.ArgTypeObject, Required: false, Description: "HTTP headers to send with the probe requests", Schema: map[string]interface{}{
