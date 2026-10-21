@@ -116,6 +116,13 @@ type AggregatorHandler interface {
 	//   - []string: Slice of available tool names (empty if no tools available)
 	GetAvailableTools() []string
 
+	// ServerHasTools reports whether the server registered under name (its
+	// key, see MCPServerKey) lists at least one tool in the registry. It
+	// decides on the registry entry, not on a tool name, so it holds whatever
+	// prefix the server's tools are exposed under. A server that waits for a
+	// sign-in lists none.
+	ServerHasTools(name string) bool
+
 	// UpdateCapabilities triggers a refresh of the aggregator's capability information.
 	// This should be called when MCP servers are added, removed, or their tools change.
 	UpdateCapabilities()
