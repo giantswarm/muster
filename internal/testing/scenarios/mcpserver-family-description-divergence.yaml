@@ -1,121 +1,164 @@
 name: "mcpserver-family-description-divergence"
-description: "Diverging tool descriptions within a family fall back to per-server prefixing for that tool only"
+description: "Family members whose tool differs only in its description share one family tool, and a workflow step on it is available and runs"
 category: "behavioral"
 concept: "mcpserver"
-tags: ["mcpserver", "family", "aggregator", "fallback"]
-timeout: "2m"
+tags: ["mcpserver", "family", "aggregator", "workflow"]
+timeout: "3m"
 
-# Given: Two MCP servers in the same family share one tool name but with different descriptions
-#        for one of the tools, while the other tool descriptions match
-# When: The aggregator lists tools
-# Then: The diverging tool falls back to per-server prefixing on both sides (warning logged),
-#       while the matching tool still groups under the family-prefixed exposed name.
+# Given: Two MCP servers in the same family offer list with the same
+#        arguments but different tool and argument descriptions, as two
+#        versions of one server do when the newer one only rewords them.
+# And:   A workflow calls the family tool x_kubernetes_list.
+# When:  The aggregator lists tools and the workflow runs.
+# Then:  x_kubernetes_list is exposed once and routes to either member, no
+#        per-server name is exposed for it, and the workflow is available and
+#        runs on either member.
 
 pre_configuration:
   mcp_servers:
-    - name: "k8s-graveler"
+    - name: "mc1-mcp-kubernetes"
       config:
         family:
           name: "kubernetes"
           instanceArg: "management_cluster"
         tools:
-          - name: "list_pods"
-            description: "v1 API"
+          - name: "list"
+            description: "List resources"
             input_schema:
               type: "object"
               properties:
                 namespace: { type: "string" }
             responses:
-              - response: { source: "k8s-graveler" }
-          - name: "get_node"
-            description: "Get node info"
-            input_schema:
-              type: "object"
-              properties:
-                node: { type: "string" }
-            responses:
-              - response: { source: "k8s-graveler" }
-    - name: "k8s-gazelle"
+              - response: { source: "mc1-mcp-kubernetes" }
+    - name: "mc2-mcp-kubernetes"
       config:
         family:
           name: "kubernetes"
           instanceArg: "management_cluster"
         tools:
-          - name: "list_pods"
-            description: "v2 API"          # diverges from graveler
+          - name: "list"
+            description: "List Kubernetes resources of one kind, with label and field selectors and pagination"
             input_schema:
               type: "object"
               properties:
-                namespace: { type: "string" }
+                namespace: { type: "string", description: "Namespace of a namespaced resource; default 'default'" }
             responses:
-              - response: { source: "k8s-gazelle" }
-          - name: "get_node"
-            description: "Get node info"   # matches
-            input_schema:
-              type: "object"
-              properties:
-                node: { type: "string" }
-            responses:
-              - response: { source: "k8s-gazelle" }
+              - response: { source: "mc2-mcp-kubernetes" }
+
+  workflows:
+    - name: "list-kube-system"
+      config:
+        name: "list-kube-system"
+        input_schema:
+          type: object
+          args:
+            mc:
+              type: "string"
+          required:
+            - mc
+        steps:
+          - id: "list-kubernetes"
+            tool: "x_kubernetes_list"
+            args:
+              management_cluster: "{{ .input.mc }}-mcp-kubernetes"
+              namespace: "kube-system"
+            store: true
 
 steps:
-  - id: "wait-for-graveler"
+  - id: "wait-for-mc1"
     tool: "core_service_status"
     args:
-      name: "k8s-graveler"
+      name: "mc1-mcp-kubernetes"
     expected:
       success: true
       wait_for_state: "30s"
       json_path:
         state: "running"
 
-  - id: "wait-for-gazelle"
+  - id: "wait-for-mc2"
     tool: "core_service_status"
     args:
-      name: "k8s-gazelle"
+      name: "mc2-mcp-kubernetes"
     expected:
       success: true
       wait_for_state: "30s"
       json_path:
         state: "running"
 
-  - id: "diverging-tool-falls-back-graveler"
-    tool: "x_k8s-graveler_list_pods"
+  - id: "family-tool-routes-mc1"
+    tool: "x_kubernetes_list"
     args:
+      management_cluster: "mc1-mcp-kubernetes"
       namespace: "default"
     expected:
       success: true
-      contains: ["k8s-graveler"]
+      contains: ["mc1-mcp-kubernetes"]
 
-  - id: "diverging-tool-falls-back-gazelle"
-    tool: "x_k8s-gazelle_list_pods"
+  - id: "family-tool-routes-mc2"
+    tool: "x_kubernetes_list"
     args:
+      management_cluster: "mc2-mcp-kubernetes"
       namespace: "default"
     expected:
       success: true
-      contains: ["k8s-gazelle"]
+      contains: ["mc2-mcp-kubernetes"]
 
-  - id: "matching-tool-still-groups"
-    tool: "x_kubernetes_get_node"
+  - id: "no-per-server-fallback"
+    description: "The per-server name is not exposed for a tool that differs only in description"
+    tool: "x_mc1-mcp-kubernetes_list"
     args:
-      management_cluster: "k8s-graveler"
-      node: "ip-10-0-0-1"
+      namespace: "default"
+    expected:
+      success: false
+
+  - id: "workflow-reported-available"
+    tool: "core_workflow_available"
+    args:
+      name: "list-kube-system"
     expected:
       success: true
-      contains: ["k8s-graveler"]
+      json_path:
+        available: true
+
+  - id: "execute-workflow-mc1"
+    tool: "workflow_list-kube-system"
+    args:
+      mc: "mc1"
+    expected:
+      success: true
+      contains: ["mc1-mcp-kubernetes"]
+      not_contains: ["mc2-mcp-kubernetes"]
+    timeout: "1m"
+
+  - id: "execute-workflow-mc2"
+    tool: "workflow_list-kube-system"
+    args:
+      mc: "mc2"
+    expected:
+      success: true
+      contains: ["mc2-mcp-kubernetes"]
+      not_contains: ["mc1-mcp-kubernetes"]
+    timeout: "1m"
 
 cleanup:
-  - id: "cleanup-stop-graveler"
-    tool: "core_service_stop"
+  - id: "cleanup-workflow"
+    tool: "core_workflow_delete"
     args:
-      name: "k8s-graveler"
+      name: "list-kube-system"
     expected:
       success: true
     continue_on_failure: true
-  - id: "cleanup-stop-gazelle"
+  - id: "cleanup-stop-mc1"
     tool: "core_service_stop"
     args:
-      name: "k8s-gazelle"
+      name: "mc1-mcp-kubernetes"
+    expected:
+      success: true
+    continue_on_failure: true
+  - id: "cleanup-stop-mc2"
+    tool: "core_service_stop"
+    args:
+      name: "mc2-mcp-kubernetes"
     expected:
       success: true
     continue_on_failure: true

@@ -270,37 +270,149 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		assert.False(t, has)
 	})
 
-	t.Run("diverging descriptions within a family fall back to per-server prefixing for that tool", func(t *testing.T) {
+	t.Run("members whose tool differs only in description share one family tool", func(t *testing.T) {
 		registry := NewServerRegistry("x")
-		require.NoError(t, registry.Register(ctx, ServerRegistration{
-			Name:       "k8s-graveler",
-			ToolPrefix: "k8s-graveler",
-			Family:     family("kubernetes", "management_cluster"),
-		}, &mockMCPClient{tools: []mcp.Tool{
-			{Name: "list_pods", Description: "v1 API"},
-			{Name: "get_node", Description: "Get node"},
-		}}))
-		require.NoError(t, registry.Register(ctx, ServerRegistration{
-			Name:       "k8s-gazelle",
-			ToolPrefix: "k8s-gazelle",
-			Family:     family("kubernetes", "management_cluster"),
-		}, &mockMCPClient{tools: []mcp.Tool{
-			{Name: "list_pods", Description: "v2 API"},  // diverges
-			{Name: "get_node", Description: "Get node"}, // matches
-		}}))
+		short := mcp.Tool{Name: "list", Description: "List resources"}
+		long := mcp.Tool{Name: "list", Description: "List resources, with label and field selectors and pagination"}
+		for name, tool := range map[string]mcp.Tool{"k8s-a": short, "k8s-b": short, "k8s-c": long} {
+			require.NoError(t, registry.Register(ctx, ServerRegistration{
+				Name:       name,
+				ToolPrefix: name,
+				Family:     family("kubernetes", "management_cluster"),
+			}, &mockMCPClient{tools: []mcp.Tool{tool}}))
+		}
 
 		tools := registry.GetAllTools()
-		names := make([]string, len(tools))
-		for i, tool := range tools {
-			names[i] = tool.Name
+		require.Len(t, tools, 1)
+		assert.Equal(t, "x_kubernetes_list", tools[0].Name)
+		assert.True(t, strings.HasPrefix(tools[0].Description, "List resources ("), "the most common description wins: %q", tools[0].Description)
+		instanceProp := tools[0].InputSchema.Properties["management_cluster"].(map[string]any)
+		assert.Equal(t, []any{"k8s-a", "k8s-b", "k8s-c"}, instanceProp["enum"])
+
+		for _, member := range []string{"k8s-a", "k8s-b", "k8s-c"} {
+			original, err := registry.ResolveToolNameForServer("x_kubernetes_list", member)
+			require.NoError(t, err)
+			assert.Equal(t, "list", original)
+		}
+	})
+
+	t.Run("members whose tool differs only in argument descriptions share one family tool", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		withArgDescription := func(d string) mcp.Tool {
+			return mcp.Tool{Name: "list", Description: "List", InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"namespace":   map[string]any{"type": "string", "description": d},
+					"description": map[string]any{"type": "string"}, // a property name, not the keyword
+					"filter": map[string]any{
+						"type":                 "object",
+						"title":                d,
+						"additionalProperties": map[string]any{"anyOf": []any{map[string]any{"type": "string", "description": d}}},
+					},
+				},
+				Required: []string{"namespace"},
+			}}
+		}
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name: "k8s-a", ToolPrefix: "k8s-a", Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{withArgDescription("Namespace for namespaced resources (pods, services, deployments, etc.)")}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name: "k8s-b", ToolPrefix: "k8s-b", Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{withArgDescription("Namespace of a namespaced resource")}}))
+
+		tools := registry.GetAllTools()
+		require.Len(t, tools, 1)
+		assert.Equal(t, "x_kubernetes_list", tools[0].Name)
+	})
+
+	t.Run("a property called description is an argument, not an annotation", func(t *testing.T) {
+		withProps := func(props map[string]any) mcp.Tool {
+			return mcp.Tool{Name: "create", InputSchema: mcp.ToolInputSchema{Type: "object", Properties: props}}
+		}
+		a := withProps(map[string]any{"name": map[string]any{"type": "string"}, "description": map[string]any{"type": "string"}})
+		b := withProps(map[string]any{"name": map[string]any{"type": "string"}})
+		assert.NotEqual(t, inputSchemaFingerprint(a), inputSchemaFingerprint(b))
+
+		c := withProps(map[string]any{"name": map[string]any{"type": "string", "enum": []any{"a"}}})
+		d := withProps(map[string]any{"name": map[string]any{"type": "string", "enum": []any{"a", "b"}}})
+		assert.NotEqual(t, inputSchemaFingerprint(c), inputSchemaFingerprint(d))
+	})
+
+	t.Run("a description tie goes to the longer description", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name: "k8s-a", ToolPrefix: "k8s-a", Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list", Description: "List"}}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name: "k8s-b", ToolPrefix: "k8s-b", Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list", Description: "List resources with selectors"}}}))
+
+		tools := registry.GetAllTools()
+		require.Len(t, tools, 1)
+		assert.True(t, strings.HasPrefix(tools[0].Description, "List resources with selectors ("), tools[0].Description)
+	})
+
+	t.Run("a member whose input schema differs falls back to per-server names for that tool", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		schema := func(props ...string) mcp.ToolInputSchema {
+			s := mcp.ToolInputSchema{Type: "object", Properties: map[string]any{}}
+			for _, p := range props {
+				s.Properties[p] = map[string]any{"type": "string"}
+			}
+			return s
+		}
+		register := func(name string, listSchema mcp.ToolInputSchema) {
+			require.NoError(t, registry.Register(ctx, ServerRegistration{
+				Name: name, ToolPrefix: name, Family: family("kubernetes", "management_cluster"),
+			}, &mockMCPClient{tools: []mcp.Tool{
+				{Name: "list_pods", Description: "List pods", InputSchema: listSchema},
+				{Name: "get_node", Description: "Get node", InputSchema: schema("node")},
+			}}))
+		}
+		register("k8s-a", schema("namespace"))
+		register("k8s-b", schema("namespace"))
+		register("k8s-c", schema("namespace", "selector")) // differs
+
+		tools := registry.GetAllTools()
+		byName := make(map[string]mcp.Tool, len(tools))
+		names := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			byName[tool.Name] = tool
+			names = append(names, tool.Name)
 		}
 		sort.Strings(names)
-		// get_node deduplicates to family, list_pods falls back per-server.
 		assert.Equal(t, []string{
-			"x_k8s-gazelle_list_pods",
-			"x_k8s-graveler_list_pods",
+			"x_k8s-c_list_pods",
 			"x_kubernetes_get_node",
+			"x_kubernetes_list_pods",
 		}, names)
+		instanceProp := byName["x_kubernetes_list_pods"].InputSchema.Properties["management_cluster"].(map[string]any)
+		assert.Equal(t, []any{"k8s-a", "k8s-b"}, instanceProp["enum"])
+		instanceProp = byName["x_kubernetes_get_node"].InputSchema.Properties["management_cluster"].(map[string]any)
+		assert.Equal(t, []any{"k8s-a", "k8s-b", "k8s-c"}, instanceProp["enum"])
+
+		_, err := registry.ResolveToolNameForServer("x_kubernetes_list_pods", "k8s-c")
+		require.Error(t, err)
+		original, err := registry.ResolveToolNameForServer("x_k8s-c_list_pods", "k8s-c")
+		require.NoError(t, err)
+		assert.Equal(t, "list_pods", original)
+	})
+
+	t.Run("an input schema tie keeps the family name for the alphabetically first member", func(t *testing.T) {
+		registry := NewServerRegistry("x")
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name: "k8s-b", ToolPrefix: "k8s-b", Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", InputSchema: mcp.ToolInputSchema{Type: "object", Required: []string{"namespace"}}}}}))
+		require.NoError(t, registry.Register(ctx, ServerRegistration{
+			Name: "k8s-a", ToolPrefix: "k8s-a", Family: family("kubernetes", "management_cluster"),
+		}, &mockMCPClient{tools: []mcp.Tool{{Name: "list_pods", InputSchema: mcp.ToolInputSchema{Type: "object"}}}}))
+
+		names := make([]string, 0, 2)
+		for _, tool := range registry.GetAllTools() {
+			names = append(names, tool.Name)
+		}
+		sort.Strings(names)
+		assert.Equal(t, []string{"x_k8s-b_list_pods", "x_kubernetes_list_pods"}, names)
 	})
 
 	t.Run("Deregister cleans family mappings and resolves remaining instance via server arg", func(t *testing.T) {
