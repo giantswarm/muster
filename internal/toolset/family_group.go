@@ -95,10 +95,11 @@ var schemaNameMaps = map[string]bool{"properties": true, "patternProperties": tr
 
 // schemaValues are the JSON Schema keywords whose value is data, not a
 // schema, and is compared as it is.
-var schemaValues = map[string]bool{"enum": true, "const": true, "default": true, "required": true}
+var schemaValues = map[string]bool{"enum": true, "const": true, "default": true}
 
 // stripSchemaAnnotations returns the schema node without its annotation
-// keywords, recursing into every subschema.
+// keywords and with its required names in canonical form, recursing into
+// every subschema.
 func stripSchemaAnnotations(node any) any {
 	switch n := node.(type) {
 	case map[string]any:
@@ -106,6 +107,20 @@ func stripSchemaAnnotations(node any) any {
 		for k, v := range n {
 			switch {
 			case schemaAnnotations[k]:
+			case k == "required":
+				// An empty list requires nothing, as an absent one does, and
+				// the order of the names does not matter.
+				if names, ok := v.([]any); ok && len(names) > 0 {
+					sorted := slices.Clone(names)
+					slices.SortFunc(sorted, func(a, b any) int {
+						as, _ := a.(string)
+						bs, _ := b.(string)
+						return strings.Compare(as, bs)
+					})
+					out[k] = sorted
+				} else if !ok {
+					out[k] = v
+				}
 			case schemaValues[k]:
 				out[k] = v
 			case schemaNameMaps[k]:

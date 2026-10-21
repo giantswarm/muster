@@ -28,6 +28,14 @@ func TestInputSchemaFingerprint(t *testing.T) {
 		}}}
 		assert.Equal(t, InputSchemaFingerprint(a), InputSchemaFingerprint(b))
 	})
+
+	t.Run("required compares as a set", func(t *testing.T) {
+		a := mcp.Tool{RawInputSchema: []byte(`{"type":"object","required":["b","a"]}`)}
+		b := mcp.Tool{RawInputSchema: []byte(`{"type":"object","required":["a","b"]}`)}
+		c := mcp.Tool{RawInputSchema: []byte(`{"type":"object","required":["a"]}`)}
+		assert.Equal(t, InputSchemaFingerprint(a), InputSchemaFingerprint(b))
+		assert.NotEqual(t, InputSchemaFingerprint(a), InputSchemaFingerprint(c))
+	})
 }
 
 func TestCommonDescription(t *testing.T) {
