@@ -2514,7 +2514,7 @@ func getWorkflowArgsSchema() map[string]interface{} {
 func getWorkflowConditionSchema() map[string]interface{} {
 	return map[string]interface{}{
 		api.SchemaKeyType:                 string(api.ArgTypeObject),
-		api.SchemaKeyDescription:          "Optional condition that determines whether this step should execute. Set exactly one of template, tool, or fromStep; a tool/fromStep condition requires expect or expectNot.",
+		api.SchemaKeyDescription:          "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
 		api.SchemaKeyAdditionalProperties: false,
 		api.SchemaKeyProperties: map[string]interface{}{
 			"template": map[string]interface{}{
@@ -2649,7 +2649,7 @@ func getWorkflowStepsSchema() map[string]interface{} {
 				},
 				"output": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
-					api.SchemaKeyDescription: "Whether this step's result is included in the workflow's returned document. Every step result is always referenceable by later steps via {{.results.stepId.field}} regardless of this flag.",
+					api.SchemaKeyDescription: "Include this step's result in the workflow's answer; later steps read every result via {{.results.stepId.field}} either way.",
 				},
 				"store": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),

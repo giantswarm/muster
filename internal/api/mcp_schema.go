@@ -52,3 +52,17 @@ func InputSchemaFromArgs(args []ArgMetadata) mcp.ToolInputSchema {
 		Required:   required,
 	}
 }
+
+// MCPToolAnnotation projects a provider's declared annotations onto the MCP
+// shape. Nil declares none: every hint stays unset.
+func MCPToolAnnotation(a *ToolAnnotations) mcp.ToolAnnotation {
+	if a == nil {
+		return mcp.ToolAnnotation{}
+	}
+	return mcp.ToolAnnotation{
+		ReadOnlyHint:    a.ReadOnlyHint,
+		DestructiveHint: a.DestructiveHint,
+		IdempotentHint:  a.IdempotentHint,
+		OpenWorldHint:   a.OpenWorldHint,
+	}
+}

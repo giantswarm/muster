@@ -8,6 +8,7 @@ the reasoning lives in [Explanation](../explanation/README.md).
 | Page | Covers |
 |---|---|
 | [MCP tools](mcp-tools.md) | The thirteen meta-tools an MCP client sees and the `core_*` tools reachable through `call_tool` |
+| [Meta-tools](meta-tools.md) | The meta-tools' descriptions, annotations and arguments as a client lists them, generated from the code |
 | [Toolsets](toolsets.md) | The `X-muster-Toolset` header, selector grammar, built-in and configured presets |
 | [Configuration](configuration.md) | `config.yaml`, the definition directories, environment variables and the Helm values that set them |
 | [Custom resources](crds.md) | `MCPServer`, `Workflow` and `WorkflowExecution` field by field |

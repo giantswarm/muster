@@ -139,6 +139,10 @@ govulncheck: ## Run govulncheck to scan for known vulnerabilities
 
 ##@ Documentation
 
+.PHONY: tools-doc
+tools-doc: ## Regenerate docs/reference/meta-tools.md from the registered meta-tools.
+	TOOLS_DOC_UPDATE=1 go test -count=1 -run TestToolsDocIsCurrent ./internal/aggregator/
+
 DOCS_REQUIREMENTS := requirements-docs.txt
 
 docs-build: ## Build the documentation site into site/; a broken link or a page missing from the nav fails the build.

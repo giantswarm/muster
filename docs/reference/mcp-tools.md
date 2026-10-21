@@ -6,6 +6,8 @@ Reference guide for AI agents and MCP clients working with muster's tools. This 
 
 **All tool access goes through these meta-tools.** MCP clients see only these 13 meta-tools when they connect to muster. All other tools are accessed via `call_tool`.
 
+Every client lists the meta-tools' full descriptions on connect, so they stay short: a summary line of at most 120 characters, then only what a model needs before a call. [Meta-tools](meta-tools.md) is generated from them (`make tools-doc`); this page carries the detail. Every meta-tool but `call_tool` is annotated read-only; `call_tool`, which runs whatever tool it is given, is annotated destructive and not idempotent. All are open-world: listing the catalogue first connects the session to the servers the person already granted.
+
 ### Tool Discovery
 
 | Meta-Tool | Description | Arguments |
@@ -147,15 +149,19 @@ The Go agent client (`muster agent`, `internal/agent`) unwraps the envelope back
 
 | Meta-Tool | Description | Arguments |
 |-----------|-------------|-----------|
-| `list_resources` | List available MCP resources | `{}` |
-| `describe_resource` | Get resource metadata | `{"uri": "resource_uri"}` |
-| `get_resource` | Read resource contents | `{"uri": "resource_uri"}` |
+| `list_resources` | List available MCP resources, each with its server | `{}` |
+| `filter_resources` | Filter resources by URI pattern and/or source server, paged; a URI with a scheme carries no server prefix, so scope by `server` | `{"pattern": "board://*", "server": "...", "limit": 25}` |
+| `describe_resource` | Get resource metadata, not its contents | `{"uri": "resource_uri", "server": "..."}` |
+| `get_resource` | Read resource contents | `{"uri": "resource_uri", "server": "..."}` |
+
+`server` on `describe_resource` and `get_resource` is needed only when several servers expose the same URI; `list_resources` reports the server of every entry.
 
 ### Prompt Access
 
 | Meta-Tool | Description | Arguments |
 |-----------|-------------|-----------|
 | `list_prompts` | List available prompts | `{}` |
+| `filter_prompts` | Filter prompts by name pattern and/or source server, paged (names are `x_<server>_<name>`) | `{"pattern": "x_myserver_*", "limit": 25}` |
 | `describe_prompt` | Get prompt details | `{"name": "prompt_name"}` |
 | `get_prompt` | Execute a prompt | `{"name": "prompt_name", "arguments": {...}}` |
 
@@ -202,6 +208,14 @@ workflow whose steps call only read-only tools stays read-only when one of them 
 
 Workflow execution tools (`workflow_<name>`) declare nothing themselves; their `readOnlyHint` is
 [derived from their steps](toolsets.md#workflow-read-only-derivation).
+
+### `core_auth_login` — `reset_client_registration`
+
+`reset_client_registration: true` discards muster's stored dynamic client registration (RFC 7591)
+with the server's authorization server and registers anew before issuing the sign-in link. Use it
+when sign-ins fail with `invalid_client` although muster reports a stored registration: the
+authorization server has forgotten the client. Other users' tokens from that authorization server
+may need a fresh sign-in afterwards.
 
 ### `core_auth_status` — every server's sign-in state, and the links that start the missing grants
 

@@ -105,6 +105,7 @@ nav:
   - Reference:
       - reference/README.md
       - MCP tools: reference/mcp-tools.md
+      - Meta-tools: reference/meta-tools.md
       - Toolsets: reference/toolsets.md
       - Configuration: reference/configuration.md
       - Custom resources: reference/crds.md
