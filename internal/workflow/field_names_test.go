@@ -116,18 +116,23 @@ func TestStepSchema_MatchesDecoder(t *testing.T) {
 	condition := stepProps["condition"].(map[string]interface{})
 	conditionProps := properties(t, condition)
 	forEach := stepProps["forEach"].(map[string]interface{})
-	subStep := getWorkflowSubStepSchema()
+	subStep := getWorkflowSubStepSchema(true)
+	nestedForEach := properties(t, subStep)["forEach"].(map[string]interface{})
 
 	cases := map[string]struct {
 		schema map[string]interface{}
 		goType interface{}
 	}{
-		"step":      {steps, api.WorkflowStep{}},
-		"sub-step":  {subStep, api.WorkflowSubStep{}},
-		"onFailure": {getWorkflowOnFailureSchema()[api.SchemaKeyItems].(map[string]interface{}), api.WorkflowSubStep{}},
-		"forEach":   {forEach, api.WorkflowForEach{}},
-		"condition": {condition, api.WorkflowCondition{}},
-		"expect":    {conditionProps["expect"].(map[string]interface{}), api.WorkflowConditionExpectation{}},
+		"step":              {steps, api.WorkflowStep{}},
+		"sub-step":          {subStep, api.WorkflowSubStep{}},
+		"onFailure":         {getWorkflowOnFailureSchema()[api.SchemaKeyItems].(map[string]interface{}), api.WorkflowSubStep{}},
+		"forEach":           {forEach, api.WorkflowForEach{}},
+		"nested forEach":    {nestedForEach, api.WorkflowForEach{}},
+		"nested body step":  {getWorkflowSubStepSchema(false), api.WorkflowSubStep{}},
+		"paginate":          {stepProps["paginate"].(map[string]interface{}), api.WorkflowPaginate{}},
+		"sub-step paginate": {properties(t, subStep)["paginate"].(map[string]interface{}), api.WorkflowPaginate{}},
+		"condition":         {condition, api.WorkflowCondition{}},
+		"expect":            {conditionProps["expect"].(map[string]interface{}), api.WorkflowConditionExpectation{}},
 	}
 
 	for label, c := range cases {

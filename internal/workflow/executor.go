@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/jq"
 	"github.com/giantswarm/muster/v5/internal/template"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
@@ -81,8 +82,9 @@ type stepMetadata struct {
 	// it differs from ID: a forEach body step runs once per item under one ID,
 	// and its result is kept per iteration as "<id>_<index>" -- without the key
 	// every iteration's record would show the last iteration's result.
-	ResultKey string
-	Iteration *int // The forEach iteration this record belongs to (nil outside a loop)
+	ResultKey      string
+	Iteration      *int // The forEach iteration this record belongs to (nil outside a loop)
+	OuterIteration *int // The outer iteration a nested forEach's record belongs to (nil otherwise)
 }
 
 // executionContext holds the state during workflow execution.
@@ -92,6 +94,30 @@ type executionContext struct {
 	results      map[string]interface{} // Results from previous steps
 	templateVars []string               // Track template variables used
 	stepMetadata []stepMetadata         // Track step metadata
+
+	// outer is the context a forEach iteration or a parallel sub-step was
+	// started from; its first outerRecords step records were made before and
+	// stay visible to a fromStep condition. Nil for the workflow's own context.
+	outer        *executionContext
+	outerRecords int
+}
+
+// latestRecord returns the newest step record with the given id, looking at
+// this context's records and then at the ones visible from the outer
+// contexts.
+func (c *executionContext) latestRecord(id string) (stepMetadata, bool) {
+	records := c.stepMetadata
+	for ctx := c; ctx != nil; ctx = ctx.outer {
+		for i := len(records) - 1; i >= 0; i-- {
+			if records[i].ID == id {
+				return records[i], true
+			}
+		}
+		if ctx.outer != nil {
+			records = ctx.outer.stepMetadata[:ctx.outerRecords]
+		}
+	}
+	return stepMetadata{}, false
 }
 
 // WorkflowExecutor executes workflow steps
@@ -99,6 +125,7 @@ type WorkflowExecutor struct {
 	toolCaller    ToolCaller
 	template      *template.Engine
 	eventCallback EventCallback
+	jq            jq.Cache
 }
 
 // NewWorkflowExecutor creates a new workflow executor
@@ -149,6 +176,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 	// Execute each step
 	var lastStepResult *mcp.CallToolResult
+	var lastResultStepID string
 	for i, step := range workflow.Steps {
 		logging.Debug("WorkflowExecutor", "Executing step %d/%d: %s, tool: %s", i+1, len(workflow.Steps), step.ID, step.Tool)
 
@@ -176,6 +204,7 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 		// Only plain tool steps surface a single result to merge at the end.
 		if outcome.result != nil {
 			lastStepResult = outcome.result
+			lastResultStepID = step.ID
 		}
 	}
 
@@ -232,25 +261,22 @@ func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.W
 
 	// If the last step isn't an output step, merge its result into the top level.
 	// Only applies to plain tool steps; forEach/parallel steps produce no single
-	// result to merge.
+	// result to merge. The result merged is the last one a step produced: a
+	// successful step's stored result -- what its paginate and jq options made
+	// of the tool's result -- or an error result's own content.
 	if lastStepResult != nil && len(workflow.Steps) > 0 {
 		lastStep := workflow.Steps[len(workflow.Steps)-1]
 		if !api.OutputEnabled(lastStep.Output, lastStep.Store) && lastStep.Tool != "" {
 			logging.Debug("WorkflowExecutor", "Last step %s is not an output step, merging result into top level", lastStep.ID)
-			// Parse the last step's result and merge it
-			if len(lastStepResult.Content) > 0 {
-				if textContent, ok := lastStepResult.Content[0].(mcp.TextContent); ok {
-					var lastResultData interface{}
-					if err := json.Unmarshal([]byte(textContent.Text), &lastResultData); err == nil {
-						if lastResultMap, ok := lastResultData.(map[string]interface{}); ok {
-							// Merge last step result into final result
-							for k, v := range lastResultMap {
-								finalResult[k] = v
-							}
-							logging.Debug("WorkflowExecutor", "Merged last step %s result into final result: keys=%s", lastStep.ID, logging.KeyNames(lastResultMap))
-						}
-					}
+			lastResultData := execCtx.results[lastResultStepID]
+			if lastStepResult.IsError {
+				lastResultData = parseResultContent(lastStepResult)
+			}
+			if lastResultMap, ok := lastResultData.(map[string]interface{}); ok {
+				for k, v := range lastResultMap {
+					finalResult[k] = v
 				}
+				logging.Debug("WorkflowExecutor", "Merged last step %s result into final result: keys=%s", lastStep.ID, logging.KeyNames(lastResultMap))
 			}
 		}
 	}
@@ -314,6 +340,9 @@ func (we *WorkflowExecutor) buildStepsArray(stepMetadata []stepMetadata, results
 		if stepMeta.Iteration != nil {
 			step["iteration"] = *stepMeta.Iteration
 		}
+		if stepMeta.OuterIteration != nil {
+			step["outer_iteration"] = *stepMeta.OuterIteration
+		}
 		if (stepMeta.Output || includeAllResults) && results[resultKey] != nil {
 			step["result"] = results[resultKey]
 		}
@@ -373,6 +402,8 @@ type subStepView struct {
 	Condition    *api.WorkflowCondition
 	Output       bool
 	AllowFailure bool
+	Paginate     *api.WorkflowPaginate
+	JQ           string
 }
 
 func plainStepView(step api.WorkflowStep) subStepView {
@@ -383,6 +414,8 @@ func plainStepView(step api.WorkflowStep) subStepView {
 		Condition:    step.Condition,
 		Output:       api.OutputEnabled(step.Output, step.Store),
 		AllowFailure: step.AllowFailure,
+		Paginate:     step.Paginate,
+		JQ:           step.JQ,
 	}
 }
 
@@ -394,6 +427,8 @@ func subStepViewFrom(ss api.WorkflowSubStep) subStepView {
 		Condition:    ss.Condition,
 		Output:       api.OutputEnabled(ss.Output, ss.Store),
 		AllowFailure: ss.AllowFailure,
+		Paginate:     ss.Paginate,
+		JQ:           ss.JQ,
 	}
 }
 
@@ -488,7 +523,12 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 	we.eventCallback.GenerateStepEvent(workflowName, s.ID, "step_started", map[string]interface{}{"tool": s.Tool})
 
 	stepCtx, endStepSpan := startStepSpan(ctx, workflowName, s.ID, s.Tool)
-	result, err := we.toolCaller.CallToolInternal(stepCtx, s.Tool, resolvedArgs)
+	result, resultData, err := we.callTool(stepCtx, s, resolvedArgs)
+	// The jq program reshapes a successful result before it is stored; one
+	// that fails fails the step like a failed call.
+	if err == nil && !result.IsError && s.JQ != "" {
+		resultData, err = we.project(stepCtx, s.JQ, resultData, execCtx)
+	}
 	endStepSpan(result != nil && result.IsError, err)
 
 	if err != nil {
@@ -525,14 +565,6 @@ func (we *WorkflowExecutor) runStep(ctx context.Context, workflowName string, s 
 	// Always record the step result so later steps and the output template can
 	// reference it via {{ .results.<id>.<field> }}, regardless of the output
 	// flag. The output flag only controls visibility in the returned document.
-	var resultData interface{}
-	if len(result.Content) > 0 {
-		if textContent, ok := result.Content[0].(mcp.TextContent); ok {
-			if err := json.Unmarshal([]byte(textContent.Text), &resultData); err != nil {
-				resultData = textContent.Text
-			}
-		}
-	}
 	execCtx.results[s.ID] = resultData
 	logging.Debug("WorkflowExecutor", "Recorded result from step %s: %s", s.ID, logging.Shape(resultData))
 
@@ -607,41 +639,27 @@ func (we *WorkflowExecutor) evaluateStepCondition(ctx context.Context, workflowN
 		var referencedStepResult interface{}
 		found := false
 
-		for _, stepMeta := range execCtx.stepMetadata {
-			if stepMeta.ID == cond.FromStep {
-				if execCtx.results[stepMeta.ID] != nil {
-					referencedStepResult = execCtx.results[stepMeta.ID]
-					found = true
-					break
-				}
-			}
-		}
-
 		// Only the latest record counts: inside forEach, an earlier iteration's
 		// record says nothing about this one.
-		if !found {
-			for i := len(execCtx.stepMetadata) - 1; i >= 0; i-- {
-				stepMeta := execCtx.stepMetadata[i]
-				if stepMeta.ID != cond.FromStep {
-					continue
+		if stepMeta, ok := execCtx.latestRecord(cond.FromStep); ok {
+			switch {
+			case execCtx.results[stepMeta.ID] != nil:
+				referencedStepResult = execCtx.results[stepMeta.ID]
+				found = true
+			case stepMeta.Status == statusFailed:
+				referencedStepResult = map[string]interface{}{
+					api.FieldError:   fmt.Sprintf("Step %s failed", stepMeta.ID),
+					api.FieldSuccess: false,
+					"isError":        true,
+					api.FieldStatus:  stepMeta.Status,
 				}
-				switch stepMeta.Status {
-				case statusFailed:
-					referencedStepResult = map[string]interface{}{
-						api.FieldError:   fmt.Sprintf("Step %s failed", stepMeta.ID),
-						api.FieldSuccess: false,
-						"isError":        true,
-						api.FieldStatus:  stepMeta.Status,
-					}
-					found = true
-				case statusCompleted:
-					referencedStepResult = map[string]interface{}{
-						api.FieldSuccess: true,
-						api.FieldStatus:  stepMeta.Status,
-					}
-					found = true
+				found = true
+			case stepMeta.Status == statusCompleted:
+				referencedStepResult = map[string]interface{}{
+					api.FieldSuccess: true,
+					api.FieldStatus:  stepMeta.Status,
 				}
-				break
+				found = true
 			}
 		}
 
@@ -740,93 +758,13 @@ func (we *WorkflowExecutor) evaluateStepCondition(ctx context.Context, workflowN
 	return conditionPassed, &conditionPassed, conditionResult, conditionTool, nil
 }
 
-// runForEach executes a forEach step: it resolves the items list and runs the
-// body sub-steps once per item, binding the current item to "{{ .vars.<as> }}".
-func (we *WorkflowExecutor) runForEach(ctx context.Context, workflowName string, step api.WorkflowStep, execCtx *executionContext) (stepOutcome, error) {
-	if skip, outcome, err := we.evaluateCompositeCondition(ctx, workflowName, step, execCtx); err != nil || skip {
-		return outcome, err
-	}
-
-	items, err := we.resolveForEachItems(step.ForEach.Items, execCtx)
-	if err != nil {
-		return stepOutcome{}, fmt.Errorf("forEach step %s: %w", step.ID, err)
-	}
-
-	as := step.ForEach.As
-	if as == "" {
-		as = "item"
-	}
-	idxKey := as + "_index"
-
-	// Within an iteration, a sub-step's result lives under its plain ID, so later
-	// sub-steps in the same iteration can chain off it; it is also copied to
-	// "<id>_<index>", so every iteration stays addressable after the loop. A
-	// sub-step skipped by its condition leaves neither key for that iteration.
-	// After the loop, the plain ID keeps the result of the last iteration that
-	// ran the sub-step. Results are recorded for every sub-step regardless of its
-	// output flag.
-	prev, hadPrev := execCtx.variables[as]
-	lastRun := make(map[string]interface{})
-	for _, ss := range step.ForEach.Steps {
-		if v, ok := execCtx.results[ss.ID]; ok {
-			lastRun[ss.ID] = v
-		}
-	}
-	defer func() {
-		if hadPrev {
-			execCtx.variables[as] = prev
-		} else {
-			delete(execCtx.variables, as)
-		}
-		delete(execCtx.variables, idxKey)
-		for id, v := range lastRun {
-			execCtx.results[id] = v
-		}
-	}()
-
-	for idx, item := range items {
-		execCtx.variables[as] = item
-		execCtx.variables[idxKey] = idx
-		for _, ss := range step.ForEach.Steps {
-			delete(execCtx.results, ss.ID)
-		}
-		for _, ss := range step.ForEach.Steps {
-			outcome, err := we.runStep(ctx, workflowName, subStepViewFrom(ss), execCtx)
-			if err != nil {
-				return stepOutcome{}, err
-			}
-			// The record runStep just appended is this iteration's; it points at
-			// the per-iteration key, so the returned document shows what this
-			// iteration produced, and nothing for a skipped one.
-			key := fmt.Sprintf("%s_%d", ss.ID, idx)
-			if n := len(execCtx.stepMetadata); n > 0 && execCtx.stepMetadata[n-1].ID == ss.ID {
-				i := idx
-				execCtx.stepMetadata[n-1].ResultKey = key
-				execCtx.stepMetadata[n-1].Iteration = &i
-			}
-			if v, ok := execCtx.results[ss.ID]; ok {
-				execCtx.results[key] = v
-				lastRun[ss.ID] = v
-			}
-			if outcome.stop {
-				if step.AllowFailure {
-					logging.Debug("WorkflowExecutor", "forEach step %s sub-step failed but allow_failure is true", step.ID)
-					return stepOutcome{}, nil
-				}
-				return outcome, nil
-			}
-		}
-	}
-	return stepOutcome{}, nil
-}
-
 // runParallel executes a parallel step: its sub-steps run concurrently against
 // isolated contexts (shared read-only input/vars, a snapshot of results), and
 // their effects are merged back deterministically after the group joins. This
 // keeps concurrent execution race-free; siblings cannot observe one another's
 // results.
 func (we *WorkflowExecutor) runParallel(ctx context.Context, workflowName string, step api.WorkflowStep, execCtx *executionContext) (stepOutcome, error) {
-	if skip, outcome, err := we.evaluateCompositeCondition(ctx, workflowName, step, execCtx); err != nil || skip {
+	if skip, outcome, err := we.evaluateCompositeCondition(ctx, workflowName, plainStepView(step), execCtx); err != nil || skip {
 		return outcome, err
 	}
 
@@ -848,6 +786,8 @@ func (we *WorkflowExecutor) runParallel(ctx context.Context, workflowName string
 				results:      copyResults(execCtx.results),
 				templateVars: make([]string, 0),
 				stepMetadata: make([]stepMetadata, 0),
+				outer:        execCtx,
+				outerRecords: len(execCtx.stepMetadata),
 			}
 			outcome, err := we.runStep(ctx, workflowName, subStepViewFrom(ss), local)
 			results[i] = subResult{local: local, outcome: outcome, err: err}
@@ -886,11 +826,11 @@ func (we *WorkflowExecutor) runParallel(ctx context.Context, workflowName string
 // evaluateCompositeCondition evaluates the optional condition on a forEach or
 // parallel step, recording skipped metadata when it does not pass. It returns
 // skip=true when the step should be skipped.
-func (we *WorkflowExecutor) evaluateCompositeCondition(ctx context.Context, workflowName string, step api.WorkflowStep, execCtx *executionContext) (bool, stepOutcome, error) {
+func (we *WorkflowExecutor) evaluateCompositeCondition(ctx context.Context, workflowName string, step subStepView, execCtx *executionContext) (bool, stepOutcome, error) {
 	if step.Condition == nil {
 		return false, stepOutcome{}, nil
 	}
-	passed, eval, condResult, condTool, err := we.evaluateStepCondition(ctx, workflowName, plainStepView(step), execCtx)
+	passed, eval, condResult, condTool, err := we.evaluateStepCondition(ctx, workflowName, step, execCtx)
 	if err != nil {
 		return false, stepOutcome{}, err
 	}
@@ -969,6 +909,20 @@ func (we *WorkflowExecutor) failWorkflow(ctx context.Context, workflow *api.Work
 		Content: []mcp.Content{mcp.NewTextContent(string(partialJSON))},
 		IsError: true,
 	}, fmt.Errorf("step %s failed: %w", outcome.failedStepID, outcome.fatalErr)
+}
+
+// project runs a step's jq program on its result, with the workflow input and
+// loop variables in scope.
+func (we *WorkflowExecutor) project(ctx context.Context, program string, data interface{}, execCtx *executionContext) (interface{}, error) {
+	p, err := we.jq.Get(program)
+	if err != nil {
+		return nil, fmt.Errorf("jq: %w", err)
+	}
+	projected, err := p.Run(ctx, data, execCtx.input, execCtx.variables)
+	if err != nil {
+		return nil, fmt.Errorf("jq: %w", err)
+	}
+	return projected, nil
 }
 
 // copyResults returns a shallow copy of a results map for isolated concurrent reads.

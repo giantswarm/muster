@@ -712,7 +712,7 @@ spec:
       description: "<description>"
 
   # Required: Workflow steps. Each step is exactly one of: a tool call (tool),
-  # a sequential loop (forEach), or a concurrent group (parallel).
+  # a loop (forEach), or a concurrent group (parallel).
   steps:
     # 1) A plain tool call
     - id: "<step_id>"
@@ -736,21 +736,37 @@ spec:
           success: true|false
           jsonPath:
             <path>: <unexpected_value>
+      paginate:                       # tool steps only: follow the tool's pages
+        itemsField: items             # where a page's list is (default "items")
+        tokenField: continue          # where the next-page token is (default "continue")
+        tokenArg: continue            # the argument it is passed in (default "continue")
+        maxPages: 10                  # 1-1000 (default 10)
+      jq: '[.items[] | {name: .metadata.name}]'   # reshape the result before it is stored
       output: true|false              # include this step's result in the returned document
       store: true|false               # deprecated alias for output
       allowFailure: true|false
       description: "<step_description>"
 
-    # 2) A sequential loop over a list (body is a flat list of sub-steps)
+    # 2) A loop over a list; a body sub-step may itself be a forEach, one level deep
     - id: "<step_id>"
       forEach:
         items: "{{ .input.<list_arg> }}"  # must resolve to an array
         as: item                          # loop variable -> {{.vars.item}} (default "item")
+        parallelism: 4                    # 1-50 iterations at once (default: one after another)
         steps:
           - id: "<sub_step_id>"
             tool: "<tool_name>"
             args:
               <key>: "{{ .vars.item.<field> }}"
+          - id: "<nested_loop_id>"        # a nested loop: tool calls only in its body
+            forEach:
+              items: "{{ .results.<sub_step_id>.items }}"
+              as: inner                   # must differ from the outer loop's
+              parallelism: 8
+              steps:
+                - id: "<inner_step_id>"
+                  tool: "<tool_name>"
+      jq: '[.[] | .results]'              # reshapes the loop's per-iteration records
 
     # 3) A concurrent group (sub-steps run in parallel; siblings are independent)
     - id: "<step_id>"
@@ -796,7 +812,7 @@ status:
 
 #### WorkflowStep Fields
 
-A step is exactly one of: a tool call (`tool`), a sequential loop (`forEach`), or a concurrent group (`parallel`).
+A step is exactly one of: a tool call (`tool`), a loop (`forEach`), or a concurrent group (`parallel`).
 
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
@@ -806,6 +822,8 @@ A step is exactly one of: a tool call (`tool`), a sequential loop (`forEach`), o
 | `condition` | `WorkflowCondition` | No | Optional execution condition | - |
 | `forEach` | `WorkflowForEach` | No* | Run a body of sub-steps once per list item | Mutually exclusive with `tool`/`parallel` |
 | `parallel` | `[]WorkflowSubStep` | No* | Sub-steps executed concurrently | Mutually exclusive with `tool`/`forEach` |
+| `paginate` | `WorkflowPaginate` | No | Follow the tool's next-page token and store every page's items as one list | Tool steps only |
+| `jq` | `string` | No | jq program reshaping the step's result before it is stored: the tool's result, or a `forEach`'s per-iteration records. `$input` and `$vars` are in scope; it must yield one value | Must compile |
 | `output` | `boolean` | No | Include this step's result in the returned document. Every step result is referenceable by later steps (`{{.results.<id>}}`) regardless of this flag | Default: `false` |
 | `store` | `boolean` | No | Deprecated alias for `output`; kept for backwards compatibility | Default: `false` |
 | `allowFailure` | `boolean` | No | Continue on step failure | Default: `false` |
@@ -827,24 +845,63 @@ A step is exactly one of: a tool call (`tool`), a sequential loop (`forEach`), o
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `items` | `string` | Yes | Template expression resolving to an array, e.g. `"{{ .input.clusters }}"` |
+| `items` | `string` | Yes | Template expression resolving to an array, e.g. `"{{ .input.clusters }}"` or `"{{ .results.clusters.items }}"` |
 | `as` | `string` | No | Loop variable name, exposed as `{{ .vars.<as> }}` (default `item`); the zero-based index is `{{ .vars.<as>_index }}` |
-| `steps` | `[]WorkflowSubStep` | Yes | Flat body executed once per item (no nested `forEach`/`parallel`) |
+| `parallelism` | `integer` | No | Iterations run at once, 1–50 (default: one after another). Results, step records and the loop's records come out in item order either way |
+| `steps` | `[]WorkflowSubStep` | Yes | Body executed once per item; a sub-step may be a nested `forEach` (`WorkflowNestedForEach`) |
+
+After the loop, the `forEach` step's id holds one record per iteration that
+ran, in item order: `{index, item, status, results: {<sub_step_id>: result},
+error}` (`error` for a failed iteration). See
+[Loops with forEach](../how-to/workflow-creation.md#loops-with-foreach).
+
+#### WorkflowNestedForEach Fields
+
+A `forEach` inside a `forEach` body, one level deep; not allowed in
+`parallel` or `onFailure`. Its sub-steps (`WorkflowNestedStep`) are tool calls
+with the `WorkflowSubStep` fields other than `forEach`. A nested sub-step's
+result is kept per iteration as `{{.results.<id>_<outer>_<inner>}}`.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `items` | `string` | Yes | Template expression resolving to an array, typically an earlier sub-step's result |
+| `as` | `string` | No | Loop variable name (default `item`); must differ from the outer loop's |
+| `parallelism` | `integer` | No | Iterations run at once within one outer iteration, 1–50 |
+| `steps` | `[]WorkflowNestedStep` | Yes | Tool calls executed once per item; ids must differ from the outer body's |
+
+#### WorkflowPaginate Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `itemsField` | `string` | No | Where a page's list is, a dotted path (default `items`) |
+| `tokenField` | `string` | No | Where a page's next-page token is, a dotted path (default `continue`) |
+| `tokenArg` | `string` | No | The tool argument the token is passed in (default `continue`) |
+| `maxPages` | `integer` | No | The most pages fetched, 1–1000 (default 10) |
+
+The stored result is the last page with its list holding every page's items,
+plus `pagination.pages` and `pagination.truncated`; a truncated result keeps
+the token the next page would be fetched with.
 
 #### WorkflowSubStep Fields
 
-Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a plain tool call.
+Used by `forEach.steps`, `parallel`, and `onFailure`. A sub-step is a tool
+call or, in a `forEach` body only, a nested `forEach`.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `id` | `string` | Yes | Unique sub-step identifier |
-| `tool` | `string` | Yes | Name of the tool to execute |
+| `tool` | `string` | No* | Name of the tool to execute |
+| `forEach` | `WorkflowNestedForEach` | No* | A nested loop (only in a `forEach` body) |
 | `args` | `map[string]any` | No | Arguments for tool execution (supports templating) |
 | `condition` | `WorkflowCondition` | No | Optional execution condition |
+| `paginate` | `WorkflowPaginate` | No | Follow the tool's pages (tool sub-steps only) |
+| `jq` | `string` | No | jq program reshaping the sub-step's result before it is stored |
 | `output` | `boolean` | No | Include this sub-step's result in the returned document (default `false`). The result is referenceable by later steps regardless of this flag. Inside `forEach`, each iteration is also addressable as `{{.results.<id>_<index>}}` (after the loop, the plain `{{.results.<id>}}` keeps the last iteration that ran it); a sub-step skipped by its `condition` has no result in that iteration, under either key. |
 | `store` | `boolean` | No | Deprecated alias for `output`; kept for backwards compatibility (default `false`) |
-| `allowFailure` | `boolean` | No | Continue on failure (default `false`) |
+| `allowFailure` | `boolean` | No | Continue on failure (default `false`). In a `forEach` body the iteration is reported as failed in the loop's records and the loop goes on |
 | `description` | `string` | No | Human-readable documentation |
+
+*Exactly one of `tool` or `forEach` must be set (a CEL validation rule).
 
 #### WorkflowCondition Fields
 

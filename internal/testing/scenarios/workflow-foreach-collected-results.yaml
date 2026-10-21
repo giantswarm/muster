@@ -1,0 +1,92 @@
+name: "workflow-foreach-collected-results"
+description: "After a forEach, its own step id holds one record per iteration in item order -- index, item, status, the iteration's sub-step results and, for a failed iteration, the error -- so later steps and the output template can report every target, the failed ones included"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "results", "allow-failure", "fleet-scan", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "targets"
+    config:
+      tools:
+      - name: "greet"
+        responses: [ { response: { said: "hello {{ .name }}" } } ]
+      - name: "probe"
+        responses:
+        - condition: { name: "bad" }
+          error: "target bad is unreachable"
+        - response: { ok: true }
+
+steps:
+- id: "create"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-collected-results"
+    args:
+      names: { type: "array", required: true }
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.names }}"
+          as: "name"
+          steps:
+            - id: "greet"
+              tool: "x_targets_greet"
+              args: { name: "{{ .vars.name }}" }
+            # A failing target is tolerated: its iteration is reported as
+            # failed and the loop goes on with the next one.
+            - id: "probe"
+              tool: "x_targets_probe"
+              args: { name: "{{ .vars.name }}" }
+              allowFailure: true
+            # Skipped for every target but "good-2": a skipped sub-step leaves
+            # nothing in its iteration's results.
+            - id: "extra"
+              condition:
+                template: "{{ eq .vars.name \"good-2\" }}"
+              tool: "x_targets_greet"
+              args: { name: "extra {{ .vars.name }}" }
+    output:
+      count: "{{ len .results.loop }}"
+      first_index: "{{ (index .results.loop 0).index }}"
+      first_item: "{{ (index .results.loop 0).item }}"
+      first_status: "{{ (index .results.loop 0).status }}"
+      first_greet: "{{ (index .results.loop 0).results.greet.said }}"
+      first_has_extra: "{{ hasKey (index .results.loop 0).results \"extra\" }}"
+      bad_index: "{{ (index .results.loop 1).index }}"
+      bad_item: "{{ (index .results.loop 1).item }}"
+      bad_status: "{{ (index .results.loop 1).status }}"
+      bad_error: "{{ (index .results.loop 1).error }}"
+      # The sub-steps that ran before the failure keep their results.
+      bad_greet: "{{ (index .results.loop 1).results.greet.said }}"
+      last_item: "{{ (index .results.loop 2).item }}"
+      last_status: "{{ (index .results.loop 2).status }}"
+      last_extra: "{{ (index .results.loop 2).results.extra.said }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-collected-results" }
+
+- id: "run"
+  tool: "workflow_foreach-collected-results"
+  args:
+    names: ["good-1", "bad", "good-2"]
+  expected:
+    success: true
+    json_path:
+      count: 3
+      first_index: 0
+      first_item: "good-1"
+      first_status: "completed"
+      first_greet: "hello good-1"
+      first_has_extra: false
+      bad_index: 1
+      bad_item: "bad"
+      bad_status: "failed"
+      bad_greet: "hello bad"
+      last_item: "good-2"
+      last_status: "completed"
+      last_extra: "hello extra good-2"
+    contains: ["target bad is unreachable"]

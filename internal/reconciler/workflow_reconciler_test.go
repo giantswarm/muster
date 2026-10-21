@@ -765,3 +765,69 @@ func TestWorkflowReconciler_RefreshesTheAggregatorCatalogue(t *testing.T) {
 		t.Fatalf("an invalid definition refreshes nothing, got %d", aggregator.refreshes)
 	}
 }
+
+// syncValidity reconciles wf and returns the validity and errors written to
+// its status.
+func syncValidity(t *testing.T, wf *api.Workflow) (bool, []string) {
+	t.Helper()
+	mgr := NewMockWorkflowManager()
+	statusUpdater := NewMockStatusUpdater()
+	reconciler := NewWorkflowReconciler(mgr).WithStatusUpdater(statusUpdater, "default")
+	mgr.AddWorkflow(wf)
+	_ = reconciler.Reconcile(context.Background(), ReconcileRequest{
+		Type:      ResourceTypeWorkflow,
+		Name:      wf.Name,
+		Namespace: "default",
+		Attempt:   1,
+	})
+	if statusUpdater.LastUpdatedWorkflow == nil {
+		t.Fatal("expected LastUpdatedWorkflow to be set")
+	}
+	return statusUpdater.LastUpdatedWorkflow.Status.Valid, statusUpdater.LastUpdatedWorkflow.Status.ValidationErrors
+}
+
+func TestWorkflowReconciler_SyncStatus_FleetScanIsValid(t *testing.T) {
+	valid, errs := syncValidity(t, &api.Workflow{
+		Name: "test-workflow",
+		Steps: []api.WorkflowStep{{
+			ID: "fleet",
+			JQ: "[.[] | .item]",
+			ForEach: &api.WorkflowForEach{
+				Items:       "{{ .input.mcs }}",
+				As:          "mc",
+				Parallelism: 4,
+				Steps: []api.WorkflowSubStep{
+					{ID: "clusters", Tool: "x_kubernetes_list", Paginate: &api.WorkflowPaginate{MaxPages: 5}},
+					{ID: "per-cluster", ForEach: &api.WorkflowForEach{
+						Items: "{{ .results.clusters.items }}",
+						As:    "cluster",
+						Steps: []api.WorkflowSubStep{{ID: "pods", Tool: "x_kubernetes_list", JQ: "[.items[] | .metadata.name]"}},
+					}},
+				},
+			},
+		}},
+	})
+	if !valid {
+		t.Errorf("expected Valid=true for a nested, paginated, projected workflow, got errors %v", errs)
+	}
+}
+
+func TestWorkflowReconciler_SyncStatus_FleetScanRulesApply(t *testing.T) {
+	cases := map[string]api.WorkflowStep{
+		"a jq program that does not compile": {ID: "pods", Tool: "x_kubernetes_list", JQ: "[.items[] |"},
+		"a forEach in a parallel group": {ID: "group", Parallel: []api.WorkflowSubStep{
+			{ID: "loop", ForEach: &api.WorkflowForEach{Items: "{{ .input.a }}", Steps: []api.WorkflowSubStep{{ID: "leaf", Tool: "x_t"}}}},
+		}},
+		"paginate on a forEach": {ID: "loop", Paginate: &api.WorkflowPaginate{}, ForEach: &api.WorkflowForEach{
+			Items: "{{ .input.a }}", Steps: []api.WorkflowSubStep{{ID: "leaf", Tool: "x_t"}},
+		}},
+	}
+	for name, step := range cases {
+		t.Run(name, func(t *testing.T) {
+			valid, _ := syncValidity(t, &api.Workflow{Name: "test-workflow", Steps: []api.WorkflowStep{step}})
+			if valid {
+				t.Errorf("expected Valid=false for %s", name)
+			}
+		})
+	}
+}

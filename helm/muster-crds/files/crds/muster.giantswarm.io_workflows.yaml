@@ -98,9 +98,11 @@ spec:
                   sequentially and their own failures are tolerated.
                 items:
                   description: |-
-                    WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
-                    groups, and onFailure handlers. Unlike WorkflowStep it cannot itself contain
-                    forEach or parallel, which keeps the CRD schema structural (non-recursive).
+                    WorkflowSubStep is a step used inside forEach bodies, parallel groups, and
+                    onFailure handlers: a tool call or, in a forEach body only, a nested
+                    forEach. Unlike WorkflowStep it cannot hold a parallel group, and a nested
+                    forEach holds tool calls only, which keeps the CRD schema structural
+                    (non-recursive).
                   properties:
                     allowFailure:
                       default: false
@@ -182,10 +184,200 @@ spec:
                         for this sub-step's purpose.
                       maxLength: 500
                       type: string
+                    forEach:
+                      description: |-
+                        ForEach makes this sub-step a nested loop, one level deep. Only valid in
+                        a forEach body (not in parallel or onFailure); its loop variable must
+                        differ from the outer one. Mutually exclusive with tool.
+                      properties:
+                        as:
+                          default: item
+                          description: |-
+                            As is the loop variable name made available to the body as
+                            "{{ .vars.<as> }}". Defaults to "item"; it must differ from the outer
+                            loop's.
+                          type: string
+                        items:
+                          description: |-
+                            Items is a template expression that must resolve to an array, typically
+                            a result of an earlier sub-step of the outer iteration, e.g.
+                            "{{ .results.clusters.items }}".
+                          minLength: 1
+                          type: string
+                        parallelism:
+                          description: |-
+                            Parallelism is how many iterations may run at once within one outer
+                            iteration. The calls in flight at once are at most the outer
+                            parallelism times this one.
+                          maximum: 50
+                          minimum: 1
+                          type: integer
+                        steps:
+                          description: Steps is the body executed for each item.
+                          items:
+                            description: WorkflowNestedStep is a tool-call step in
+                              the body of a nested forEach.
+                            properties:
+                              allowFailure:
+                                default: false
+                                description: AllowFailure defines if in case of an
+                                  error execution continues.
+                                type: boolean
+                              args:
+                                additionalProperties:
+                                  x-kubernetes-preserve-unknown-fields: true
+                                description: Args provides arguments for the tool
+                                  execution (supports templating).
+                                type: object
+                              condition:
+                                description: Condition defines an optional condition
+                                  that determines whether this sub-step should execute.
+                                properties:
+                                  args:
+                                    additionalProperties:
+                                      x-kubernetes-preserve-unknown-fields: true
+                                    description: |-
+                                      Args provides the arguments to pass to the condition tool.
+                                      Values may be any JSON type.
+                                    type: object
+                                  expect:
+                                    description: Expect defines positive health check
+                                      expectations.
+                                    properties:
+                                      jsonPath:
+                                        additionalProperties:
+                                          x-kubernetes-preserve-unknown-fields: true
+                                        description: |-
+                                          JsonPath defines JSON path conditions to check in the result.
+                                          Values may be any JSON type (typically scalars compared to a result field).
+                                        type: object
+                                      success:
+                                        description: Success indicates whether the
+                                          tool call should succeed.
+                                        type: boolean
+                                    type: object
+                                  expectNot:
+                                    description: ExpectNot defines negative health
+                                      check expectations.
+                                    properties:
+                                      jsonPath:
+                                        additionalProperties:
+                                          x-kubernetes-preserve-unknown-fields: true
+                                        description: |-
+                                          JsonPath defines JSON path conditions to check in the result.
+                                          Values may be any JSON type (typically scalars compared to a result field).
+                                        type: object
+                                      success:
+                                        description: Success indicates whether the
+                                          tool call should succeed.
+                                        type: boolean
+                                    type: object
+                                  fromStep:
+                                    description: FromStep specifies the step ID to
+                                      reference for condition evaluation.
+                                    type: string
+                                  template:
+                                    description: |-
+                                      Template is a boolean Go-template gate. When set, the step executes only
+                                      if the template renders to "true" (e.g. "{{ eq .input.env \"production\" }}").
+                                      Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+                                    type: string
+                                  tool:
+                                    description: |-
+                                      Tool specifies the name of the tool to execute for condition evaluation.
+                                      Optional when FromStep or Template is used.
+                                    type: string
+                                type: object
+                                x-kubernetes-validations:
+                                - message: exactly one of template, tool, or fromStep
+                                    must be set
+                                  rule: '(has(self.template) ? 1 : 0) + (has(self.tool)
+                                    ? 1 : 0) + (has(self.fromStep) ? 1 : 0) == 1'
+                                - message: a tool or fromStep condition requires expect
+                                    or expectNot
+                                  rule: has(self.template) || has(self.expect) ||
+                                    has(self.expectNot)
+                              description:
+                                description: Description provides human-readable documentation
+                                  for this sub-step's purpose.
+                                maxLength: 500
+                                type: string
+                              id:
+                                description: ID is the unique identifier for this
+                                  sub-step.
+                                maxLength: 63
+                                pattern: ^[a-zA-Z0-9_-]+$
+                                type: string
+                              jq:
+                                description: |-
+                                  JQ reshapes the sub-step's result before it is stored (see
+                                  WorkflowStep.jq).
+                                type: string
+                              output:
+                                description: |-
+                                  Output indicates whether this sub-step's result is included in the
+                                  workflow's returned document. The result is always referenceable by
+                                  later steps regardless of this flag.
+                                type: boolean
+                              paginate:
+                                description: |-
+                                  Paginate makes the sub-step follow the tool's pages (see
+                                  WorkflowStep.paginate).
+                                properties:
+                                  itemsField:
+                                    description: ItemsField is where a page's list
+                                      is. Defaults to "items".
+                                    minLength: 1
+                                    type: string
+                                  maxPages:
+                                    description: MaxPages bounds the pages fetched.
+                                      Defaults to 10.
+                                    maximum: 1000
+                                    minimum: 1
+                                    type: integer
+                                  tokenArg:
+                                    description: |-
+                                      TokenArg is the tool argument the token is passed in. Defaults to
+                                      "continue".
+                                    minLength: 1
+                                    type: string
+                                  tokenField:
+                                    description: TokenField is where a page's next-page
+                                      token is. Defaults to "continue".
+                                    minLength: 1
+                                    type: string
+                                type: object
+                              store:
+                                default: false
+                                description: |-
+                                  Store is a deprecated alias for Output, kept for backwards compatibility.
+                                  Prefer Output.
+                                type: boolean
+                              tool:
+                                description: Tool specifies the name of the tool to
+                                  execute.
+                                minLength: 1
+                                type: string
+                            required:
+                            - id
+                            - tool
+                            type: object
+                          minItems: 1
+                          type: array
+                      required:
+                      - items
+                      - steps
+                      type: object
                     id:
                       description: ID is the unique identifier for this sub-step.
                       maxLength: 63
                       pattern: ^[a-zA-Z0-9_-]+$
+                      type: string
+                    jq:
+                      description: |-
+                        JQ reshapes the sub-step's result before it is stored (see
+                        WorkflowStep.jq). On a nested forEach it reshapes the loop's
+                        per-iteration records.
                       type: string
                     output:
                       description: |-
@@ -194,6 +386,34 @@ spec:
                         steps regardless of this flag. When unset, the deprecated Store flag is
                         used as a fallback.
                       type: boolean
+                    paginate:
+                      description: |-
+                        Paginate makes a tool sub-step follow the tool's pages (see
+                        WorkflowStep.paginate).
+                      properties:
+                        itemsField:
+                          description: ItemsField is where a page's list is. Defaults
+                            to "items".
+                          minLength: 1
+                          type: string
+                        maxPages:
+                          description: MaxPages bounds the pages fetched. Defaults
+                            to 10.
+                          maximum: 1000
+                          minimum: 1
+                          type: integer
+                        tokenArg:
+                          description: |-
+                            TokenArg is the tool argument the token is passed in. Defaults to
+                            "continue".
+                          minLength: 1
+                          type: string
+                        tokenField:
+                          description: TokenField is where a page's next-page token
+                            is. Defaults to "continue".
+                          minLength: 1
+                          type: string
+                      type: object
                     store:
                       default: false
                       description: |-
@@ -201,13 +421,20 @@ spec:
                         Prefer Output.
                       type: boolean
                     tool:
-                      description: Tool specifies the name of the tool to execute.
+                      description: |-
+                        Tool specifies the name of the tool to execute. Mutually exclusive
+                        with forEach.
                       minLength: 1
                       type: string
                   required:
                   - id
-                  - tool
                   type: object
+                  x-kubernetes-validations:
+                  - message: exactly one of tool or forEach must be set
+                    rule: '(has(self.tool) ? 1 : 0) + (has(self.forEach) ? 1 : 0)
+                      == 1'
+                  - message: paginate applies to a tool step only
+                    rule: '!has(self.paginate) || has(self.tool)'
                 type: array
               output:
                 additionalProperties:
@@ -235,8 +462,8 @@ spec:
                 items:
                   description: |-
                     WorkflowStep defines a single step in the workflow execution.
-                    A step is exactly one of: a tool call (tool), a sequential loop (forEach),
-                    or a concurrent group (parallel).
+                    A step is exactly one of: a tool call (tool), a loop (forEach), or a
+                    concurrent group (parallel).
                   properties:
                     allowFailure:
                       default: false
@@ -340,13 +567,23 @@ spec:
                             the duration of one iteration.
                           minLength: 1
                           type: string
+                        parallelism:
+                          description: |-
+                            Parallelism is how many iterations may run at once. Unset, they run
+                            one after another. Results, step records and the loop's per-iteration
+                            records come out in item order either way.
+                          maximum: 50
+                          minimum: 1
+                          type: integer
                         steps:
                           description: Steps is the body executed for each item.
                           items:
                             description: |-
-                              WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
-                              groups, and onFailure handlers. Unlike WorkflowStep it cannot itself contain
-                              forEach or parallel, which keeps the CRD schema structural (non-recursive).
+                              WorkflowSubStep is a step used inside forEach bodies, parallel groups, and
+                              onFailure handlers: a tool call or, in a forEach body only, a nested
+                              forEach. Unlike WorkflowStep it cannot hold a parallel group, and a nested
+                              forEach holds tool calls only, which keeps the CRD schema structural
+                              (non-recursive).
                             properties:
                               allowFailure:
                                 default: false
@@ -432,11 +669,205 @@ spec:
                                   for this sub-step's purpose.
                                 maxLength: 500
                                 type: string
+                              forEach:
+                                description: |-
+                                  ForEach makes this sub-step a nested loop, one level deep. Only valid in
+                                  a forEach body (not in parallel or onFailure); its loop variable must
+                                  differ from the outer one. Mutually exclusive with tool.
+                                properties:
+                                  as:
+                                    default: item
+                                    description: |-
+                                      As is the loop variable name made available to the body as
+                                      "{{ .vars.<as> }}". Defaults to "item"; it must differ from the outer
+                                      loop's.
+                                    type: string
+                                  items:
+                                    description: |-
+                                      Items is a template expression that must resolve to an array, typically
+                                      a result of an earlier sub-step of the outer iteration, e.g.
+                                      "{{ .results.clusters.items }}".
+                                    minLength: 1
+                                    type: string
+                                  parallelism:
+                                    description: |-
+                                      Parallelism is how many iterations may run at once within one outer
+                                      iteration. The calls in flight at once are at most the outer
+                                      parallelism times this one.
+                                    maximum: 50
+                                    minimum: 1
+                                    type: integer
+                                  steps:
+                                    description: Steps is the body executed for each
+                                      item.
+                                    items:
+                                      description: WorkflowNestedStep is a tool-call
+                                        step in the body of a nested forEach.
+                                      properties:
+                                        allowFailure:
+                                          default: false
+                                          description: AllowFailure defines if in
+                                            case of an error execution continues.
+                                          type: boolean
+                                        args:
+                                          additionalProperties:
+                                            x-kubernetes-preserve-unknown-fields: true
+                                          description: Args provides arguments for
+                                            the tool execution (supports templating).
+                                          type: object
+                                        condition:
+                                          description: Condition defines an optional
+                                            condition that determines whether this
+                                            sub-step should execute.
+                                          properties:
+                                            args:
+                                              additionalProperties:
+                                                x-kubernetes-preserve-unknown-fields: true
+                                              description: |-
+                                                Args provides the arguments to pass to the condition tool.
+                                                Values may be any JSON type.
+                                              type: object
+                                            expect:
+                                              description: Expect defines positive
+                                                health check expectations.
+                                              properties:
+                                                jsonPath:
+                                                  additionalProperties:
+                                                    x-kubernetes-preserve-unknown-fields: true
+                                                  description: |-
+                                                    JsonPath defines JSON path conditions to check in the result.
+                                                    Values may be any JSON type (typically scalars compared to a result field).
+                                                  type: object
+                                                success:
+                                                  description: Success indicates whether
+                                                    the tool call should succeed.
+                                                  type: boolean
+                                              type: object
+                                            expectNot:
+                                              description: ExpectNot defines negative
+                                                health check expectations.
+                                              properties:
+                                                jsonPath:
+                                                  additionalProperties:
+                                                    x-kubernetes-preserve-unknown-fields: true
+                                                  description: |-
+                                                    JsonPath defines JSON path conditions to check in the result.
+                                                    Values may be any JSON type (typically scalars compared to a result field).
+                                                  type: object
+                                                success:
+                                                  description: Success indicates whether
+                                                    the tool call should succeed.
+                                                  type: boolean
+                                              type: object
+                                            fromStep:
+                                              description: FromStep specifies the
+                                                step ID to reference for condition
+                                                evaluation.
+                                              type: string
+                                            template:
+                                              description: |-
+                                                Template is a boolean Go-template gate. When set, the step executes only
+                                                if the template renders to "true" (e.g. "{{ eq .input.env \"production\" }}").
+                                                Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+                                              type: string
+                                            tool:
+                                              description: |-
+                                                Tool specifies the name of the tool to execute for condition evaluation.
+                                                Optional when FromStep or Template is used.
+                                              type: string
+                                          type: object
+                                          x-kubernetes-validations:
+                                          - message: exactly one of template, tool,
+                                              or fromStep must be set
+                                            rule: '(has(self.template) ? 1 : 0) +
+                                              (has(self.tool) ? 1 : 0) + (has(self.fromStep)
+                                              ? 1 : 0) == 1'
+                                          - message: a tool or fromStep condition
+                                              requires expect or expectNot
+                                            rule: has(self.template) || has(self.expect)
+                                              || has(self.expectNot)
+                                        description:
+                                          description: Description provides human-readable
+                                            documentation for this sub-step's purpose.
+                                          maxLength: 500
+                                          type: string
+                                        id:
+                                          description: ID is the unique identifier
+                                            for this sub-step.
+                                          maxLength: 63
+                                          pattern: ^[a-zA-Z0-9_-]+$
+                                          type: string
+                                        jq:
+                                          description: |-
+                                            JQ reshapes the sub-step's result before it is stored (see
+                                            WorkflowStep.jq).
+                                          type: string
+                                        output:
+                                          description: |-
+                                            Output indicates whether this sub-step's result is included in the
+                                            workflow's returned document. The result is always referenceable by
+                                            later steps regardless of this flag.
+                                          type: boolean
+                                        paginate:
+                                          description: |-
+                                            Paginate makes the sub-step follow the tool's pages (see
+                                            WorkflowStep.paginate).
+                                          properties:
+                                            itemsField:
+                                              description: ItemsField is where a page's
+                                                list is. Defaults to "items".
+                                              minLength: 1
+                                              type: string
+                                            maxPages:
+                                              description: MaxPages bounds the pages
+                                                fetched. Defaults to 10.
+                                              maximum: 1000
+                                              minimum: 1
+                                              type: integer
+                                            tokenArg:
+                                              description: |-
+                                                TokenArg is the tool argument the token is passed in. Defaults to
+                                                "continue".
+                                              minLength: 1
+                                              type: string
+                                            tokenField:
+                                              description: TokenField is where a page's
+                                                next-page token is. Defaults to "continue".
+                                              minLength: 1
+                                              type: string
+                                          type: object
+                                        store:
+                                          default: false
+                                          description: |-
+                                            Store is a deprecated alias for Output, kept for backwards compatibility.
+                                            Prefer Output.
+                                          type: boolean
+                                        tool:
+                                          description: Tool specifies the name of
+                                            the tool to execute.
+                                          minLength: 1
+                                          type: string
+                                      required:
+                                      - id
+                                      - tool
+                                      type: object
+                                    minItems: 1
+                                    type: array
+                                required:
+                                - items
+                                - steps
+                                type: object
                               id:
                                 description: ID is the unique identifier for this
                                   sub-step.
                                 maxLength: 63
                                 pattern: ^[a-zA-Z0-9_-]+$
+                                type: string
+                              jq:
+                                description: |-
+                                  JQ reshapes the sub-step's result before it is stored (see
+                                  WorkflowStep.jq). On a nested forEach it reshapes the loop's
+                                  per-iteration records.
                                 type: string
                               output:
                                 description: |-
@@ -445,6 +876,34 @@ spec:
                                   steps regardless of this flag. When unset, the deprecated Store flag is
                                   used as a fallback.
                                 type: boolean
+                              paginate:
+                                description: |-
+                                  Paginate makes a tool sub-step follow the tool's pages (see
+                                  WorkflowStep.paginate).
+                                properties:
+                                  itemsField:
+                                    description: ItemsField is where a page's list
+                                      is. Defaults to "items".
+                                    minLength: 1
+                                    type: string
+                                  maxPages:
+                                    description: MaxPages bounds the pages fetched.
+                                      Defaults to 10.
+                                    maximum: 1000
+                                    minimum: 1
+                                    type: integer
+                                  tokenArg:
+                                    description: |-
+                                      TokenArg is the tool argument the token is passed in. Defaults to
+                                      "continue".
+                                    minLength: 1
+                                    type: string
+                                  tokenField:
+                                    description: TokenField is where a page's next-page
+                                      token is. Defaults to "continue".
+                                    minLength: 1
+                                    type: string
+                                type: object
                               store:
                                 default: false
                                 description: |-
@@ -452,14 +911,20 @@ spec:
                                   Prefer Output.
                                 type: boolean
                               tool:
-                                description: Tool specifies the name of the tool to
-                                  execute.
+                                description: |-
+                                  Tool specifies the name of the tool to execute. Mutually exclusive
+                                  with forEach.
                                 minLength: 1
                                 type: string
                             required:
                             - id
-                            - tool
                             type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of tool or forEach must be set
+                              rule: '(has(self.tool) ? 1 : 0) + (has(self.forEach)
+                                ? 1 : 0) == 1'
+                            - message: paginate applies to a tool step only
+                              rule: '!has(self.paginate) || has(self.tool)'
                           minItems: 1
                           type: array
                       required:
@@ -472,6 +937,13 @@ spec:
                       maxLength: 63
                       pattern: ^[a-zA-Z0-9_-]+$
                       type: string
+                    jq:
+                      description: |-
+                        JQ is a jq program that reshapes the step's result before it is stored:
+                        the tool's result for a tool step, the per-iteration records for a
+                        forEach step. It sees the workflow input as $input and the loop
+                        variables as $vars, and must yield one value.
+                      type: string
                     output:
                       description: |-
                         Output indicates whether this step's result is included in the workflow's
@@ -480,6 +952,34 @@ spec:
                         this flag; Output only controls visibility in the returned result. When
                         unset, the deprecated Store flag is used as a fallback.
                       type: boolean
+                    paginate:
+                      description: |-
+                        Paginate makes a tool step follow the tool's next-page token and store
+                        every page's items as one list. Only valid with tool.
+                      properties:
+                        itemsField:
+                          description: ItemsField is where a page's list is. Defaults
+                            to "items".
+                          minLength: 1
+                          type: string
+                        maxPages:
+                          description: MaxPages bounds the pages fetched. Defaults
+                            to 10.
+                          maximum: 1000
+                          minimum: 1
+                          type: integer
+                        tokenArg:
+                          description: |-
+                            TokenArg is the tool argument the token is passed in. Defaults to
+                            "continue".
+                          minLength: 1
+                          type: string
+                        tokenField:
+                          description: TokenField is where a page's next-page token
+                            is. Defaults to "continue".
+                          minLength: 1
+                          type: string
+                      type: object
                     parallel:
                       description: |-
                         Parallel executes a group of sub-steps concurrently. Each sub-step
@@ -488,9 +988,11 @@ spec:
                         exclusive with tool and forEach.
                       items:
                         description: |-
-                          WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
-                          groups, and onFailure handlers. Unlike WorkflowStep it cannot itself contain
-                          forEach or parallel, which keeps the CRD schema structural (non-recursive).
+                          WorkflowSubStep is a step used inside forEach bodies, parallel groups, and
+                          onFailure handlers: a tool call or, in a forEach body only, a nested
+                          forEach. Unlike WorkflowStep it cannot hold a parallel group, and a nested
+                          forEach holds tool calls only, which keeps the CRD schema structural
+                          (non-recursive).
                         properties:
                           allowFailure:
                             default: false
@@ -575,10 +1077,202 @@ spec:
                               for this sub-step's purpose.
                             maxLength: 500
                             type: string
+                          forEach:
+                            description: |-
+                              ForEach makes this sub-step a nested loop, one level deep. Only valid in
+                              a forEach body (not in parallel or onFailure); its loop variable must
+                              differ from the outer one. Mutually exclusive with tool.
+                            properties:
+                              as:
+                                default: item
+                                description: |-
+                                  As is the loop variable name made available to the body as
+                                  "{{ .vars.<as> }}". Defaults to "item"; it must differ from the outer
+                                  loop's.
+                                type: string
+                              items:
+                                description: |-
+                                  Items is a template expression that must resolve to an array, typically
+                                  a result of an earlier sub-step of the outer iteration, e.g.
+                                  "{{ .results.clusters.items }}".
+                                minLength: 1
+                                type: string
+                              parallelism:
+                                description: |-
+                                  Parallelism is how many iterations may run at once within one outer
+                                  iteration. The calls in flight at once are at most the outer
+                                  parallelism times this one.
+                                maximum: 50
+                                minimum: 1
+                                type: integer
+                              steps:
+                                description: Steps is the body executed for each item.
+                                items:
+                                  description: WorkflowNestedStep is a tool-call step
+                                    in the body of a nested forEach.
+                                  properties:
+                                    allowFailure:
+                                      default: false
+                                      description: AllowFailure defines if in case
+                                        of an error execution continues.
+                                      type: boolean
+                                    args:
+                                      additionalProperties:
+                                        x-kubernetes-preserve-unknown-fields: true
+                                      description: Args provides arguments for the
+                                        tool execution (supports templating).
+                                      type: object
+                                    condition:
+                                      description: Condition defines an optional condition
+                                        that determines whether this sub-step should
+                                        execute.
+                                      properties:
+                                        args:
+                                          additionalProperties:
+                                            x-kubernetes-preserve-unknown-fields: true
+                                          description: |-
+                                            Args provides the arguments to pass to the condition tool.
+                                            Values may be any JSON type.
+                                          type: object
+                                        expect:
+                                          description: Expect defines positive health
+                                            check expectations.
+                                          properties:
+                                            jsonPath:
+                                              additionalProperties:
+                                                x-kubernetes-preserve-unknown-fields: true
+                                              description: |-
+                                                JsonPath defines JSON path conditions to check in the result.
+                                                Values may be any JSON type (typically scalars compared to a result field).
+                                              type: object
+                                            success:
+                                              description: Success indicates whether
+                                                the tool call should succeed.
+                                              type: boolean
+                                          type: object
+                                        expectNot:
+                                          description: ExpectNot defines negative
+                                            health check expectations.
+                                          properties:
+                                            jsonPath:
+                                              additionalProperties:
+                                                x-kubernetes-preserve-unknown-fields: true
+                                              description: |-
+                                                JsonPath defines JSON path conditions to check in the result.
+                                                Values may be any JSON type (typically scalars compared to a result field).
+                                              type: object
+                                            success:
+                                              description: Success indicates whether
+                                                the tool call should succeed.
+                                              type: boolean
+                                          type: object
+                                        fromStep:
+                                          description: FromStep specifies the step
+                                            ID to reference for condition evaluation.
+                                          type: string
+                                        template:
+                                          description: |-
+                                            Template is a boolean Go-template gate. When set, the step executes only
+                                            if the template renders to "true" (e.g. "{{ eq .input.env \"production\" }}").
+                                            Mutually exclusive with Tool/FromStep; when present, Expect/ExpectNot are ignored.
+                                          type: string
+                                        tool:
+                                          description: |-
+                                            Tool specifies the name of the tool to execute for condition evaluation.
+                                            Optional when FromStep or Template is used.
+                                          type: string
+                                      type: object
+                                      x-kubernetes-validations:
+                                      - message: exactly one of template, tool, or
+                                          fromStep must be set
+                                        rule: '(has(self.template) ? 1 : 0) + (has(self.tool)
+                                          ? 1 : 0) + (has(self.fromStep) ? 1 : 0)
+                                          == 1'
+                                      - message: a tool or fromStep condition requires
+                                          expect or expectNot
+                                        rule: has(self.template) || has(self.expect)
+                                          || has(self.expectNot)
+                                    description:
+                                      description: Description provides human-readable
+                                        documentation for this sub-step's purpose.
+                                      maxLength: 500
+                                      type: string
+                                    id:
+                                      description: ID is the unique identifier for
+                                        this sub-step.
+                                      maxLength: 63
+                                      pattern: ^[a-zA-Z0-9_-]+$
+                                      type: string
+                                    jq:
+                                      description: |-
+                                        JQ reshapes the sub-step's result before it is stored (see
+                                        WorkflowStep.jq).
+                                      type: string
+                                    output:
+                                      description: |-
+                                        Output indicates whether this sub-step's result is included in the
+                                        workflow's returned document. The result is always referenceable by
+                                        later steps regardless of this flag.
+                                      type: boolean
+                                    paginate:
+                                      description: |-
+                                        Paginate makes the sub-step follow the tool's pages (see
+                                        WorkflowStep.paginate).
+                                      properties:
+                                        itemsField:
+                                          description: ItemsField is where a page's
+                                            list is. Defaults to "items".
+                                          minLength: 1
+                                          type: string
+                                        maxPages:
+                                          description: MaxPages bounds the pages fetched.
+                                            Defaults to 10.
+                                          maximum: 1000
+                                          minimum: 1
+                                          type: integer
+                                        tokenArg:
+                                          description: |-
+                                            TokenArg is the tool argument the token is passed in. Defaults to
+                                            "continue".
+                                          minLength: 1
+                                          type: string
+                                        tokenField:
+                                          description: TokenField is where a page's
+                                            next-page token is. Defaults to "continue".
+                                          minLength: 1
+                                          type: string
+                                      type: object
+                                    store:
+                                      default: false
+                                      description: |-
+                                        Store is a deprecated alias for Output, kept for backwards compatibility.
+                                        Prefer Output.
+                                      type: boolean
+                                    tool:
+                                      description: Tool specifies the name of the
+                                        tool to execute.
+                                      minLength: 1
+                                      type: string
+                                  required:
+                                  - id
+                                  - tool
+                                  type: object
+                                minItems: 1
+                                type: array
+                            required:
+                            - items
+                            - steps
+                            type: object
                           id:
                             description: ID is the unique identifier for this sub-step.
                             maxLength: 63
                             pattern: ^[a-zA-Z0-9_-]+$
+                            type: string
+                          jq:
+                            description: |-
+                              JQ reshapes the sub-step's result before it is stored (see
+                              WorkflowStep.jq). On a nested forEach it reshapes the loop's
+                              per-iteration records.
                             type: string
                           output:
                             description: |-
@@ -587,6 +1281,34 @@ spec:
                               steps regardless of this flag. When unset, the deprecated Store flag is
                               used as a fallback.
                             type: boolean
+                          paginate:
+                            description: |-
+                              Paginate makes a tool sub-step follow the tool's pages (see
+                              WorkflowStep.paginate).
+                            properties:
+                              itemsField:
+                                description: ItemsField is where a page's list is.
+                                  Defaults to "items".
+                                minLength: 1
+                                type: string
+                              maxPages:
+                                description: MaxPages bounds the pages fetched. Defaults
+                                  to 10.
+                                maximum: 1000
+                                minimum: 1
+                                type: integer
+                              tokenArg:
+                                description: |-
+                                  TokenArg is the tool argument the token is passed in. Defaults to
+                                  "continue".
+                                minLength: 1
+                                type: string
+                              tokenField:
+                                description: TokenField is where a page's next-page
+                                  token is. Defaults to "continue".
+                                minLength: 1
+                                type: string
+                            type: object
                           store:
                             default: false
                             description: |-
@@ -594,13 +1316,20 @@ spec:
                               Prefer Output.
                             type: boolean
                           tool:
-                            description: Tool specifies the name of the tool to execute.
+                            description: |-
+                              Tool specifies the name of the tool to execute. Mutually exclusive
+                              with forEach.
                             minLength: 1
                             type: string
                         required:
                         - id
-                        - tool
                         type: object
+                        x-kubernetes-validations:
+                        - message: exactly one of tool or forEach must be set
+                          rule: '(has(self.tool) ? 1 : 0) + (has(self.forEach) ? 1
+                            : 0) == 1'
+                        - message: paginate applies to a tool step only
+                          rule: '!has(self.paginate) || has(self.tool)'
                       minItems: 1
                       type: array
                     store:
@@ -623,6 +1352,8 @@ spec:
                   - message: exactly one of tool, forEach, or parallel must be set
                     rule: '(has(self.tool) ? 1 : 0) + (has(self.forEach) ? 1 : 0)
                       + (has(self.parallel) ? 1 : 0) == 1'
+                  - message: paginate applies to a tool step only
+                    rule: '!has(self.paginate) || has(self.tool)'
                 minItems: 1
                 type: array
             required:

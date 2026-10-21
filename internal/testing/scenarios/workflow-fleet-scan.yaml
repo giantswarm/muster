@@ -1,0 +1,130 @@
+name: "workflow-fleet-scan"
+description: "One workflow call scans every workload cluster of every management cluster for an image: it lists each management cluster's clusters across pages, scans the clusters a bounded number at a time, keeps only the matching pods' declared fields, reports an unreachable cluster without stopping the others, and returns one flat list of matches"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "nested", "parallelism", "paginate", "jq", "fleet-scan", "core-api"]
+timeout: "3m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "kubernetes"
+    config:
+      tools:
+      - name: "list"
+        responses:
+        # Clusters of mc-a: one page.
+        - condition: { management_cluster: "mc-a", resourceType: "clusters" }
+          response:
+            items:
+            - metadata: { name: "a1", namespace: "org-a" }
+            - metadata: { name: "a2", namespace: "org-a" }
+        # Clusters of mc-b: two pages.
+        - condition: { management_cluster: "mc-b", resourceType: "clusters", continue: "mc-b-2" }
+          response:
+            items:
+            - metadata: { name: "b2", namespace: "org-b" }
+        - condition: { management_cluster: "mc-b", resourceType: "clusters" }
+          response:
+            items:
+            - metadata: { name: "b1", namespace: "org-b" }
+            continue: "mc-b-2"
+        # a2 cannot be reached.
+        - condition: { cluster: "a2", resourceType: "pods" }
+          error: "workload cluster a2 is unreachable"
+        - condition: { cluster: "a1", resourceType: "pods" }
+          response:
+            items:
+            - metadata: { name: "web-1", namespace: "shop", annotations: { blob: "FULL-MANIFEST-PAYLOAD" } }
+              spec: { containers: [ { name: "web", image: "registry.example.com/nginx:1.25" } ] }
+            - metadata: { name: "db-1", namespace: "shop", annotations: { blob: "FULL-MANIFEST-PAYLOAD" } }
+              spec: { containers: [ { name: "db", image: "registry.example.com/postgres:16" } ] }
+        # b1's pods span two pages; the match is on the second.
+        - condition: { cluster: "b1", resourceType: "pods", continue: "b1-2" }
+          response:
+            items:
+            - metadata: { name: "edge-7", namespace: "ingress", annotations: { blob: "FULL-MANIFEST-PAYLOAD" } }
+              spec: { containers: [ { name: "edge", image: "registry.example.com/nginx:1.27" } ] }
+        - condition: { cluster: "b1", resourceType: "pods" }
+          response:
+            items:
+            - metadata: { name: "api-1", namespace: "shop", annotations: { blob: "FULL-MANIFEST-PAYLOAD" } }
+              spec: { containers: [ { name: "api", image: "registry.example.com/api:3" } ] }
+            continue: "b1-2"
+        - condition: { cluster: "b2", resourceType: "pods" }
+          response:
+            items:
+            - metadata: { name: "job-1", namespace: "batch", annotations: { blob: "FULL-MANIFEST-PAYLOAD" } }
+              spec: { containers: [ { name: "job", image: "registry.example.com/runner:2" } ] }
+
+steps:
+- id: "create"
+  tool: "core_workflow_create"
+  args:
+    name: "fleet-image-scan"
+    args:
+      management_clusters: { type: "array", required: true }
+      image: { type: "string", required: true }
+    steps:
+      - id: "fleet"
+        forEach:
+          items: "{{ .input.management_clusters }}"
+          as: "mc"
+          parallelism: 2
+          steps:
+            - id: "clusters"
+              tool: "x_kubernetes_list"
+              args: { management_cluster: "{{ .vars.mc }}", resourceType: "clusters", allNamespaces: true }
+              paginate: { maxPages: 10 }
+              jq: '[.items[] | {name: .metadata.name, namespace: .metadata.namespace}]'
+            - id: "per-cluster"
+              forEach:
+                items: "{{ .results.clusters }}"
+                as: "cluster"
+                parallelism: 2
+                steps:
+                  - id: "pods"
+                    tool: "x_kubernetes_list"
+                    args: { management_cluster: "{{ .vars.mc }}", cluster: "{{ .vars.cluster.name }}", resourceType: "pods", allNamespaces: true }
+                    paginate: { maxPages: 10 }
+                    allowFailure: true
+                    jq: '[.items[] | select(any(.spec.containers[]; .image | contains($input.image))) | {namespace: .metadata.namespace, pod: .metadata.name, images: [.spec.containers[].image]}]'
+        # The loop's per-iteration records are flattened into the report the
+        # caller needs: one row per match, one per unreachable cluster.
+        jq: |
+          {
+            matches: [.[] | .item as $mc | .results["per-cluster"][] | select(.status == "completed") | .item.name as $cluster | .results.pods[] | {management_cluster: $mc, cluster: $cluster} + .],
+            failures: [.[] | .item as $mc | .results["per-cluster"][] | select(.status == "failed") | {management_cluster: $mc, cluster: .item.name, error: .error}],
+            scanned: ([.[] | .results["per-cluster"] | length] | add)
+          }
+    output:
+      matches: "{{ .results.fleet.matches }}"
+      failures: "{{ .results.fleet.failures }}"
+      scanned: "{{ .results.fleet.scanned }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "fleet-image-scan" }
+
+- id: "scan"
+  tool: "workflow_fleet-image-scan"
+  args:
+    management_clusters: ["mc-a", "mc-b"]
+    image: "nginx"
+  expected:
+    success: true
+    json_path:
+      scanned: 4
+      matches.0.management_cluster: "mc-a"
+      matches.0.cluster: "a1"
+      matches.0.namespace: "shop"
+      matches.0.pod: "web-1"
+      matches.0.images.0: "registry.example.com/nginx:1.25"
+      matches.1.management_cluster: "mc-b"
+      matches.1.cluster: "b1"
+      matches.1.namespace: "ingress"
+      matches.1.pod: "edge-7"
+      failures.0.management_cluster: "mc-a"
+      failures.0.cluster: "a2"
+    contains: ["workload cluster a2 is unreachable"]
+    not_contains: ["FULL-MANIFEST-PAYLOAD", "db-1", "api-1", "job-1"]

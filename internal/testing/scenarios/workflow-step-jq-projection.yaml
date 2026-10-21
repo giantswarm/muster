@@ -1,0 +1,88 @@
+name: "workflow-step-jq-projection"
+description: "A step's jq program reshapes its result before it is stored: later steps, the output template and the step record see only the declared fields of the matching rows, the workflow input is in scope as $input, and a program that yields several values fails the step with a hint to collect them in [ ]"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "jq", "projection", "results", "fleet-scan", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "cluster"
+    config:
+      tools:
+      - name: "list_pods"
+        responses:
+        - response:
+            kind: "PodList"
+            items:
+            - metadata: { name: "web-1", namespace: "shop", annotations: { blob: "FULL-MANIFEST-PAYLOAD-WEB" } }
+              spec: { containers: [ { name: "web", image: "registry.example.com/nginx:1.25" }, { name: "proxy", image: "registry.example.com/envoy:1.30" } ] }
+            - metadata: { name: "db-1", namespace: "shop", annotations: { blob: "FULL-MANIFEST-PAYLOAD-DB" } }
+              spec: { containers: [ { name: "db", image: "registry.example.com/postgres:16" } ] }
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create"
+  tool: "core_workflow_create"
+  args:
+    name: "jq-projection"
+    args:
+      image: { type: "string", required: true }
+    steps:
+      - id: "pods"
+        tool: "x_cluster_list_pods"
+        args: { namespace: "shop" }
+        jq: '[.items[] | select(any(.spec.containers[]; .image | contains($input.image))) | {namespace: .metadata.namespace, name: .metadata.name, images: [.spec.containers[].image]}]'
+      # A later step reads the projected result.
+      - id: "report"
+        tool: "x_cluster_echo"
+        args: { text: "first match {{ (index .results.pods 0).name }}" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "jq-projection" }
+
+# The stored result -- shown in the debug response -- holds only the declared
+# fields of the matching pod; the rest of the manifests is gone.
+- id: "run"
+  tool: "workflow_jq-projection"
+  args:
+    image: "nginx"
+    _debug: true
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "pods"
+      steps.0.result.0.namespace: "shop"
+      steps.0.result.0.name: "web-1"
+      steps.0.result.0.images.0: "registry.example.com/nginx:1.25"
+      steps.0.result.0.images.1: "registry.example.com/envoy:1.30"
+      steps.1.result.said: "first match web-1"
+    not_contains: ["FULL-MANIFEST-PAYLOAD", "db-1", "annotations"]
+
+- id: "create-stream"
+  tool: "core_workflow_create"
+  args:
+    name: "jq-projection-stream"
+    steps:
+      - id: "pods"
+        tool: "x_cluster_list_pods"
+        args: { namespace: "shop" }
+        jq: '.items[] | .metadata.name'
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "jq-projection-stream" }
+
+# Two pods, two values: storing one of them silently would depend on the
+# data, so the step fails and says how to keep them all.
+- id: "run-stream"
+  tool: "workflow_jq-projection-stream"
+  args: {}
+  expected:
+    success: false
+    error_contains: ["2 values", "[ ]"]

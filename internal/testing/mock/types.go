@@ -77,6 +77,17 @@ type ToolConfig struct {
 	// that carries a JWT is also reported decoded, as
 	// `received_header_claims.<name>` (sub, iss, aud; signature unchecked).
 	EchoHeaders []string `yaml:"echo_headers,omitempty"`
+	// Rendezvous makes every call of the tool wait until this many calls are
+	// in flight at once, and adds max_in_flight -- the most calls of the tool
+	// seen in flight at once -- to an object response. A call that finds no
+	// partners fails, so a scenario proves calls run concurrently and bounds
+	// how many do.
+	Rendezvous int `yaml:"rendezvous,omitempty"`
+	// RendezvousTimeout is how long a call waits for its partners, e.g.
+	// "3s" (default 20s). A short one lets a scenario expect the rendezvous
+	// to fail: one more partner than a loop's parallelism never arrives
+	// while the bound holds.
+	RendezvousTimeout string `yaml:"rendezvous_timeout,omitempty"`
 	// Annotations are the MCP tool annotations the mock declares, so scenarios
 	// can exercise what muster does with a downstream server's read-only /
 	// destructive hints (annotation forwarding, the read-only toolset preset).

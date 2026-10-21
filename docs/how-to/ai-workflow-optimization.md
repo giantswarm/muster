@@ -78,14 +78,21 @@ a `forEach` loop is clearer and less error-prone than copy-pasted steps:
           cluster: "{{ .vars.cluster.name }}"
 ```
 
-`forEach` executes sequentially. For independent items where ordering doesn't
-matter and latency does, prefer an explicit `parallel` group.
+`forEach` runs one item after another unless it sets `parallelism: N`, which
+runs up to N at once and still reports every iteration in item order. For a
+list of lists — the clusters of each management cluster — nest a second
+`forEach` in the body instead of asking the caller to flatten it. See
+[Loops with forEach](workflow-creation.md#loops-with-foreach) and
+[Fleet-wide scans](workflow-creation.md#fleet-wide-scans).
 
-## Store only what you reuse
+## Keep results small
 
-A step's result is only kept when `store: true`. Storing everything bloats the
-execution record and the template context. Store a result only when a later step
-references it via `{{ .results.<step_id> }}`.
+Every step result is held for later steps and lands in the execution record.
+Give a list step a [`jq`](workflow-creation.md#reshaping-a-step-result-jq)
+program that keeps only the fields later steps need, and
+[`paginate`](workflow-creation.md#paging-through-a-list-paginate) so a long
+list is read completely instead of being cut at one page. Return only what the
+caller needs, with `output: true` or an `output` template.
 
 ## Make failures safe
 

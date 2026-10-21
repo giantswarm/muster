@@ -1,0 +1,101 @@
+name: "workflow-foreach-nested"
+description: "A forEach body step can itself be a forEach: a workflow loops over management clusters and, inside each, over the clusters an earlier body step listed for it, with both loop variables in scope; every inner iteration stays addressable afterwards as <id>_<outer>_<inner> and its step record names both iterations"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "nested", "control-flow", "fleet-scan", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "fleet"
+    config:
+      tools:
+      - name: "list_clusters"
+        responses:
+        - condition: { management_cluster: "mc-a" }
+          response: { items: [ { name: "a1" }, { name: "a2" } ] }
+        - condition: { management_cluster: "mc-b" }
+          response: { items: [ { name: "b1" } ] }
+      - name: "list_pods"
+        responses: [ { response: { scanned: "{{ .management_cluster }}/{{ .cluster }}" } } ]
+
+steps:
+# The caller passes only the management clusters. The workflow lists each one's
+# clusters and loops over that list inside the outer loop -- no flattened
+# {mc, cluster} list is handed in.
+- id: "create"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-nested"
+    args:
+      management_clusters: { type: "array", required: true }
+    steps:
+      - id: "per-mc"
+        forEach:
+          items: "{{ .input.management_clusters }}"
+          as: "mc"
+          steps:
+            - id: "clusters"
+              tool: "x_fleet_list_clusters"
+              args: { management_cluster: "{{ .vars.mc }}" }
+            - id: "per-cluster"
+              forEach:
+                items: "{{ .results.clusters.items }}"
+                as: "cluster"
+                steps:
+                  # Both loop variables are in scope in the inner body.
+                  - id: "pods"
+                    tool: "x_fleet_list_pods"
+                    args: { management_cluster: "{{ .vars.mc }}", cluster: "{{ .vars.cluster.name }}" }
+    output:
+      mc_a_first: "{{ .results.pods_0_0.scanned }}"
+      mc_a_second: "{{ .results.pods_0_1.scanned }}"
+      mc_b_first: "{{ .results.pods_1_0.scanned }}"
+      # The plain id keeps the last inner iteration that ran.
+      last: "{{ .results.pods.scanned }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-nested" }
+
+- id: "run"
+  tool: "workflow_foreach-nested"
+  args:
+    management_clusters: ["mc-a", "mc-b"]
+  expected:
+    success: true
+    json_path:
+      mc_a_first: "mc-a/a1"
+      mc_a_second: "mc-a/a2"
+      mc_b_first: "mc-b/b1"
+      last: "mc-b/b1"
+
+# The debug response lists one record per call, in loop order: an inner
+# record carries its inner iteration and the outer iteration it ran in, and
+# shows that iteration's own result.
+- id: "run-debug"
+  tool: "workflow_foreach-nested"
+  args:
+    management_clusters: ["mc-a", "mc-b"]
+    _debug: true
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "clusters"
+      steps.0.iteration: 0
+      steps.1.id: "pods"
+      steps.1.iteration: 0
+      steps.1.outer_iteration: 0
+      steps.1.result.scanned: "mc-a/a1"
+      steps.2.id: "pods"
+      steps.2.iteration: 1
+      steps.2.outer_iteration: 0
+      steps.2.result.scanned: "mc-a/a2"
+      steps.3.id: "clusters"
+      steps.3.iteration: 1
+      steps.4.id: "pods"
+      steps.4.iteration: 0
+      steps.4.outer_iteration: 1
+      steps.4.result.scanned: "mc-b/b1"

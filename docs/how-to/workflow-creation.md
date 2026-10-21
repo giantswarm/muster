@@ -10,8 +10,14 @@ A `Workflow` is a list of `steps` executed top to bottom. Each step is exactly
 one of:
 
 - a **tool call** (`tool`),
-- a **sequential loop** (`forEach`), or
+- a **loop** (`forEach`), one item after another or a bounded number at once,
+  optionally with one loop nested in its body, or
 - a **concurrent group** (`parallel`).
+
+A tool step can also follow the tool's pages (`paginate`) and reshape its
+result before it is stored (`jq`); together with nested loops and
+`parallelism` they make a [fleet-wide scan](#fleet-wide-scans) one workflow
+call.
 
 A step may be gated by a `condition`. **Every** step's result is available to
 later steps as `{{ .results.<step_id> }}` — referencing no longer requires any
@@ -36,6 +42,30 @@ top-level keys:
 
 > Always use `{{ .input.<arg> }}` — there is no bare `{{ .<arg> }}`. Rendering
 > uses `missingkey=error`, so a reference to an undefined key fails the step.
+> Read a key that may be absent with `get` (`{{ get .results.scan "error" }}`)
+> or test it with `hasKey`; reach a step id with a hyphen through `index`
+> (`{{ index .results "per-cluster" }}`).
+
+### Matching strings
+
+The sprig string helpers work everywhere a template does — step arguments,
+`condition.template` and the `output` template. For a partial match use
+`contains` (substring), `hasPrefix` / `hasSuffix`, or `regexMatch` (a Go
+regular expression); `regexFind` returns the matching part:
+
+```yaml
+- id: nginx_only
+  condition:
+    template: '{{ contains "nginx" .input.image }}'
+  tool: x_inventory_record
+output:
+  pinned: '{{ regexMatch ":[0-9][0-9.]*$" .input.image }}'   # true for "nginx:1.25"
+  tag: '{{ regexFind "[^:]+$" .input.image }}'              # "1.25"
+```
+
+To filter the rows of a list, reshape the step's result with
+[`jq`](#reshaping-a-step-result-jq) instead: a template cannot drop list
+elements.
 
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
@@ -101,8 +131,9 @@ depends on the last step:
 
 - each step marked `output: true` contributes its result under `steps[]`; and
 - if the **last** step is a plain tool step that is *not* an `output` step, its
-  result is additionally merged onto the top level of the response (a
-  convenience so a trailing call's output is easy to read).
+  result — what `paginate` and `jq` made of it — is additionally merged onto
+  the top level of the response (a convenience so a trailing call's output is
+  easy to read).
 
 If you want a predictable, minimal response, declare an `output` template — it
 replaces the response entirely (see below).
@@ -245,9 +276,11 @@ result is exposed as `.result`:
 
 ## Loops with `forEach`
 
-Run a flat body of sub-steps once per item of a list. `items` must resolve to
-an array; each element is bound to `{{ .vars.<as> }}` (default `item`), and the
-zero-based index to `{{ .vars.<as>_index }}`.
+Run a body of sub-steps once per item of a list. `items` must resolve to an
+array — the workflow input or an earlier step's result, e.g.
+`{{ .results.clusters.items }}` — and each element is bound to
+`{{ .vars.<as> }}` (default `item`), the zero-based index to
+`{{ .vars.<as>_index }}`.
 
 ```yaml
 spec:
@@ -268,20 +301,102 @@ spec:
               version: "{{ .vars.cluster.version }}"
 ```
 
-The body is non-recursive: sub-steps are plain tool calls and cannot themselves
-contain `forEach` or `parallel`. A sub-step's result is available within the same
-iteration as `{{ .results.<sub_step_id> }}`, and each iteration is also
-addressable after the loop by zero-based index as
-`{{ .results.<sub_step_id>_<index> }}` (e.g. `{{ .results.deploy_0 }}`). After
-the loop, the plain `{{ .results.<sub_step_id> }}` key keeps the result of the
-last iteration that ran the sub-step. A sub-step skipped by its `condition` has
-no result in that iteration: neither the plain key for the later sub-steps of
-the iteration nor the indexed key, so `{{ if hasKey .results "deploy_1" }}`
-tells a skipped iteration from one that ran.
+A sub-step's result is available within the same iteration as
+`{{ .results.<sub_step_id> }}`, and each iteration is also addressable after
+the loop by zero-based index as `{{ .results.<sub_step_id>_<index> }}` (e.g.
+`{{ .results.deploy_0 }}`). After the loop, the plain
+`{{ .results.<sub_step_id> }}` key keeps the result of the last iteration that
+ran the sub-step. A sub-step skipped by its `condition` has no result in that
+iteration: neither the plain key for the later sub-steps of the iteration nor
+the indexed key, so `{{ if hasKey .results "deploy_1" }}` tells a skipped
+iteration from one that ran.
 
 > The indexed key is a literal `<id>_<index>` string, so avoid a sub-step id
 > that already ends in `_<number>` (e.g. `deploy_0`) inside a `forEach` to keep
 > the per-iteration keys unambiguous.
+
+### The loop's records
+
+After the loop, the `forEach` step's own id holds one record per iteration
+that ran, in item order:
+
+```json
+[
+  {"index": 0, "item": "mc-a", "status": "completed", "results": {"deploy": {...}}},
+  {"index": 1, "item": "mc-b", "status": "failed", "error": "deploy: cluster mc-b is unreachable", "results": {"deploy": {...}}}
+]
+```
+
+`results` holds the iteration's sub-step results (a skipped one is absent);
+`status` is `failed`, with `error`, when one of its sub-steps failed — also
+when that sub-step has `allowFailure`. This is how a loop reports every
+target, the failed ones included: `{{ len .results.deploy_to_each }}`, or a
+[`jq`](#reshaping-a-step-result-jq) program on the `forEach` step that turns
+the records into the rows the caller needs.
+
+### Bounded parallelism
+
+`parallelism: N` (1 to 50) runs up to N iterations at once; unset, they run one
+after another. Sub-steps of one iteration still run in order and chain off
+each other. Concurrent iterations start from the workflow state as it was
+before the loop, so one iteration cannot see another's results, and
+everything — the indexed keys, the plain key, the step records, the loop's
+records — comes out in item order, exactly as a sequential run reports it.
+
+```yaml
+- id: scan
+  forEach:
+    items: "{{ .input.clusters }}"
+    as: cluster
+    parallelism: 8
+    steps:
+      - id: pods
+        tool: x_kubernetes_list
+        args: { cluster: "{{ .vars.cluster }}", resourceType: pods }
+        allowFailure: true   # an unreachable cluster is reported, the others go on
+```
+
+A failure that is not allowed stops the loop as it does a sequential one: no
+further iteration starts, the ones already running finish and are reported,
+and the workflow fails (or goes on, if the `forEach` step has `allowFailure`).
+
+### Nested loops
+
+A sub-step of a `forEach` body may itself be a `forEach`, one level deep — not
+inside `parallel` or `onFailure`, and the nested body holds tool calls only.
+Both loop variables are in scope in the nested body, so the nested loop
+typically iterates over what an earlier sub-step listed for the outer item:
+
+```yaml
+- id: fleet
+  forEach:
+    items: "{{ .input.management_clusters }}"
+    as: mc
+    steps:
+      - id: clusters
+        tool: x_kubernetes_list
+        args: { management_cluster: "{{ .vars.mc }}", resourceType: clusters.cluster.x-k8s.io, allNamespaces: true }
+      - id: per_cluster
+        forEach:
+          items: "{{ .results.clusters.items }}"
+          as: cluster          # must differ from the outer loop's
+          steps:
+            - id: pods
+              tool: x_kubernetes_list
+              args:
+                management_cluster: "{{ .vars.mc }}"
+                cluster: "{{ .vars.cluster.metadata.name }}"
+                resourceType: pods
+```
+
+A nested sub-step's result is kept per iteration as
+`{{ .results.<id>_<outer>_<inner> }}` (`pods_1_0`: the first cluster of the
+second management cluster), its step record carries `iteration` and
+`outer_iteration`, and the nested `forEach` id holds the nested loop's
+records inside each outer iteration's `results`. Each loop takes its own
+`parallelism`: the calls in flight at once are at most the outer times the
+inner one. A nested id must differ from the outer body's ids and the nested
+`as` from the outer one.
 
 ## Concurrency with `parallel`
 
@@ -312,6 +427,129 @@ steps:
 
 Sub-step results are available to later steps after the group completes.
 
+## Paging through a list (`paginate`)
+
+A list tool returns one page and a token for the next. `paginate` on a tool
+step (or sub-step) passes that token back until the tool has none left or
+`maxPages` pages were fetched, and stores every page's items as one list:
+
+```yaml
+- id: pods
+  tool: x_kubernetes_list
+  args: { resourceType: pods, allNamespaces: true }
+  paginate:
+    maxPages: 20          # 1 to 1000, default 10
+```
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `itemsField` | `items` | Where a page's list is |
+| `tokenField` | `continue` | Where a page's next-page token is |
+| `tokenArg` | `continue` | The tool argument the token is passed in |
+| `maxPages` | `10` | The most pages fetched |
+
+The defaults match mcp-kubernetes; field names may be dotted paths
+(`data.next`) for tools that nest them. The stored result is the last page
+with its list holding every page's items, plus a `pagination` object:
+`pagination.pages` is how many pages were fetched and `pagination.truncated`
+says whether `maxPages` cut the listing short — then the result still carries
+the token the next page would be fetched with, so stopping early is never
+silent. An error on any page fails the step (`allowFailure` applies).
+
+## Reshaping a step result (`jq`)
+
+A `jq` program on a step reshapes its result before it is stored. Later
+steps, the `output` template, the step record and the execution history see
+only what it yields, so a large listing is reduced to the few fields the
+workflow needs right after the call, instead of being held to the end:
+
+```yaml
+- id: pods
+  tool: x_kubernetes_list
+  args: { resourceType: pods, allNamespaces: true }
+  paginate: { maxPages: 20 }
+  jq: >-
+    [.items[]
+     | select(any(.spec.containers[]; .image | contains($input.image)))
+     | {namespace: .metadata.namespace, pod: .metadata.name, images: [.spec.containers[].image]}]
+```
+
+- The program's input is the step's result: the tool's result (after
+  `paginate`) for a tool step, the [loop's records](#the-loops-records) for a
+  `forEach` step.
+- `$input` is the workflow input and `$vars` the loop variables
+  (`$vars.cluster`).
+- It must yield **one** value. A program yielding a stream (`.items[]`)
+  fails the step, saying how many values it yielded; wrap it in `[ ]` to keep
+  them all. Yielding nothing stores `null`.
+- A program that fails, or does not compile, fails the step; a program that
+  does not compile is rejected when the workflow is created.
+
+The engine is [gojq](https://github.com/itchyny/gojq), the jq implementation
+`gh --jq` uses.
+
+## Fleet-wide scans
+
+The options above compose into an inventory over every workload cluster of
+every management cluster in one call — no flattened `{mc, cluster}` list
+from the caller, a bounded number of calls in flight, every page of every
+list, only the matching rows kept, and an unreachable cluster reported without
+stopping the others:
+
+```yaml
+spec:
+  args:
+    management_clusters: { type: array, required: true }
+    image: { type: string, required: true }
+  steps:
+    - id: fleet
+      forEach:
+        items: "{{ .input.management_clusters }}"
+        as: mc
+        parallelism: 4
+        steps:
+          - id: clusters
+            tool: x_kubernetes_list
+            args: { management_cluster: "{{ .vars.mc }}", resourceType: clusters.cluster.x-k8s.io, allNamespaces: true }
+            paginate: { maxPages: 10 }
+            jq: '[.items[] | {name: .metadata.name, namespace: .metadata.namespace}]'
+          - id: per_cluster
+            forEach:
+              items: "{{ .results.clusters }}"
+              as: cluster
+              parallelism: 8
+              steps:
+                - id: pods
+                  tool: x_kubernetes_list
+                  args:
+                    management_cluster: "{{ .vars.mc }}"
+                    cluster: "{{ .vars.cluster.name }}"
+                    resourceType: pods
+                    allNamespaces: true
+                  paginate: { maxPages: 20 }
+                  allowFailure: true
+                  jq: >-
+                    [.items[]
+                     | select(any(.spec.containers[]; .image | contains($input.image)))
+                     | {namespace: .metadata.namespace, pod: .metadata.name}]
+      # One row per match and one per unreachable cluster.
+      jq: >-
+        {
+          matches: [.[] | .item as $mc | .results.per_cluster[]
+                    | select(.status == "completed") | .item.name as $c
+                    | .results.pods[] | {management_cluster: $mc, cluster: $c} + .],
+          failures: [.[] | .item as $mc | .results.per_cluster[]
+                     | select(.status == "failed")
+                     | {management_cluster: $mc, cluster: .item.name, error: .error}]
+        }
+  output:
+    matches: "{{ .results.fleet.matches }}"
+    failures: "{{ .results.fleet.failures }}"
+```
+
+The complete workflow, with the other workload kinds, is
+[`examples/workflow-fleet-image-scan.yaml`](https://github.com/giantswarm/muster/blob/main/examples/workflow-fleet-image-scan.yaml).
+
 ## Error handling
 
 ### Tolerate a failing step
@@ -319,7 +557,9 @@ Sub-step results are available to later steps after the group completes.
 `allowFailure: true` records the failure but continues the workflow. On a
 `forEach` or `parallel` step it tolerates a failure of the **whole group** (it
 cannot tolerate one iteration or branch while failing the rest — put
-`allowFailure` on the individual sub-step for that). The step's error is recorded
+`allowFailure` on the individual sub-step for that; a `forEach` then reports
+the iteration as failed in [its records](#the-loops-records) and goes on with
+the next one). The step's error is recorded
 as its result and is available to later `fromStep` conditions and the output
 output template without any extra flag:
 
@@ -392,7 +632,11 @@ per-step status (`completed`, `skipped`, `failed`).
 
 - Use `condition.template` to skip work that an environment does not need.
 - Use `parallel` for independent steps; keep dependent steps sequential.
-- Use `forEach` for fan-out over a list (clusters, namespaces, services).
+- Use `forEach` for fan-out over a list (clusters, namespaces, services); set
+  `parallelism` when the targets are independent, and nest a loop instead of
+  asking the caller to flatten a list of pairs.
+- Give list steps `paginate` so a listing beyond one page is never silently
+  cut short, and a `jq` program that keeps only the fields later steps need.
 - Reference any step's result freely with `{{ .results.<id> }}`; reserve
   `output: true` (or an `output` template) for what the caller actually needs.
 - Add `onFailure` rollback steps for workflows that mutate external state.

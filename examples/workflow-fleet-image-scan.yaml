@@ -1,0 +1,110 @@
+# Fleet-wide image scan: one call lists every workload cluster of every
+# management cluster and reports the pods and workloads running an image.
+#
+# - A nested forEach loops over each management cluster's workload clusters,
+#   so the caller passes only the management clusters.
+# - parallelism bounds the calls in flight: at most 4 x 8 = 32 at once.
+# - paginate follows mcp-kubernetes' continue token, so no listing is cut at
+#   one page; a listing cut by maxPages says so in pagination.truncated.
+# - Each list step's jq keeps only the rows that run the image, so the
+#   manifests are not held until the end of the scan.
+# - An unreachable cluster is reported under failures; the others go on.
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: Workflow
+metadata:
+  name: fleet-image-scan
+  namespace: default
+spec:
+  description: "Find the pods and workloads running an image across every workload cluster of the given management clusters (read-only)"
+  args:
+    management_clusters:
+      type: array
+      required: true
+      description: "Management clusters to scan, e.g. [\"gazelle\", \"graveler\"]"
+    image:
+      type: string
+      required: true
+      description: "Substring of the image to look for, e.g. \"nginx\" or \"registry.example.com/team/app:1.2\""
+  steps:
+    - id: fleet
+      forEach:
+        items: "{{ .input.management_clusters }}"
+        as: mc
+        parallelism: 4
+        steps:
+          - id: clusters
+            tool: x_kubernetes_list
+            args:
+              management_cluster: "{{ .vars.mc }}"
+              resourceType: clusters
+              apiGroup: cluster.x-k8s.io
+              allNamespaces: true
+              fullOutput: true
+              limit: 500
+            paginate: { maxPages: 10 }
+            allowFailure: true
+            jq: '[.items[] | {name: .metadata.name, namespace: .metadata.namespace}]'
+          - id: workload_clusters
+            # Skipped when the management cluster's clusters could not be listed.
+            condition:
+              template: '{{ kindIs "slice" .results.clusters }}'
+            forEach:
+              items: "{{ .results.clusters }}"
+              as: cluster
+              parallelism: 8
+              steps:
+                - id: pods
+                  tool: x_kubernetes_list
+                  args: { management_cluster: "{{ .vars.mc }}", cluster: "{{ .vars.cluster.name }}", resourceType: pods, allNamespaces: true, fullOutput: true, limit: 500 }
+                  paginate: { maxPages: 20 }
+                  allowFailure: true
+                  # Every container image anywhere in the manifest -- pod,
+                  # pod template or job template -- init containers included.
+                  jq: &matching >-
+                    [.items[]
+                     | {kind, namespace: .metadata.namespace, name: .metadata.name,
+                        images: [.. | objects | (.containers?, .initContainers?) // empty | .[] | .image]}
+                     | select(.images | any(contains($input.image)))]
+                - id: deployments
+                  tool: x_kubernetes_list
+                  args: { management_cluster: "{{ .vars.mc }}", cluster: "{{ .vars.cluster.name }}", resourceType: deployments, allNamespaces: true, fullOutput: true, limit: 500 }
+                  paginate: { maxPages: 20 }
+                  allowFailure: true
+                  jq: *matching
+                - id: statefulsets
+                  tool: x_kubernetes_list
+                  args: { management_cluster: "{{ .vars.mc }}", cluster: "{{ .vars.cluster.name }}", resourceType: statefulsets, allNamespaces: true, fullOutput: true, limit: 500 }
+                  paginate: { maxPages: 20 }
+                  allowFailure: true
+                  jq: *matching
+                - id: daemonsets
+                  tool: x_kubernetes_list
+                  args: { management_cluster: "{{ .vars.mc }}", cluster: "{{ .vars.cluster.name }}", resourceType: daemonsets, allNamespaces: true, fullOutput: true, limit: 500 }
+                  paginate: { maxPages: 20 }
+                  allowFailure: true
+                  jq: *matching
+                - id: cronjobs
+                  tool: x_kubernetes_list
+                  args: { management_cluster: "{{ .vars.mc }}", cluster: "{{ .vars.cluster.name }}", resourceType: cronjobs, allNamespaces: true, fullOutput: true, limit: 500 }
+                  paginate: { maxPages: 20 }
+                  allowFailure: true
+                  jq: *matching
+      # The per-iteration records become the report: one row per match, one
+      # per management or workload cluster that could not be scanned.
+      jq: >-
+        {
+          matches: [.[] | .item as $mc | (.results.workload_clusters // [])[]
+                    | .item.name as $cluster
+                    | .results | to_entries[] | select(.value | type == "array") | .value[]
+                    | {management_cluster: $mc, cluster: $cluster} + .],
+          failures: ([.[] | select(.status == "failed") | {management_cluster: .item, error}]
+                     + [.[] | .item as $mc | (.results.workload_clusters // [])[]
+                        | select(.status == "failed")
+                        | {management_cluster: $mc, cluster: .item.name, error}]),
+          clusters_scanned: ([.[] | (.results.workload_clusters // []) | length] | add // 0)
+        }
+  output:
+    image: "{{ .input.image }}"
+    clusters_scanned: "{{ .results.fleet.clusters_scanned }}"
+    matches: "{{ .results.fleet.matches }}"
+    failures: "{{ .results.fleet.failures }}"

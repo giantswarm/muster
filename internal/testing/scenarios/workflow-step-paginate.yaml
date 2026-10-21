@@ -1,0 +1,135 @@
+name: "workflow-step-paginate"
+description: "A tool step with paginate follows the tool's continue token page after page and stores every page's items as one list; it stops at maxPages and then says so (pagination.truncated, plus the token to resume from), and the items list, the token and its argument can be renamed for tools that page differently"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "paginate", "list", "fleet-scan", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "cluster"
+    config:
+      tools:
+      # Kubernetes-style paging: items + continue, the token passed back as
+      # the "continue" argument.
+      - name: "list_pods"
+        responses:
+        - condition: { continue: "page-2" }
+          response: { kind: "PodList", items: [ { name: "p3" }, { name: "p4" } ], continue: "page-3" }
+        - condition: { continue: "page-3" }
+          response: { kind: "PodList", items: [ { name: "p5" } ] }
+        - response: { kind: "PodList", items: [ { name: "p1" }, { name: "p2" } ], continue: "page-2" }
+      # A tool that nests its list and token and takes the token as "cursor".
+      - name: "search"
+        responses:
+        - condition: { cursor: "c2" }
+          response: { data: { rows: [ "r3" ], next: "" } }
+        - response: { data: { rows: [ "r1", "r2" ], next: "c2" } }
+
+steps:
+- id: "create-all-pages"
+  tool: "core_workflow_create"
+  args:
+    name: "paginate-all-pages"
+    steps:
+      - id: "pods"
+        tool: "x_cluster_list_pods"
+        args: { namespace: "shop" }
+        paginate:
+          maxPages: 10
+    output:
+      count: "{{ len .results.pods.items }}"
+      names: "{{ .results.pods.items }}"
+      kind: "{{ .results.pods.kind }}"
+      pages: "{{ .results.pods.pagination.pages }}"
+      truncated: "{{ .results.pods.pagination.truncated }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "paginate-all-pages" }
+
+- id: "run-all-pages"
+  tool: "workflow_paginate-all-pages"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      count: 5
+      names.0.name: "p1"
+      names.2.name: "p3"
+      names.4.name: "p5"
+      kind: "PodList"
+      pages: 3
+      truncated: false
+
+- id: "create-max-pages"
+  tool: "core_workflow_create"
+  args:
+    name: "paginate-max-pages"
+    steps:
+      - id: "pods"
+        tool: "x_cluster_list_pods"
+        args: { namespace: "shop" }
+        paginate:
+          maxPages: 2
+    output:
+      count: "{{ len .results.pods.items }}"
+      last: "{{ (index .results.pods.items 3).name }}"
+      pages: "{{ .results.pods.pagination.pages }}"
+      truncated: "{{ .results.pods.pagination.truncated }}"
+      resume_from: "{{ .results.pods.continue }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "paginate-max-pages" }
+
+# Stopping early is never silent: the result says it is truncated and keeps
+# the token the next page would be fetched with.
+- id: "run-max-pages"
+  tool: "workflow_paginate-max-pages"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      count: 4
+      last: "p4"
+      pages: 2
+      truncated: true
+      resume_from: "page-3"
+
+- id: "create-renamed"
+  tool: "core_workflow_create"
+  args:
+    name: "paginate-renamed"
+    steps:
+      - id: "rows"
+        tool: "x_cluster_search"
+        args: { query: "nginx" }
+        paginate:
+          itemsField: "data.rows"
+          tokenField: "data.next"
+          tokenArg: "cursor"
+          maxPages: 5
+    output:
+      rows: "{{ .results.rows.data.rows }}"
+      pages: "{{ .results.rows.pagination.pages }}"
+      truncated: "{{ .results.rows.pagination.truncated }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "paginate-renamed" }
+
+- id: "run-renamed"
+  tool: "workflow_paginate-renamed"
+  args: {}
+  expected:
+    success: true
+    json_path:
+      rows.0: "r1"
+      rows.1: "r2"
+      rows.2: "r3"
+      pages: 2
+      truncated: false

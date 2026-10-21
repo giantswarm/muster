@@ -168,8 +168,8 @@ compositions cycle. Every error names the preset and the rule position.
 
 ### Workflow read-only derivation
 
-A workflow is read-only when every tool its steps reference — conditions, `forEach` and
-`parallel` sub-steps and `onFailure` handlers included, nested workflows followed — resolves in
+A workflow is read-only when every tool its steps reference — conditions, `forEach` (nested
+loops included) and `parallel` sub-steps and `onFailure` handlers included, nested workflows followed — resolves in
 the caller's catalogue to a tool annotated read-only — a downstream server's tool or a core tool
 by its declared annotation. A step calling a core tool that writes (`core_workflow_delete`,
 `core_service_stop`, …), an unknown tool, or a cycle makes the workflow not read-only. The derived hint

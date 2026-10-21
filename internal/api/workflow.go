@@ -114,10 +114,14 @@ func outputFlaggedIDs(wf *Workflow) []string {
 // handler, returning the (qualified) IDs for which match reports true.
 func collectStepIDs(wf *Workflow, match func(output *bool, store bool) bool) []string {
 	var ids []string
-	collect := func(label string, subs []WorkflowSubStep) {
+	var collect func(label string, subs []WorkflowSubStep)
+	collect = func(label string, subs []WorkflowSubStep) {
 		for _, sub := range subs {
 			if match(sub.Output, sub.Store) {
 				ids = append(ids, label+sub.ID)
+			}
+			if sub.ForEach != nil {
+				collect(label+sub.ID+".forEach.", sub.ForEach.Steps)
 			}
 		}
 	}
@@ -241,6 +245,16 @@ type WorkflowStep struct {
 	// Can include templated values that are resolved at runtime using previous step results.
 	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
 
+	// Paginate makes a tool step follow the tool's next-page token and store
+	// every page's items as one list. Only valid with Tool.
+	Paginate *WorkflowPaginate `yaml:"paginate,omitempty" json:"paginate,omitempty"`
+
+	// JQ is a jq program that reshapes the step's result before it is stored:
+	// the tool's result for a tool step, the per-iteration records for a
+	// forEach step. Later steps, the output template and the step record see
+	// only what it yields.
+	JQ string `yaml:"jq,omitempty" json:"jq,omitempty"`
+
 	// ForEach executes a body of sub-steps once per item of a list.
 	// Mutually exclusive with Tool and Parallel.
 	ForEach *WorkflowForEach `yaml:"forEach,omitempty" json:"forEach,omitempty"`
@@ -269,8 +283,9 @@ type WorkflowStep struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
 }
 
-// WorkflowForEach describes a sequential loop over a list of items.
-// The body is a flat list of sub-steps executed once per item.
+// WorkflowForEach describes a loop over a list of items. The body is a list
+// of sub-steps executed once per item; in a top-level forEach a body sub-step
+// may itself be a forEach, one level deep.
 type WorkflowForEach struct {
 	// Items is a template expression that must resolve to an array,
 	// e.g. "{{ .input.clusters }}".
@@ -280,12 +295,45 @@ type WorkflowForEach struct {
 	// "{{ .vars.<as> }}". Defaults to "item".
 	As string `yaml:"as,omitempty" json:"as,omitempty"`
 
+	// Parallelism is how many iterations may run at once, 1 to
+	// MaxForEachParallelism. Unset (0) runs them one after another.
+	Parallelism int `yaml:"parallelism,omitempty" json:"parallelism,omitempty"`
+
 	// Steps is the body executed for each item.
 	Steps []WorkflowSubStep `yaml:"steps" json:"steps"`
 }
 
+// LoopVariable is the name the loop's current item is bound to.
+func (f *WorkflowForEach) LoopVariable() string {
+	if f.As == "" {
+		return DefaultLoopVariable
+	}
+	return f.As
+}
+
+// WorkflowPaginate describes how a tool step follows the tool's pages: it
+// passes the token found at TokenField back as the TokenArg argument until the
+// token is empty or MaxPages pages were fetched, and concatenates the list
+// found at ItemsField. Field names may be dotted paths ("data.next").
+type WorkflowPaginate struct {
+	// ItemsField is where a page's list is. Defaults to "items".
+	ItemsField string `yaml:"itemsField,omitempty" json:"itemsField,omitempty"`
+
+	// TokenField is where a page's next-page token is. Defaults to "continue".
+	TokenField string `yaml:"tokenField,omitempty" json:"tokenField,omitempty"`
+
+	// TokenArg is the tool argument the token is passed in. Defaults to
+	// "continue".
+	TokenArg string `yaml:"tokenArg,omitempty" json:"tokenArg,omitempty"`
+
+	// MaxPages bounds the pages fetched, 1 to MaxPaginateMaxPages. Defaults
+	// to DefaultPaginateMaxPages.
+	MaxPages int `yaml:"maxPages,omitempty" json:"maxPages,omitempty"`
+}
+
 // WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
-// groups, and onFailure handlers. It cannot itself contain forEach or parallel.
+// groups, and onFailure handlers. Inside a top-level forEach body it may
+// instead be a forEach of its own (ForEach), whose sub-steps are tool calls.
 type WorkflowSubStep struct {
 	// ID is a unique identifier for this sub-step.
 	ID string `yaml:"id" json:"id"`
@@ -293,11 +341,24 @@ type WorkflowSubStep struct {
 	// Condition defines an optional condition that determines whether this sub-step should execute.
 	Condition *WorkflowCondition `yaml:"condition,omitempty" json:"condition,omitempty"`
 
-	// Tool specifies the name of the tool to execute.
-	Tool string `yaml:"tool" json:"tool"`
+	// Tool specifies the name of the tool to execute. Mutually exclusive with
+	// ForEach.
+	Tool string `yaml:"tool,omitempty" json:"tool,omitempty"`
 
 	// Args provides the arguments to pass to the tool (supports templating).
 	Args map[string]interface{} `yaml:"args,omitempty" json:"args,omitempty"`
+
+	// ForEach makes this sub-step a nested loop. Only valid in a top-level
+	// forEach body; mutually exclusive with Tool.
+	ForEach *WorkflowForEach `yaml:"forEach,omitempty" json:"forEach,omitempty"`
+
+	// Paginate makes a tool sub-step follow the tool's pages (see
+	// WorkflowStep.Paginate).
+	Paginate *WorkflowPaginate `yaml:"paginate,omitempty" json:"paginate,omitempty"`
+
+	// JQ reshapes the sub-step's result before it is stored (see
+	// WorkflowStep.JQ).
+	JQ string `yaml:"jq,omitempty" json:"jq,omitempty"`
 
 	// AllowFailure indicates whether this sub-step is allowed to fail without failing execution.
 	AllowFailure bool `yaml:"allowFailure,omitempty" json:"allowFailure,omitempty"`
