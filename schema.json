@@ -1296,9 +1296,38 @@
                     "description": "Unique identifier for this sub-step",
                     "type": "string"
                   },
+                  "jq": {
+                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "type": "string"
+                  },
                   "output": {
                     "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                     "type": "boolean"
+                  },
+                  "paginate": {
+                    "additionalProperties": false,
+                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "properties": {
+                      "itemsField": {
+                        "description": "Where a page's list is, a dotted path (default \"items\")",
+                        "type": "string"
+                      },
+                      "maxPages": {
+                        "description": "Most pages fetched, 1 to 1000 (default 10)",
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "tokenArg": {
+                        "description": "The tool argument the token is passed in (default \"continue\")",
+                        "type": "string"
+                      },
+                      "tokenField": {
+                        "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
                   },
                   "store": {
                     "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -1310,8 +1339,7 @@
                   }
                 },
                 "required": [
-                  "id",
-                  "tool"
+                  "id"
                 ],
                 "type": "object"
               },
@@ -1386,21 +1414,27 @@
                   },
                   "forEach": {
                     "additionalProperties": false,
-                    "description": "Run a body of sub-steps once per item of a list",
+                    "description": "Run a body of sub-steps once per item of a list; a body sub-step may itself be a forEach, one level deep",
                     "properties": {
                       "as": {
-                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} (default \"item\")",
+                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
                         "type": "string"
                       },
                       "items": {
-                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\"",
+                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\" or an earlier step's \"{{ .results.clusters.items }}\"",
                         "type": "string"
                       },
+                      "parallelism": {
+                        "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                        "maximum": 50,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
                       "steps": {
-                        "description": "Body executed for each item",
+                        "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
                         "items": {
                           "additionalProperties": false,
-                          "description": "A tool-call sub-step",
+                          "description": "A sub-step: a tool call or, in a forEach body, a nested forEach",
                           "properties": {
                             "allowFailure": {
                               "description": "Whether this sub-step is allowed to fail",
@@ -1458,13 +1492,183 @@
                               "description": "Human-readable documentation for this sub-step",
                               "type": "string"
                             },
+                            "forEach": {
+                              "additionalProperties": false,
+                              "description": "A nested loop, one level deep, only in a forEach body (not in parallel or onFailure); its sub-steps are tool calls and its `as` must differ from the outer loop's. Mutually exclusive with tool.",
+                              "properties": {
+                                "as": {
+                                  "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
+                                  "type": "string"
+                                },
+                                "items": {
+                                  "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\" or an earlier step's \"{{ .results.clusters.items }}\"",
+                                  "type": "string"
+                                },
+                                "parallelism": {
+                                  "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                                  "maximum": 50,
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "steps": {
+                                  "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "A tool-call sub-step",
+                                    "properties": {
+                                      "allowFailure": {
+                                        "description": "Whether this sub-step is allowed to fail",
+                                        "type": "boolean"
+                                      },
+                                      "args": {
+                                        "description": "Arguments to pass to the tool (supports templating)",
+                                        "type": "object"
+                                      },
+                                      "condition": {
+                                        "additionalProperties": false,
+                                        "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
+                                        "properties": {
+                                          "args": {
+                                            "description": "Arguments for the condition tool",
+                                            "type": "object"
+                                          },
+                                          "expect": {
+                                            "description": "Expected results for condition evaluation",
+                                            "properties": {
+                                              "jsonPath": {
+                                                "additionalProperties": {
+                                                  "description": "Expected value for the JSON path"
+                                                },
+                                                "description": "JSON path expressions to evaluate against tool result",
+                                                "type": "object"
+                                              },
+                                              "success": {
+                                                "description": "Whether the tool call should succeed",
+                                                "type": "boolean"
+                                              }
+                                            },
+                                            "type": "object"
+                                          },
+                                          "expectNot": {
+                                            "description": "Negated expected results for condition evaluation",
+                                            "type": "object"
+                                          },
+                                          "fromStep": {
+                                            "description": "Reference a previous step's result for condition evaluation",
+                                            "type": "string"
+                                          },
+                                          "template": {
+                                            "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                                            "type": "string"
+                                          },
+                                          "tool": {
+                                            "description": "Tool to call for condition evaluation",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "description": {
+                                        "description": "Human-readable documentation for this sub-step",
+                                        "type": "string"
+                                      },
+                                      "id": {
+                                        "description": "Unique identifier for this sub-step",
+                                        "type": "string"
+                                      },
+                                      "jq": {
+                                        "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                                        "type": "string"
+                                      },
+                                      "output": {
+                                        "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                                        "type": "boolean"
+                                      },
+                                      "paginate": {
+                                        "additionalProperties": false,
+                                        "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                                        "properties": {
+                                          "itemsField": {
+                                            "description": "Where a page's list is, a dotted path (default \"items\")",
+                                            "type": "string"
+                                          },
+                                          "maxPages": {
+                                            "description": "Most pages fetched, 1 to 1000 (default 10)",
+                                            "maximum": 1000,
+                                            "minimum": 1,
+                                            "type": "integer"
+                                          },
+                                          "tokenArg": {
+                                            "description": "The tool argument the token is passed in (default \"continue\")",
+                                            "type": "string"
+                                          },
+                                          "tokenField": {
+                                            "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "store": {
+                                        "description": "Deprecated alias for output; kept for backwards compatibility",
+                                        "type": "boolean"
+                                      },
+                                      "tool": {
+                                        "description": "Name of the tool to execute",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "minItems": 1,
+                                  "type": "array"
+                                }
+                              },
+                              "required": [
+                                "items",
+                                "steps"
+                              ],
+                              "type": "object"
+                            },
                             "id": {
                               "description": "Unique identifier for this sub-step",
+                              "type": "string"
+                            },
+                            "jq": {
+                              "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
                               "type": "string"
                             },
                             "output": {
                               "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                               "type": "boolean"
+                            },
+                            "paginate": {
+                              "additionalProperties": false,
+                              "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                              "properties": {
+                                "itemsField": {
+                                  "description": "Where a page's list is, a dotted path (default \"items\")",
+                                  "type": "string"
+                                },
+                                "maxPages": {
+                                  "description": "Most pages fetched, 1 to 1000 (default 10)",
+                                  "maximum": 1000,
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "tokenArg": {
+                                  "description": "The tool argument the token is passed in (default \"continue\")",
+                                  "type": "string"
+                                },
+                                "tokenField": {
+                                  "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
                             },
                             "store": {
                               "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -1476,8 +1680,7 @@
                             }
                           },
                           "required": [
-                            "id",
-                            "tool"
+                            "id"
                           ],
                           "type": "object"
                         },
@@ -1495,9 +1698,38 @@
                     "description": "Unique identifier for this step within the workflow",
                     "type": "string"
                   },
+                  "jq": {
+                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "type": "string"
+                  },
                   "output": {
                     "description": "Include this step's result in the workflow's answer; later steps read every result via {{.results.stepId.field}} either way.",
                     "type": "boolean"
+                  },
+                  "paginate": {
+                    "additionalProperties": false,
+                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "properties": {
+                      "itemsField": {
+                        "description": "Where a page's list is, a dotted path (default \"items\")",
+                        "type": "string"
+                      },
+                      "maxPages": {
+                        "description": "Most pages fetched, 1 to 1000 (default 10)",
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "tokenArg": {
+                        "description": "The tool argument the token is passed in (default \"continue\")",
+                        "type": "string"
+                      },
+                      "tokenField": {
+                        "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
                   },
                   "parallel": {
                     "description": "Sub-steps to execute concurrently (mutually exclusive with tool/forEach)",
@@ -1565,9 +1797,38 @@
                           "description": "Unique identifier for this sub-step",
                           "type": "string"
                         },
+                        "jq": {
+                          "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                          "type": "string"
+                        },
                         "output": {
                           "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                           "type": "boolean"
+                        },
+                        "paginate": {
+                          "additionalProperties": false,
+                          "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                          "properties": {
+                            "itemsField": {
+                              "description": "Where a page's list is, a dotted path (default \"items\")",
+                              "type": "string"
+                            },
+                            "maxPages": {
+                              "description": "Most pages fetched, 1 to 1000 (default 10)",
+                              "maximum": 1000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "tokenArg": {
+                              "description": "The tool argument the token is passed in (default \"continue\")",
+                              "type": "string"
+                            },
+                            "tokenField": {
+                              "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
                         },
                         "store": {
                           "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -1579,8 +1840,7 @@
                         }
                       },
                       "required": [
-                        "id",
-                        "tool"
+                        "id"
                       ],
                       "type": "object"
                     },
@@ -1808,9 +2068,38 @@
                     "description": "Unique identifier for this sub-step",
                     "type": "string"
                   },
+                  "jq": {
+                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "type": "string"
+                  },
                   "output": {
                     "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                     "type": "boolean"
+                  },
+                  "paginate": {
+                    "additionalProperties": false,
+                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "properties": {
+                      "itemsField": {
+                        "description": "Where a page's list is, a dotted path (default \"items\")",
+                        "type": "string"
+                      },
+                      "maxPages": {
+                        "description": "Most pages fetched, 1 to 1000 (default 10)",
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "tokenArg": {
+                        "description": "The tool argument the token is passed in (default \"continue\")",
+                        "type": "string"
+                      },
+                      "tokenField": {
+                        "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
                   },
                   "store": {
                     "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -1822,8 +2111,7 @@
                   }
                 },
                 "required": [
-                  "id",
-                  "tool"
+                  "id"
                 ],
                 "type": "object"
               },
@@ -1898,21 +2186,27 @@
                   },
                   "forEach": {
                     "additionalProperties": false,
-                    "description": "Run a body of sub-steps once per item of a list",
+                    "description": "Run a body of sub-steps once per item of a list; a body sub-step may itself be a forEach, one level deep",
                     "properties": {
                       "as": {
-                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} (default \"item\")",
+                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
                         "type": "string"
                       },
                       "items": {
-                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\"",
+                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\" or an earlier step's \"{{ .results.clusters.items }}\"",
                         "type": "string"
                       },
+                      "parallelism": {
+                        "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                        "maximum": 50,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
                       "steps": {
-                        "description": "Body executed for each item",
+                        "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
                         "items": {
                           "additionalProperties": false,
-                          "description": "A tool-call sub-step",
+                          "description": "A sub-step: a tool call or, in a forEach body, a nested forEach",
                           "properties": {
                             "allowFailure": {
                               "description": "Whether this sub-step is allowed to fail",
@@ -1970,13 +2264,183 @@
                               "description": "Human-readable documentation for this sub-step",
                               "type": "string"
                             },
+                            "forEach": {
+                              "additionalProperties": false,
+                              "description": "A nested loop, one level deep, only in a forEach body (not in parallel or onFailure); its sub-steps are tool calls and its `as` must differ from the outer loop's. Mutually exclusive with tool.",
+                              "properties": {
+                                "as": {
+                                  "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
+                                  "type": "string"
+                                },
+                                "items": {
+                                  "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\" or an earlier step's \"{{ .results.clusters.items }}\"",
+                                  "type": "string"
+                                },
+                                "parallelism": {
+                                  "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                                  "maximum": 50,
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "steps": {
+                                  "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "A tool-call sub-step",
+                                    "properties": {
+                                      "allowFailure": {
+                                        "description": "Whether this sub-step is allowed to fail",
+                                        "type": "boolean"
+                                      },
+                                      "args": {
+                                        "description": "Arguments to pass to the tool (supports templating)",
+                                        "type": "object"
+                                      },
+                                      "condition": {
+                                        "additionalProperties": false,
+                                        "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
+                                        "properties": {
+                                          "args": {
+                                            "description": "Arguments for the condition tool",
+                                            "type": "object"
+                                          },
+                                          "expect": {
+                                            "description": "Expected results for condition evaluation",
+                                            "properties": {
+                                              "jsonPath": {
+                                                "additionalProperties": {
+                                                  "description": "Expected value for the JSON path"
+                                                },
+                                                "description": "JSON path expressions to evaluate against tool result",
+                                                "type": "object"
+                                              },
+                                              "success": {
+                                                "description": "Whether the tool call should succeed",
+                                                "type": "boolean"
+                                              }
+                                            },
+                                            "type": "object"
+                                          },
+                                          "expectNot": {
+                                            "description": "Negated expected results for condition evaluation",
+                                            "type": "object"
+                                          },
+                                          "fromStep": {
+                                            "description": "Reference a previous step's result for condition evaluation",
+                                            "type": "string"
+                                          },
+                                          "template": {
+                                            "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                                            "type": "string"
+                                          },
+                                          "tool": {
+                                            "description": "Tool to call for condition evaluation",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "description": {
+                                        "description": "Human-readable documentation for this sub-step",
+                                        "type": "string"
+                                      },
+                                      "id": {
+                                        "description": "Unique identifier for this sub-step",
+                                        "type": "string"
+                                      },
+                                      "jq": {
+                                        "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                                        "type": "string"
+                                      },
+                                      "output": {
+                                        "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                                        "type": "boolean"
+                                      },
+                                      "paginate": {
+                                        "additionalProperties": false,
+                                        "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                                        "properties": {
+                                          "itemsField": {
+                                            "description": "Where a page's list is, a dotted path (default \"items\")",
+                                            "type": "string"
+                                          },
+                                          "maxPages": {
+                                            "description": "Most pages fetched, 1 to 1000 (default 10)",
+                                            "maximum": 1000,
+                                            "minimum": 1,
+                                            "type": "integer"
+                                          },
+                                          "tokenArg": {
+                                            "description": "The tool argument the token is passed in (default \"continue\")",
+                                            "type": "string"
+                                          },
+                                          "tokenField": {
+                                            "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "store": {
+                                        "description": "Deprecated alias for output; kept for backwards compatibility",
+                                        "type": "boolean"
+                                      },
+                                      "tool": {
+                                        "description": "Name of the tool to execute",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "minItems": 1,
+                                  "type": "array"
+                                }
+                              },
+                              "required": [
+                                "items",
+                                "steps"
+                              ],
+                              "type": "object"
+                            },
                             "id": {
                               "description": "Unique identifier for this sub-step",
+                              "type": "string"
+                            },
+                            "jq": {
+                              "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
                               "type": "string"
                             },
                             "output": {
                               "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                               "type": "boolean"
+                            },
+                            "paginate": {
+                              "additionalProperties": false,
+                              "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                              "properties": {
+                                "itemsField": {
+                                  "description": "Where a page's list is, a dotted path (default \"items\")",
+                                  "type": "string"
+                                },
+                                "maxPages": {
+                                  "description": "Most pages fetched, 1 to 1000 (default 10)",
+                                  "maximum": 1000,
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "tokenArg": {
+                                  "description": "The tool argument the token is passed in (default \"continue\")",
+                                  "type": "string"
+                                },
+                                "tokenField": {
+                                  "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
                             },
                             "store": {
                               "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -1988,8 +2452,7 @@
                             }
                           },
                           "required": [
-                            "id",
-                            "tool"
+                            "id"
                           ],
                           "type": "object"
                         },
@@ -2007,9 +2470,38 @@
                     "description": "Unique identifier for this step within the workflow",
                     "type": "string"
                   },
+                  "jq": {
+                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "type": "string"
+                  },
                   "output": {
                     "description": "Include this step's result in the workflow's answer; later steps read every result via {{.results.stepId.field}} either way.",
                     "type": "boolean"
+                  },
+                  "paginate": {
+                    "additionalProperties": false,
+                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "properties": {
+                      "itemsField": {
+                        "description": "Where a page's list is, a dotted path (default \"items\")",
+                        "type": "string"
+                      },
+                      "maxPages": {
+                        "description": "Most pages fetched, 1 to 1000 (default 10)",
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "tokenArg": {
+                        "description": "The tool argument the token is passed in (default \"continue\")",
+                        "type": "string"
+                      },
+                      "tokenField": {
+                        "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
                   },
                   "parallel": {
                     "description": "Sub-steps to execute concurrently (mutually exclusive with tool/forEach)",
@@ -2077,9 +2569,38 @@
                           "description": "Unique identifier for this sub-step",
                           "type": "string"
                         },
+                        "jq": {
+                          "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                          "type": "string"
+                        },
                         "output": {
                           "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                           "type": "boolean"
+                        },
+                        "paginate": {
+                          "additionalProperties": false,
+                          "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                          "properties": {
+                            "itemsField": {
+                              "description": "Where a page's list is, a dotted path (default \"items\")",
+                              "type": "string"
+                            },
+                            "maxPages": {
+                              "description": "Most pages fetched, 1 to 1000 (default 10)",
+                              "maximum": 1000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "tokenArg": {
+                              "description": "The tool argument the token is passed in (default \"continue\")",
+                              "type": "string"
+                            },
+                            "tokenField": {
+                              "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
                         },
                         "store": {
                           "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -2091,8 +2612,7 @@
                         }
                       },
                       "required": [
-                        "id",
-                        "tool"
+                        "id"
                       ],
                       "type": "object"
                     },
@@ -2237,9 +2757,38 @@
                     "description": "Unique identifier for this sub-step",
                     "type": "string"
                   },
+                  "jq": {
+                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "type": "string"
+                  },
                   "output": {
                     "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                     "type": "boolean"
+                  },
+                  "paginate": {
+                    "additionalProperties": false,
+                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "properties": {
+                      "itemsField": {
+                        "description": "Where a page's list is, a dotted path (default \"items\")",
+                        "type": "string"
+                      },
+                      "maxPages": {
+                        "description": "Most pages fetched, 1 to 1000 (default 10)",
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "tokenArg": {
+                        "description": "The tool argument the token is passed in (default \"continue\")",
+                        "type": "string"
+                      },
+                      "tokenField": {
+                        "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
                   },
                   "store": {
                     "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -2251,8 +2800,7 @@
                   }
                 },
                 "required": [
-                  "id",
-                  "tool"
+                  "id"
                 ],
                 "type": "object"
               },
@@ -2327,21 +2875,27 @@
                   },
                   "forEach": {
                     "additionalProperties": false,
-                    "description": "Run a body of sub-steps once per item of a list",
+                    "description": "Run a body of sub-steps once per item of a list; a body sub-step may itself be a forEach, one level deep",
                     "properties": {
                       "as": {
-                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} (default \"item\")",
+                        "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
                         "type": "string"
                       },
                       "items": {
-                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\"",
+                        "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\" or an earlier step's \"{{ .results.clusters.items }}\"",
                         "type": "string"
                       },
+                      "parallelism": {
+                        "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                        "maximum": 50,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
                       "steps": {
-                        "description": "Body executed for each item",
+                        "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
                         "items": {
                           "additionalProperties": false,
-                          "description": "A tool-call sub-step",
+                          "description": "A sub-step: a tool call or, in a forEach body, a nested forEach",
                           "properties": {
                             "allowFailure": {
                               "description": "Whether this sub-step is allowed to fail",
@@ -2399,13 +2953,183 @@
                               "description": "Human-readable documentation for this sub-step",
                               "type": "string"
                             },
+                            "forEach": {
+                              "additionalProperties": false,
+                              "description": "A nested loop, one level deep, only in a forEach body (not in parallel or onFailure); its sub-steps are tool calls and its `as` must differ from the outer loop's. Mutually exclusive with tool.",
+                              "properties": {
+                                "as": {
+                                  "description": "Loop variable name exposed as {{ .vars.\u003cas\u003e }} and $vars.\u003cas\u003e in jq (default \"item\"); the index is {{ .vars.\u003cas\u003e_index }}",
+                                  "type": "string"
+                                },
+                                "items": {
+                                  "description": "Template expression resolving to a list, e.g. \"{{ .input.clusters }}\" or an earlier step's \"{{ .results.clusters.items }}\"",
+                                  "type": "string"
+                                },
+                                "parallelism": {
+                                  "description": "How many iterations may run at once, 1 to 50 (default: one after another). Results and records come out in item order either way; a nested loop's calls in flight are at most outer times inner parallelism.",
+                                  "maximum": 50,
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "steps": {
+                                  "description": "Body executed for each item. After the loop, the forEach step's id holds one record per iteration: {index, item, status, results: {\u003csub-step id\u003e: result}, error (for a failed iteration)}.",
+                                  "items": {
+                                    "additionalProperties": false,
+                                    "description": "A tool-call sub-step",
+                                    "properties": {
+                                      "allowFailure": {
+                                        "description": "Whether this sub-step is allowed to fail",
+                                        "type": "boolean"
+                                      },
+                                      "args": {
+                                        "description": "Arguments to pass to the tool (supports templating)",
+                                        "type": "object"
+                                      },
+                                      "condition": {
+                                        "additionalProperties": false,
+                                        "description": "Run the step only if this holds: exactly one of template, tool or fromStep; a tool or fromStep condition needs expect or expectNot.",
+                                        "properties": {
+                                          "args": {
+                                            "description": "Arguments for the condition tool",
+                                            "type": "object"
+                                          },
+                                          "expect": {
+                                            "description": "Expected results for condition evaluation",
+                                            "properties": {
+                                              "jsonPath": {
+                                                "additionalProperties": {
+                                                  "description": "Expected value for the JSON path"
+                                                },
+                                                "description": "JSON path expressions to evaluate against tool result",
+                                                "type": "object"
+                                              },
+                                              "success": {
+                                                "description": "Whether the tool call should succeed",
+                                                "type": "boolean"
+                                              }
+                                            },
+                                            "type": "object"
+                                          },
+                                          "expectNot": {
+                                            "description": "Negated expected results for condition evaluation",
+                                            "type": "object"
+                                          },
+                                          "fromStep": {
+                                            "description": "Reference a previous step's result for condition evaluation",
+                                            "type": "string"
+                                          },
+                                          "template": {
+                                            "description": "Boolean Go-template gate, e.g. \"{{ eq .input.env \\\"production\\\" }}\"",
+                                            "type": "string"
+                                          },
+                                          "tool": {
+                                            "description": "Tool to call for condition evaluation",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "description": {
+                                        "description": "Human-readable documentation for this sub-step",
+                                        "type": "string"
+                                      },
+                                      "id": {
+                                        "description": "Unique identifier for this sub-step",
+                                        "type": "string"
+                                      },
+                                      "jq": {
+                                        "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                                        "type": "string"
+                                      },
+                                      "output": {
+                                        "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
+                                        "type": "boolean"
+                                      },
+                                      "paginate": {
+                                        "additionalProperties": false,
+                                        "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                                        "properties": {
+                                          "itemsField": {
+                                            "description": "Where a page's list is, a dotted path (default \"items\")",
+                                            "type": "string"
+                                          },
+                                          "maxPages": {
+                                            "description": "Most pages fetched, 1 to 1000 (default 10)",
+                                            "maximum": 1000,
+                                            "minimum": 1,
+                                            "type": "integer"
+                                          },
+                                          "tokenArg": {
+                                            "description": "The tool argument the token is passed in (default \"continue\")",
+                                            "type": "string"
+                                          },
+                                          "tokenField": {
+                                            "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                                            "type": "string"
+                                          }
+                                        },
+                                        "type": "object"
+                                      },
+                                      "store": {
+                                        "description": "Deprecated alias for output; kept for backwards compatibility",
+                                        "type": "boolean"
+                                      },
+                                      "tool": {
+                                        "description": "Name of the tool to execute",
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": [
+                                      "id"
+                                    ],
+                                    "type": "object"
+                                  },
+                                  "minItems": 1,
+                                  "type": "array"
+                                }
+                              },
+                              "required": [
+                                "items",
+                                "steps"
+                              ],
+                              "type": "object"
+                            },
                             "id": {
                               "description": "Unique identifier for this sub-step",
+                              "type": "string"
+                            },
+                            "jq": {
+                              "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
                               "type": "string"
                             },
                             "output": {
                               "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                               "type": "boolean"
+                            },
+                            "paginate": {
+                              "additionalProperties": false,
+                              "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                              "properties": {
+                                "itemsField": {
+                                  "description": "Where a page's list is, a dotted path (default \"items\")",
+                                  "type": "string"
+                                },
+                                "maxPages": {
+                                  "description": "Most pages fetched, 1 to 1000 (default 10)",
+                                  "maximum": 1000,
+                                  "minimum": 1,
+                                  "type": "integer"
+                                },
+                                "tokenArg": {
+                                  "description": "The tool argument the token is passed in (default \"continue\")",
+                                  "type": "string"
+                                },
+                                "tokenField": {
+                                  "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                                  "type": "string"
+                                }
+                              },
+                              "type": "object"
                             },
                             "store": {
                               "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -2417,8 +3141,7 @@
                             }
                           },
                           "required": [
-                            "id",
-                            "tool"
+                            "id"
                           ],
                           "type": "object"
                         },
@@ -2436,9 +3159,38 @@
                     "description": "Unique identifier for this step within the workflow",
                     "type": "string"
                   },
+                  "jq": {
+                    "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                    "type": "string"
+                  },
                   "output": {
                     "description": "Include this step's result in the workflow's answer; later steps read every result via {{.results.stepId.field}} either way.",
                     "type": "boolean"
+                  },
+                  "paginate": {
+                    "additionalProperties": false,
+                    "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                    "properties": {
+                      "itemsField": {
+                        "description": "Where a page's list is, a dotted path (default \"items\")",
+                        "type": "string"
+                      },
+                      "maxPages": {
+                        "description": "Most pages fetched, 1 to 1000 (default 10)",
+                        "maximum": 1000,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      "tokenArg": {
+                        "description": "The tool argument the token is passed in (default \"continue\")",
+                        "type": "string"
+                      },
+                      "tokenField": {
+                        "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
                   },
                   "parallel": {
                     "description": "Sub-steps to execute concurrently (mutually exclusive with tool/forEach)",
@@ -2506,9 +3258,38 @@
                           "description": "Unique identifier for this sub-step",
                           "type": "string"
                         },
+                        "jq": {
+                          "description": "A jq program that reshapes the step's result before it is stored -- the tool's result, or a forEach step's per-iteration records -- so later steps and the output template see only what it yields, e.g. '[.items[] | {name: .metadata.name}]'. $input is the workflow input, $vars the loop variables. It must yield one value: wrap a stream in [ ].",
+                          "type": "string"
+                        },
                         "output": {
                           "description": "Whether this sub-step's result is included in the returned document. Results are always referenceable by later steps regardless of this flag.",
                           "type": "boolean"
+                        },
+                        "paginate": {
+                          "additionalProperties": false,
+                          "description": "Follow the tool's next-page token and store every page's items as one list (tool steps only). The stored result is the last page with that list holding every page's items, plus pagination.pages and pagination.truncated; a truncated result keeps the token to resume from.",
+                          "properties": {
+                            "itemsField": {
+                              "description": "Where a page's list is, a dotted path (default \"items\")",
+                              "type": "string"
+                            },
+                            "maxPages": {
+                              "description": "Most pages fetched, 1 to 1000 (default 10)",
+                              "maximum": 1000,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            "tokenArg": {
+                              "description": "The tool argument the token is passed in (default \"continue\")",
+                              "type": "string"
+                            },
+                            "tokenField": {
+                              "description": "Where a page's next-page token is, a dotted path (default \"continue\")",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
                         },
                         "store": {
                           "description": "Deprecated alias for output; kept for backwards compatibility",
@@ -2520,8 +3301,7 @@
                         }
                       },
                       "required": [
-                        "id",
-                        "tool"
+                        "id"
                       ],
                       "type": "object"
                     },
