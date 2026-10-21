@@ -18,21 +18,37 @@ type ToolHandler struct {
 	config         ToolConfig
 	templateEngine *template.Engine
 	debug          bool
+	rendezvous     *rendezvous // nil unless the tool declares one
 }
 
 // NewToolHandler creates a new mock tool handler
 func NewToolHandler(config ToolConfig, templateEngine *template.Engine, debug bool) *ToolHandler {
-	return &ToolHandler{
+	h := &ToolHandler{
 		config:         config,
 		templateEngine: templateEngine,
 		debug:          debug,
 	}
+	if config.Rendezvous > 0 {
+		h.rendezvous = newRendezvous(config.Rendezvous)
+	}
+	return h
 }
 
 // HandleCall processes a tool call and returns the configured response
 func (h *ToolHandler) HandleCall(args map[string]interface{}) (interface{}, error) {
 	if h.debug {
 		fmt.Fprintf(os.Stderr, "🔧 Mock tool '%s' called with args: %v\n", h.config.Name, args)
+	}
+
+	if h.rendezvous != nil {
+		defer h.rendezvous.enter()()
+		timeout := rendezvousTimeout
+		if d, err := time.ParseDuration(h.config.RendezvousTimeout); err == nil && d > 0 {
+			timeout = d
+		}
+		if err := h.rendezvous.wait(timeout); err != nil {
+			return nil, err
+		}
 	}
 
 	// Merge args with default values from input schema
@@ -96,6 +112,10 @@ func (h *ToolHandler) HandleCall(args map[string]interface{}) (interface{}, erro
 			fmt.Fprintf(os.Stderr, "❌ Failed to render response for tool '%s': %v\n", h.config.Name, err)
 		}
 		return nil, fmt.Errorf("failed to render response: %w", err)
+	}
+
+	if obj, ok := renderedResponse.(map[string]interface{}); ok && h.rendezvous != nil {
+		obj["max_in_flight"] = h.rendezvous.max()
 	}
 
 	if h.debug {

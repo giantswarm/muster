@@ -10,6 +10,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/jq"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -158,47 +159,12 @@ func (r *WorkflowReconciler) applyStatus(workflow *musterv1alpha1.Workflow, refe
 	workflow.Status.StepCount = stepCount
 }
 
-// extractReferencedTools extracts all tool names referenced in the Workflow steps.
+// extractReferencedTools extracts all tool names referenced in the Workflow
+// steps, sorted for a deterministic status.
 func (r *WorkflowReconciler) extractReferencedTools(wf *api.Workflow) []string {
-	if wf == nil {
+	tools := api.WorkflowStepTools(wf)
+	if tools == nil {
 		return []string{}
-	}
-
-	toolSet := make(map[string]bool)
-
-	for _, step := range wf.Steps {
-		if step.Tool != "" {
-			toolSet[step.Tool] = true
-		}
-		// Also extract tools from conditions
-		if step.Condition != nil && step.Condition.Tool != "" {
-			toolSet[step.Condition.Tool] = true
-		}
-		// Container steps (parallel/forEach) carry their tools on sub-steps.
-		for _, sub := range step.Parallel {
-			if sub.Tool != "" {
-				toolSet[sub.Tool] = true
-			}
-			if sub.Condition != nil && sub.Condition.Tool != "" {
-				toolSet[sub.Condition.Tool] = true
-			}
-		}
-		if step.ForEach != nil {
-			for _, sub := range step.ForEach.Steps {
-				if sub.Tool != "" {
-					toolSet[sub.Tool] = true
-				}
-				if sub.Condition != nil && sub.Condition.Tool != "" {
-					toolSet[sub.Condition.Tool] = true
-				}
-			}
-		}
-	}
-
-	// Convert to sorted slice for deterministic output
-	tools := make([]string, 0, len(toolSet))
-	for tool := range toolSet {
-		tools = append(tools, tool)
 	}
 	sort.Strings(tools)
 	return tools
@@ -298,19 +264,24 @@ func (r *WorkflowReconciler) validateWorkflow(wf *api.Workflow) error {
 			return fmt.Errorf("step '%s': forEach and parallel are mutually exclusive", step.ID)
 		}
 
-		// Sub-steps of a container always require a tool of their own.
+		// Sub-steps of a container require a tool of their own; in a forEach
+		// body a sub-step may instead be a nested forEach.
 		for j, sub := range step.Parallel {
-			if sub.Tool == "" {
+			if sub.Tool == "" && sub.ForEach == nil {
 				return fmt.Errorf("step '%s': parallel sub-step %d (%s): tool is required", step.ID, j, sub.ID)
 			}
 		}
 		if step.ForEach != nil {
 			for j, sub := range step.ForEach.Steps {
-				if sub.Tool == "" {
+				if sub.Tool == "" && sub.ForEach == nil {
 					return fmt.Errorf("step '%s': forEach sub-step %d (%s): tool is required", step.ID, j, sub.ID)
 				}
 			}
 		}
+	}
+
+	if err := api.ValidateLoopsPagingAndJQ(wf, jq.Check); err != nil {
+		return err
 	}
 
 	// Validate argument definitions

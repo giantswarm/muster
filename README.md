@@ -51,7 +51,8 @@ Kubernetes service that gives a whole organisation one authenticated, observable
   reconciled by muster, with status, conditions and events. The Helm chart ships the CRDs,
   RBAC, network policies, a Prometheus rule set and a Grafana dashboard.
 - **Workflows.** Multi-step procedures become deterministic tools (`workflow_<name>`) with
-  templated arguments, conditions, `forEach` and `parallel` steps and a durable execution record.
+  templated arguments, conditions, `forEach` loops (nested, with bounded parallelism) and
+  `parallel` steps, paged listings, `jq` result projection and a durable execution record.
 - **Observability.** OpenTelemetry traces, Prometheus metrics and structured logs for every
   session, server and tool call.
 

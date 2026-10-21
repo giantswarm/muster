@@ -2,7 +2,8 @@ package api
 
 // WorkflowStepTools returns, in discovery order and deduplicated, every tool
 // name a workflow's steps reference: top-level step tools, condition tools,
-// the tools of forEach and parallel sub-steps, and onFailure handler tools.
+// the tools of forEach and parallel sub-steps (a nested forEach's included),
+// and onFailure handler tools.
 // Nested workflow_<name> steps are returned as such; callers that need
 // transitive resolution descend into them.
 func WorkflowStepTools(wf *Workflow) []string {
@@ -26,10 +27,14 @@ func WorkflowStepTools(wf *Workflow) []string {
 			add(c.Tool)
 		}
 	}
-	addSub := func(subs []WorkflowSubStep) {
+	var addSub func(subs []WorkflowSubStep)
+	addSub = func(subs []WorkflowSubStep) {
 		for _, sub := range subs {
 			addCondition(sub.Condition)
 			add(sub.Tool)
+			if sub.ForEach != nil {
+				addSub(sub.ForEach.Steps)
+			}
 		}
 	}
 	for _, step := range wf.Steps {

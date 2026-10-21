@@ -1,0 +1,157 @@
+name: "workflow-foreach-parallelism"
+description: "forEach.parallelism runs up to N iterations at once and never more, while every iteration's results, its <id>_<index> key, its step record and its record under the loop's id come out in item order, exactly as a sequential run would report them"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "parallelism", "concurrency", "fleet-scan", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "fleet"
+    config:
+      tools:
+      # Every call waits until two calls of this tool are in flight at once,
+      # then answers with the most it has seen at once: a sequential loop
+      # never gets an answer, an unbounded one reports more than two.
+      - name: "probe"
+        rendezvous: 2
+        responses: [ { response: { target: "{{ .target }}" } } ]
+      # Waits for three calls at once. With parallelism 2 the third never
+      # comes: every call gives up, reporting that two were the most it saw.
+      - name: "crowd"
+        rendezvous: 3
+        rendezvous_timeout: "3s"
+        responses: [ { response: { target: "{{ .target }}" } } ]
+
+steps:
+- id: "create"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-parallelism"
+    args:
+      targets: { type: "array", required: true }
+    steps:
+      - id: "scan"
+        forEach:
+          items: "{{ .input.targets }}"
+          as: "target"
+          parallelism: 2
+          steps:
+            - id: "probe"
+              tool: "x_fleet_probe"
+              args: { target: "{{ .vars.target }}" }
+            # Sub-steps of one iteration still run in order and chain.
+            - id: "confirm"
+              tool: "x_fleet_probe"
+              args: { target: "confirmed {{ .results.probe.target }}" }
+    output:
+      by_index:
+        - "{{ .results.confirm_0.target }}"
+        - "{{ .results.confirm_1.target }}"
+        - "{{ .results.confirm_2.target }}"
+        - "{{ .results.confirm_3.target }}"
+        - "{{ .results.confirm_4.target }}"
+        - "{{ .results.confirm_5.target }}"
+      records:
+        - "{{ (index .results.scan 0).item }}"
+        - "{{ (index .results.scan 1).item }}"
+        - "{{ (index .results.scan 2).item }}"
+        - "{{ (index .results.scan 3).item }}"
+        - "{{ (index .results.scan 4).item }}"
+        - "{{ (index .results.scan 5).item }}"
+      max_in_flight: "{{ max .results.probe_0.max_in_flight .results.probe_1.max_in_flight .results.probe_2.max_in_flight .results.probe_3.max_in_flight .results.probe_4.max_in_flight .results.probe_5.max_in_flight .results.confirm_0.max_in_flight .results.confirm_5.max_in_flight }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-parallelism" }
+
+- id: "run"
+  tool: "workflow_foreach-parallelism"
+  args:
+    targets: ["t0", "t1", "t2", "t3", "t4", "t5"]
+  expected:
+    success: true
+    json_path:
+      by_index.0: "confirmed t0"
+      by_index.1: "confirmed t1"
+      by_index.2: "confirmed t2"
+      by_index.3: "confirmed t3"
+      by_index.4: "confirmed t4"
+      by_index.5: "confirmed t5"
+      records.0: "t0"
+      records.5: "t5"
+      max_in_flight: 2
+
+# The step records come in item order too, whichever iteration finished first.
+- id: "run-debug"
+  tool: "workflow_foreach-parallelism"
+  args:
+    targets: ["t0", "t1", "t2", "t3", "t4", "t5"]
+    _debug: true
+  expected:
+    success: true
+    json_path:
+      status: "completed"
+      steps.0.id: "probe"
+      steps.0.iteration: 0
+      steps.0.result.target: "t0"
+      steps.1.id: "confirm"
+      steps.1.iteration: 0
+      steps.2.id: "probe"
+      steps.2.iteration: 1
+      steps.2.result.target: "t1"
+      steps.10.id: "probe"
+      steps.10.iteration: 5
+      steps.10.result.target: "t5"
+      steps.11.id: "confirm"
+      steps.11.iteration: 5
+
+- id: "create-bound"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-parallelism-bound"
+    args:
+      targets: { type: "array", required: true }
+    steps:
+      - id: "scan"
+        forEach:
+          items: "{{ .input.targets }}"
+          as: "target"
+          parallelism: 2
+          steps:
+            - id: "crowd"
+              tool: "x_fleet_crowd"
+              args: { target: "{{ .vars.target }}" }
+              allowFailure: true
+    output:
+      statuses:
+        - "{{ (index .results.scan 0).status }}"
+        - "{{ (index .results.scan 1).status }}"
+        - "{{ (index .results.scan 2).status }}"
+        - "{{ (index .results.scan 3).status }}"
+      errors:
+        - "{{ get (index .results.scan 0) \"error\" }}"
+        - "{{ get (index .results.scan 1) \"error\" }}"
+        - "{{ get (index .results.scan 2) \"error\" }}"
+        - "{{ get (index .results.scan 3) \"error\" }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-parallelism-bound" }
+
+# A third call in flight would have met the other two and succeeded.
+- id: "run-bound"
+  tool: "workflow_foreach-parallelism-bound"
+  args:
+    targets: ["t0", "t1", "t2", "t3"]
+  expected:
+    success: true
+    json_path:
+      statuses.0: "failed"
+      statuses.1: "failed"
+      statuses.2: "failed"
+      statuses.3: "failed"
+    contains: ["the most seen was 2"]
+    not_contains: ["the most seen was 3", "the most seen was 4"]

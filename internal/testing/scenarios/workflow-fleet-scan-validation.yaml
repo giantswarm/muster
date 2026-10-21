@@ -1,0 +1,188 @@
+name: "workflow-fleet-scan-validation"
+description: "A workflow definition using nested forEach, parallelism, paginate or jq is checked when it is created: a forEach nests one level and only in a forEach body, an inner loop variable cannot shadow the outer one, parallelism and maxPages are bounded, paginate belongs to tool steps, and a jq program must compile"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "validate", "foreach", "nested", "parallelism", "paginate", "jq", "error-handling", "core-api"]
+timeout: "2m"
+
+steps:
+- id: "validate-valid-fleet-scan"
+  tool: "core_workflow_validate"
+  args:
+    name: "good-fleet-scan"
+    steps:
+      - id: "outer"
+        forEach:
+          items: "{{ .input.mcs }}"
+          as: "mc"
+          parallelism: 4
+          steps:
+            - id: "list"
+              tool: "x_k8s_list"
+              paginate: { maxPages: 5 }
+              jq: '[.items[] | .metadata.name]'
+            - id: "inner"
+              forEach:
+                items: "{{ .results.list }}"
+                as: "cluster"
+                parallelism: 8
+                steps:
+                  - id: "pods"
+                    tool: "x_k8s_list"
+                    paginate: { maxPages: 5, itemsField: "items", tokenField: "continue", tokenArg: "continue" }
+        jq: '[.[] | .results.inner]'
+  expected:
+    success: true
+
+- id: "validate-bad-jq"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-jq"
+    steps:
+      - id: "pods"
+        tool: "x_k8s_list"
+        jq: '[.items[] |'
+  expected:
+    success: false
+    error_contains: ["pods", "jq"]
+
+- id: "validate-forEach-two-levels-deep"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-two-levels"
+    steps:
+      - id: "outer"
+        forEach:
+          items: "{{ .input.a }}"
+          steps:
+            - id: "middle"
+              forEach:
+                items: "{{ .input.b }}"
+                as: "b"
+                steps:
+                  - id: "inner"
+                    forEach:
+                      items: "{{ .input.c }}"
+                      as: "c"
+                      steps:
+                        - id: "leaf"
+                          tool: "x_k8s_list"
+  expected:
+    success: false
+    error_contains: ["inner", "one level"]
+
+- id: "validate-forEach-in-parallel"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-forEach-in-parallel"
+    steps:
+      - id: "group"
+        parallel:
+          - id: "loop"
+            forEach:
+              items: "{{ .input.a }}"
+              steps:
+                - id: "leaf"
+                  tool: "x_k8s_list"
+  expected:
+    success: false
+    error_contains: ["loop", "forEach body"]
+
+- id: "validate-forEach-in-onFailure"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-forEach-in-onFailure"
+    steps:
+      - id: "work"
+        tool: "x_k8s_list"
+    onFailure:
+      - id: "cleanup"
+        forEach:
+          items: "{{ .input.a }}"
+          steps:
+            - id: "leaf"
+              tool: "x_k8s_list"
+  expected:
+    success: false
+    error_contains: ["cleanup", "forEach body"]
+
+- id: "validate-shadowed-loop-variable"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-shadowed-as"
+    steps:
+      - id: "outer"
+        forEach:
+          items: "{{ .input.a }}"
+          as: "target"
+          steps:
+            - id: "inner"
+              forEach:
+                items: "{{ .input.b }}"
+                as: "target"
+                steps:
+                  - id: "leaf"
+                    tool: "x_k8s_list"
+  expected:
+    success: false
+    error_contains: ["inner", "target"]
+
+- id: "validate-parallelism-too-low"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-parallelism-low"
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.a }}"
+          parallelism: 0
+          steps:
+            - id: "leaf"
+              tool: "x_k8s_list"
+  expected:
+    success: false
+    error_contains: ["loop", "parallelism"]
+
+- id: "validate-parallelism-too-high"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-parallelism-high"
+    steps:
+      - id: "loop"
+        forEach:
+          items: "{{ .input.a }}"
+          parallelism: 51
+          steps:
+            - id: "leaf"
+              tool: "x_k8s_list"
+  expected:
+    success: false
+    error_contains: ["loop", "parallelism", "50"]
+
+- id: "validate-paginate-on-forEach"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-paginate-on-forEach"
+    steps:
+      - id: "loop"
+        paginate: { maxPages: 2 }
+        forEach:
+          items: "{{ .input.a }}"
+          steps:
+            - id: "leaf"
+              tool: "x_k8s_list"
+  expected:
+    success: false
+    error_contains: ["loop", "paginate"]
+
+- id: "validate-max-pages-out-of-range"
+  tool: "core_workflow_validate"
+  args:
+    name: "bad-max-pages"
+    steps:
+      - id: "pods"
+        tool: "x_k8s_list"
+        paginate: { maxPages: 0 }
+  expected:
+    success: false
+    error_contains: ["pods", "maxPages"]

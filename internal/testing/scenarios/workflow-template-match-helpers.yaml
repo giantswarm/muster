@@ -1,0 +1,55 @@
+name: "workflow-template-match-helpers"
+description: "The sprig substring and regular-expression helpers contains and regexMatch work in a condition template and in the output template, so a workflow can gate a step on, and report, a partial match such as an image name"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "condition", "output-template", "sprig", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "echo-provider"
+    config:
+      tools:
+      - name: "echo"
+        responses: [ { response: { said: "{{ .text }}" } } ]
+
+steps:
+- id: "create"
+  tool: "core_workflow_create"
+  args:
+    name: "template-match-helpers"
+    args:
+      image: { type: "string", required: true }
+    steps:
+      - id: "nginx"
+        condition:
+          template: '{{ contains "nginx" .input.image }}'
+        tool: "x_echo-provider_echo"
+        args: { text: "an nginx image" }
+      - id: "postgres"
+        condition:
+          template: '{{ regexMatch "postgres:[0-9]+$" .input.image }}'
+        tool: "x_echo-provider_echo"
+        args: { text: "a postgres image" }
+    output:
+      is_nginx: '{{ contains "nginx" .input.image }}'
+      pinned_tag: '{{ regexMatch ":[0-9][0-9.]*$" .input.image }}'
+      ran_nginx: '{{ hasKey .results "nginx" }}'
+      ran_postgres: '{{ hasKey .results "postgres" }}'
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "template-match-helpers" }
+
+- id: "run"
+  tool: "workflow_template-match-helpers"
+  args:
+    image: "registry.example.com/nginx:1.25"
+  expected:
+    success: true
+    json_path:
+      is_nginx: true
+      pinned_tag: true
+      ran_nginx: true
+      ran_postgres: false

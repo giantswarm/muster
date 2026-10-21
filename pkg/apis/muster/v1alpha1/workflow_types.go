@@ -64,9 +64,10 @@ type WorkflowSpec struct {
 }
 
 // WorkflowStep defines a single step in the workflow execution.
-// A step is exactly one of: a tool call (tool), a sequential loop (forEach),
-// or a concurrent group (parallel).
+// A step is exactly one of: a tool call (tool), a loop (forEach), or a
+// concurrent group (parallel).
 // +kubebuilder:validation:XValidation:rule="(has(self.tool) ? 1 : 0) + (has(self.forEach) ? 1 : 0) + (has(self.parallel) ? 1 : 0) == 1",message="exactly one of tool, forEach, or parallel must be set"
+// +kubebuilder:validation:XValidation:rule="!has(self.paginate) || has(self.tool)",message="paginate applies to a tool step only"
 type WorkflowStep struct {
 	// ID is the unique identifier for this step within the workflow.
 	// +kubebuilder:validation:Required
@@ -87,6 +88,16 @@ type WorkflowStep struct {
 
 	// Condition defines an optional condition that determines whether this step should execute.
 	Condition *WorkflowCondition `json:"condition,omitempty" yaml:"condition,omitempty"`
+
+	// Paginate makes a tool step follow the tool's next-page token and store
+	// every page's items as one list. Only valid with tool.
+	Paginate *WorkflowPaginate `json:"paginate,omitempty" yaml:"paginate,omitempty"`
+
+	// JQ is a jq program that reshapes the step's result before it is stored:
+	// the tool's result for a tool step, the per-iteration records for a
+	// forEach step. It sees the workflow input as $input and the loop
+	// variables as $vars, and must yield one value.
+	JQ string `json:"jq,omitempty" yaml:"jq,omitempty"`
 
 	// ForEach executes a body of sub-steps once per item of a list. Mutually
 	// exclusive with tool and parallel.
@@ -122,8 +133,9 @@ type WorkflowStep struct {
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 }
 
-// WorkflowForEach describes a sequential loop over a list of items. The body is
-// a flat list of sub-steps (no nested forEach/parallel), executed once per item.
+// WorkflowForEach describes a loop over a list of items. The body is a list
+// of sub-steps executed once per item; a body sub-step may itself be a
+// forEach, one level deep.
 type WorkflowForEach struct {
 	// Items is a template expression that must resolve to an array, e.g.
 	// "{{ .input.clusters }}". Each element is bound to the loop variable for
@@ -137,16 +149,136 @@ type WorkflowForEach struct {
 	// +kubebuilder:default=item
 	As string `json:"as,omitempty" yaml:"as,omitempty"`
 
+	// Parallelism is how many iterations may run at once. Unset, they run
+	// one after another. Results, step records and the loop's per-iteration
+	// records come out in item order either way.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=50
+	Parallelism int `json:"parallelism,omitempty" yaml:"parallelism,omitempty"`
+
 	// Steps is the body executed for each item.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:MinItems=1
 	Steps []WorkflowSubStep `json:"steps" yaml:"steps"`
 }
 
-// WorkflowSubStep is a tool-call step used inside forEach bodies, parallel
-// groups, and onFailure handlers. Unlike WorkflowStep it cannot itself contain
-// forEach or parallel, which keeps the CRD schema structural (non-recursive).
+// WorkflowPaginate describes how a tool step follows the tool's pages: it
+// passes the token found at tokenField back as the tokenArg argument until
+// the token is empty or maxPages pages were fetched, and concatenates the
+// list found at itemsField. The stored result is the last page with that list
+// holding every page's items, plus pagination.pages and pagination.truncated;
+// a truncated result keeps the token to resume from. Field names may be
+// dotted paths ("data.next").
+type WorkflowPaginate struct {
+	// ItemsField is where a page's list is. Defaults to "items".
+	// +kubebuilder:validation:MinLength=1
+	ItemsField string `json:"itemsField,omitempty" yaml:"itemsField,omitempty"`
+
+	// TokenField is where a page's next-page token is. Defaults to "continue".
+	// +kubebuilder:validation:MinLength=1
+	TokenField string `json:"tokenField,omitempty" yaml:"tokenField,omitempty"`
+
+	// TokenArg is the tool argument the token is passed in. Defaults to
+	// "continue".
+	// +kubebuilder:validation:MinLength=1
+	TokenArg string `json:"tokenArg,omitempty" yaml:"tokenArg,omitempty"`
+
+	// MaxPages bounds the pages fetched. Defaults to 10.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=1000
+	MaxPages int `json:"maxPages,omitempty" yaml:"maxPages,omitempty"`
+}
+
+// WorkflowSubStep is a step used inside forEach bodies, parallel groups, and
+// onFailure handlers: a tool call or, in a forEach body only, a nested
+// forEach. Unlike WorkflowStep it cannot hold a parallel group, and a nested
+// forEach holds tool calls only, which keeps the CRD schema structural
+// (non-recursive).
+// +kubebuilder:validation:XValidation:rule="(has(self.tool) ? 1 : 0) + (has(self.forEach) ? 1 : 0) == 1",message="exactly one of tool or forEach must be set"
+// +kubebuilder:validation:XValidation:rule="!has(self.paginate) || has(self.tool)",message="paginate applies to a tool step only"
 type WorkflowSubStep struct {
+	// ID is the unique identifier for this sub-step.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern="^[a-zA-Z0-9_-]+$"
+	// +kubebuilder:validation:MaxLength=63
+	ID string `json:"id" yaml:"id"`
+
+	// Tool specifies the name of the tool to execute. Mutually exclusive
+	// with forEach.
+	// +kubebuilder:validation:MinLength=1
+	Tool string `json:"tool,omitempty" yaml:"tool,omitempty"`
+
+	// Args provides arguments for the tool execution (supports templating).
+	Args map[string]apiextensionsv1.JSON `json:"args,omitempty" yaml:"args,omitempty"`
+
+	// Condition defines an optional condition that determines whether this sub-step should execute.
+	Condition *WorkflowCondition `json:"condition,omitempty" yaml:"condition,omitempty"`
+
+	// ForEach makes this sub-step a nested loop, one level deep. Only valid in
+	// a forEach body (not in parallel or onFailure); its loop variable must
+	// differ from the outer one. Mutually exclusive with tool.
+	ForEach *WorkflowNestedForEach `json:"forEach,omitempty" yaml:"forEach,omitempty"`
+
+	// Paginate makes a tool sub-step follow the tool's pages (see
+	// WorkflowStep.paginate).
+	Paginate *WorkflowPaginate `json:"paginate,omitempty" yaml:"paginate,omitempty"`
+
+	// JQ reshapes the sub-step's result before it is stored (see
+	// WorkflowStep.jq). On a nested forEach it reshapes the loop's
+	// per-iteration records.
+	JQ string `json:"jq,omitempty" yaml:"jq,omitempty"`
+
+	// Output indicates whether this sub-step's result is included in the
+	// workflow's returned document. The result is always referenceable by later
+	// steps regardless of this flag. When unset, the deprecated Store flag is
+	// used as a fallback.
+	Output *bool `json:"output,omitempty" yaml:"output,omitempty"`
+
+	// Store is a deprecated alias for Output, kept for backwards compatibility.
+	// Prefer Output.
+	// +kubebuilder:default=false
+	Store bool `json:"store,omitempty" yaml:"store,omitempty"`
+
+	// AllowFailure defines if in case of an error execution continues.
+	// +kubebuilder:default=false
+	AllowFailure bool `json:"allowFailure,omitempty" yaml:"allowFailure,omitempty"`
+
+	// Description provides human-readable documentation for this sub-step's purpose.
+	// +kubebuilder:validation:MaxLength=500
+	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+}
+
+// WorkflowNestedForEach is a forEach inside a forEach body. Its body is tool
+// calls only.
+type WorkflowNestedForEach struct {
+	// Items is a template expression that must resolve to an array, typically
+	// a result of an earlier sub-step of the outer iteration, e.g.
+	// "{{ .results.clusters.items }}".
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinLength=1
+	Items string `json:"items" yaml:"items"`
+
+	// As is the loop variable name made available to the body as
+	// "{{ .vars.<as> }}". Defaults to "item"; it must differ from the outer
+	// loop's.
+	// +kubebuilder:default=item
+	As string `json:"as,omitempty" yaml:"as,omitempty"`
+
+	// Parallelism is how many iterations may run at once within one outer
+	// iteration. The calls in flight at once are at most the outer
+	// parallelism times this one.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=50
+	Parallelism int `json:"parallelism,omitempty" yaml:"parallelism,omitempty"`
+
+	// Steps is the body executed for each item.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:MinItems=1
+	Steps []WorkflowNestedStep `json:"steps" yaml:"steps"`
+}
+
+// WorkflowNestedStep is a tool-call step in the body of a nested forEach.
+type WorkflowNestedStep struct {
 	// ID is the unique identifier for this sub-step.
 	// +kubebuilder:validation:Required
 	// +kubebuilder:validation:Pattern="^[a-zA-Z0-9_-]+$"
@@ -164,10 +296,17 @@ type WorkflowSubStep struct {
 	// Condition defines an optional condition that determines whether this sub-step should execute.
 	Condition *WorkflowCondition `json:"condition,omitempty" yaml:"condition,omitempty"`
 
+	// Paginate makes the sub-step follow the tool's pages (see
+	// WorkflowStep.paginate).
+	Paginate *WorkflowPaginate `json:"paginate,omitempty" yaml:"paginate,omitempty"`
+
+	// JQ reshapes the sub-step's result before it is stored (see
+	// WorkflowStep.jq).
+	JQ string `json:"jq,omitempty" yaml:"jq,omitempty"`
+
 	// Output indicates whether this sub-step's result is included in the
-	// workflow's returned document. The result is always referenceable by later
-	// steps regardless of this flag. When unset, the deprecated Store flag is
-	// used as a fallback.
+	// workflow's returned document. The result is always referenceable by
+	// later steps regardless of this flag.
 	Output *bool `json:"output,omitempty" yaml:"output,omitempty"`
 
 	// Store is a deprecated alias for Output, kept for backwards compatibility.

@@ -1,0 +1,103 @@
+name: "workflow-foreach-parallelism-failure"
+description: "With forEach.parallelism a failing target whose sub-step allows failure is reported in its iteration's record and every other target still completes; a failure that is not allowed fails the workflow with that target's error, like a sequential loop"
+category: "behavioral"
+concept: "workflow"
+tags: ["workflow", "foreach", "parallelism", "allow-failure", "error-handling", "fleet-scan", "core-api"]
+timeout: "2m"
+
+pre_configuration:
+  mcp_servers:
+  - name: "fleet"
+    config:
+      tools:
+      - name: "scan"
+        responses:
+        - condition: { target: "t2" }
+          error: "cluster t2 is unreachable"
+        - response: { scanned: "{{ .target }}" }
+
+steps:
+- id: "create-tolerated"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-parallelism-tolerated"
+    args:
+      targets: { type: "array", required: true }
+    steps:
+      - id: "sweep"
+        forEach:
+          items: "{{ .input.targets }}"
+          as: "target"
+          parallelism: 3
+          steps:
+            - id: "scan"
+              tool: "x_fleet_scan"
+              args: { target: "{{ .vars.target }}" }
+              allowFailure: true
+    output:
+      count: "{{ len .results.sweep }}"
+      statuses:
+        - "{{ (index .results.sweep 0).status }}"
+        - "{{ (index .results.sweep 1).status }}"
+        - "{{ (index .results.sweep 2).status }}"
+        - "{{ (index .results.sweep 3).status }}"
+        - "{{ (index .results.sweep 4).status }}"
+      failed_item: "{{ (index .results.sweep 2).item }}"
+      failed_error: "{{ (index .results.sweep 2).error }}"
+      after_failure: "{{ .results.scan_4.scanned }}"
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-parallelism-tolerated" }
+
+- id: "run-tolerated"
+  tool: "workflow_foreach-parallelism-tolerated"
+  args:
+    targets: ["t0", "t1", "t2", "t3", "t4"]
+  expected:
+    success: true
+    json_path:
+      count: 5
+      statuses.0: "completed"
+      statuses.1: "completed"
+      statuses.2: "failed"
+      statuses.3: "completed"
+      statuses.4: "completed"
+      failed_item: "t2"
+      after_failure: "t4"
+    contains: ["cluster t2 is unreachable"]
+
+- id: "create-fatal"
+  tool: "core_workflow_create"
+  args:
+    name: "foreach-parallelism-fatal"
+    args:
+      targets: { type: "array", required: true }
+    steps:
+      - id: "sweep"
+        forEach:
+          items: "{{ .input.targets }}"
+          as: "target"
+          parallelism: 2
+          steps:
+            - id: "scan"
+              tool: "x_fleet_scan"
+              args: { target: "{{ .vars.target }}" }
+      - id: "never"
+        tool: "x_fleet_scan"
+        args: { target: "after the loop" }
+  expected:
+    success: true
+  cleanup:
+    - tool: "core_workflow_delete"
+      args: { name: "foreach-parallelism-fatal" }
+
+- id: "run-fatal"
+  tool: "workflow_foreach-parallelism-fatal"
+  args:
+    targets: ["t0", "t1", "t2", "t3", "t4"]
+  expected:
+    success: false
+    error_contains: ["cluster t2 is unreachable"]
+    not_contains: ["after the loop"]
