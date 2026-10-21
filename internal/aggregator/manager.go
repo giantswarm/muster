@@ -572,6 +572,10 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 		return fmt.Errorf("aggregator server not available")
 	}
 
+	// The session's challenge is used up: a later auth_required answer
+	// issues a new one.
+	aggregatorServer.pendingSignIns.forget(sessionID, serverName)
+
 	// A provider App's grant is stored already and connects nothing: the
 	// servers that receive it read it on their next request.
 	if app, ok := providerAppOfFlow(serverName); ok {

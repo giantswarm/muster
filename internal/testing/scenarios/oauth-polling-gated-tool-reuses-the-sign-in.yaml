@@ -1,0 +1,203 @@
+name: "oauth-polling-gated-tool-reuses-the-sign-in"
+category: "behavioral"
+concept: "oauth"
+description: |
+  A client polls a tool of a server the session is not signed in to, more
+  often than the person's 10 sign-in attempts per minute allow. Every call
+  answers auth_required with the same pending sign-in challenge instead of
+  starting a new core_auth_login, so the polling spends one attempt and never
+  locks the person out: core_auth_login still issues a sign-in afterwards,
+  and the sign-in connects the session.
+
+    1. The person signs in to muster; the session is not signed in to gh.
+    2. The client calls a gh tool twelve times: each answers auth_required
+       with the sign-in link, none "Rate limit exceeded".
+    3. core_auth_login issues the sign-in; it completes; the call runs.
+tags: ["oauth", "auth-required", "rate-limit", "polling", "regression", "issue-1625"]
+timeout: "4m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "github-as"
+      profile: "github"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+
+  mcp_servers:
+    - name: "gh"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+        tools:
+          - name: "whoami"
+            description: "Who the server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "gh"
+
+steps:
+  - id: server-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["gh"]
+
+  - id: person-logs-into-muster
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: poll-1
+    description: "Poll 1 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-2
+    description: "Poll 2 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-3
+    description: "Poll 3 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-4
+    description: "Poll 4 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-5
+    description: "Poll 5 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-6
+    description: "Poll 6 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-7
+    description: "Poll 7 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-8
+    description: "Poll 8 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-9
+    description: "Poll 9 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-10
+    description: "Poll 10 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-11
+    description: "Poll 11 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: poll-12
+    description: "Poll 12 answers the pending sign-in challenge"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: login-still-issues-a-sign-in
+    description: "The polling spent one attempt: core_auth_login is not refused"
+    tool: "core_auth_login"
+    args:
+      server: "gh"
+    expected:
+      success: true
+      contains: ["Please sign in"]
+      not_contains: ["Rate limit exceeded"]
+
+  - id: sign-in
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: call-runs
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["gh"]

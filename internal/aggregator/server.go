@@ -134,6 +134,10 @@ type AggregatorServer struct {
 	authRateLimiter *AuthRateLimiter // Per-user rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
 
+	// pendingSignIns are the sign-in challenges sessions await, which the
+	// auth_required answers of gated tool calls reuse (pending_signin.go).
+	pendingSignIns pendingSignIns
+
 	// Per-backend tool dispatch metrics. May be nil when instrument
 	// creation failed; record() is nil-safe.
 	downstreamMetrics *downstreamMetrics

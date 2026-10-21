@@ -89,7 +89,9 @@ func (a *AggregatorServer) authRequiredAnswer(ctx context.Context, serverName, o
 
 // signInAnswer starts the session's sign-in to the server and runs no tool:
 // the auth_required challenge, or connected when the login connected the
-// session without a browser (a stored grant the server still accepts).
+// session without a browser (a stored grant the server still accepts). While
+// the session awaits a challenge it was given, the answer is that challenge
+// again (pendingSignIns): a client polling a gated tool starts one sign-in.
 func (a *AggregatorServer) signInAnswer(ctx context.Context, serverName, sessionID, reason string) (*mcp.CallToolResult, bool, error) {
 	info, ok := a.registry.GetServerInfo(serverName)
 	if !ok {
@@ -102,7 +104,9 @@ func (a *AggregatorServer) signInAnswer(ctx context.Context, serverName, session
 		}), false, nil
 	}
 
-	login, err := NewAuthToolProvider(a).handleAuthLogin(ctx, map[string]any{resourceServerArg: serverName})
+	login, err := a.pendingSignIns.answer(sessionID, serverName, func() (*api.CallToolResult, error) {
+		return NewAuthToolProvider(a).handleAuthLogin(ctx, map[string]any{resourceServerArg: serverName})
+	})
 	if err != nil {
 		return nil, false, fmt.Errorf("server %s requires authentication and the sign-in could not be started: %w", serverName, err)
 	}
