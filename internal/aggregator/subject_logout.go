@@ -39,9 +39,11 @@ func (a *AggregatorServer) serversOfIssuer(issuer string) []string {
 }
 
 // disconnectSessionServer drops what lets one session call tools on one
-// server: the auth mark, the cached capabilities and the pooled client. The
-// token store is not touched -- callers decide the scope of that separately.
+// server: the auth mark, the cached capabilities, the pooled client and a
+// pending sign-in challenge. The token store is not touched -- callers decide
+// the scope of that separately.
 func (a *AggregatorServer) disconnectSessionServer(ctx context.Context, sessionID, serverName string) {
+	a.pendingSignIns.forget(sessionID, serverName)
 	if a.authStore != nil {
 		if err := a.authStore.Revoke(ctx, sessionID, serverName); err != nil {
 			logging.Warn("AuthTools", "Failed to revoke auth for %s/%s: %v",
