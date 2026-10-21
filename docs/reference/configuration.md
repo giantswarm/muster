@@ -314,7 +314,8 @@ codex's browser sign-in, which redirects to a listener on the person's machine.
   without a grant (the code expired; device-code sign-in is not enabled for the account,
   which OpenAI answers with 404 and the person enables in ChatGPT under Settings → Security,
   or their workspace admin in the workspace permissions). Reading the status never starts a
-  sign-in. The code and its poll live on the replica that issued it; the grant is in the
+  sign-in. The code and its poll live on the replica that issued it, and a restart of
+  that replica drops them (the person connects again for a new code); the grant is in the
   shared token store, where every replica finds it.
 - **Refreshing and releasing.** The grant is refreshed with the same client under the
   cross-replica refresh lock: OpenAI rotates the refresh token on every use, so muster must
