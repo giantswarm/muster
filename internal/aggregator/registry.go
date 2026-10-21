@@ -820,8 +820,10 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		sortedServers := append([]string(nil), group.Servers...)
 		sort.Strings(sortedServers)
 
-		exposedTool := group.Tools[0]
-		exposedTool.Description = toolset.CommonDescription(group.Tools)
+		// The exposed tool is the contribution of a member carrying the
+		// common description, so its annotations come with it.
+		description := toolset.CommonDescription(group.Tools)
+		exposedTool := group.Tools[slices.IndexFunc(group.Tools, func(t mcp.Tool) bool { return t.Description == description })]
 		exposedTool.Name = r.familyExposedName(key.family, key.toolName)
 		toolset.SetFamilyMembers(&exposedTool, entry.instanceArg, sortedServers)
 		// The exposed name carries the family, so the family is the owning

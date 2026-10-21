@@ -272,9 +272,9 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 
 	t.Run("members whose tool differs only in description share one family tool", func(t *testing.T) {
 		registry := NewServerRegistry("x")
-		short := mcp.Tool{Name: "list", Description: "List resources"}
-		long := mcp.Tool{Name: "list", Description: "List resources, with label and field selectors and pagination"}
-		for name, tool := range map[string]mcp.Tool{"k8s-a": short, "k8s-b": short, "k8s-c": long} {
+		short := mcp.Tool{Name: "list", Description: "List resources", Annotations: mcp.ToolAnnotation{ReadOnlyHint: mcp.ToBoolPtr(true)}}
+		long := mcp.Tool{Name: "list", Description: "List resources, with label and field selectors and pagination", Annotations: mcp.ToolAnnotation{ReadOnlyHint: mcp.ToBoolPtr(false)}}
+		for name, tool := range map[string]mcp.Tool{"k8s-a": long, "k8s-b": short, "k8s-c": short} {
 			require.NoError(t, registry.Register(ctx, ServerRegistration{
 				Name:       name,
 				ToolPrefix: name,
@@ -286,6 +286,8 @@ func TestServerRegistry_FamilyGrouping(t *testing.T) {
 		require.Len(t, tools, 1)
 		assert.Equal(t, "x_kubernetes_list", tools[0].Name)
 		assert.True(t, strings.HasPrefix(tools[0].Description, "List resources ("), "the most common description wins: %q", tools[0].Description)
+		require.NotNil(t, tools[0].Annotations.ReadOnlyHint)
+		assert.True(t, *tools[0].Annotations.ReadOnlyHint, "the annotations come with the common description")
 		instanceProp := tools[0].InputSchema.Properties["management_cluster"].(map[string]any)
 		assert.Equal(t, []any{"k8s-a", "k8s-b", "k8s-c"}, instanceProp["enum"])
 
