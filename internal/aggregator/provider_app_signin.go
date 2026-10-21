@@ -148,10 +148,16 @@ func (p *AuthToolProvider) disconnectProviderApp(ctx context.Context, sessionID,
 		Details: fmt.Sprintf("issuer=%s held=%t", app.Issuer, held),
 	})
 
+	// A device-code App's provider publishes no revocation endpoint for its
+	// client: the grant is dropped in muster only.
+	revoked := held && app.Flow != configPkg.ProviderAppFlowChatGPTDeviceCode
 	var b strings.Builder
-	if held {
+	switch {
+	case revoked:
 		fmt.Fprintf(&b, "Disconnected provider App '%s': muster dropped your grant and revoked it at the provider, where the provider offers revocation.", name)
-	} else {
+	case held:
+		fmt.Fprintf(&b, "Disconnected provider App '%s': muster dropped your grant. The provider offers no revocation for it; no Session gets it from muster any more.", name)
+	default:
 		fmt.Fprintf(&b, "Provider App '%s' held no grant of yours.", name)
 	}
 	if len(siblings) > 0 {
@@ -159,7 +165,7 @@ func (p *AuthToolProvider) disconnectProviderApp(ctx context.Context, sessionID,
 	}
 	return &api.CallToolResult{
 		Content:           []any{b.String()},
-		StructuredContent: map[string]any{statusField: "disconnected", providerAppArg: name, "revoked": held},
+		StructuredContent: map[string]any{statusField: "disconnected", providerAppArg: name, "revoked": revoked, "dropped": held},
 	}
 }
 
