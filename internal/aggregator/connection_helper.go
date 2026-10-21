@@ -1408,6 +1408,9 @@ func (a *AggregatorServer) makeSessionAuthLossHandler(sessionID, serverName stri
 		logging.Warn("Connection", "Session %s lost authentication to MCP server %s (%s); closing the connection — re-authenticate via core_auth_login",
 			logging.TruncateIdentifier(sessionID), serverName, reason)
 
+		// A challenge issued before the session was connected is moot now.
+		a.pendingSignIns.forget(sessionID, serverName)
+
 		if a.authStore != nil {
 			if err := a.authStore.Revoke(context.Background(), sessionID, serverName); err != nil {
 				logging.Warn("Connection", "Failed to revoke session auth mark for %s/%s: %v",

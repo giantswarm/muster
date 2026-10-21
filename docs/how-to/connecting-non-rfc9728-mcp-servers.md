@@ -67,7 +67,11 @@ runs when muster first reaches the backend, so:
 2. Run `muster auth login --server <name>`. The override skips PRM and the
    OAuth browser flow opens against the pinned issuer. A tool call made
    before that answers `auth_required` with the same sign-in link (the
-   answer is marked as an error: the tool did not run).
+   answer is marked as an error: the tool did not run). Repeated calls of
+   the session answer the same pending sign-in for up to 5 minutes, so a
+   client that polls a tool spends one of the person's sign-in attempts, not
+   one per call; a completed, expired or signed-out sign-in is replaced by a
+   new one.
 3. After the token is cached the server transitions to **Connected**;
    subsequent reconnects use the bearer header without rediscovery.
 4. `muster auth logout --server <name>` signs the session out of that server
