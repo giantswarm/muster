@@ -119,3 +119,48 @@ func TestBindListsMusterWithTheActorBearer(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, b.Allows(MusterProvider))
 }
+
+func TestBindStoresTheToolset(t *testing.T) {
+	p, store := newTestProvider(t, fakeGrants{})
+	ctx := context.Background()
+
+	body := `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"],"toolset":["preset:read-only","tool:x_gh_issues"]}`
+	require.Equal(t, http.StatusNoContent, bind(t, p, "alice", body).Code)
+	b, err := store.Get(ctx, testActor)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"preset:read-only", "tool:x_gh_issues"}, b.Toolset)
+
+	body = `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"],"toolset":["preset:not-configured"]}`
+	require.Equal(t, http.StatusNoContent, bind(t, p, "alice", body).Code, "an unknown preset fails the Session's meta-tool calls, not the bind")
+
+	require.Equal(t, http.StatusNoContent, bind(t, p, "alice", testBindBody).Code)
+	b, err = store.Get(ctx, testActor)
+	require.NoError(t, err)
+	assert.Nil(t, b.Toolset, "a bind without a toolset binds none")
+}
+
+func TestBindRejectsBadToolsets(t *testing.T) {
+	p, _ := newTestProvider(t, fakeGrants{})
+	withToolset := func(toolset string) string {
+		return `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"],"toolset":` + toolset + `}`
+	}
+	selectors := make([]string, 33)
+	for i := range selectors {
+		selectors[i] = `"tool:t` + strings.Repeat("x", i+1) + `"`
+	}
+	cases := map[string]struct{ toolset, want string }{
+		"empty":     {`[]`, "is empty"},
+		"reserved":  {`["toolset:shared"]`, "reserved for shared toolsets"},
+		"label":     {`["label:tier=infra"]`, "allowed inside presets only"},
+		"malformed": {`["preset:none","garbage"]`, "malformed"},
+		"too many":  {"[" + strings.Join(selectors, ",") + "]", "more than the 32 allowed inline"},
+		"not list":  {`"preset:none"`, "bad request"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := bind(t, p, "alice", withToolset(tc.toolset))
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), tc.want)
+		})
+	}
+}

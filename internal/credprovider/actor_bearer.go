@@ -68,6 +68,9 @@ type ActorCaller struct {
 	SessionID string
 	// Expiry is the actor JWT's exp.
 	Expiry time.Time
+	// Toolset is the bound toolset, the selectors every request of the actor
+	// resolves within; nil when the binding carries none.
+	Toolset []string
 }
 
 // ActorBearer authenticates Substrate actor JWTs as the person the actor is
@@ -167,6 +170,7 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 		Session:   binding.Session,
 		SessionID: actorSessionPrefix + hex.EncodeToString(sum[:16]),
 		Expiry:    exp,
+		Toolset:   binding.Toolset,
 	}, nil
 }
 
@@ -185,12 +189,15 @@ func (a *ActorBearer) refuse(kind error, reason, actor string, binding *Binding)
 	return fmt.Errorf("%w: %s", kind, reason)
 }
 
-// actorAuditDetails names the actor and, when it has one, the Session it is
-// bound to.
+// actorAuditDetails names the actor and, when it has them, the Session it is
+// bound to and the toolset bound with it.
 func actorAuditDetails(actor string, binding *Binding) string {
 	details := "actor=" + actor
 	if binding != nil && binding.Session != "" {
 		details += " session=" + binding.Session
+	}
+	if binding != nil && binding.Toolset != nil {
+		details += " toolset=[" + strings.Join(binding.Toolset, ",") + "]"
 	}
 	return details
 }

@@ -123,6 +123,23 @@ func TestActorBearerActsAsTheBoundPerson(t *testing.T) {
 	assert.NotEqual(t, caller.SessionID, rebound.SessionID, "a rebound actor never inherits another person's session")
 }
 
+func TestActorBearerCarriesTheBoundToolset(t *testing.T) {
+	ctx := context.Background()
+	iss := newActorIssuer(t)
+	store := NewMemoryStore()
+	ab := iss.bearer(t, store)
+
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}, Toolset: []string{"preset:read-only"}}, time.Hour))
+	caller, err := ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"preset:read-only"}, caller.Toolset)
+
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+	caller, err = ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
+	require.NoError(t, err)
+	assert.Nil(t, caller.Toolset, "a binding without a toolset bounds nothing")
+}
+
 func TestActorBearerRefusals(t *testing.T) {
 	ctx := context.Background()
 	iss := newActorIssuer(t)
@@ -163,6 +180,8 @@ func TestActorBearerAuditsEveryAuthentication(t *testing.T) {
 	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: person, Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
 	gitOnly := "spiffe://substrate-actor.local/actor/kagent/session-git"
 	require.NoError(t, store.Put(ctx, gitOnly, Binding{Subject: person, Session: "kagent/s2", Providers: []string{"github"}}, time.Hour))
+	scoped := "spiffe://substrate-actor.local/actor/kagent/session-ro"
+	require.NoError(t, store.Put(ctx, scoped, Binding{Subject: person, Session: "kagent/s3", Providers: []string{MusterProvider}, Toolset: []string{"preset:read-only", "tool:x_gh_issues"}}, time.Hour))
 	ab := iss.bearer(t, store)
 
 	cases := []struct {
@@ -174,6 +193,11 @@ func TestActorBearerAuditsEveryAuthentication(t *testing.T) {
 			name:  "accepted",
 			token: iss.mint(t, testActorSubject, nil),
 			want:  "[AUDIT] action=actor_bearer outcome=success subject=CiQwOGE4... target=muster details=actor=" + testActor + " session=kagent/s1",
+		},
+		{
+			name:  "accepted with a bound toolset",
+			token: iss.mint(t, "actor/kagent/session-ro", nil),
+			want:  "[AUDIT] action=actor_bearer outcome=success subject=CiQwOGE4... target=muster details=actor=" + scoped + " session=kagent/s3 toolset=[preset:read-only,tool:x_gh_issues]",
 		},
 		{
 			name:  "binding without muster",

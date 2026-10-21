@@ -174,9 +174,10 @@ The data path stays the gateway's; muster only answers whose token, and only to 
 - **Session bindings.** The component that starts a Session calls muster as the person
   (their bearer, validated like every request on the aggregator port):
   `PUT /session-bindings` with `{"actor": "spiffe://substrate-actor.local/actor/<atespace>/<actor>",
-  "session": "<namespace>/<name>", "providers": ["github"]}` binds the Session's sandbox actor
-  to the caller (`204`; `403` when the actor is bound to another person; `400` for a provider
-  that is not releasable), and `DELETE /session-bindings?actor=<id>` removes the caller's
+  "session": "<namespace>/<name>", "providers": ["github"], "toolset": ["preset:read-only"]}`
+  binds the Session's sandbox actor to the caller (`204`; `403` when the actor is bound to
+  another person; `400` for a provider that is not releasable or a toolset that is not one;
+  `toolset` is optional, see [the toolset bound to a Session](toolsets.md#the-toolset-bound-to-a-session)), and `DELETE /session-bindings?actor=<id>` removes the caller's
   binding (`204`, also when there is none; `403` for another person's). A binding lives for
   `bindingTTL` after its last bind or answered fetch, in Valkey when muster runs on Valkey.
 - **FetchSecret.** On its own gRPC port, muster serves `CredentialProvider.FetchSecret` over
@@ -203,7 +204,7 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   token is `401`, an unbound actor or a binding without `muster` is `403`, a binding store
   outage is `503`. Every accepted or refused request is an audit event
   (`[AUDIT] action=actor_bearer outcome=success|failure`) naming the person's truncated subject,
-  the actor and the bound Session, and, on a refusal, the reason. All requests of one actor are
+  the actor, the bound Session and its bound toolset, and, on a refusal, the reason. All requests of one actor are
   one muster session, and every accepted request restarts the binding's TTL. The actor JWT is
   never forwarded downstream. Servers that forward (`forwardToken`, `forwardIdentity`) or
   exchange (`tokenExchange`) the person's ID token get the person's own login ID token instead:

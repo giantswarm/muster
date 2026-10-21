@@ -10,6 +10,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/credprovider"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	"github.com/giantswarm/muster/v5/pkg/tlsutil"
 )
@@ -103,6 +104,9 @@ func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Hand
 
 		ctx := api.WithSubject(r.Context(), caller.Subject)
 		ctx = api.WithSessionID(ctx, caller.SessionID)
+		// The binding's toolset bounds the request whatever header it sends:
+		// the header can narrow it and never widen it.
+		ctx = toolset.ContextWithBound(ctx, caller.Toolset)
 		if withPersonToken != nil {
 			ctx = withPersonToken(ctx, caller)
 		}

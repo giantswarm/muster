@@ -258,7 +258,7 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 		return errResult, nil
 	}
 
-	if _, scoped, _ := toolset.FromContext(ctx); page.TotalTools == 0 && len(page.ServersRequiringAuth) == 0 && !scoped && opts.toolsetArg == nil {
+	if page.TotalTools == 0 && len(page.ServersRequiringAuth) == 0 && !toolset.Scoped(ctx) && opts.toolsetArg == nil {
 		return textResult("No tools available to filter"), nil
 	}
 
@@ -383,22 +383,22 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	// The response names the toolset the tools above were resolved within:
 	// the argument when one was given (it resolves inside the request's
 	// toolset, so it is the narrower of the two), else the toolset the request
-	// itself declared (X-Muster-Toolset) — the one place an agent whose
-	// toolset is set by its deployment can learn what bounds it. An unscoped
-	// request carries no toolset.
+	// itself declared (X-Muster-Toolset), else the toolset bound to its
+	// Session — the one place an agent whose toolset is set by its deployment
+	// can learn what bounds it. A bound Session's response also names the
+	// bound toolset. An unscoped request carries no toolset.
 	switch {
 	case argToolset != nil:
 		resp.Toolset = argToolset.Raw
 		resp.ToolsetUnmatched = argResolution.Unmatched
-		toolsets := []toolset.Toolset{*argToolset}
-		if cat.scoped {
-			toolsets = append(toolsets, cat.ts)
-		}
-		resp.ToolsetRequiringAuth = p.requiringAuth(ctx, cat.pending(), cat.all, toolsets...)
+		resp.ToolsetRequiringAuth = p.requiringAuth(ctx, cat.pending(), cat.all, append(cat.toolsets(), *argToolset)...)
 	case cat.scoped:
 		resp.Toolset = cat.ts.Raw
 		resp.ToolsetUnmatched = cat.res.Unmatched
-		resp.ToolsetRequiringAuth = p.requiringAuth(ctx, cat.pending(), cat.all, cat.ts)
+		resp.ToolsetRequiringAuth = p.requiringAuth(ctx, cat.pending(), cat.all, cat.toolsets()...)
+	}
+	if bound, ok := cat.bound(); ok {
+		resp.ToolsetBound = bound.Raw
 	}
 	// Presets accompany an inline argument (the caller is composing a toolset)
 	// or an explicit include_presets. A request-declared toolset alone does not
