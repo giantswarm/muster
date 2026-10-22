@@ -915,8 +915,8 @@ func TestSSOPoolMissNeedingInit_DeduplicatesConcurrentCalls(t *testing.T) {
 
 func TestEstablishSSOConnection_RevokesStaleAuthOnPoolMiss(t *testing.T) {
 	// When auth store says "authenticated" but pool is empty for a token-exchange
-	// server, establishSSOConnection must revoke the stale auth entry before
-	// attempting the exchange. This simulates the post-restart scenario where
+	// server, establishSSOConnection connects again, and revokes the auth entry
+	// when that connect fails. This simulates the post-restart scenario where
 	// Valkey state outlives the process.
 	pool := NewSessionConnectionPool(1 * time.Hour)
 	defer pool.Stop()
@@ -962,14 +962,13 @@ func TestEstablishSSOConnection_RevokesStaleAuthOnPoolMiss(t *testing.T) {
 	ssoCtx := api.WithSubject(ctx, "test-subject")
 	ssoCtx = api.WithSessionID(ssoCtx, sessionID)
 
-	// establishSSOConnection will clear the stale state then attempt the exchange.
-	// The exchange will fail (no real server), but the stale auth state must be
-	// gone before the attempt.
+	// The exchange fails (no real server): the auth entry it could not back
+	// with a client must be gone.
 	aggServer.establishSSOConnection(ssoCtx, info, "https://muster.example.com")
 
 	authed, _ = authStore.IsAuthenticated(ctx, sessionID, "remote-k8s")
 	assert.False(t, authed,
-		"stale auth entry must be revoked before the exchange attempt")
+		"stale auth entry must be revoked once the exchange failed")
 }
 
 func TestSSOPoolMissNeedingInit_RespectsFailureBackoff(t *testing.T) {

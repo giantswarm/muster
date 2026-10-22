@@ -44,6 +44,25 @@ func requireSessionContext(ctx context.Context, serverName string) (sessionID, s
 	return sessionID, sub, nil
 }
 
+// sessionConnectedHere reports whether the session is connected to the SSO
+// server on this replica: the shared auth store marks it authenticated and
+// this replica's pool holds its client. A mark alone is another replica's
+// connection, or one from before a restart, and is no reason to skip a
+// connect.
+func (a *AggregatorServer) sessionConnectedHere(ctx context.Context, sessionID, serverName string) bool {
+	if a.authStore == nil {
+		return false
+	}
+	if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverName); !authenticated {
+		return false
+	}
+	if a.connPool == nil {
+		return true
+	}
+	_, pooled := a.connPool.Get(sessionID, serverName)
+	return pooled
+}
+
 // requireSessionContextResult is like requireSessionContext but returns an
 // api.CallToolResult error suitable for direct return from tool handlers.
 func requireSessionContextResult(ctx context.Context) (sessionID, sub string, errResult *api.CallToolResult) {
@@ -351,13 +370,10 @@ func EstablishConnectionWithTokenForwarding(
 		return nil, err
 	}
 
-	if a.authStore != nil {
-		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
-		if authenticated {
-			logging.Debug("Connection", "Session %s already authenticated to %s, skipping token forwarding",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name)
-			return &ConnectionResult{ServerName: serverInfo.Name}, nil
-		}
+	if a.sessionConnectedHere(ctx, sessionID, serverInfo.Name) {
+		logging.Debug("Connection", "Session %s already authenticated to %s, skipping token forwarding",
+			logging.TruncateIdentifier(sessionID), serverInfo.Name)
+		return &ConnectionResult{ServerName: serverInfo.Name}, nil
 	}
 
 	// The onStaleToken callback evicts the pooled connection and revokes the
@@ -574,12 +590,10 @@ func EstablishConnectionWithTokenExchange(
 	if err != nil {
 		return nil, err
 	}
-	if a.authStore != nil {
-		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name); authenticated {
-			logging.Debug("Connection", "Session %s already authenticated to %s, skipping token exchange",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name)
-			return &ConnectionResult{ServerName: serverInfo.Name}, nil
-		}
+	if a.sessionConnectedHere(ctx, sessionID, serverInfo.Name) {
+		logging.Debug("Connection", "Session %s already authenticated to %s, skipping token exchange",
+			logging.TruncateIdentifier(sessionID), serverInfo.Name)
+		return &ConnectionResult{ServerName: serverInfo.Name}, nil
 	}
 
 	// Get the OAuth handler for token exchange
