@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/giantswarm/muster/v5/internal/agent"
 	"github.com/giantswarm/muster/v5/internal/cli"
 
 	"github.com/spf13/cobra"
@@ -25,13 +26,15 @@ Arguments are passed as --key=value or --key value flags. The flags muster
 itself declares (--endpoint, --auth, --output and the others listed below) are
 never passed on. To pass an argument that shares a name with one of them, put
 it after "--": everything after the separator is an argument. Use --json to
-pass a JSON object as arguments instead.
+pass a JSON object as arguments instead. A call waits 5 minutes for its
+answer; --call-timeout waits longer, for a workflow that runs longer.
 
 Examples:
   muster call core_service_list
   muster call core_service_status --name=prometheus
   muster call workflow_deploy --environment=production --replicas=3
   muster call core_mcpserver_list --output json
+  muster call workflow_fleet-image-scan --call-timeout 45m --json '{"management_clusters":["alba"]}'
   muster call x_http_get --endpoint http://muster:8090/mcp -- --endpoint=https://target
 
 Note: The aggregator server must be running (use 'muster serve') before using this command.`,
@@ -53,6 +56,7 @@ func init() {
 	rootCmd.AddCommand(callCmd)
 	cli.RegisterCommonFlags(callCmd, &callFlags)
 	callCmd.Flags().String("json", "", "Pass tool arguments as a JSON object")
+	callCmd.Flags().Duration("call-timeout", agent.DefaultCallTimeout, "How long to wait for the tool's answer, e.g. 45m for a workflow that scans a fleet")
 }
 
 // callToolNameCompletion provides tab completion for tool names
@@ -111,6 +115,9 @@ func runCall(cmd *cobra.Command, args []string) error {
 
 	opts, err := callFlags.ToExecutorOptions()
 	if err != nil {
+		return err
+	}
+	if opts.CallTimeout, err = cmd.Flags().GetDuration("call-timeout"); err != nil {
 		return err
 	}
 
