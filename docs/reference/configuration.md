@@ -314,9 +314,11 @@ codex's browser sign-in, which redirects to a listener on the person's machine.
   without a grant (the code expired; device-code sign-in is not enabled for the account,
   which OpenAI answers with 404 and the person enables in ChatGPT under Settings → Security,
   or their workspace admin in the workspace permissions). Reading the status never starts a
-  sign-in. The code and its poll live on the replica that issued it, and a restart of
-  that replica drops them (the person connects again for a new code); the grant is in the
-  shared token store, where every replica finds it.
+  sign-in. With `oauth.server.storage.type: valkey` the outstanding code, its poll lease
+  and the last failure are in the shared store (the code encrypted with the store's key):
+  every replica answers the same code, one replica polls it, and when that replica stops,
+  the next one asked about the code polls it. The grant is in the shared token store,
+  where every replica finds it.
 - **Refreshing and releasing.** The grant is refreshed with the same client under the
   cross-replica refresh lock: OpenAI rotates the refresh token on every use, so muster must
   be the login's only refresher. The access token's lifetime is read from its `exp`, since
@@ -324,8 +326,8 @@ codex's browser sign-in, which redirects to a listener on the person's machine.
   as `ate-secret://<authority>/chatgpt/api`; the refresh token never leaves muster. The
   ChatGPT account id is in the grant's ID token (`https://api.openai.com/auth` →
   `chatgpt_account_id`).
-- **Disconnecting.** `core_auth_logout app=chatgpt` ends an outstanding code and drops the
-  grant; OpenAI publishes no revocation endpoint for this client.
+- **Disconnecting.** `core_auth_logout app=chatgpt` ends an outstanding code, on every
+  replica, and drops the grant; OpenAI publishes no revocation endpoint for this client.
 - **Encryption.** The chart refuses the App without `muster.oauth.server.encryptionKey`: a
   person's ChatGPT login is stored only encrypted.
 

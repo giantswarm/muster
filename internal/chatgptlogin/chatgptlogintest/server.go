@@ -36,6 +36,7 @@ type Server struct {
 	mu          sync.Mutex
 	disabled    bool
 	entered     bool
+	codes       int
 	polls       int
 	exchanges   int
 	redemptions int
@@ -61,6 +62,9 @@ func (s *Server) Disable() { s.locked(func() { s.disabled = true }) }
 
 // Enter is the person entering the code at OpenAI.
 func (s *Server) Enter() { s.locked(func() { s.entered = true }) }
+
+// Codes is how many user codes were issued.
+func (s *Server) Codes() (n int) { s.locked(func() { n = s.codes }); return }
 
 // Polls is how often the sign-in was polled.
 func (s *Server) Polls() (n int) { s.locked(func() { n = s.polls }); return }
@@ -102,6 +106,7 @@ func (s *Server) userCode(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	s.locked(func() { s.codes++ })
 	writeJSON(w, map[string]any{"device_auth_id": DeviceAuthID, "user_code": UserCode, "interval": "5"})
 }
 

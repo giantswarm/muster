@@ -64,6 +64,23 @@ func TestDeviceCode_PendingThenConnected(t *testing.T) {
 	assert.Equal(t, "acct-alice", chatgptlogin.AccountID(token.IDToken))
 }
 
+func TestDeviceCode_PolledFromItsJSON(t *testing.T) {
+	server := chatgptlogintest.New(t, clientID)
+	client := pollClock(server, nil)
+	code, err := client.RequestCode(context.Background())
+	require.NoError(t, err)
+
+	data, err := json.Marshal(code)
+	require.NoError(t, err)
+	var decoded chatgptlogin.Code
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	assert.Equal(t, *code, decoded)
+
+	server.Enter()
+	_, err = client.Await(context.Background(), &decoded)
+	require.NoError(t, err, "another process polls the code it read from a store")
+}
+
 func TestDeviceCode_PollsAtTheReturnedInterval(t *testing.T) {
 	server := chatgptlogintest.New(t, clientID)
 	var waited []time.Duration
