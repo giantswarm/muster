@@ -316,8 +316,9 @@ codex's browser sign-in, which redirects to a listener on the person's machine.
   or their workspace admin in the workspace permissions). Reading the status never starts a
   sign-in. With `oauth.server.storage.type: valkey` the outstanding code, its poll lease
   and the last failure are in the shared store (the code encrypted with the store's key):
-  every replica answers the same code, one replica polls it, and when that replica stops,
-  the next one asked about the code polls it. The grant is in the shared token store,
+  every replica answers the same code, one replica polls it under a lease it renews every
+  10 seconds, and when that replica stops, the next one asked about the code
+  (`core_auth_login` or the status) polls it once the lease has lapsed, within 30 seconds. The grant is in the shared token store,
   where every replica finds it.
 - **Refreshing and releasing.** The grant is refreshed with the same client under the
   cross-replica refresh lock: OpenAI rotates the refresh token on every use, so muster must
