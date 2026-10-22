@@ -36,6 +36,11 @@ var RetryInterval = config.DurationFromEnv("MUSTER_ORCHESTRATOR_RETRY_INTERVAL",
 // potentially overwhelming the system or upstream services.
 const MaxConcurrentRetries = 5
 
+// ShutdownTimeout bounds how long Stop waits for the services to stop. It
+// stays below the pod's default termination grace period (30 s), so muster
+// exits on its own rather than by SIGKILL.
+var ShutdownTimeout = 20 * time.Second
+
 // Orchestrator manages the lifecycle of static services registered in the
 // service registry (MCPServer services and the aggregator service).
 type Orchestrator struct {
@@ -59,9 +64,14 @@ type Orchestrator struct {
 	// State change event subscribers
 	stateChangeSubscribers []chan<- ServiceStateChangedEvent
 
-	// Context for cancellation
+	// Context for cancellation: ctx is the services' context, cancelled only
+	// once Stop has stopped them; loopCancel ends the maintenance loop alone.
 	ctx        context.Context
 	cancelFunc context.CancelFunc
+	loopCancel context.CancelFunc
+
+	// shutdownTimeout bounds Stop. New copies it from ShutdownTimeout.
+	shutdownTimeout time.Duration
 
 	// retryInterval and healthCheckInterval pace the maintenance loop. New
 	// copies them from RetryInterval and HealthCheckInterval, so a running
@@ -103,6 +113,7 @@ func New(cfg Config) *Orchestrator {
 		namespace:              cfg.Namespace,
 		retryInterval:          RetryInterval,
 		healthCheckInterval:    HealthCheckInterval,
+		shutdownTimeout:        ShutdownTimeout,
 		stopReasons:            make(map[string]StopReason),
 		stateChangeSubscribers: make([]chan<- ServiceStateChangedEvent, 0),
 	}
@@ -131,10 +142,12 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 		logging.Error("Orchestrator", err, "Failed to process auto-start MCPServers")
 	}
 
+	var loopCtx context.Context
+	loopCtx, o.loopCancel = context.WithCancel(o.ctx)
 	o.loopWg.Add(1)
 	go func() {
 		defer o.loopWg.Done()
-		o.retryFailedMCPServers()
+		o.retryFailedMCPServers(loopCtx)
 	}()
 
 	logging.Info("Orchestrator", "Started orchestrator with %d static services", len(staticServices))
@@ -450,22 +463,12 @@ func (o *Orchestrator) publishStateChangeEvent(name string, oldState, newState s
 	}
 }
 
-// Stop gracefully stops all services. It returns once the maintenance loop
-// and the retries and health probes it started have finished.
-func (o *Orchestrator) Stop() error {
-	if o.cancelFunc != nil {
-		o.cancelFunc()
-	}
-	o.loopWg.Wait()
-	return nil
-}
-
-// retryFailedMCPServers runs the periodic MCPServer maintenance loop: every
-// retryInterval it attempts to reconnect servers that failed due to transient
-// connectivity issues, respecting the exponential backoff calculated by the
-// service, and every healthCheckInterval it probes the connected ones (see
-// health_check.go).
-func (o *Orchestrator) retryFailedMCPServers() {
+// retryFailedMCPServers runs the periodic MCPServer maintenance loop until ctx
+// is done: every retryInterval it attempts to reconnect servers that failed
+// due to transient connectivity issues, respecting the exponential backoff
+// calculated by the service, and every healthCheckInterval it probes the
+// connected ones (see health_check.go).
+func (o *Orchestrator) retryFailedMCPServers(ctx context.Context) {
 	ticker := clock.NewTicker(o.retryInterval)
 	defer ticker.Stop()
 	healthTicker := clock.NewTicker(o.healthCheckInterval)
@@ -473,15 +476,15 @@ func (o *Orchestrator) retryFailedMCPServers() {
 
 	for {
 		select {
-		case <-o.ctx.Done():
+		case <-ctx.Done():
 			logging.Debug("Orchestrator", "Stopping failed MCPServer retry loop, waiting for in-flight retries")
 			o.retryWg.Wait()
 			logging.Debug("Orchestrator", "All in-flight retries completed")
 			return
 		case <-ticker.C:
-			o.attemptReconnectFailedServers()
+			o.attemptReconnectFailedServers(ctx)
 		case <-healthTicker.C:
-			o.checkConnectedServersHealth()
+			o.checkConnectedServersHealth(ctx)
 		}
 	}
 }
@@ -489,7 +492,7 @@ func (o *Orchestrator) retryFailedMCPServers() {
 // attemptReconnectFailedServers checks all MCPServer services for failed/unreachable
 // ones and attempts to reconnect them if their backoff period has expired.
 // It limits concurrent retries to MaxConcurrentRetries to prevent thundering herd.
-func (o *Orchestrator) attemptReconnectFailedServers() {
+func (o *Orchestrator) attemptReconnectFailedServers(ctx context.Context) {
 	mcpServers := o.registry.GetByType(services.TypeMCPServer)
 
 	var eligibleServices []services.Service
@@ -512,7 +515,7 @@ func (o *Orchestrator) attemptReconnectFailedServers() {
 		go func(service services.Service) {
 			defer o.retryWg.Done()
 
-			if o.ctx.Err() != nil {
+			if ctx.Err() != nil {
 				logging.Debug("Orchestrator", "Context cancelled, skipping retry for %s", service.GetName())
 				return
 			}

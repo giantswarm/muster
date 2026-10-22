@@ -55,7 +55,7 @@ func TestCheckConnectedServersHealth(t *testing.T) {
 		}
 		o, _ := newHealthTestOrchestrator(t, dead, fine)
 
-		o.checkConnectedServersHealth()
+		o.checkConnectedServersHealth(o.ctx)
 		o.retryWg.Wait()
 
 		assert.Equal(t, int32(1), dead.probes.Load())
@@ -83,7 +83,7 @@ func TestCheckConnectedServersHealth(t *testing.T) {
 		}
 		o, _ := newHealthTestOrchestrator(t, svcs...)
 
-		o.checkConnectedServersHealth()
+		o.checkConnectedServersHealth(o.ctx)
 		o.retryWg.Wait()
 
 		for _, m := range mocks {
@@ -98,7 +98,7 @@ func TestCheckConnectedServersHealth(t *testing.T) {
 		}
 		o, _ := newHealthTestOrchestrator(t, svc)
 
-		o.checkConnectedServersHealth()
+		o.checkConnectedServersHealth(o.ctx)
 		o.retryWg.Wait()
 
 		assert.Equal(t, 0, svc.GetRestartCount())
@@ -112,7 +112,7 @@ func TestCheckConnectedServersHealth(t *testing.T) {
 		o, cancel := newHealthTestOrchestrator(t, svc)
 		cancel()
 
-		o.checkConnectedServersHealth()
+		o.checkConnectedServersHealth(o.ctx)
 		o.retryWg.Wait()
 
 		assert.Equal(t, int32(0), svc.probes.Load())
@@ -132,7 +132,7 @@ func TestRetryLoopProbesOnTheHealthTicker(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		o.retryFailedMCPServers()
+		o.retryFailedMCPServers(o.ctx)
 		close(done)
 	}()
 
@@ -159,7 +159,7 @@ func TestFailedProbesFeedTheRetryLoop(t *testing.T) {
 	}
 	o, _ := newHealthTestOrchestrator(t, svc)
 
-	o.attemptReconnectFailedServers()
+	o.attemptReconnectFailedServers(o.ctx)
 	o.retryWg.Wait()
 
 	assert.Equal(t, 1, svc.GetRestartCount())

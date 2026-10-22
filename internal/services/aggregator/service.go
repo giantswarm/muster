@@ -31,7 +31,7 @@ func NewAggregatorService(
 	serviceRegistry api.ServiceRegistryHandler,
 ) *AggregatorService {
 	return &AggregatorService{
-		BaseService:     services.NewBaseService("mcp-aggregator", services.ServiceType("Aggregator"), []string{}),
+		BaseService:     services.NewBaseService("mcp-aggregator", services.TypeAggregator, []string{}),
 		config:          config,
 		orchestratorAPI: orchestratorAPI,
 		serviceRegistry: serviceRegistry,
