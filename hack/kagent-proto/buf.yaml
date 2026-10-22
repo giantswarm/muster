@@ -1,0 +1,14 @@
+# The kagent API service protos muster generates client stubs from. The files
+# under kagent/ are verbatim copies from giantswarm/kagent-upstream at the
+# commit recorded in README.md; `make generate-kagent` refreshes both.
+version: v2
+modules:
+  - path: .
+deps:
+  - buf.build/bufbuild/protovalidate
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

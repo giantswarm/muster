@@ -92,6 +92,7 @@ steps:
         - 'mcpserver_name="usage-metrics-server"'
         - 'tool="x_usage-metrics-server_usage_probe_tool"'
         - 'outcome="ok"'
+        - 'caller_kind="person"'
       json_path:
         line_count: 2
 

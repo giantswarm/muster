@@ -26,10 +26,13 @@ func asPerson(sub string, h http.HandlerFunc) http.Handler {
 	})
 }
 
+// bind is a PUT /session-bindings by sub, with sub's own bearer (personBearer).
 func bind(t *testing.T, p *Provider, sub, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	asPerson(sub, p.HandleBind).ServeHTTP(rec, httptest.NewRequest(http.MethodPut, BindingsPath, strings.NewReader(body)))
+	req := httptest.NewRequest(http.MethodPut, BindingsPath, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+personBearer(sub))
+	asPerson(sub, p.HandleBind).ServeHTTP(rec, req)
 	return rec
 }
 
@@ -111,6 +114,7 @@ func TestBindListsMusterWithTheActorBearer(t *testing.T) {
 		MusterBearer:    true,
 		Store:           store,
 		Grants:          fakeGrants{}.source,
+		Sessions:        testSessions().lookup,
 	})
 	require.NoError(t, err)
 	body := `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github","muster"]}`

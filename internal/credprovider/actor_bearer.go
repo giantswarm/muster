@@ -51,9 +51,20 @@ var (
 	ErrBindingsUnavailable = errors.New("binding store unavailable")
 )
 
+// ActorToken is what muster reads of a verified actor JWT.
+type ActorToken struct {
+	// Subject is the sub: actor/<atespace>/<actor>.
+	Subject string
+	// ActorUID is the Substrate uid of the actor, which changes when the
+	// actor is recreated under the same name.
+	ActorUID string
+	// Expiry is the exp.
+	Expiry time.Time
+}
+
 // ActorTokenVerifier verifies an actor JWT's signature, issuer, audience and
-// lifetime, and returns its sub and expiry.
-type ActorTokenVerifier func(ctx context.Context, token string) (subject string, expiry time.Time, err error)
+// lifetime, and returns what muster reads of it.
+type ActorTokenVerifier func(ctx context.Context, token string) (ActorToken, error)
 
 // ActorCaller is the person an actor-JWT bearer acts as.
 type ActorCaller struct {
@@ -132,13 +143,16 @@ func (a *ActorBearer) Claims(bearer string) bool {
 // It fails with ErrInvalidActorToken, ErrActorNotAllowed or
 // ErrBindingsUnavailable.
 func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCaller, error) {
-	sub, exp, err := a.verify(ctx, bearer)
+	token, err := a.verify(ctx, bearer)
 	if err != nil {
 		return nil, a.refuse(ErrInvalidActorToken, err.Error(), "", nil)
 	}
-	actor, err := actorFromSubject(sub)
+	actor, err := actorFromSubject(token.Subject)
 	if err != nil {
-		return nil, a.refuse(ErrInvalidActorToken, err.Error(), sub, nil)
+		return nil, a.refuse(ErrInvalidActorToken, err.Error(), token.Subject, nil)
+	}
+	if token.ActorUID == "" {
+		return nil, a.refuse(ErrInvalidActorToken, "the token carries no actor uid", actor, nil)
 	}
 	binding, err := a.store.Get(ctx, actor)
 	if err != nil {
@@ -150,6 +164,16 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 	}
 	if !binding.Allows(MusterProvider) {
 		return nil, a.refuse(ErrActorNotAllowed, "the binding does not list "+MusterProvider, actor, binding)
+	}
+	if binding.ActorUID != token.ActorUID {
+		err := a.store.PinActorUID(ctx, actor, token.ActorUID)
+		if errors.Is(err, ErrActorUIDMismatch) {
+			return nil, a.refuse(ErrActorNotAllowed, "actor uid "+token.ActorUID+" is not the uid the binding is pinned to", actor, binding)
+		}
+		if err != nil {
+			logging.WarnWithAttrs(logSubsystem, "binding_pin_failed", slog.String("actor", actor), slog.String("error", err.Error()))
+			return nil, ErrBindingsUnavailable
+		}
 	}
 	if err := a.store.Touch(ctx, actor, a.ttl); err != nil {
 		logging.WarnWithAttrs(logSubsystem, "binding_touch_failed", slog.String("actor", actor), slog.String("error", err.Error()))
@@ -169,7 +193,7 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 		Subject:   binding.Subject,
 		Session:   binding.Session,
 		SessionID: actorSessionPrefix + hex.EncodeToString(sum[:16]),
-		Expiry:    exp,
+		Expiry:    token.Expiry,
 		Toolset:   binding.Toolset,
 	}, nil
 }
@@ -235,7 +259,8 @@ type OIDCVerifierOptions struct {
 
 // NewOIDCActorTokenVerifier verifies actor JWTs against the issuer's key set:
 // an asymmetric signature by a published key, exp (required), nbf and iat
-// with clock-skew leeway, the issuer and the audience.
+// with clock-skew leeway, the issuer and the audience. The actor uid is read
+// from the verified payload.
 func NewOIDCActorTokenVerifier(o OIDCVerifierOptions) (ActorTokenVerifier, error) {
 	if err := validateIssuer(o.Issuer); err != nil {
 		return nil, fmt.Errorf("actor bearer: %w", err)
@@ -252,13 +277,48 @@ func NewOIDCActorTokenVerifier(o OIDCVerifierOptions) (ActorTokenVerifier, error
 		AllowPrivateIPHosts: o.AllowPrivateIPHosts,
 	})
 	audiences := []string{o.Audience}
-	return func(ctx context.Context, token string) (string, time.Time, error) {
+	return func(ctx context.Context, token string) (ActorToken, error) {
 		claims, err := oidc.ValidateIDToken(ctx, token, client, jwksURL, o.Issuer, audiences)
 		if err != nil {
-			return "", time.Time{}, err
+			return ActorToken{}, err
 		}
-		return claims.Subject, claims.Expiry.Time(), nil
+		uid, err := actorUIDClaim(token)
+		if err != nil {
+			return ActorToken{}, err
+		}
+		return ActorToken{Subject: claims.Subject, ActorUID: uid, Expiry: claims.Expiry.Time()}, nil
 	}, nil
+}
+
+// actorUIDClaim reads the actor uid of a JWT whose signature was verified:
+// actor.ate.dev.actorUID, as upstream Substrate mints it, or ate.dev.actorUID,
+// its earlier name.
+func actorUIDClaim(token string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return "", fmt.Errorf("token is not a JWS compact serialization")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", fmt.Errorf("decode payload: %w", err)
+	}
+	type substrateClaims struct {
+		ActorUID string `json:"actorUID"`
+	}
+	var claims struct {
+		Actor  *substrateClaims `json:"actor.ate.dev"`
+		Legacy *substrateClaims `json:"ate.dev"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", fmt.Errorf("decode payload: %w", err)
+	}
+	if claims.Actor != nil {
+		return claims.Actor.ActorUID, nil
+	}
+	if claims.Legacy != nil {
+		return claims.Legacy.ActorUID, nil
+	}
+	return "", nil
 }
 
 // validateIssuer checks an https issuer URL without query or fragment.

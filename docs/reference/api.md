@@ -71,7 +71,7 @@ With [`aggregator.credentialProvider`](configuration.md#credential-provider-for-
 
 | Path or service | Where | Purpose |
 |---|---|---|
-| `/session-bindings` `PUT` | aggregator port, bearer required | Binds a Session's sandbox actor to the caller: `{"actor", "session", "providers", "toolset"}` (`toolset` optional: the [toolset bound to the Session](toolsets.md#the-toolset-bound-to-a-session)); 204, 400, 403 (bound to another person) |
+| `/session-bindings` `PUT` | aggregator port, bearer required | Binds a Session's sandbox actor to the caller: `{"actor", "session", "providers", "toolset"}` (`toolset` optional: the [toolset bound to the Session](toolsets.md#the-toolset-bound-to-a-session)); 204, 400, 403 (bound to another person, or not the actor of the caller's own Session as kagent answers it), 503 (kagent unreachable) |
 | `/session-bindings?actor=<id>` `DELETE` | aggregator port, bearer required | Removes the caller's binding; 204, 403 (another person's) |
 | `credprovider.CredentialProvider/FetchSecret` | gRPC, `listenAddress` (`:50051`), mutual TLS | The egress gateway's credential lookup; answers only the gateway's certificate |
 

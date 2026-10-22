@@ -56,6 +56,7 @@ type Provider struct {
 	ttl          time.Duration
 	store        Store
 	grants       GrantSource
+	sessions     SessionLookup
 }
 
 // Options configure a Provider.
@@ -77,6 +78,8 @@ type Options struct {
 	BindingTTL time.Duration
 	Store      Store
 	Grants     GrantSource
+	// Sessions reads the Session a bind names as the caller. Required.
+	Sessions SessionLookup
 }
 
 // NewProvider returns a Provider, or an error for an incomplete configuration.
@@ -110,8 +113,8 @@ func NewProvider(o Options) (*Provider, error) {
 		}
 		gitUsers[provider] = user
 	}
-	if o.Store == nil || o.Grants == nil {
-		return nil, fmt.Errorf("credential provider: a binding store and a grant source are required")
+	if o.Store == nil || o.Grants == nil || o.Sessions == nil {
+		return nil, fmt.Errorf("credential provider: a binding store, a grant source and a Session lookup are required")
 	}
 	p := &Provider{
 		authority:    o.Authority,
@@ -122,6 +125,7 @@ func NewProvider(o Options) (*Provider, error) {
 		ttl:          o.BindingTTL,
 		store:        o.Store,
 		grants:       o.Grants,
+		sessions:     o.Sessions,
 	}
 	if p.authority == "" {
 		p.authority = DefaultAuthority

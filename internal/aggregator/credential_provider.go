@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/credprovider"
+	"github.com/giantswarm/muster/v5/internal/kagent"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -40,7 +42,14 @@ func (a *AggregatorServer) newCredentialProvider() (*credprovider.Provider, erro
 	if err != nil {
 		return nil, fmt.Errorf("credential provider: %w", err)
 	}
-	return credprovider.NewProvider(credprovider.Options{
+	if cfg.KagentTarget == "" {
+		return nil, fmt.Errorf("credential provider: kagentTarget is required: a bind reads its Session from the kagent controller")
+	}
+	sessions, err := kagent.Dial(cfg.KagentTarget)
+	if err != nil {
+		return nil, fmt.Errorf("credential provider: %w", err)
+	}
+	provider, err := credprovider.NewProvider(credprovider.Options{
 		Authority:       cfg.Authority,
 		GatewayIdentity: cfg.GatewayIdentity,
 		Releasable:      releasable,
@@ -49,7 +58,31 @@ func (a *AggregatorServer) newCredentialProvider() (*credprovider.Provider, erro
 		BindingTTL:      ttl,
 		Store:           store,
 		Grants:          releaseSubjectGrant,
+		Sessions:        kagentSessionLookup(sessions),
 	})
+	if err != nil {
+		_ = sessions.Close()
+		return nil, err
+	}
+	a.kagentSessions = sessions
+	return provider, nil
+}
+
+// kagentSessionLookup reads a Session through the kagent client, its refusals
+// mapped onto the credential provider's.
+func kagentSessionLookup(client *kagent.Client) credprovider.SessionLookup {
+	return func(ctx context.Context, bearer, sessionID string) (*credprovider.KagentSession, error) {
+		s, err := client.GetSession(ctx, bearer, sessionID)
+		switch {
+		case errors.Is(err, kagent.ErrSessionNotFound):
+			return nil, fmt.Errorf("%w: %s", credprovider.ErrSessionNotFound, sessionID)
+		case errors.Is(err, kagent.ErrUnauthenticated), errors.Is(err, kagent.ErrNoToken):
+			return nil, credprovider.ErrSessionCallerRefused
+		case err != nil:
+			return nil, err
+		}
+		return &credprovider.KagentSession{AgentNamespace: s.AgentNamespace, A2AAuthority: s.A2AAuthority}, nil
+	}
 }
 
 // releaseSubjectGrant is the provider's GrantSource: the person's grant held
@@ -112,7 +145,12 @@ func (a *AggregatorServer) stopCredentialProvider(ctx context.Context) {
 	a.mu.Lock()
 	srv := a.credProviderServer
 	a.credProviderServer = nil
+	sessions := a.kagentSessions
+	a.kagentSessions = nil
 	a.mu.Unlock()
+	if sessions != nil {
+		_ = sessions.Close()
+	}
 	if srv == nil {
 		return
 	}

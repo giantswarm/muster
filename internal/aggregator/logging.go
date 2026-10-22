@@ -8,6 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -27,7 +28,7 @@ const DispatchLogMessage = "tool dispatched"
 
 // Logging returns a ToolHandlerMiddleware that emits one structured
 // info-level log line per tool call with fields: tool, outcome,
-// duration_s, error (when set).
+// caller_kind, duration_s, error (when set).
 func Logging() server.ToolHandlerMiddleware {
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -36,6 +37,7 @@ func Logging() server.ToolHandlerMiddleware {
 			attrs := []slog.Attr{
 				slog.String("tool", req.Params.Name),
 				slog.String("outcome", classify(res, err)),
+				slog.String(attrCallerKind, api.CallerKindFromContext(ctx)),
 				slog.Float64("duration_s", time.Since(start).Seconds()),
 			}
 			if err != nil {
@@ -51,7 +53,7 @@ func Logging() server.ToolHandlerMiddleware {
 // the same subsystem as the boundary line: subject (truncated, as every
 // identity in the log), server (the MCPServer; absent for muster's own core
 // and workflow tools, which reach no backend), tool (the aggregator-exposed
-// name), outcome and duration_s, plus the transport session when the call
+// name), outcome, caller_kind and duration_s, plus the transport session when the call
 // came in over MCP. Arguments and results never appear, and neither does the
 // error: the boundary line carries it, and a backend's error can quote what
 // the call carried.
@@ -65,6 +67,7 @@ func logDispatch(ctx context.Context, serverName, toolName string, start time.Ti
 	attrs = append(attrs,
 		slog.String("tool", toolName),
 		slog.String("outcome", classify(res, err)),
+		slog.String(attrCallerKind, api.CallerKindFromContext(ctx)),
 		slog.Float64("duration_s", time.Since(start).Seconds()),
 	)
 	if id := getTransportSessionID(ctx); id != "" {

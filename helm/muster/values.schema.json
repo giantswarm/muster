@@ -267,6 +267,9 @@
                             "type": "object",
                             "additionalProperties": true
                         },
+                        "kagentTarget": {
+                            "type": "string"
+                        },
                         "port": {
                             "type": "integer"
                         },

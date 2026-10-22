@@ -13,6 +13,7 @@ data:
       {{- with .Values.muster.credentialProvider }}
       {{- if .enabled }}
       {{- if not .gatewayIdentity }}{{ fail "muster.credentialProvider.gatewayIdentity is required" }}{{- end }}
+      {{- if not .kagentTarget }}{{ fail "muster.credentialProvider.kagentTarget is required: a bind reads its Session from the kagent controller" }}{{- end }}
       {{- if not (or .releasable .actorBearer.enabled $.Values.muster.providerApps) }}{{ fail "muster.credentialProvider.releasable lists no provider" }}{{- end }}
       {{- if not $.Values.muster.oauth.server.enabled }}{{ fail "muster.credentialProvider needs muster.oauth.server.enabled" }}{{- end }}
       credentialProvider:
@@ -23,6 +24,7 @@ data:
         gatewayIdentity: {{ .gatewayIdentity | quote }}
         authority: {{ .authority | quote }}
         bindingTTL: {{ .bindingTTL | quote }}
+        kagentTarget: {{ .kagentTarget | quote }}
         {{- with .releasable }}
         releasable:
           {{- toYaml . | nindent 10 }}

@@ -36,7 +36,9 @@ type BindRequest struct {
 }
 
 // HandleBind is PUT /session-bindings: binds the actor to the calling person.
-// The caller must be authenticated (api.GetSubjectFromContext non-empty).
+// The caller must be authenticated (api.GetSubjectFromContext non-empty), and
+// the Session must be theirs and run the actor: muster reads it from kagent
+// with the caller's own bearer.
 func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 	sub := api.GetSubjectFromContext(r.Context())
 	if sub == "" {
@@ -80,6 +82,19 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 			return
 		}
+	}
+
+	if err := p.checkSessionActor(r.Context(), bearerToken(r.Header.Get("Authorization")), req.Session, req.Actor); err != nil {
+		if errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSessionCallerRefused) || errors.Is(err, errNotSessionActor) {
+			logging.WarnWithAttrs(logSubsystem, "bind_refused",
+				slog.String("reason", err.Error()), slog.String("sub", sub),
+				slog.String("actor", req.Actor), slog.String("session", req.Session))
+			http.Error(w, "forbidden: "+err.Error(), http.StatusForbidden)
+			return
+		}
+		logging.WarnWithAttrs(logSubsystem, "bind_failed", slog.String("actor", req.Actor), slog.String("session", req.Session), slog.String("error", err.Error()))
+		http.Error(w, "kagent controller unavailable", http.StatusServiceUnavailable)
+		return
 	}
 
 	b := Binding{Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset, BoundAt: time.Now().UTC()}

@@ -1,0 +1,20 @@
+# Generates the kagent.api.v1alpha1 Go client stubs into internal/kagent/gen.
+# Run through `make generate-kagent` from the repository root.
+version: v2
+clean: true
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/giantswarm/muster/v5/internal/kagent/gen
+  disable:
+    - module: buf.build/bufbuild/protovalidate
+plugins:
+  - local: protoc-gen-go
+    out: ../../internal/kagent/gen
+    opt:
+      - paths=source_relative
+  - local: protoc-gen-go-grpc
+    out: ../../internal/kagent/gen
+    opt:
+      - paths=source_relative

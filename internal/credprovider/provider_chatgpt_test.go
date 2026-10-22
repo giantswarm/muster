@@ -37,6 +37,7 @@ func TestFetchSecretReleasesChatGPTOnlyToABoundSession(t *testing.T) {
 		Releasable:      map[string]string{"github": testIssuer, "chatgpt": chatgptIssuer},
 		Store:           store,
 		Grants:          grants.source,
+		Sessions:        testSessions().lookup,
 	})
 	require.NoError(t, err)
 	pki := newTestPKI(t)

@@ -148,3 +148,58 @@ func TestValkeyStoreReadsBindingsWithoutAToolset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"preset:read-only"}, b.Toolset)
 }
+
+func TestStorePinsTheActorUID(t *testing.T) {
+	ctx := t.Context()
+	for _, tc := range storeCases(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, tc.store.PinActorUID(ctx, testActor, "uid-1"), "pinning an unbound actor is no error")
+			got, err := tc.store.Get(ctx, testActor)
+			require.NoError(t, err)
+			assert.Nil(t, got, "and binds nothing")
+
+			b := Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{"github"}}
+			require.NoError(t, tc.store.Put(ctx, testActor, b, time.Hour))
+			tc.advance(30 * time.Minute)
+			require.NoError(t, tc.store.PinActorUID(ctx, testActor, "uid-1"))
+			require.NoError(t, tc.store.PinActorUID(ctx, testActor, "uid-1"), "pinning the pinned uid again is no error")
+			assert.ErrorIs(t, tc.store.PinActorUID(ctx, testActor, "uid-2"), ErrActorUIDMismatch)
+
+			got, err = tc.store.Get(ctx, testActor)
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			assert.Equal(t, "uid-1", got.ActorUID)
+
+			require.NoError(t, tc.store.Put(ctx, testActor, b, time.Hour), "the person re-binds")
+			got, err = tc.store.Get(ctx, testActor)
+			require.NoError(t, err)
+			assert.Equal(t, "uid-1", got.ActorUID, "a re-bind keeps the pin")
+
+			tc.advance(59 * time.Minute)
+			got, err = tc.store.Get(ctx, testActor)
+			require.NoError(t, err)
+			assert.NotNil(t, got, "the re-bind restarted the TTL")
+
+			require.NoError(t, tc.store.Delete(ctx, testActor, "alice"))
+			require.NoError(t, tc.store.Put(ctx, testActor, b, time.Hour))
+			got, err = tc.store.Get(ctx, testActor)
+			require.NoError(t, err)
+			assert.Empty(t, got.ActorUID, "a binding after an unbind starts unpinned")
+		})
+	}
+}
+
+func TestStorePinKeepsTheTTL(t *testing.T) {
+	ctx := t.Context()
+	for _, tc := range storeCases(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			require.NoError(t, tc.store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{"github"}}, time.Hour))
+			tc.advance(30 * time.Minute)
+			require.NoError(t, tc.store.PinActorUID(ctx, testActor, "uid-1"))
+			tc.advance(31 * time.Minute)
+			got, err := tc.store.Get(ctx, testActor)
+			require.NoError(t, err)
+			assert.Nil(t, got, "a pin restarts no TTL")
+		})
+	}
+}

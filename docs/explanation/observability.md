@@ -100,13 +100,18 @@ label.
 
 The aggregator emits two instruments:
 
-| OTel name                    | Type                  | Attributes        | Prometheus export name              |
-|------------------------------|-----------------------|-------------------|-------------------------------------|
-| `muster.tool_calls`          | `Int64Counter`        | `tool`, `outcome` | `muster_tool_calls_total`           |
-| `muster.tool_call.duration`  | `Float64Histogram`/s  | `tool`, `outcome` | `muster_tool_call_duration_seconds` |
+| OTel name                    | Type                  | Attributes                       | Prometheus export name              |
+|------------------------------|-----------------------|----------------------------------|-------------------------------------|
+| `muster.tool_calls`          | `Int64Counter`        | `tool`, `outcome`, `caller_kind` | `muster_tool_calls_total`           |
+| `muster.tool_call.duration`  | `Float64Histogram`/s  | `tool`, `outcome`, `caller_kind` | `muster_tool_call_duration_seconds` |
 
 `outcome` is one of `ok`, `error` (handler returned a Go error), or
 `error_result` (handler returned a `CallToolResult` with `IsError=true`).
+
+`caller_kind` is `agent` for a request a Session's sandbox made with its
+actor JWT ([actor bearer](../reference/configuration.md#credential-provider-for-substrates-egress-gateway)),
+served as the person its binding names, and `person` for every other
+request. No metric names the person.
 
 Both instruments are recorded by the meta-tool layer middleware — they
 attribute to the meta-tool name (`call_tool`, `list_tools`, …), not
@@ -120,10 +125,10 @@ session-capability path) records a second pair of instruments once the
 unwrapped, so a `call_tool` invocation is attributed to the real tool
 and the backend server it went to:
 
-| OTel name                              | Type                  | Attributes                          | Prometheus export name                          |
-|----------------------------------------|-----------------------|-------------------------------------|--------------------------------------------------|
-| `muster.downstream_tool_calls`         | `Int64Counter`        | `mcpserver.name`, `tool`, `outcome` | `muster_downstream_tool_calls_total`             |
-| `muster.downstream_tool_call.duration` | `Float64Histogram`/s  | `mcpserver.name`, `tool`, `outcome` | `muster_downstream_tool_call_duration_seconds`   |
+| OTel name                              | Type                  | Attributes                                         | Prometheus export name                          |
+|----------------------------------------|-----------------------|----------------------------------------------------|--------------------------------------------------|
+| `muster.downstream_tool_calls`         | `Int64Counter`        | `mcpserver.name`, `tool`, `outcome`, `caller_kind` | `muster_downstream_tool_calls_total`             |
+| `muster.downstream_tool_call.duration` | `Float64Histogram`/s  | `mcpserver.name`, `tool`, `outcome`, `caller_kind` | `muster_downstream_tool_call_duration_seconds`   |
 
 `tool` carries the aggregator-exposed name (`x_<server>_<tool>` or the
 family name) so the label matches what `list_tools` shows. The server
@@ -178,13 +183,13 @@ The aggregator emits one info-level line per tool call from the
 subsystem `MCP-Tool`:
 
 ```
-msg=tool call subsystem=MCP-Tool tool=call_tool outcome=ok duration_s=0.042
+msg=tool call subsystem=MCP-Tool tool=call_tool outcome=ok caller_kind=person duration_s=0.042
 ```
 
 On error:
 
 ```
-msg=tool call subsystem=MCP-Tool tool=call_tool outcome=error duration_s=2.118 error="upstream timeout"
+msg=tool call subsystem=MCP-Tool tool=call_tool outcome=error caller_kind=agent duration_s=2.118 error="upstream timeout"
 ```
 
 The line carries the final post-handler outcome the client sees.
@@ -196,14 +201,16 @@ For an agent session the boundary line's `tool` is always `call_tool`, so
 this is the line an audit or a proof counts:
 
 ```
-msg="tool dispatched" subsystem=MCP-Tool subject=CiQwOGE4... server=kubernetes tool=x_kubernetes_list_pods outcome=ok duration_s=0.041 transportSessionID=mcp-session-ffa8afa1-eb56-4692-98d2-...
+msg="tool dispatched" subsystem=MCP-Tool subject=CiQwOGE4... server=kubernetes tool=x_kubernetes_list_pods outcome=ok caller_kind=person duration_s=0.041 transportSessionID=mcp-session-ffa8afa1-eb56-4692-98d2-...
 ```
 
 `subject` is the caller's subject truncated to its first eight characters,
 like every identity in the log. `server` is the MCPServer the call reached;
 it is absent for muster's own core and workflow tools (`core_*`,
 `workflow_*`), which reach no backend. `tool` is the aggregator-exposed
-name, the one `list_tools` shows. A workflow's steps each write their own
+name, the one `list_tools` shows. `caller_kind` is the metrics' `person` or
+`agent`: an agent's line names the person its binding names as `subject`.
+A workflow's steps each write their own
 line; `call_tool` itself writes none, the tool it runs does. Arguments and
 results never appear on the line, nor does the error: the boundary line
 carries it, and a backend's error can quote what the call carried.
@@ -241,6 +248,12 @@ sum by (tool, outcome) (rate(muster_tool_calls_total[5m]))
 ```
 sum by (mcpserver_name) (rate(muster_downstream_tool_calls_total[5m]))
 topk(10, sum by (tool) (increase(muster_downstream_tool_calls_total[24h])))
+```
+
+### Mimir — who calls a server: people or agents
+
+```
+sum by (caller_kind) (increase(muster_downstream_tool_calls_total{mcpserver_name="kagent"}[14d]))
 ```
 
 ### Mimir — p95 tool latency

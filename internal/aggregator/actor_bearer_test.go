@@ -28,11 +28,11 @@ func fakeActorJWT(iss, sub string) string {
 
 func testActorBearer(t *testing.T, store credprovider.Store) *credprovider.ActorBearer {
 	t.Helper()
-	verify := func(_ context.Context, token string) (string, time.Time, error) {
+	verify := func(_ context.Context, token string) (credprovider.ActorToken, error) {
 		if token == fakeActorJWT(testActorIssuer, "actor/kagent/forged") {
-			return "", time.Time{}, errors.New("signature invalid")
+			return credprovider.ActorToken{}, errors.New("signature invalid")
 		}
-		return "actor/kagent/session-a", time.Now().Add(time.Minute), nil
+		return credprovider.ActorToken{Subject: "actor/kagent/session-a", ActorUID: "uid-a", Expiry: time.Now().Add(time.Minute)}, nil
 	}
 	ab, err := credprovider.NewActorBearer(credprovider.ActorBearerOptions{Issuer: testActorIssuer, Verify: verify, Store: store})
 	require.NoError(t, err)

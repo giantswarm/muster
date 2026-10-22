@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	"github.com/giantswarm/muster/v5/pkg/observability"
 )
@@ -28,7 +29,8 @@ const (
 
 // Metrics returns a ToolHandlerMiddleware that records:
 //
-//   - muster.tool_calls (counter) with attributes tool, outcome
+//   - muster.tool_calls (counter) with attributes tool, outcome and
+//     caller_kind (api.CallerKindFromContext)
 //   - muster.tool_call.duration (histogram, unit "s") with the same
 //     attributes
 //
@@ -60,6 +62,7 @@ func Metrics() server.ToolHandlerMiddleware {
 			attrs := metric.WithAttributes(
 				attribute.String("tool", req.Params.Name),
 				attribute.String("outcome", outcome),
+				attribute.String(attrCallerKind, api.CallerKindFromContext(ctx)),
 			)
 			calls.Add(ctx, 1, attrs)
 			duration.Record(ctx, time.Since(start).Seconds(), attrs)
@@ -107,6 +110,10 @@ func passthroughMiddleware() server.ToolHandlerMiddleware {
 // label (and sidestepping the Prometheus-Operator target-label rename a
 // bare "namespace"-style key would suffer, see mcpserver_state_metrics.go).
 const attrDownstreamServer = observability.AttrMCPServerName
+
+// attrCallerKind is the attribute key of the kind of caller, person or agent
+// (api.CallerKindFromContext). It never names the person.
+const attrCallerKind = "caller_kind"
 
 // downstreamMetrics records the downstream leg of a tool call: the dispatch
 // to a backend MCP server once (server, tool) resolution has happened.
@@ -161,6 +168,7 @@ func (d *downstreamMetrics) record(ctx context.Context, serverName, toolName str
 		attribute.String(attrDownstreamServer, serverName),
 		attribute.String("tool", toolName),
 		attribute.String("outcome", classify(res, err)),
+		attribute.String(attrCallerKind, api.CallerKindFromContext(ctx)),
 	)
 	d.calls.Add(ctx, 1, attrs)
 	d.duration.Record(ctx, time.Since(start).Seconds(), attrs)

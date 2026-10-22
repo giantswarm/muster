@@ -201,6 +201,12 @@ type CredentialProviderConfig struct {
 	// token with. Example: {gitlab: oauth2}
 	GitUsers map[string]string `yaml:"gitUsers,omitempty"`
 
+	// KagentTarget is the kagent controller's SessionService, which a bind
+	// reads its Session from with the caller's own bearer to check the
+	// Session is the caller's and runs the actor: grpc://host:port (plaintext,
+	// an in-cluster Service) or grpcs://host[:port]. Required.
+	KagentTarget string `yaml:"kagentTarget,omitempty"`
+
 	// ActorBearer lets a bound Session's sandbox call muster itself as its
 	// person, with no credential in the sandbox. Disabled by default.
 	ActorBearer ActorBearerConfig `yaml:"actorBearer,omitempty"`

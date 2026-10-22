@@ -5,6 +5,7 @@ go 1.26.0
 toolchain go1.27.3
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1
 	github.com/Masterminds/sprig/v3 v3.3.0
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/aws/aws-sdk-go-v2 v1.47.3

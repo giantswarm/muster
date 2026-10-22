@@ -176,10 +176,17 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   `PUT /session-bindings` with `{"actor": "spiffe://substrate-actor.local/actor/<atespace>/<actor>",
   "session": "<namespace>/<name>", "providers": ["github"], "toolset": ["preset:read-only"]}`
   binds the Session's sandbox actor to the caller (`204`; `403` when the actor is bound to
-  another person; `400` for a provider that is not releasable or a toolset that is not one;
+  another person or is not the Session's; `400` for a provider that is not releasable or a toolset that is not one;
   `toolset` is optional, see [the toolset bound to a Session](toolsets.md#the-toolset-bound-to-a-session)), and `DELETE /session-bindings?actor=<id>` removes the caller's
   binding (`204`, also when there is none; `403` for another person's). A binding lives for
   `bindingTTL` after its last bind or answered fetch, in Valkey when muster runs on Valkey.
+- **Bind ownership.** Before it binds, muster reads the Session from the kagent controller
+  (`SessionService/GetSession` at `kagentTarget`) with the caller's own bearer, which the
+  controller answers only for the caller's own Sessions. The bind is refused (`403`) when the
+  Session does not exist or is another person's, when its Agent is in another namespace than
+  `session` names, or when it runs another actor than `actor` (its `a2aAuthority`
+  `<actor>.<atespace>.actors.resources.substrate.ate.dev`); a controller muster cannot reach is
+  `503`. Nothing is bound on a refusal.
 - **FetchSecret.** On its own gRPC port, muster serves `CredentialProvider.FetchSecret` over
   mutual TLS and answers only a client certificate that chains to `clientCAFile` and names
   `gatewayIdentity`. For `ate-secret://<authority>/<provider>/git` it answers
@@ -199,9 +206,13 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   MCP request (`/mcp`, `/sse`, `/message`) whose bearer names `actorBearer.issuer` as the
   person the actor is bound to. The JWT must be signed by a key of the issuer's key set
   (`jwksUrl`, default `<issuer>/openid/v1/jwks`), unexpired, for that audience, with the
-  subject `actor/<atespace>/<actor>`; the binding must list the reserved provider `muster`,
-  which a bind accepts only with the actor bearer on and `FetchSecret` never releases. A bad
-  token is `401`, an unbound actor or a binding without `muster` is `403`, a binding store
+  subject `actor/<atespace>/<actor>` and the actor's uid (`actor.ate.dev.actorUID`, or
+  `ate.dev.actorUID` as earlier Substrate releases name it); the binding must list the reserved provider `muster`,
+  which a bind accepts only with the actor bearer on and `FetchSecret` never releases. The
+  first accepted JWT pins the binding to its actor's uid; a JWT of an actor recreated under
+  the same name (another uid) is refused, also after a re-bind by the same person, until the
+  binding is removed. A bad token or one without a uid is `401`, an unbound actor, a binding
+  without `muster` or another uid is `403`, a binding store
   outage is `503`. Every accepted or refused request is an audit event
   (`[AUDIT] action=actor_bearer outcome=success|failure`) naming the person's truncated subject,
   the actor, the bound Session and its bound toolset, and, on a refusal, the reason. All requests of one actor are
@@ -224,6 +235,7 @@ aggregator:
     gatewayIdentity: spiffe://cluster.local/ns/substrate/sa/substrate-atenet-egress
     authority: muster.giantswarm.io  # default
     bindingTTL: 336h                 # default: 14 days, the Session idle TTL
+    kagentTarget: grpc://agentgateway.agent-platform.svc:8080  # required: the Session a bind names is read here
     releasable:                      # provider instance -> grant issuer (grantScope: subject)
       github: https://github.com/apps/my-workspaces-app
       gitlab: https://gitlab.example.com

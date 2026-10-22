@@ -1,0 +1,331 @@
+syntax = "proto3";
+
+package kagent.api.v1alpha1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "kagent/api/v1alpha1/common.proto";
+import "kagent/api/v1alpha1/runtime.proto";
+
+option go_package = "github.com/kagent-dev/kagent/go/api/gen/kagent/api/v1alpha1;apiv1alpha1";
+
+// Lifecycle mutations execute inline. After a retryable error, repeat the same
+// mutation; CreateSession retries must keep the same request_id and input.
+// GetSession only observes state. A timeout does not roll back runtime effects.
+// Pending issued work blocks conflicting lifecycle, task, and checkpoint work
+// until a client retry completes it. Automatic idle suspension is independent.
+service SessionService {
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  rpc UpdateSessionName(UpdateSessionNameRequest) returns (UpdateSessionNameResponse);
+  rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
+  rpc ResumeSession(ResumeSessionRequest) returns (ResumeSessionResponse);
+  rpc DeleteSession(DeleteSessionRequest) returns (DeleteSessionResponse);
+  rpc CreateSessionShare(CreateSessionShareRequest) returns (CreateSessionShareResponse);
+  rpc ListSessionShares(ListSessionSharesRequest) returns (ListSessionSharesResponse);
+  rpc RevokeSessionShare(RevokeSessionShareRequest) returns (RevokeSessionShareResponse);
+}
+
+enum SessionSharePermission {
+  SESSION_SHARE_PERMISSION_UNSPECIFIED = 0;
+  // Allows A2A get, list, and subscribe operations.
+  SESSION_SHARE_PERMISSION_READ_ONLY = 1;
+  // Also allows A2A send and cancel operations.
+  SESSION_SHARE_PERMISSION_READ_WRITE = 2;
+}
+
+message Failure {
+  string reason = 1;
+  string message = 2;
+}
+
+message Session {
+  string id = 1;
+  string creator = 2;
+  reserved 3, 4;
+  reserved "harness", "agent_template";
+  ResourceReference agent = 15;
+  string prepared_revision = 5;
+  string a2a_authority = 6;
+  RuntimeState state = 7;
+  RuntimeOperation operation = 8;
+  Failure failure = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+  reserved 12;
+  reserved "labels";
+  // Reader-supplied display name for the conversation. Empty means unnamed,
+  // which is the state every session created before this field existed is in.
+  string name = 13;
+  // Output only. A2A conversation ID, equal to this session's ID.
+  // Forks receive a new conversation ID and new task IDs.
+  string context_id = 14;
+  // Output only. Why the runtime boundary after a turn was released without a
+  // pause or a snapshot, once the suspend or pause and its retry failed or the
+  // runtime was gone. A later turn's snapshot clears it.
+  QuiescenceFailure last_quiescence_failure = 16;
+  // The workspace volume this session works in and how its actor mounts it,
+  // as given on create. Unset for a session created without one.
+  SessionVolumeSource volume_source = 17;
+  // Output only. The hosts whose credential this session gets, as the
+  // installation's admission admitted them with the volume source.
+  repeated SessionProvider providers = 18;
+  // Output only. The repositories, relative to the session's working
+  // directory, whose origin moved since the volume's last sync, as admitted.
+  repeated string changed = 19;
+  // Output only. When the session's last turn was dispatched to its runtime;
+  // every turn moves it. Unset until the first turn. The owner of a volume
+  // source cleans up the session's directory a while after it.
+  google.protobuf.Timestamp last_turn_time = 20;
+}
+
+// SessionProvider is a host whose credential a session gets: the egress
+// gateway sets it on requests to hostname with scheme, from a token the named
+// broker exchanges for audience. No credential is part of it. One host may
+// carry a provider per path prefix: a request takes the provider with the
+// longest prefix its path lies under, the one without a prefix otherwise.
+message SessionProvider {
+  reserved 4, 5;
+  reserved "username", "broker";
+  string hostname = 1;
+  // The provider instance as clients read it before provider existed: equal
+  // to provider on a new Session, and read as provider when that is empty on
+  // a Session stored before it.
+  string audience = 2 [deprecated = true];
+  // "Basic" (git) or "Bearer" (the provider's API).
+  string scheme = 3;
+  // The request paths under this prefix, a path starting and ending with
+  // "/" (GitLab's "/api/"); empty for every path of hostname.
+  string path_prefix = 6;
+  // The provider instance, one DNS label: the credential rule on hostname
+  // names ate-secret://<the installation's credential authority>/<provider>/git
+  // for Basic and .../api for Bearer.
+  string provider = 7;
+}
+
+// SessionVolumeSource names an existing read-write-many volume and how the
+// session's actor mounts it: the session's own directory read-write, the rest
+// read-only. kagent never creates or deletes the volume.
+message SessionVolumeSource {
+  option (buf.validate.message).cel = {
+    id: "session_volume_source.one_read_write_mount"
+    message: "at most one mount may be read-write"
+    expression: "this.mounts.filter(m, !m.read_only).size() <= 1"
+  };
+  option (buf.validate.message).cel = {
+    id: "session_volume_source.unique_mount_paths"
+    message: "every mount needs its own mount_path"
+    expression: "this.mounts.map(m, m.mount_path).unique()"
+  };
+  SessionVolume volume = 1 [(buf.validate.field).required = true];
+  // The mounts of the volume, each at its own absolute path outside /data.
+  repeated SessionVolumeMount mounts = 2 [(buf.validate.field).repeated = {
+    min_items: 1
+    max_items: 8
+  }];
+}
+
+// SessionVolume is an existing CSI volume by its driver and the driver's own
+// handle, such as the handle a PersistentVolume's CSI source reports.
+message SessionVolume {
+  // The name of the CSI driver that serves the volume, such as "efs.csi.aws.com".
+  string csi_driver = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 63
+    pattern: "^[a-z0-9]([-a-z0-9]*[a-z0-9])?([.][a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+  }];
+  // The driver's handle of the volume, opaque to kagent.
+  string volume_handle = 2 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 1024
+    pattern: "^[^\\p{Z}\\p{Cc}]+$"
+  }];
+}
+
+// SessionVolumeMount mounts one directory of the volume into the session's
+// actor.
+message SessionVolumeMount {
+  // The directory on the volume: a clean relative path. "${SESSION_ID}" in it
+  // stands for the session's id, so "sessions/${SESSION_ID}" is the session's
+  // own directory.
+  string sub_path = 1 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 253
+    pattern: "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*|\\$\\{SESSION_ID\\})(?:/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.[A-Za-z0-9_-][A-Za-z0-9._-]*|\\$\\{SESSION_ID\\}))*$"
+  }];
+  // Where the actor sees it: a clean absolute path outside /data, the durable
+  // directory its snapshot tars on every commit.
+  string mount_path = 2 [
+    (buf.validate.field).string = {
+      min_len: 2
+      max_len: 253
+      pattern: "^(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*|/\\.[A-Za-z0-9_-][A-Za-z0-9._-]*)+$"
+    },
+    (buf.validate.field).cel = {
+      id: "session_volume_mount.outside_data"
+      message: "mount_path must be outside /data"
+      expression: "this != '/data' && !this.startsWith('/data/')"
+    }
+  ];
+  // Read-only for the directories shared between sessions, such as the
+  // workspace's mirrors; the session's own directory is read-write.
+  bool read_only = 3;
+}
+
+// QuiescenceFailure explains a turn whose runtime could not be paused or
+// suspended after it settled. The turn is stored; without a snapshot it cannot
+// be checkpointed, and the next turn takes the runtime as it is.
+message QuiescenceFailure {
+  // The turn whose boundary was released.
+  string task_id = 1;
+  // SuspendFailed, PauseFailed or RuntimeUnavailable.
+  string reason = 2;
+  string message = 3;
+  google.protobuf.Timestamp failed_at = 4;
+}
+
+message CreateSessionRequest {
+  reserved 1, 2;
+  reserved "harness", "agent_template";
+  ResourceReference agent = 5 [(buf.validate.field).required = true];
+  string request_id = 3 [(buf.validate.field).string = {
+    min_len: 1
+    max_len: 128
+  }];
+  // Optional display name. Empty means unnamed.
+  string name = 4 [(buf.validate.field).string = {
+    max_len: 200
+    pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
+  // Optional. The workspace volume the session works in and how its actor
+  // mounts it. The controller's configured admission must admit it; without
+  // an admission every request that names one is refused FailedPrecondition.
+  // Shown on the session.
+  SessionVolumeSource volume_source = 6;
+  // Optional. The proof the admission verifies for volume_source, opaque to
+  // kagent. Never stored and never shown.
+  string admission_token = 7 [(buf.validate.field).string = {
+    max_len: 16384
+    pattern: "^[^\\p{Z}\\p{Cc}]*$"
+  }];
+  // Optional. The caller binds the session's actor to its person at the
+  // installation's providers that verify the actor's own JWT once the session
+  // exists. A session without volume_source then lists those providers, so the
+  // egress gateway hands its actor that JWT on their hosts; without it, such a
+  // session lists none and its runtime keeps sending the caller's credential
+  // there, since a provider refuses an actor nobody bound. A session with
+  // volume_source gets what its admission admits either way.
+  bool bind_actor = 8;
+}
+
+message CreateSessionResponse {
+  Session session = 1;
+}
+
+message GetSessionRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetSessionResponse {
+  Session session = 1;
+}
+
+message ListSessionsRequest {
+  reserved 1;
+  reserved "match_labels";
+  // Includes sessions created by other users when authorized.
+  bool all_creators = 2;
+  PageRequest page = 3;
+  reserved 4, 5;
+  reserved "agent_template", "harness";
+  // Filters by the Agent that produced each session's pinned revision.
+  ResourceReference agent = 6;
+}
+
+message ListSessionsResponse {
+  repeated Session sessions = 1;
+  PageResponse page = 2;
+}
+
+message UpdateSessionNameRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  // The new display name. Empty clears the name, returning the conversation to
+  // being identified by its id.
+  string name = 2 [(buf.validate.field).string = {
+    max_len: 200
+    pattern: "^(?:$|[^\\p{Z}\\p{Cc}](?:[^\\p{Cc}]*[^\\p{Z}\\p{Cc}])?)$"
+  }];
+}
+
+message UpdateSessionNameResponse {
+  Session session = 1;
+}
+
+message SuspendSessionRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message SuspendSessionResponse {
+  Session session = 1;
+}
+
+message ResumeSessionRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message ResumeSessionResponse {
+  Session session = 1;
+}
+
+message DeleteSessionRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message DeleteSessionResponse {
+  Session session = 1;
+}
+
+message SessionShare {
+  string id = 1;
+  string session_id = 2;
+  SessionSharePermission permission = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // When the share's token stops granting access. Unset means never.
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message CreateSessionShareRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  SessionSharePermission permission = 2 [(buf.validate.field).enum = {
+    defined_only: true
+    not_in: 0
+  }];
+  // How long the share's token grants access, from its creation. Unset takes the
+  // controller's maximum share lifetime; without one, the share grants access
+  // until it is revoked or the session deleted.
+  google.protobuf.Duration ttl = 3 [(buf.validate.field).duration.gt = {}];
+}
+
+message CreateSessionShareResponse {
+  SessionShare share = 1;
+  // Returned only when the share is created.
+  string token = 2;
+}
+
+message ListSessionSharesRequest {
+  string session_id = 1 [(buf.validate.field).string.uuid = true];
+  PageRequest page = 2;
+}
+
+message ListSessionSharesResponse {
+  repeated SessionShare shares = 1;
+  PageResponse page = 2;
+}
+
+message RevokeSessionShareRequest {
+  string share_id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message RevokeSessionShareResponse {}

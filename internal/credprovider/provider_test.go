@@ -118,6 +118,7 @@ func newTestProvider(t *testing.T, grants fakeGrants) (*Provider, *MemoryStore) 
 		BindingTTL:      time.Hour,
 		Store:           store,
 		Grants:          grants.source,
+		Sessions:        testSessions().lookup,
 	})
 	require.NoError(t, err)
 	return p, store
@@ -181,6 +182,7 @@ func TestFetchSecretSendsTheProvidersGitUser(t *testing.T) {
 		GitUsers:        map[string]string{"gitlab": "oauth2"},
 		Store:           store,
 		Grants:          grants.source,
+		Sessions:        testSessions().lookup,
 	})
 	require.NoError(t, err)
 	pki := newTestPKI(t)
@@ -294,7 +296,7 @@ func TestFetchSecretRestartsTheBindingTTL(t *testing.T) {
 }
 
 func TestNewProviderValidates(t *testing.T) {
-	ok := Options{GatewayIdentity: testGateway, Releasable: map[string]string{"github": testIssuer}, Store: NewMemoryStore(), Grants: fakeGrants{}.source}
+	ok := Options{GatewayIdentity: testGateway, Releasable: map[string]string{"github": testIssuer}, Store: NewMemoryStore(), Grants: fakeGrants{}.source, Sessions: testSessions().lookup}
 	_, err := NewProvider(ok)
 	require.NoError(t, err)
 
@@ -315,6 +317,7 @@ func TestNewProviderValidates(t *testing.T) {
 		"git user with colon":   func(o *Options) { o.GitUsers = map[string]string{"github": "a:b"} },
 		"no store":              func(o *Options) { o.Store = nil },
 		"no grant source":       func(o *Options) { o.Grants = nil },
+		"no Session lookup":     func(o *Options) { o.Sessions = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			o := ok

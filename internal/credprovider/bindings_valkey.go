@@ -20,8 +20,9 @@ import (
 //	Value: [encrypted] JSON(Binding)
 //	TTL:   the binding TTL, restarted by Put and Touch
 //
-// Put and Delete check the owner and write in one Lua script, so two replicas
-// cannot race a bind past another person's binding.
+// Put, PinActorUID and Delete write in one Lua script that checks the value is
+// still the one read, so two replicas cannot race a bind past another
+// person's binding or a pin past another uid.
 type ValkeyStore struct {
 	client    valkey.Client
 	keyPrefix string
@@ -84,6 +85,14 @@ if cur and cur ~= ARGV[1] then return 0 end
 redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
 return 1`)
 
+// pinScript replaces the value with ARGV[2], keeping its TTL, only while it
+// still holds ARGV[1].
+var pinScript = valkey.NewLuaScript(`
+local cur = redis.call('GET', KEYS[1])
+if cur ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+return 1`)
+
 // deleteScript deletes the key only while it still holds ARGV[1].
 var deleteScript = valkey.NewLuaScript(`
 local cur = redis.call('GET', KEYS[1])
@@ -106,6 +115,9 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 		if existing.Subject != b.Subject {
 			return ErrBoundToAnother
 		}
+		if b.ActorUID == "" {
+			b.ActorUID = existing.ActorUID
+		}
 	}
 	value, err := s.seal(b)
 	if err != nil {
@@ -122,6 +134,46 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 			return ErrBoundToAnother
 		}
 		return fmt.Errorf("write binding: changed concurrently, retry")
+	}
+	return nil
+}
+
+// PinActorUID implements Store.
+func (s *ValkeyStore) PinActorUID(ctx context.Context, actor, uid string) error {
+	key := s.key(actor)
+	current, err := s.raw(ctx, key)
+	if err != nil || current == "" {
+		return err
+	}
+	b, err := s.open(current)
+	if err != nil {
+		return err
+	}
+	changed, err := pinActorUID(b, uid)
+	if err != nil || !changed {
+		return err
+	}
+	value, err := s.seal(*b)
+	if err != nil {
+		return fmt.Errorf("encode binding: %w", err)
+	}
+	ok, err := pinScript.Exec(ctx, s.client, []string{key}, []string{current, value}).AsInt64()
+	if err != nil {
+		return fmt.Errorf("pin binding: %w", err)
+	}
+	if ok == 0 {
+		// Changed between the read and the write: decide on the new value.
+		now, err := s.Get(ctx, actor)
+		if err != nil {
+			return err
+		}
+		if now == nil || now.ActorUID == uid {
+			return nil
+		}
+		if now.ActorUID != "" {
+			return ErrActorUIDMismatch
+		}
+		return fmt.Errorf("pin binding: changed concurrently, retry")
 	}
 	return nil
 }

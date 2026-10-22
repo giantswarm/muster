@@ -19,6 +19,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/internal/credprovider"
+	"github.com/giantswarm/muster/v5/internal/kagent"
 	"github.com/giantswarm/muster/v5/internal/listenfds"
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
@@ -247,6 +248,8 @@ type AggregatorServer struct {
 	// bindings; nil when disabled. credProviderServer is its gRPC listener.
 	credProvider       *credprovider.Provider
 	credProviderServer *credprovider.Server
+	// kagentSessions is the kagent client a bind checks its Session with.
+	kagentSessions *kagent.Client
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,

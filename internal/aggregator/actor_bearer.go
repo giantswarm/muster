@@ -104,6 +104,7 @@ func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Hand
 
 		ctx := api.WithSubject(r.Context(), caller.Subject)
 		ctx = api.WithSessionID(ctx, caller.SessionID)
+		ctx = api.WithAgentCaller(ctx)
 		// The binding's toolset bounds the request whatever header it sends:
 		// the header can narrow it and never widen it.
 		ctx = toolset.ContextWithBound(ctx, caller.Toolset)

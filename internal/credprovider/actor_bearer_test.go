@@ -56,8 +56,18 @@ func newActorIssuer(t *testing.T) *actorIssuer {
 	return &actorIssuer{url: srv.URL, key: key, pool: pool, host: u.Hostname()}
 }
 
-// mint signs an actor JWT; mutate edits its claims first.
+// testActorUID is the uid of the actor mint names.
+const testActorUID = "8d3f4a52-0d0e-4b8e-9c1e-5f0b8d1f2a11"
+
+// mint signs an actor JWT of the actor with testActorUID, under the claim
+// name our Substrate line mints; mutate edits its claims first.
 func (i *actorIssuer) mint(t *testing.T, sub string, mutate func(*josejwt.Claims)) string {
+	t.Helper()
+	return i.mintWith(t, sub, mutate, map[string]any{"ate.dev": map[string]string{"atespace": "kagent", "actorUID": testActorUID}})
+}
+
+// mintWith signs an actor JWT carrying the Substrate claims given.
+func (i *actorIssuer) mintWith(t *testing.T, sub string, mutate func(*josejwt.Claims), substrate map[string]any) string {
 	t.Helper()
 	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.ES256, Key: i.key},
 		(&jose.SignerOptions{}).WithType("JWT").WithHeader("kid", "k1"))
@@ -74,7 +84,7 @@ func (i *actorIssuer) mint(t *testing.T, sub string, mutate func(*josejwt.Claims
 	if mutate != nil {
 		mutate(&claims)
 	}
-	token, err := josejwt.Signed(signer).Claims(claims).Serialize()
+	token, err := josejwt.Signed(signer).Claims(claims).Claims(substrate).Serialize()
 	require.NoError(t, err)
 	return token
 }
@@ -245,11 +255,94 @@ func TestActorBearerStoreOutage(t *testing.T) {
 }
 
 func TestActorBearerValidatesOptions(t *testing.T) {
-	verify := func(context.Context, string) (string, time.Time, error) { return "", time.Time{}, nil }
+	verify := func(context.Context, string) (ActorToken, error) { return ActorToken{}, nil }
 	_, err := NewActorBearer(ActorBearerOptions{Issuer: "http://idp.substrate.svc", Verify: verify, Store: NewMemoryStore()})
 	assert.Error(t, err, "issuer must be https")
 	_, err = NewActorBearer(ActorBearerOptions{Issuer: "https://idp.substrate.svc", Store: NewMemoryStore()})
 	assert.Error(t, err, "verifier required")
 	_, err = NewOIDCActorTokenVerifier(OIDCVerifierOptions{Issuer: "https://idp.substrate.svc"})
 	assert.Error(t, err, "audience required")
+}
+
+func TestActorBearerPinsTheActorUID(t *testing.T) {
+	ctx := t.Context()
+	iss := newActorIssuer(t)
+	store := NewMemoryStore()
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+	ab := iss.bearer(t, store)
+
+	_, err := ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
+	require.NoError(t, err)
+	b, err := store.Get(ctx, testActor)
+	require.NoError(t, err)
+	assert.Equal(t, testActorUID, b.ActorUID, "the first accepted JWT pins the binding")
+
+	_, err = ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
+	require.NoError(t, err, "the pinned actor keeps calling")
+
+	recreated := iss.mintWith(t, testActorSubject, nil, map[string]any{"ate.dev": map[string]string{"actorUID": "uid-of-the-recreated-actor"}})
+	_, err = ab.Authenticate(ctx, recreated)
+	assert.ErrorIs(t, err, ErrActorNotAllowed, "an actor recreated under the same name is refused")
+
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+	_, err = ab.Authenticate(ctx, recreated)
+	assert.ErrorIs(t, err, ErrActorNotAllowed, "a re-bind by the person keeps the pin")
+}
+
+func TestActorBearerReadsBothActorUIDClaimNames(t *testing.T) {
+	ctx := t.Context()
+	iss := newActorIssuer(t)
+	store := NewMemoryStore()
+	ab := iss.bearer(t, store)
+	for name, claims := range map[string]map[string]any{
+		"actor.ate.dev": {"actor.ate.dev": map[string]string{"actorUID": "uid-upstream"}},
+		"ate.dev":       {"ate.dev": map[string]string{"actorUID": "uid-legacy"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+			_, err := ab.Authenticate(ctx, iss.mintWith(t, testActorSubject, nil, claims))
+			require.NoError(t, err)
+			b, err := store.Get(ctx, testActor)
+			require.NoError(t, err)
+			assert.Equal(t, claims[name].(map[string]string)["actorUID"], b.ActorUID)
+			require.NoError(t, store.Delete(ctx, testActor, "alice"))
+		})
+	}
+}
+
+func TestActorBearerRefusesATokenWithoutActorUID(t *testing.T) {
+	ctx := t.Context()
+	iss := newActorIssuer(t)
+	store := NewMemoryStore()
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+	ab := iss.bearer(t, store)
+	for name, claims := range map[string]map[string]any{
+		"no Substrate claims": {},
+		"empty uid":           {"ate.dev": map[string]string{"actorUID": ""}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := ab.Authenticate(ctx, iss.mintWith(t, testActorSubject, nil, claims))
+			assert.ErrorIs(t, err, ErrInvalidActorToken)
+		})
+	}
+	b, err := store.Get(ctx, testActor)
+	require.NoError(t, err)
+	assert.Empty(t, b.ActorUID, "nothing pinned")
+}
+
+// failingPinStore fails every pin.
+type failingPinStore struct{ Store }
+
+func (failingPinStore) PinActorUID(context.Context, string, string) error {
+	return errors.New("valkey down")
+}
+
+func TestActorBearerPinOutage(t *testing.T) {
+	ctx := t.Context()
+	iss := newActorIssuer(t)
+	store := NewMemoryStore()
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+	ab := iss.bearer(t, failingPinStore{store})
+	_, err := ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
+	assert.ErrorIs(t, err, ErrBindingsUnavailable, "an unpinned binding is never used")
 }

@@ -8,8 +8,10 @@
 //     calls PUT /session-bindings as the person (their forwarded ID token)
 //     with the Session's sandbox actor SPIFFE id and the providers the Session
 //     may use, and DELETE /session-bindings?actor=<id> when the Session goes.
-//     A binding belongs to the person who made it; nobody else can replace or
-//     remove it. It lives for the Session idle TTL, restarted by every bind
+//     muster binds only the actor of a Session the kagent controller answers
+//     to the caller's own bearer. A binding belongs to the person who made
+//     it; nobody else can replace or remove it, and it is pinned to the uid
+//     of the first actor JWT accepted under it. It lives for the Session idle TTL, restarted by every bind
 //     and every answered fetch, in Valkey when muster runs on Valkey.
 //   - CredentialProvider.FetchSecret, on a gRPC listener of its own that
 //     requires the egress gateway's pod certificate (mutual TLS, one SPIFFE

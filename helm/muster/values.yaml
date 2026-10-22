@@ -382,6 +382,11 @@ muster:
     # takes "oauth2", the only login GitLab accepts an OAuth token with.
     # Example: {gitlab: "oauth2"}
     gitUsers: {}  # @schema additionalProperties: true
+    # The kagent controller's SessionService, required: a bind reads its
+    # Session there with the person's own bearer and is refused unless the
+    # Session is theirs and runs the bound actor. grpc://host:port
+    # (plaintext, an in-cluster Service) or grpcs://host[:port].
+    kagentTarget: ""
     # A bound Session's sandbox calls muster itself as its person: the egress
     # gateway injects the actor's JWT on the muster host (an actor_jwt rule
     # with this audience), muster verifies it against Substrate's actor-JWT
