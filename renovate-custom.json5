@@ -1,10 +1,1 @@
-{
-  // Bumps GOVULNCHECK_VERSION in Makefile.custom.mk; the line above it names the module.
-  customManagers: [
-    {
-      customType: 'regex',
-      managerFilePatterns: ['/^Makefile\\.custom\\.mk$/'],
-      matchStrings: ['# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\nGOVULNCHECK_VERSION \\?= (?<currentValue>\\S+)'],
-    },
-  ],
-}
+{}
