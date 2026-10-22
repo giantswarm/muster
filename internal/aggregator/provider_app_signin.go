@@ -133,7 +133,7 @@ func (p *AuthToolProvider) disconnectProviderApp(ctx context.Context, sessionID,
 			IsError: true,
 		}
 	}
-	a.deviceSignIns.cancel(sub, name)
+	a.deviceSignIns.cancel(ctx, sub, name)
 	held := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, app.Issuer) != nil
 	api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, app.Issuer)
 	siblings := a.disconnectIssuerForSubject(ctx, sessionID, sub, "", app.Issuer)
@@ -281,7 +281,7 @@ func (p *AuthToolProvider) providerAppStatuses(ctx context.Context, sessionID, s
 			if app.Flow == configPkg.ProviderAppFlowChatGPTDeviceCode {
 				// A device code is issued by core_auth_login only: a status
 				// read never starts a sign-in the person did not ask for.
-				a.deviceCodeStatus(sub, &status)
+				a.deviceCodeStatus(ctx, sessionID, sub, app, &status)
 			} else if withURLs {
 				login := p.grantProviderApp(ctx, sessionID, sub, name, nil)
 				if url := challengeURL(login); url != "" {

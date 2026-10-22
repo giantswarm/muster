@@ -103,8 +103,8 @@ type AggregatorServer struct {
 	// once in muster, apart from any MCPServer (provider_apps.go).
 	providerApps *providerAppSet
 
-	// deviceSignIns are the device-code sign-ins of provider Apps this
-	// replica polls (provider_app_device.go).
+	// deviceSignIns are the device-code sign-ins of provider Apps, shared
+	// by the replicas through the session store (provider_app_device_signins.go).
 	deviceSignIns *deviceSignIns
 
 	errorCallback func(error) // Callback for propagating async errors in the aggregator upwards
@@ -803,9 +803,14 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 	}
 	setAppOwnedIssuers(providerApps)
 
+	var deviceStore deviceSignInStore = newMemoryDeviceSignInStore()
+	if stores.valkeyClient != nil {
+		deviceStore = newValkeyDeviceSignInStore(stores.valkeyClient, stores.keyPrefix, stores.encryptor)
+	}
+
 	return &AggregatorServer{
 		providerApps:      providerApps,
-		deviceSignIns:     newDeviceSignIns(),
+		deviceSignIns:     newDeviceSignIns(deviceStore),
 		config:            aggConfig,
 		registry:          NewServerRegistry(aggConfig.MusterPrefix),
 		toolManager:       newActiveItemManager(),
