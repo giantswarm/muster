@@ -130,6 +130,9 @@ type AggregatorServer struct {
 	toolManager    *activeItemManager // Tracks active meta-tools
 	isShuttingDown bool               // Indicates whether the server is currently stopping
 
+	// calls are the tool calls in flight, which Stop drains (call_drain.go).
+	calls *inFlightCalls
+
 	// Authentication rate limiting and metrics (security hardening per ADR-008)
 	authRateLimiter *AuthRateLimiter // Per-user rate limiting for auth operations
 	authMetrics     *AuthMetrics     // Authentication metrics for monitoring
@@ -961,6 +964,8 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	}
 	opts = append(opts, mcpServerCapabilityOptions()...)
 	opts = append(opts, mcpServerOptions()...)
+	a.calls = newInFlightCalls()
+	opts = append(opts, mcpserver.WithToolHandlerMiddleware(a.calls.middleware()))
 	mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 
 	a.mcpServer = mcpSrv
@@ -1218,7 +1223,16 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	httpServer := a.httpServer
 	adminServer := a.adminServer
 	a.adminServer = nil
+	calls := a.calls
 	a.mu.Unlock()
+
+	// Drain the tool calls in flight while their backends, credentials and
+	// stores are still up: the ones that finish within the grace period
+	// answer, the rest answer interrupted, so their callers call again on
+	// another replica instead of reading a backend's cancellation.
+	if calls != nil {
+		calls.drain(ctx, callDrainGrace)
+	}
 
 	// Shut down the admin listener first — it is cheap and has no in-flight
 	// MCP work to wait for.

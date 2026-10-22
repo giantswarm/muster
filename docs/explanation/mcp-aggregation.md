@@ -237,6 +237,27 @@ The counter is `muster.downstream_progress_notifications` (see
 [Observability](observability.md)). Sampling and elicitation requests from a
 downstream server are not relayed.
 
+### Tool Calls Across a Replica Stop
+
+A replica that stops (a rolling update, an evicted pod) drains its tool calls
+before it stops its backends:
+
+- It answers no new call: one arriving now is answered `interrupted` at once,
+  and the caller's next call reaches another replica.
+- A call in flight gets 10 seconds to answer, inside the pod's termination
+  grace period.
+- A call still running then, typically one kept alive by progress (a wait of
+  up to `progress.maxDuration`, an hour), is cancelled and answered with an
+  error result naming the interruption, never the backend's own answer to the
+  cancellation (a wait's `timeout` verdict): the text starts with
+  `interrupted:` and `_meta` carries
+  `"giantswarm.io/interrupted": {"reason": "...", "retryable": true}`.
+
+Its outcome is unknown, so the caller decides: a read-only call (a wait, a
+list, a status) is called again and another replica serves it; a write tool's
+effect is checked before it is repeated. muster never re-issues a call on its
+own.
+
 ### Error Handling and Resilience
 
 The aggregator provides robust error handling:
