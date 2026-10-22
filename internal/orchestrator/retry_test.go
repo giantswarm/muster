@@ -223,7 +223,7 @@ func TestAttemptReconnectFailedServers(t *testing.T) {
 			ctx:      ctx,
 		}
 
-		o.attemptReconnectFailedServers()
+		o.attemptReconnectFailedServers(o.ctx)
 
 		// Wait for goroutine to complete
 		o.retryWg.Wait()
@@ -255,7 +255,7 @@ func TestAttemptReconnectFailedServers(t *testing.T) {
 			ctx:      ctx,
 		}
 
-		o.attemptReconnectFailedServers()
+		o.attemptReconnectFailedServers(o.ctx)
 		o.retryWg.Wait()
 
 		// Service should not be restarted because context was cancelled
@@ -291,7 +291,7 @@ func TestAttemptReconnectFailedServers(t *testing.T) {
 			ctx:      ctx,
 		}
 
-		o.attemptReconnectFailedServers()
+		o.attemptReconnectFailedServers(o.ctx)
 		o.retryWg.Wait()
 
 		// Count how many services were restarted
@@ -326,7 +326,7 @@ func TestRetryFailedMCPServers_Shutdown(t *testing.T) {
 		done := make(chan struct{})
 		go func() {
 			close(started) // Signal that goroutine is running
-			o.retryFailedMCPServers()
+			o.retryFailedMCPServers(o.ctx)
 			close(done)
 		}()
 
@@ -371,7 +371,7 @@ func TestAttemptReconnectFailedServers_RestartError(t *testing.T) {
 			ctx:      ctx,
 		}
 
-		o.attemptReconnectFailedServers()
+		o.attemptReconnectFailedServers(o.ctx)
 		o.retryWg.Wait()
 
 		// Service should have been attempted (even though it failed)

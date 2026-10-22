@@ -38,7 +38,8 @@ const (
 type ServiceType string
 
 const (
-	TypeMCPServer ServiceType = "MCPServer"
+	TypeMCPServer  ServiceType = "MCPServer"
+	TypeAggregator ServiceType = "Aggregator"
 )
 
 // Service is the core interface that all services must implement

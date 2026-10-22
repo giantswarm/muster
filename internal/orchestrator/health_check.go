@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"context"
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/config"
@@ -33,8 +34,8 @@ var HealthCheckInterval = config.DurationFromEnv("MUSTER_ORCHESTRATOR_HEALTH_CHE
 // checkConnectedServersHealth probes every connected or running MCPServer
 // service once, concurrently. Nothing else happens here: a server the probes
 // have failed is Failed with a reconnect due, and the retry loop takes it.
-func (o *Orchestrator) checkConnectedServersHealth() {
-	if o.ctx.Err() != nil {
+func (o *Orchestrator) checkConnectedServersHealth(ctx context.Context) {
+	if ctx.Err() != nil {
 		return
 	}
 	for _, svc := range o.registry.GetByType(services.TypeMCPServer) {
@@ -46,7 +47,7 @@ func (o *Orchestrator) checkConnectedServersHealth() {
 		o.retryWg.Add(1)
 		go func(name string, checker services.HealthChecker) {
 			defer o.retryWg.Done()
-			if health, err := checker.CheckHealth(o.ctx); health == services.HealthUnhealthy {
+			if health, err := checker.CheckHealth(ctx); health == services.HealthUnhealthy {
 				logging.Warn("Orchestrator", "MCPServer %s failed %d consecutive health checks; reconnecting on the next retry tick: %v",
 					name, mcpserver.HealthCheckFailureThreshold, err)
 			}
