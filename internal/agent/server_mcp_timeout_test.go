@@ -70,9 +70,11 @@ func TestCallToolBridgeDefaultTimeoutOutlastsThirtySeconds(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
+	// The call timeout cuts a call without an answer or progress; the
+	// deadline is the cap that progress extends the call up to.
 	remaining := mock.lastCallToolDeadline.Sub(before)
 	assert.Greater(t, remaining, 30*time.Second, "a tool answering after 30 s must fit the call's deadline")
-	assert.InDelta(t, DefaultCallTimeout, remaining, float64(5*time.Second))
+	assert.InDelta(t, MaxCallDuration, remaining, float64(5*time.Second))
 
 	args, ok := mock.lastCallToolRequest.Params.Arguments.(map[string]any)
 	require.True(t, ok)
@@ -119,7 +121,9 @@ func TestCallToolBridgeTimeoutArgument(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, result.IsError)
 
-		assert.InDelta(t, time.Second, mock.lastCallToolDeadline.Sub(before), float64(100*time.Millisecond))
+		assert.InDelta(t, MaxCallDuration, mock.lastCallToolDeadline.Sub(before), float64(time.Second))
+		require.NotNil(t, mock.lastCallToolRequest.Params.Meta)
+		assert.NotNil(t, mock.lastCallToolRequest.Params.Meta.ProgressToken)
 
 		forwarded, ok := mock.lastCallToolRequest.Params.Arguments.(map[string]any)
 		require.True(t, ok)

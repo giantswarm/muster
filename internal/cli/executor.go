@@ -493,16 +493,22 @@ func (e *ToolExecutor) Close() error {
 //   - error: Execution or formatting error, if any
 func (e *ToolExecutor) Execute(ctx context.Context, toolName string, args map[string]interface{}) error {
 	var s *spinner.Spinner
+	var printer *progressPrinter
 	if !e.options.Quiet {
 		s = spinner.New(spinner.CharSets[14], 100*time.Millisecond)
 		s.Suffix = " Executing command..."
 		s.Start()
+
+		// A tool that reports progress while it works shows it on stderr.
+		printer = &progressPrinter{w: os.Stderr, spinner: s}
+		e.client.SetProgressHandler(printer.print)
 	}
 
 	result, err := e.client.CallTool(ctx, toolName, args)
 
-	if s != nil {
-		s.Stop()
+	if printer != nil {
+		e.client.SetProgressHandler(nil)
+		printer.stop()
 	}
 
 	if err != nil {

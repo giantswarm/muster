@@ -17,7 +17,8 @@ import (
 // TestProgressRelayBridgesDownstreamProgressToTheCaller proves the
 // production option chain relays a downstream tool's progress to the client
 // that called through muster, under the client's own token, and that a call
-// without a token gets none.
+// without a token still reaches the downstream tool with one muster minted,
+// its progress kept inside muster.
 func TestProgressRelayBridgesDownstreamProgressToTheCaller(t *testing.T) {
 	backend := server.NewMCPServer("backend", "test")
 	backend.AddTool(mcp.NewTool("work"), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -79,6 +80,6 @@ func TestProgressRelayBridgesDownstreamProgressToTheCaller(t *testing.T) {
 	progress = nil
 	result, err = caller.CallTool(t.Context(), mcp.CallToolRequest{Params: mcp.CallToolParams{Name: "x_backend_work"}})
 	require.NoError(t, err)
-	assert.Equal(t, "no token", result.Content[0].(mcp.TextContent).Text)
+	assert.Equal(t, "done", result.Content[0].(mcp.TextContent).Text)
 	assert.Empty(t, progress)
 }
