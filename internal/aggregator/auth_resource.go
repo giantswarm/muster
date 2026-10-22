@@ -535,19 +535,24 @@ func (a *AggregatorServer) establishSSOConnection(
 	}
 
 	// Guard against concurrent SSO connection attempts for the same session+server.
+	// markedWithoutClient: the shared auth store says the session is
+	// authenticated to the server, this replica's pool holds no client for it.
+	markedWithoutClient := false
 	if a.authStore != nil {
 		authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, serverInfo.Name)
 		if authenticated {
-			// For SSO servers, verify the conn pool has a live client.
-			// After a pod restart the auth store persists "authenticated" in Valkey while
-			// the in-memory pool is empty. In that case, clear the stale auth entry so
-			// the connection is re-established and the pool is repopulated.
-			stalePoolMiss := false
+			// For SSO servers, verify the conn pool has a live client. The auth
+			// store is shared (Valkey) while the pool is this replica's: after a
+			// pod restart, or on a replica other than the one that connected the
+			// session, the mark is there and the client is not. The connection is
+			// established here as well; the mark stays while it is, because
+			// another replica may serve the session with it, and auth://status
+			// read there would otherwise ask for a sign-in that is under way.
 			if (ShouldUseTokenExchange(serverInfo) || ShouldUseTokenForwarding(serverInfo)) && a.connPool != nil {
 				_, poolHit := a.connPool.Get(sessionID, serverInfo.Name)
-				stalePoolMiss = !poolHit
+				markedWithoutClient = !poolHit
 			}
-			if !stalePoolMiss {
+			if !markedWithoutClient {
 				logging.Debug("Aggregator", "SSO: Session %s already authenticated to %s, skipping SSO",
 					logging.TruncateIdentifier(sessionID), serverInfo.Name)
 				if a.ssoTracker != nil {
@@ -555,11 +560,8 @@ func (a *AggregatorServer) establishSSOConnection(
 				}
 				return ssoAlreadyConnected
 			}
-			logging.Info("Aggregator", "SSO: Session %s authenticated to %s in auth store but pool miss, clearing stale state",
+			logging.Info("Aggregator", "SSO: Session %s authenticated to %s in auth store but pool miss, connecting on this replica",
 				logging.TruncateIdentifier(sessionID), serverInfo.Name)
-			if err := a.authStore.Revoke(ctx, sessionID, serverInfo.Name); err != nil {
-				logging.Warn("Aggregator", "SSO: Failed to revoke stale auth state for %s: %v", serverInfo.Name, err)
-			}
 		}
 	}
 
@@ -605,6 +607,14 @@ func (a *AggregatorServer) establishSSOConnection(
 	logging.Warn("Aggregator", "SSO: Connection to %s failed for user %s after %.3fs: %v",
 		serverInfo.Name, sub, time.Since(start).Seconds(), err)
 
+	// The mark the connect found no client for describes a connection this
+	// attempt could not make: it goes, so the status tells what failed.
+	if markedWithoutClient {
+		if rerr := a.authStore.Revoke(ctx, sessionID, serverInfo.Name); rerr != nil {
+			logging.Warn("Aggregator", "SSO: Failed to revoke auth state for %s after the failed connect: %v", serverInfo.Name, rerr)
+		}
+	}
+
 	if a.ssoTracker != nil {
 		reason := ""
 		if err != nil {
@@ -624,8 +634,8 @@ func (a *AggregatorServer) establishSSOConnection(
 	}
 
 	// The session's cached capabilities for this server describe a
-	// connection that no longer exists (the stale-pool-miss branch above
-	// revoked its auth mark before retrying). Left in place they keep the
+	// connection that no longer exists (a mark without a client is revoked
+	// above once its reconnect failed). Left in place they keep the
 	// server's tools in the session's listing -- and, through the family
 	// routing index, in everyone's -- while every call fails (#1162).
 	// Drop them; the next successful connection repopulates the cache
