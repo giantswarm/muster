@@ -181,6 +181,8 @@ type ExecutorOptions struct {
 	// (required for `events --follow`). Has no effect on the SSE transport,
 	// which always listens.
 	ContinuousListening bool
+	// CallTimeout bounds one tool call; zero keeps agent.DefaultCallTimeout.
+	CallTimeout time.Duration
 }
 
 // ToolExecutor provides high-level tool execution functionality with formatted output.
@@ -289,6 +291,9 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	client := agent.NewClient(endpoint, logger, transport)
 	if options.ContinuousListening {
 		client.SetContinuousListening(true)
+	}
+	if options.CallTimeout > 0 {
+		client.SetCallTimeout(options.CallTimeout)
 	}
 
 	executor := &ToolExecutor{
