@@ -358,3 +358,38 @@ tests:
           content:
             name: OTEL_RESOURCE_ATTRIBUTES
             value: "k8s.namespace.name=$(K8S_NAMESPACE),k8s.pod.name=$(K8S_POD_NAME),k8s.node.name=$(K8S_NODE_NAME),deployment.environment=glean"
+
+  - it: should roll out surge first, never below the desired replicas
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: 1
+              maxUnavailable: 0
+
+  - it: should keep the surge-first rollout at one replica
+    template: templates/deployment.yaml
+    set:
+      replicaCount: 1
+    asserts:
+      - equal:
+          path: spec.strategy.rollingUpdate.maxUnavailable
+          value: 0
+
+  - it: should take an installation's own rollout strategy
+    template: templates/deployment.yaml
+    set:
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 25%
+          maxUnavailable: 1
+    asserts:
+      - equal:
+          path: spec.strategy.rollingUpdate
+          value:
+            maxSurge: 25%
+            maxUnavailable: 1

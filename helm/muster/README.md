@@ -74,6 +74,9 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | gatewayAPI.backendTrafficPolicy.annotations | object | `{}` |  |
 | gatewayAPI.backendTrafficPolicy.labels | object | `{}` |  |
 | revisionHistoryLimit | int | `3` |  |
+| strategy.type | string | `"RollingUpdate"` |  |
+| strategy.rollingUpdate.maxSurge | int | `1` |  |
+| strategy.rollingUpdate.maxUnavailable | int | `0` |  |
 | resources.limits.cpu | string | `"500m"` |  |
 | resources.limits.memory | string | `"512Mi"` |  |
 | resources.limits.ephemeral-storage | string | `"100Mi"` |  |
