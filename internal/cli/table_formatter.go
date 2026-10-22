@@ -593,17 +593,40 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 		serverType = f.getServerType(data)
 	}
 
+	// Sort keys for consistent output. A field holding rows (an array of
+	// objects, such as a workflow's matches) is rendered as a table of its
+	// own below the properties, never summarized as "[N items]".
+	var keys, rowKeys []string
+	for key := range data {
+		if !isMCPServer && isRowArray(data[key]) {
+			rowKeys = append(rowKeys, key)
+			continue
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	sort.Strings(rowKeys)
+
+	if len(keys) > 0 {
+		f.writePropertyTable(data, keys, isMCPServer, serverType)
+	}
+	for i, key := range rowKeys {
+		if len(keys) > 0 || i > 0 {
+			fmt.Println()
+		}
+		rows := data[key].([]interface{})
+		fmt.Printf("%s (%d):\n", key, len(rows))
+		f.writeRowTable(os.Stdout, rows)
+	}
+	return nil
+}
+
+// writePropertyTable prints the given keys of data as a PROPERTY/VALUE table.
+func (f *TableFormatter) writePropertyTable(data map[string]interface{}, keys []string, isMCPServer bool, serverType string) {
 	// Create kubectl-style plain table
 	tw := NewPlainTableWriter(os.Stdout)
 	tw.SetHeaders([]string{"PROPERTY", "VALUE"})
 	tw.SetNoHeaders(f.options.NoHeaders)
-
-	// Sort keys for consistent output
-	var keys []string
-	for key := range data {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
 
 	for _, key := range keys {
 		// Apply contextual formatting for MCP servers
@@ -628,7 +651,6 @@ func (f *TableFormatter) formatKeyValueTable(data map[string]interface{}) error 
 	}
 
 	tw.Render()
-	return nil
 }
 
 // isMCPServerData checks if the data represents an MCP server.
