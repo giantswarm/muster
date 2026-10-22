@@ -216,6 +216,18 @@ gatewayAPI:
 # rollouts don't leak zero-replica ReplicaSets across the cluster.
 revisionHistoryLimit: 3
 
+# The Deployment's rollout: surge first, never below the desired replicas.
+# The new pod is Ready before an old one stops, so a caller whose call the
+# stopping pod answered `interrupted` (its drain on shutdown) finds a Ready
+# replica when it calls again — at one replica as at many. Spelled out rather
+# than left to the Kubernetes default (25 % each), which rounds to the same
+# at one to three replicas but takes a pod down first from four.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1  # @schema type: [integer, string]
+    maxUnavailable: 0  # @schema type: [integer, string]
+
 resources:
   limits:
     cpu: 500m

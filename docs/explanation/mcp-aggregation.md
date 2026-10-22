@@ -258,6 +258,10 @@ list, a status) is called again and another replica serves it; a write tool's
 effect is checked before it is repeated. muster never re-issues a call on its
 own.
 
+The chart rolls the Deployment surge first (`strategy.rollingUpdate`:
+`maxSurge: 1`, `maxUnavailable: 0`): the new pod is Ready before an old one
+stops, so the call made again finds a Ready replica, at one replica too.
+
 ### Error Handling and Resilience
 
 The aggregator provides robust error handling:

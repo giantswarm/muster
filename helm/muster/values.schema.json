@@ -961,6 +961,33 @@
                 }
             }
         },
+        "strategy": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "type": "string"
+                },
+                "rollingUpdate": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "maxSurge": {
+                            "type": [
+                                "integer",
+                                "string"
+                            ]
+                        },
+                        "maxUnavailable": {
+                            "type": [
+                                "integer",
+                                "string"
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "subscriptionID": {
             "type": "string"
         },
