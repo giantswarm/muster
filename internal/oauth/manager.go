@@ -396,18 +396,14 @@ func (m *Manager) DeleteTokensBySession(sessionID string) {
 }
 
 // StoreToken persists a token for the given session and issuer.
-// The userID is stored alongside for reverse-lookup by user.
+// The userID is stored alongside for reverse-lookup by user; a token of a
+// subject-scoped issuer is filed under the person as well, where
+// SubjectGrantForRelease finds it (see Client.StoreToken).
 func (m *Manager) StoreToken(sessionID, userID, issuer string, token *pkgoauth.Token) {
 	if m == nil || token == nil {
 		return
 	}
-
-	key := TokenKey{
-		SessionID: sessionID,
-		Issuer:    issuer,
-		Scope:     token.Scope,
-	}
-	m.client.tokenStore.Store(key, token, userID)
+	m.client.storeTokenUnder(sessionID, userID, issuer, token)
 }
 
 // CreateAuthChallenge creates an authentication challenge for a 401 response.

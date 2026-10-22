@@ -579,14 +579,20 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, r
 // subject-scoped issuer is filed under the person's identity as well, so any
 // later session of the same person reuses it (see GetTokenForUser).
 func (c *Client) StoreToken(sessionID, userID string, token *pkgoauth.Token) {
+	c.storeTokenUnder(sessionID, userID, token.Issuer, token)
+}
+
+// storeTokenUnder is StoreToken with the issuer the token is filed under
+// named apart from the token's own.
+func (c *Client) storeTokenUnder(sessionID, userID, issuer string, token *pkgoauth.Token) {
 	key := TokenKey{
 		SessionID: sessionID,
-		Issuer:    token.Issuer,
+		Issuer:    issuer,
 		Scope:     token.Scope,
 	}
 	c.tokenStore.Store(key, token, userID)
 
-	if userID != "" && c.subjectScoped(token.Issuer) {
+	if userID != "" && c.subjectScoped(issuer) {
 		key.SessionID = subjectSessionID(userID)
 		c.tokenStore.Store(key, token, userID)
 	}
