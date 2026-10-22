@@ -47,6 +47,7 @@ type deviceFixture struct {
 	openai  *chatgptlogintest.Server
 	app     configPkg.ProviderAppConfig
 	ticks   chan struct{}
+	set     *providerAppSet
 
 	clockMu sync.Mutex
 	now     time.Time
@@ -74,12 +75,22 @@ func newDeviceFixture(t *testing.T) *deviceFixture {
 		ticks:   make(chan struct{}, 1), // a poll may not have waited yet
 		now:     time.Now(),
 	}
-	signIns := newDeviceSignIns()
+	f.set = set
+	f.agg = f.replica(t, newMemoryDeviceSignInStore(), nil)
+	set.pinAll(context.Background())
+	return f
+}
+
+// replica is an aggregator on the store, as one muster replica; beats, when
+// given, paces its lease renewals.
+func (f *deviceFixture) replica(t *testing.T, store deviceSignInStore, beats chan time.Time) *AggregatorServer {
+	t.Helper()
+	signIns := newDeviceSignIns(store)
 	signIns.newClient = func(app configPkg.ProviderAppConfig) deviceCodeClient {
 		return &chatgptlogin.Client{
 			Issuer:   app.Issuer,
 			ClientID: app.ClientID,
-			HTTP:     openai.Client(),
+			HTTP:     f.openai.Client(),
 			Now:      f.clock,
 			Wait: func(ctx context.Context, _ time.Duration) error {
 				select {
@@ -91,10 +102,11 @@ func newDeviceFixture(t *testing.T) *deviceFixture {
 			},
 		}
 	}
+	if beats != nil {
+		signIns.heartbeat = func() (<-chan time.Time, func()) { return beats, func() {} }
+	}
 	t.Cleanup(signIns.shutdown)
-	f.agg = &AggregatorServer{registry: NewServerRegistry("x"), providerApps: set, deviceSignIns: signIns}
-	set.pinAll(context.Background())
-	return f
+	return &AggregatorServer{registry: NewServerRegistry("x"), providerApps: f.set, deviceSignIns: signIns}
 }
 
 func (f *deviceFixture) clock() time.Time {

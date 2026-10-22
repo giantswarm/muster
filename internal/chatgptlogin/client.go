@@ -70,6 +70,30 @@ type Code struct {
 	interval     time.Duration
 }
 
+// codeJSON is a Code as a store keeps it, so another process can poll it.
+type codeJSON struct {
+	UserCode        string        `json:"userCode"`
+	VerificationURL string        `json:"verificationUrl"`
+	ExpiresAt       time.Time     `json:"expiresAt"`
+	DeviceAuthID    string        `json:"deviceAuthId"`
+	Interval        time.Duration `json:"interval"`
+}
+
+// MarshalJSON encodes the code with what Await needs to poll it.
+func (c Code) MarshalJSON() ([]byte, error) {
+	return json.Marshal(codeJSON{c.UserCode, c.VerificationURL, c.ExpiresAt, c.deviceAuthID, c.interval})
+}
+
+// UnmarshalJSON decodes a code MarshalJSON encoded.
+func (c *Code) UnmarshalJSON(data []byte) error {
+	var v codeJSON
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*c = Code{UserCode: v.UserCode, VerificationURL: v.VerificationURL, ExpiresAt: v.ExpiresAt, deviceAuthID: v.DeviceAuthID, interval: v.Interval}
+	return nil
+}
+
 // RequestCode asks OpenAI for a user code. A 404 is ErrNotEnabled.
 func (c *Client) RequestCode(ctx context.Context) (*Code, error) {
 	var answer struct {
