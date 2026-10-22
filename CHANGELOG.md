@@ -30,6 +30,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **`muster call --key '[...]'` sends a JSON array or object where the tool asks for one.** A value typed as a flag was sent as a string, so `--management_clusters '["mc1"]'` was refused with `expected array` and only `--json` worked. A value that parses as a JSON array or object is now sent as one when the tool's input schema types the parameter `array` or `object`; a string parameter keeps the value as typed. The schema is read with `describe_tool` only when such a value is present. ([#1656](https://github.com/giantswarm/muster/issues/1656))
+
 - **`muster call` shows a result's rows in table and wide output.** A result field holding an array of objects, such as a fleet scan's `matches`, was summarized as `[N items]` and its rows needed `-o json | jq`. Each such field now renders as a table of its own under the other properties, titled `<field> (<count>):`: one column per object key, the rows in result order, lists such as `images` joined in full, nested objects as compact JSON, a missing or empty value as `-`. MCP server details keep their layout. ([#1654](https://github.com/giantswarm/muster/issues/1654))
 
 - The image's certs stage builds on alpine 3.24.2 with a current CA bundle instead of `alpine:3.20.3-giantswarm` (2024-09).

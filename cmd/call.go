@@ -25,8 +25,10 @@ var callCmd = &cobra.Command{
 Arguments are passed as --key=value or --key value flags. The flags muster
 itself declares (--endpoint, --auth, --output and the others listed below) are
 never passed on. To pass an argument that shares a name with one of them, put
-it after "--": everything after the separator is an argument. Use --json to
-pass a JSON object as arguments instead. A call waits 5 minutes for its
+it after "--": everything after the separator is an argument. A value that is
+a JSON array or object is sent as one when the tool's parameter is an array or
+an object (--clusters '["a","b"]'). Use --json to pass a JSON object as
+arguments instead. A call waits 5 minutes for its
 answer; --call-timeout waits longer, for a workflow that runs longer.
 
 Examples:
@@ -34,7 +36,7 @@ Examples:
   muster call core_service_status --name=prometheus
   muster call workflow_deploy --environment=production --replicas=3
   muster call core_mcpserver_list --output json
-  muster call workflow_fleet-image-scan --call-timeout 45m --json '{"management_clusters":["alba"]}'
+  muster call workflow_fleet-image-scan --call-timeout 45m --management_clusters '["alba"]'
   muster call x_http_get --endpoint http://muster:8090/mcp -- --endpoint=https://target
 
 Note: The aggregator server must be running (use 'muster serve') before using this command.`,
@@ -147,6 +149,15 @@ func runCall(cmd *cobra.Command, args []string) error {
 		}
 	} else {
 		toolArgs = parseDynamicArgs(cmd, os.Args[1:], coerceValue)
+		// A JSON array or object typed as a flag value is sent as one where
+		// the tool's schema asks for it; the schema is read only then. A
+		// schema that cannot be read leaves the values as typed, and the
+		// tool's own validation answers.
+		if hasJSONLikeValue(toolArgs) {
+			if tool, err := executor.GetMCPTool(ctx, toolName); err == nil && tool != nil {
+				decodeJSONArgs(toolArgs, tool.InputSchema.Properties)
+			}
+		}
 	}
 
 	return executor.Execute(ctx, toolName, toolArgs)
