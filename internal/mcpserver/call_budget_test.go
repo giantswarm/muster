@@ -72,8 +72,24 @@ func TestCallBudget_ProgressKeepsTheCallAlive(t *testing.T) {
 	})
 }
 
-// A caller that asked for no progress sends no token downstream, so the
-// server's timeout bounds the whole call.
+// A call whose caller sent no progressToken runs with a reporter that keeps
+// the progress inside muster (the aggregator gives it one): the downstream
+// call still gets a token, and its progress keeps the call alive.
+func TestCallBudget_ProgressWithoutACallerTokenKeepsTheCallAlive(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		base := progressingClient(30*time.Second, 10*time.Minute, 6, 20*time.Second, 20*time.Second)
+		start := time.Now()
+
+		res, err := base.callTool(WithProgressReporter(t.Context(), NewProgressReporter(nil, nil)), "sweep", nil)
+
+		require.NoError(t, err)
+		require.NotNil(t, res)
+		assert.Equal(t, 140*time.Second, time.Since(start))
+	})
+}
+
+// A call without any reporter on its context sends no token downstream, so
+// the server's timeout bounds the whole call.
 func TestCallBudget_WithoutACallerProgressTheTimeoutHolds(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		base := progressingClient(30*time.Second, 10*time.Minute, 6, 20*time.Second, 0)

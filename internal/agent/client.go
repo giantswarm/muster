@@ -79,6 +79,9 @@ type Client struct {
 	// continuousListening makes the streamable-http transport open a standalone
 	// GET stream to receive server-initiated notifications (e.g. events --follow).
 	continuousListening bool
+
+	// progress routes the progress of the tool calls in flight (progress.go).
+	progress callProgress
 }
 
 // SetContinuousListening enables a standalone server-to-client notification
@@ -340,6 +343,9 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 // logged; the list_changed notifications the aggregator sends are signals to
 // re-list, and a queued one stands for all that follow it.
 func (c *Client) queueNotification(notification mcp.JSONRPCNotification) {
+	if c.progress.route(notification) {
+		return
+	}
 	select {
 	case c.NotificationChan <- notification:
 	default:
@@ -1405,7 +1411,8 @@ func (c *Client) SetTimeout(timeout time.Duration) {
 // DefaultCallTimeout bounds a tool call made through CallTool. A call is
 // answered by the aggregated server behind the aggregator, whose own tool
 // timeout (an MCPServer's spec.timeout) may be as long as five minutes, so
-// the client waits at least that long before it gives up on the call.
+// the client waits at least that long before it gives up on the call. Each
+// progress notification of the call restarts it, up to MaxCallDuration.
 const DefaultCallTimeout = 5 * time.Minute
 
 // SetCallTimeout configures the timeout for tool calls made through CallTool,
@@ -1440,21 +1447,26 @@ func (c *Client) callToolDirectWithTimeout(ctx context.Context, name string, arg
 		return nil, fmt.Errorf("client not connected")
 	}
 
-	// Construct the MCP tool call request
+	// The call sends a progressToken of its own: each progress notification
+	// for it restarts the timeout, up to MaxCallDuration.
+	callCtx, extend, cause, cancel := withProgressTimeout(ctx, timeout)
+	defer cancel()
+	token, done := c.progress.open(extend)
+	defer done()
+
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name:      name,
 			Arguments: args,
+			Meta:      &mcp.Meta{ProgressToken: token},
 		},
 	}
 
-	// Create timeout context with custom timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Send request
-	result, err := c.client.CallTool(timeoutCtx, req)
+	result, err := c.client.CallTool(callCtx, req)
 	if err != nil {
+		if cut := cause(); cut != nil {
+			return nil, fmt.Errorf("tool call failed: %w", cut)
+		}
 		return nil, fmt.Errorf("tool call failed: %w", err)
 	}
 

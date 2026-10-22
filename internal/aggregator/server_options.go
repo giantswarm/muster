@@ -23,8 +23,9 @@ import (
 //
 // RequestSpan is registered first so it wraps the tracing middleware and sees
 // the mcp.tools/call server span, which dispatch then labels with the backend
-// the call reached. ProgressRelay bridges downstream notifications/progress
-// to a caller that sent a progressToken.
+// the call reached. ProgressRelay sends every downstream tool call a
+// progressToken and bridges its notifications/progress to a caller that sent
+// one.
 func mcpServerOptions() []server.ServerOption {
 	return []server.ServerOption{
 		server.WithToolHandlerMiddleware(RequestSpan()),

@@ -45,8 +45,10 @@ func (b *baseMCPClient) operationContext(ctx context.Context) (context.Context, 
 	return ctx, cancel, timeout
 }
 
-// callContext is operationContext for a tool call. When the caller asked for
-// progress and the server's progress.maxDuration exceeds its timeout, each
+// callContext is operationContext for a tool call. When the call runs with a
+// progress reporter (the aggregator gives every tool call one, see
+// aggregator.ProgressRelay) and the server's progress.maxDuration exceeds its
+// timeout, each
 // progress notification of the call restarts the timeout, up to
 // progress.maxDuration (see callBudget).
 func (b *baseMCPClient) callContext(ctx context.Context) (context.Context, context.CancelFunc, time.Duration) {

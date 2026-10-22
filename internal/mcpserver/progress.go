@@ -19,7 +19,8 @@ import (
 // the client whose tool call caused them.
 //
 // The caller's progressToken never leaves muster. The aggregator puts a
-// ProgressReporter for the caller's request on the context of the tool call;
+// ProgressReporter for the caller's request on the context of every tool
+// call, a caller without a token included;
 // a client that finds one mints a token of its own for the downstream
 // request, unique on its connection, and routes every progress notification
 // carrying that token to the reporter, which sends it on with the caller's
@@ -31,6 +32,7 @@ import (
 // Outcomes of the muster.downstream_progress_notifications counter.
 const (
 	progressRelayed       = "relayed"
+	progressNoCaller      = "no_caller_token"
 	progressUnknownToken  = "unknown_token"
 	progressNotIncreasing = "not_increasing"
 	progressSendFailed    = "send_failed"
@@ -75,13 +77,20 @@ type ProgressReporter struct {
 }
 
 // NewProgressReporter returns a reporter for the caller's token; send
-// delivers a notifications/progress with the given params to the caller.
+// delivers a notifications/progress with the given params to the caller. A
+// nil send makes a reporter for a caller that asked for no progress: the
+// downstream call still gets a token, and its progress still keeps the call
+// alive, but none reaches the caller.
 func NewProgressReporter(token mcp.ProgressToken, send func(params map[string]any) error) *ProgressReporter {
 	return &ProgressReporter{token: token, send: send}
 }
 
 // report sends one downstream progress update on with the caller's token.
 func (r *ProgressReporter) report(ctx context.Context, progress float64, total *float64, message string) {
+	if r.send == nil {
+		countProgress(ctx, progressNoCaller)
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

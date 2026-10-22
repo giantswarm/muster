@@ -228,8 +228,9 @@ type MCPServerValueSource struct {
 // call affects that call's budget.
 type MCPServerProgress struct {
 	// MaxDuration bounds, in seconds, a tool call kept going by progress. On
-	// a tool call whose caller asked for progress, each progress notification
-	// from the server restarts Timeout, up to MaxDuration; any other call and
+	// a tool call, each progress notification from the server restarts
+	// Timeout, up to MaxDuration; muster sends the server a progressToken on
+	// every tool call, whether its caller asked for progress or not. Any other
 	// operation stays bounded by Timeout. A value equal to Timeout extends
 	// nothing. Unset, 3600.
 	// +kubebuilder:default=3600
