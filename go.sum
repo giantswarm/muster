@@ -154,8 +154,8 @@ github.com/giantswarm/mcp-toolkit v0.4.4 h1:9h45eZDImi3Nlhw40s5GKAmJ0y0K6SvFb0e7
 github.com/giantswarm/mcp-toolkit v0.4.4/go.mod h1:rqRnO6yYEijMcJSgj342nmTVS9tb4n3jJnnnjYpWAn0=
 github.com/giantswarm/pagekit v0.3.0 h1:OcCLu+ObVvqaeqSJn9DFYIujAZqqydwTu+5fxPOgHao=
 github.com/giantswarm/pagekit v0.3.0/go.mod h1:bXMRzjARa/TewLywz4naTh8YsGzbfSLUoGlEfM92oPQ=
-github.com/giantswarm/selfupdate-cosign v0.3.13 h1:hFomgi+BSPB3Zcc1nsmj/nBbIIj2FZRqx5Ge/KiH6a0=
-github.com/giantswarm/selfupdate-cosign v0.3.13/go.mod h1:L+y8aIeQYMgYlqjYBG7R17FikvQyTJ2RvYNVjp9xZC4=
+github.com/giantswarm/selfupdate-cosign v0.3.14 h1:97px8UMWEeUdcL+L/c6lsF105ak6lqcCJfUK9AJr7Jg=
+github.com/giantswarm/selfupdate-cosign v0.3.14/go.mod h1:FpzA2Pz3VJJHWF6g5w94B+HBYizqytKqIvbE3MXvogk=
 github.com/go-chi/chi/v5 v5.3.0 h1:halUjDxhshgXHMrao5bB8eNBXo/rnzwr8m5m36glehM=
 github.com/go-chi/chi/v5 v5.3.0/go.mod h1:R+tYY2hNuVUUjxoPtqUdgBqevM9s9njzkTLutVsOCto=
 github.com/go-fed/httpsig v1.1.0 h1:9M+hb0jkEICD8/cAiNqEB66R87tTINszBRTjwjQzWcI=
