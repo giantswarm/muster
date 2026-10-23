@@ -48,7 +48,8 @@ func (f *progressingFakeClient) CallTool(ctx context.Context, req mcp.CallToolRe
 }
 
 func progressingClient(timeout, maxCallDuration time.Duration, reports int, every, silence time.Duration) *baseMCPClient {
-	base := &baseMCPClient{connected: true, timeout: timeout, maxCallDuration: maxCallDuration}
+	base := &baseMCPClient{connected: true}
+	base.SetBudget(timeout, maxCallDuration)
 	base.client = &progressingFakeClient{base: base, reports: reports, every: every, silence: silence}
 	return base
 }
@@ -164,7 +165,8 @@ func TestCallBudget_ProgressDoesNotExtendPastMaxCallDuration(t *testing.T) {
 // Operations other than a tool call keep the plain timeout, so a cut reads
 // as the deadline it is even where nothing renames it (Initialize).
 func TestCallBudget_OnlyAToolCallRunsUnderIt(t *testing.T) {
-	base := &baseMCPClient{timeout: 30 * time.Second, maxCallDuration: 10 * time.Minute}
+	base := &baseMCPClient{}
+	base.SetBudget(30*time.Second, 10*time.Minute)
 
 	ctx, cancel, _ := base.operationContext(withCaller(t.Context()))
 	defer cancel()

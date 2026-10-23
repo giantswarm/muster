@@ -30,7 +30,9 @@ func (f *slowFakeClient) CallTool(ctx context.Context, req mcp.CallToolRequest) 
 }
 
 func slowClient(delay, timeout time.Duration) *baseMCPClient {
-	return &baseMCPClient{client: &slowFakeClient{delay: delay}, connected: true, timeout: timeout}
+	base := &baseMCPClient{client: &slowFakeClient{delay: delay}, connected: true}
+	base.setTimeout(timeout)
+	return base
 }
 
 // A call that finishes within the server's timeout succeeds, however long
@@ -99,4 +101,18 @@ func TestOperationTimeout_DynamicAuthClientHonoursWithTimeout(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.EqualError(t, err, "no answer within the server's timeout of 300ms: context deadline exceeded")
 	assert.Less(t, time.Since(start), 5*time.Second, "the call was cut by the timeout, not by the backend")
+}
+
+// SetBudget on a live client -- a changed spec.timeout reaching a connection
+// that stays open -- governs its next operation: the call is cut by the new
+// timeout, not the one the client was built with.
+func TestOperationTimeout_SetBudgetAppliesToTheNextCall(t *testing.T) {
+	base := slowClient(10*time.Second, time.Hour)
+
+	base.SetBudget(300*time.Millisecond, 0)
+	_, err := base.callTool(t.Context(), "watch", nil)
+
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.EqualError(t, err, "no answer within the server's timeout of 300ms: context deadline exceeded")
+	assert.Equal(t, DefaultMaxCallDuration, base.effectiveMaxCallDuration(), "a zero maxCallDuration means the default")
 }

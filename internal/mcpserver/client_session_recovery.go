@@ -62,17 +62,19 @@ func (b *baseMCPClient) callContext(ctx context.Context) (context.Context, conte
 }
 
 func (b *baseMCPClient) effectiveTimeout() time.Duration {
-	if b.timeout <= 0 {
+	timeout := time.Duration(b.timeout.Load())
+	if timeout <= 0 {
 		return DefaultTimeout
 	}
-	return b.timeout
+	return timeout
 }
 
 func (b *baseMCPClient) effectiveMaxCallDuration() time.Duration {
-	if b.maxCallDuration <= 0 {
+	maxCallDuration := time.Duration(b.maxCallDuration.Load())
+	if maxCallDuration <= 0 {
 		return DefaultMaxCallDuration
 	}
-	return b.maxCallDuration
+	return maxCallDuration
 }
 
 // sessionIDOf returns the session id the transport currently holds, or ""

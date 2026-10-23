@@ -477,6 +477,17 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 		am.aggregatorServer.resetSessionAuth(context.Background(), registration.Name, "headers")
 	}
 
+	// The connections live sessions keep run under the budget the server
+	// had when each was opened: a changed spec.timeout or
+	// spec.progress.maxDuration reaches their next call here, not only the
+	// connections opened after it.
+	if pool := am.aggregatorServer.connPool; pool != nil {
+		if n := pool.SetServerBudget(registration.Name, registration.Timeout, registration.MaxCallDuration); n > 0 {
+			logging.Debug("Aggregator", "Applied timeout=%s maxCallDuration=%s of %s to %d live session connection(s)",
+				registration.Timeout, registration.MaxCallDuration, registration.Name, n)
+		}
+	}
+
 	// Wire pool notification callback for servers with session-scoped auth so that
 	// OnNotification is auto-wired on every pooled client.
 	if registration.AuthConfig.UsesSessionAuth() {
