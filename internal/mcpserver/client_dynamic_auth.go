@@ -84,7 +84,7 @@ func (c *DynamicAuthClient) WithHeaderFunc(fn transport.HTTPHeaderFunc) *Dynamic
 // server's spec.timeout (see baseMCPClient.timeout), and returns the client
 // so a construction site reads as one expression.
 func (c *DynamicAuthClient) WithTimeout(timeout time.Duration) *DynamicAuthClient {
-	c.timeout = timeout
+	c.setTimeout(timeout)
 	return c
 }
 
