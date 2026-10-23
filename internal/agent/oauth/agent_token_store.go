@@ -158,21 +158,33 @@ var _ transport.TokenStore = (*AgentTokenStore)(nil)
 // ID token from a token endpoint response before mcp-go decodes the response
 // into a transport.Token, which has no field for it, and saves it: without it
 // every refresh would store the new access token next to the old ID token.
+// A refresh request it coordinates with the other muster processes on the
+// token file first (coordinatedRefresh).
 type idTokenRecorder struct {
 	base  http.RoundTripper
 	store *AgentTokenStore
 }
 
 func (r idTokenRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
+	if form, ok := refreshRequestForm(req); ok {
+		return r.coordinatedRefresh(req, form)
+	}
+	resp, _, err := r.send(req)
+	return resp, err
+}
+
+// send passes req on and records the ID token of a successful POST response,
+// whose body it also returns (nil for any other response).
+func (r idTokenRecorder) send(req *http.Request) (*http.Response, []byte, error) {
 	resp, err := r.base.RoundTrip(req)
 	if err != nil || req.Method != http.MethodPost || resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, err
+		return resp, nil, err
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(body))
 
@@ -184,5 +196,5 @@ func (r idTokenRecorder) RoundTrip(req *http.Request) (*http.Response, error) {
 		r.store.refreshedIDToken = tokenResponse.IDToken
 		r.store.mu.Unlock()
 	}
-	return resp, nil
+	return resp, body, nil
 }
