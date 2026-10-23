@@ -31,6 +31,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/valkeyclient"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 	"github.com/giantswarm/muster/v5/pkg/tlsutil"
@@ -701,6 +702,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			DB:        cfg.Storage.Valkey.DB,
 			KeyPrefix: cfg.Storage.Valkey.KeyPrefix,
 			Logger:    logger,
+			// The same bound as muster's own Valkey clients: a token
+			// validation during a Valkey restart answers 503 with
+			// Retry-After at once instead of after mcp-oauth's 3 s default.
+			OperationTimeout: valkeyclient.OperationTimeout,
 		}
 
 		if cfg.Storage.Valkey.TLSEnabled {

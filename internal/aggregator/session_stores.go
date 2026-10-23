@@ -16,6 +16,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/config"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
+	"github.com/giantswarm/muster/v5/internal/valkeyclient"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -102,7 +103,7 @@ func connectValkey(ctx context.Context, cfg config.ValkeyConfig, wait func(conte
 	address := mcptoolkitlogging.RedactHost(cfg.URL)
 	backoff := sessionStoreInitialBackoff
 	for attempt := 1; ; attempt++ {
-		client, err := newValkeyClient(cfg)
+		client, err := valkeyclient.New(cfg)
 		if err == nil {
 			if attempt > 1 {
 				logging.InfoWithAttrs("Aggregator", "Valkey for the session stores answered",
@@ -186,37 +187,4 @@ func createEncryptor(oauthCfg config.OAuthServerConfig) *security.Encryptor {
 		logging.Info("Aggregator", "Token encryption at rest enabled for Valkey stores (AES-256-GCM)")
 	}
 	return enc
-}
-
-// newValkeyClient creates a valkey.Client from the shared ValkeyConfig. The
-// client dials on creation, so an unreachable Valkey is an error here. The
-// stores never read through valkey-go's client-side cache (no DoCache), so
-// the cache and the CLIENT TRACKING subscription it opens per connection are
-// off.
-func newValkeyClient(cfg config.ValkeyConfig) (valkey.Client, error) {
-	opts := valkey.ClientOption{
-		InitAddress:  []string{cfg.URL},
-		DisableCache: true,
-	}
-	if cfg.Password != "" {
-		opts.Password = cfg.Password
-	}
-	if cfg.DB != 0 {
-		opts.SelectDB = cfg.DB
-	}
-	if cfg.TLSEnabled {
-		tlsCfg := &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		}
-		if cfg.TLSServerName != "" {
-			tlsCfg.ServerName = cfg.TLSServerName
-		}
-		opts.TLSConfig = tlsCfg
-	}
-
-	client, err := valkey.NewClient(opts)
-	if err != nil {
-		return nil, fmt.Errorf("valkey connect: %w", err)
-	}
-	return client, nil
 }
