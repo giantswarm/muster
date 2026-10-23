@@ -490,14 +490,13 @@ func TestHandleSessionCapabilityChanged_TriggersRefresh(t *testing.T) {
 
 	a.handleSessionCapabilityChanged("sso-srv", "sess", client)
 
+	// The refresh writes the store after ListTools returns: wait for the
+	// write, not the call.
 	require.Eventually(t, func() bool {
-		return atomic.LoadInt32(&client.listToolsCalls) >= 1
+		caps, err := capStore.Get(context.Background(), "sess", "sso-srv")
+		return err == nil && caps != nil && len(caps.Tools) == 2
 	}, 2*time.Second, 10*time.Millisecond)
-
-	caps, err := capStore.Get(context.Background(), "sess", "sso-srv")
-	require.NoError(t, err)
-	require.NotNil(t, caps)
-	assert.Len(t, caps.Tools, 2)
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&client.listToolsCalls), int32(1))
 }
 
 func TestHandleSessionCapabilityChanged_SingleflightDedup(t *testing.T) {

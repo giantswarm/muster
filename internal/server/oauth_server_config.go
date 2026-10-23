@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"log/slog"
@@ -23,6 +22,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	musteroauth "github.com/giantswarm/muster/v5/internal/oauth"
+	"github.com/giantswarm/muster/v5/internal/valkeyclient"
 )
 
 // oauthTokenLifetimes are the parsed duration settings of the OAuth server
@@ -332,23 +332,7 @@ func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
 // the returned client (if non-nil) when the cache is no longer needed.
 func newDPoPReplayCache(storageCfg config.OAuthStorageConfig) (oauthserver.DPoPReplayCache, valkeygo.Client, error) {
 	if storageCfg.Type == storage.BackendValkey && storageCfg.Valkey.URL != "" {
-		clientOpts := valkeygo.ClientOption{
-			InitAddress: []string{storageCfg.Valkey.URL},
-			SelectDB:    storageCfg.Valkey.DB,
-			// The replay cache never reads through DoCache, so client-side
-			// caching buys nothing and its CLIENT TRACKING handshake fails
-			// against a server without the feature (miniredis in the test
-			// harness). The session stores and the mcp-oauth store already run
-			// without it.
-			DisableCache: true,
-		}
-		if storageCfg.Valkey.Password != "" {
-			clientOpts.Password = storageCfg.Valkey.Password
-		}
-		if storageCfg.Valkey.TLSEnabled {
-			clientOpts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-		}
-		client, err := valkeygo.NewClient(clientOpts)
+		client, err := valkeyclient.New(storageCfg.Valkey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create Valkey client for DPoP replay cache: %w", err)
 		}

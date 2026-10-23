@@ -216,3 +216,33 @@ func assertSessionStoreBackend(t *testing.T, reader interface {
 	}
 	assert.Equal(t, map[string]int64{want1: 1, want0: 0}, got)
 }
+
+// Every authenticated request touches both session stores before it is
+// served, an `initialize` included. While Valkey is recreated the touches fail
+// within the bound instead of holding the request until Valkey is back, and
+// they succeed again once it is (giantswarm/muster#1682).
+func TestSessionStores_TouchStaysBoundedWhileValkeyIsRecreated(t *testing.T) {
+	srv := miniredis.RunT(t)
+	stores, err := createStores(context.Background(), valkeyAggregatorConfig(srv.Addr()))
+	require.NoError(t, err)
+	t.Cleanup(stores.valkeyClient.Close)
+
+	touch := func() error {
+		start := time.Now()
+		_, authErr := stores.authStore.Touch(context.Background(), "session-1")
+		_, capErr := stores.capabilityStore.Touch(context.Background(), "session-1")
+		assert.Less(t, time.Since(start), time.Second, "an authenticated request's touches stalled past the bound")
+		return errors.Join(authErr, capErr)
+	}
+
+	for round := range 2 {
+		require.NoError(t, touch(), "round %d: Valkey up", round)
+		srv.Close()
+		assert.Error(t, touch(), "round %d: Valkey down fails instead of waiting", round)
+		require.NoError(t, srv.Restart())
+		// The client fails commands at once for a quarter second after one
+		// missed Valkey, then tries it again.
+		require.Eventually(t, func() bool { return touch() == nil }, 2*time.Second, 50*time.Millisecond,
+			"round %d: Valkey back", round)
+	}
+}
