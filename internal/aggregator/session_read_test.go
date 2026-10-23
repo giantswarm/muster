@@ -105,6 +105,23 @@ func TestReadResource_TemplateFilledURIReadsFromTheSchemesServer(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown resource other://thing")
 }
 
+// A shared server, which muster reaches with its own identity, never reads a
+// URI it did not list: the scheme rule is the per-user servers' only.
+func TestReadResource_SharedServerReadsNoUnlistedURI(t *testing.T) {
+	ctx := testSessionCtx()
+	a := newSuspensionTestServer(t)
+	client := &mockMCPClient{resources: []mcp.Resource{{URI: "repo://listed", Name: "repo"}}}
+	require.NoError(t, a.registry.Register(context.Background(), ServerRegistration{Name: "github"}, client))
+	a.registry.GetAllTools()
+
+	_, err := a.ReadResource(ctx, "repo://listed", "")
+	require.NoError(t, err, "a listed URI reads as before")
+
+	_, err = a.ReadResource(ctx, "repo://unlisted", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown resource repo://unlisted")
+}
+
 // A session not signed in to the per-user server is told so, not that the
 // server has no active client.
 func TestReadResource_PerUserServerWithoutSignInIsAuthRequired(t *testing.T) {

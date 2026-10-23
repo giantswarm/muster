@@ -3721,8 +3721,13 @@ func (a *AggregatorServer) ReadResource(ctx context.Context, uri, serverName str
 		resolvedServer, originalURI, err = resolve()
 		if err != nil && serverName == "" {
 			// A URI no listing names, one a resource template fills such as
-			// a person's mailbox, is read where it is subscribed to.
+			// a person's mailbox, is read where it is subscribed to: from a
+			// per-user server only, as the session, never with muster's
+			// own identity.
 			resolvedServer, originalURI, err = a.resolveSubscribedResource(ctx, sessionID, uri)
+			if info, ok := a.registry.GetServerInfo(resolvedServer); err == nil && (!ok || !info.RequiresSessionAuth()) {
+				err = fmt.Errorf("unknown resource %s", uri)
+			}
 		}
 	}
 	if err != nil {
