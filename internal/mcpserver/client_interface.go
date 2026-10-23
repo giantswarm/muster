@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -98,13 +99,14 @@ type baseMCPClient struct {
 	// The factory and the aggregator's per-session construction sites set it
 	// from the server's spec.timeout through setTimeout, for every transport,
 	// so the CRD's value governs a tool call end to end; the caller's context
-	// alone may carry no deadline.
-	timeout time.Duration
+	// alone may carry no deadline. A changed spec.timeout reaches a live
+	// client through SetBudget, so it is read and written atomically.
+	timeout atomic.Int64
 	// maxCallDuration bounds a tool call whose server keeps reporting
 	// progress: up to it, each progress notification restarts timeout (see
 	// callContext). Zero means DefaultMaxCallDuration; at or below timeout,
-	// progress extends nothing.
-	maxCallDuration time.Duration
+	// progress extends nothing. Atomic like timeout.
+	maxCallDuration atomic.Int64
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
@@ -147,14 +149,24 @@ func (b *baseMCPClient) notifyRecovered() {
 // setTimeout sets the budget every operation on the client runs under (see
 // timeout); the transports' WithTimeout setters and the factory go through it.
 func (b *baseMCPClient) setTimeout(timeout time.Duration) {
-	b.timeout = timeout
+	b.timeout.Store(int64(timeout))
 }
 
 // setMaxCallDuration sets how long progress may keep a tool call going (see
 // maxCallDuration); the transports' WithMaxCallDuration setters and the
 // factory go through it.
 func (b *baseMCPClient) setMaxCallDuration(maxCallDuration time.Duration) {
-	b.maxCallDuration = maxCallDuration
+	b.maxCallDuration.Store(int64(maxCallDuration))
+}
+
+// SetBudget replaces the client's timeout and maxCallDuration while it is in
+// use: the server's spec.timeout or spec.progress.maxDuration changed and the
+// connection stays. Every operation started after it runs under the new
+// budget; one in flight keeps the budget it started with. Safe for
+// concurrent use.
+func (b *baseMCPClient) SetBudget(timeout, maxCallDuration time.Duration) {
+	b.setTimeout(timeout)
+	b.setMaxCallDuration(maxCallDuration)
 }
 
 // checkConnected verifies the client is connected and returns an error if not.

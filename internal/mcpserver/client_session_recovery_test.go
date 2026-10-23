@@ -289,7 +289,7 @@ func TestSessionRecovery_HandshakeHasDeadline(t *testing.T) {
 func TestSessionRecovery_HandshakeDeadlineFollowsConfiguredTimeout(t *testing.T) {
 	old := &sessionFakeClient{sessionID: "s1", callErrs: []error{errSessionGone}}
 	h := newRecoveryHarness(old, &sessionFakeClient{sessionID: "s2"})
-	h.base.timeout = 90 * time.Second
+	h.base.setTimeout(90 * time.Second)
 	inner := h.base.reconnect
 	var remaining time.Duration
 	h.base.reconnect = func(ctx context.Context) error {
