@@ -65,6 +65,9 @@ func TestIsRefreshTokenRejected(t *testing.T) {
 	if !IsRefreshTokenRejected(&TokenEndpointError{StatusCode: 400, Code: ErrInvalidGrant}) {
 		t.Error("invalid_grant is a rejection")
 	}
+	if !IsRefreshTokenRejected(&TokenEndpointError{StatusCode: 400, Code: ErrInvalidRefreshToken}) {
+		t.Error("Slack's invalid_refresh_token is a rejection")
+	}
 	if IsRefreshTokenRejected(&TokenEndpointError{StatusCode: 401, Code: ErrInvalidClient}) {
 		t.Error("invalid_client says nothing about the refresh token")
 	}
