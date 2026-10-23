@@ -3700,24 +3700,35 @@ func (a *AggregatorServer) ListPromptsForContext(ctx context.Context) []api.Prom
 // resource URIs carrying a scheme are not prefixed, so collisions are possible.
 // Pass an empty string when the URI is unambiguous; an ambiguous URI without a
 // selector is an error rather than an arbitrary pick.
+//
+// A per-user server's resource is read through the calling session's own
+// connection, as a tool call of the session is made (clientForRead).
 func (a *AggregatorServer) ReadResource(ctx context.Context, uri, serverName string) (*mcp.ReadResourceResult, error) {
 	// Resolve the exposed URI back to server and original URI
-	var originalURI string
-	var err error
-	if serverName != "" {
-		originalURI, err = a.registry.ResolveResourceNameForServer(uri, serverName)
-	} else {
-		serverName, originalURI, err = a.registry.ResolveResourceNameOf(uri, seesFunc(api.CallerVisibility(ctx)))
+	resolve := func() (string, string, error) {
+		if serverName != "" {
+			originalURI, err := a.registry.ResolveResourceNameForServer(uri, serverName)
+			return serverName, originalURI, err
+		}
+		return a.registry.ResolveResourceNameOf(uri, seesFunc(api.CallerVisibility(ctx)))
+	}
+	resolvedServer, originalURI, err := resolve()
+	if err != nil && getSessionIDFromContext(ctx) != "" {
+		// A per-user server's URIs are known once a listing of the session's
+		// view recorded them: a session that never listed resources -- or
+		// one that listed before a muster restart -- assembles its view now.
+		a.ListResourcesForContext(ctx)
+		resolvedServer, originalURI, err = resolve()
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve resource URI: %w", err)
 	}
+	serverName = resolvedServer
 	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
 		return nil, unseenError(view, "failed to resolve resource URI: resource not found: "+uri)
 	}
 
-	// Get the backend client
-	client, err := a.registry.GetClient(serverName)
+	client, err := a.clientForRead(ctx, serverName)
 	if err != nil {
 		return nil, fmt.Errorf("server not available: %w", err)
 	}
@@ -3736,6 +3747,12 @@ func (a *AggregatorServer) ReadResource(ctx context.Context, uri, serverName str
 func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[string]string) (*mcp.GetPromptResult, error) {
 	// Resolve the exposed name back to server and original prompt name
 	serverName, originalName, err := a.registry.ResolvePromptName(name)
+	if err != nil && getSessionIDFromContext(ctx) != "" {
+		// As in ReadResource: the session's view records a per-user
+		// server's prompt names.
+		a.ListPromptsForContext(ctx)
+		serverName, originalName, err = a.registry.ResolvePromptName(name)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve prompt name: %w", err)
 	}
@@ -3743,8 +3760,7 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 		return nil, unseenError(view, "failed to resolve prompt name: prompt not found: "+name)
 	}
 
-	// Get the backend client
-	client, err := a.registry.GetClient(serverName)
+	client, err := a.clientForRead(ctx, serverName)
 	if err != nil {
 		return nil, fmt.Errorf("server not available: %w", err)
 	}
@@ -3762,6 +3778,28 @@ func (a *AggregatorServer) GetPrompt(ctx context.Context, name string, args map[
 	}
 
 	return result, nil
+}
+
+// clientForRead returns the client a resource read or a prompt retrieval of
+// serverName goes through: a shared server's client, or a per-user server's
+// connection of the calling session, pooled or opened as a tool call opens it
+// (getOrCreateClientForToolCall). A session not signed in to the per-user
+// server gets its sign-in-required error.
+func (a *AggregatorServer) clientForRead(ctx context.Context, serverName string) (MCPClient, error) {
+	info, ok := a.registry.GetServerInfo(serverName)
+	if !ok || !info.RequiresSessionAuth() {
+		return a.registry.GetClient(serverName)
+	}
+	sessionID := getSessionIDFromContext(ctx)
+	if sessionID == "" {
+		return nil, fmt.Errorf("server %s requires authentication but no session is available", serverName)
+	}
+	client, cleanup, err := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, getUserSubjectFromContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	cleanup()
+	return client, nil
 }
 
 // needsManualLogin reports whether a person connects the server with
