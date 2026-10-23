@@ -193,6 +193,7 @@ nav:
   - Contributing:
       - contributing/README.md
       - Development setup: contributing/development-setup.md
+      - Debugging: contributing/debugging.md
       - Testing:
           - contributing/testing/README.md
           - Writing scenarios: contributing/testing/scenarios.md

@@ -296,6 +296,18 @@ expected:
   contains: ["created successfully", "test-workflow"]
 ```
 
+What `contains` and `not_contains` compare against depends on the step's tool:
+
+- An MCP tool (`x_<server>_<tool>`, `core_*`, `workflow_*`) is matched against the text content of
+  its result, joined with spaces: the JSON text the tool returned. Plain words (`total`,
+  `truncated`) or `json_path` hold up better than JSON syntax such as `'"total":'`.
+- A `test_*` tool returns a plain map, and its text is the map's Go rendering
+  (`fmt.Sprintf("%v", response)`, keys sorted): `map[kind:tool name:x_files_read_file server:files]`.
+  The pretty JSON that `--verbose` prints is not what is compared, so
+  `contains: ['"server": "files"']` never matches and `not_contains: ['"server":']` passes
+  whatever the response. Write `server:files`, or use `json_path` (an array index is a path
+  segment: `tools.0.server`).
+
 #### JSON Path Validation
 For structured responses:
 
