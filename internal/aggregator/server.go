@@ -3713,12 +3713,17 @@ func (a *AggregatorServer) ReadResource(ctx context.Context, uri, serverName str
 		return a.registry.ResolveResourceNameOf(uri, seesFunc(api.CallerVisibility(ctx)))
 	}
 	resolvedServer, originalURI, err := resolve()
-	if err != nil && getSessionIDFromContext(ctx) != "" {
+	if sessionID := getSessionIDFromContext(ctx); err != nil && sessionID != "" {
 		// A per-user server's URIs are known once a listing of the session's
 		// view recorded them: a session that never listed resources -- or
 		// one that listed before a muster restart -- assembles its view now.
 		a.ListResourcesForContext(ctx)
 		resolvedServer, originalURI, err = resolve()
+		if err != nil && serverName == "" {
+			// A URI no listing names, one a resource template fills such as
+			// a person's mailbox, is read where it is subscribed to.
+			resolvedServer, originalURI, err = a.resolveSubscribedResource(ctx, sessionID, uri)
+		}
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve resource URI: %w", err)

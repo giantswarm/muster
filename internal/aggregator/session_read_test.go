@@ -86,6 +86,25 @@ func TestReadResource_PerUserServerReadsThroughSessionClient(t *testing.T) {
 	assert.Len(t, client.readURIs, 2)
 }
 
+// A URI a resource template fills, which no listing names, is read from the
+// one server whose resources share its scheme, as it is subscribed to.
+func TestReadResource_TemplateFilledURIReadsFromTheSchemesServer(t *testing.T) {
+	a := newPerUserReadFixture(t, readSession)
+	require.NoError(t, a.authStore.MarkAuthenticated(context.Background(), readSession, readServer))
+	client := &readMockClient{}
+	a.connPool.Put(readSession, readServer, client)
+	mailbox := "beekeeper://mailbox/alice@example.com"
+
+	_, err := a.ReadResource(readContext(readSession), mailbox, "")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{mailbox}, client.readURIs)
+
+	_, err = a.ReadResource(readContext(readSession), "other://thing", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown resource other://thing")
+}
+
 // A session not signed in to the per-user server is told so, not that the
 // server has no active client.
 func TestReadResource_PerUserServerWithoutSignInIsAuthRequired(t *testing.T) {
