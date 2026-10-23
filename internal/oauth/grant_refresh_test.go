@@ -229,6 +229,7 @@ func TestSubjectGrant_RejectedRefreshTokenClearsTheGrant(t *testing.T) {
 	}{
 		{name: "invalid_grant with 400", code: "invalid_grant", status: http.StatusBadRequest},
 		{name: "GitHub bad_refresh_token with 200", code: "bad_refresh_token", status: 0},
+		{name: "Slack invalid_refresh_token with 400", code: "invalid_refresh_token", status: http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			as := newRotatingAS("ghr_initial")
