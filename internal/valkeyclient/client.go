@@ -3,8 +3,10 @@ package valkeyclient
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/valkey-io/valkey-go"
@@ -12,12 +14,23 @@ import (
 	"github.com/giantswarm/muster/v5/internal/config"
 )
 
-// OperationTimeout bounds every Valkey command muster sends, layered on the
-// caller's context (the shorter wins), and the dial and response wait of each
-// connection. A Valkey in the same cluster answers in milliseconds; two
-// sequential commands that time out still leave an authenticated request
-// within a second.
-const OperationTimeout = 500 * time.Millisecond
+const (
+	// OperationTimeout bounds every Valkey command muster sends, layered on
+	// the caller's context (the shorter wins), and the dial and response wait
+	// of each connection. A Valkey in the same cluster answers in about a
+	// millisecond.
+	OperationTimeout = 300 * time.Millisecond
+
+	// unavailableFor is how long commands fail at once after one failed to
+	// reach Valkey. It spans the few commands one request sends in a row, so
+	// only the first of them waits for OperationTimeout; the next command
+	// after it tries Valkey again.
+	unavailableFor = 250 * time.Millisecond
+)
+
+// ErrUnavailable is the error of a command that was not sent because an
+// earlier one failed to reach Valkey within the last unavailableFor.
+var ErrUnavailable = errors.New("valkey unavailable: an earlier command did not reach it")
 
 // New creates a client for cfg. The client dials on creation, so an
 // unreachable Valkey is an error here. The stores never read through
@@ -46,25 +59,66 @@ func New(cfg config.ValkeyConfig) (valkey.Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("valkey connect: %w", err)
 	}
-	return bounded{Client: client, timeout: OperationTimeout}, nil
+	return newBounded(client, time.Now), nil
 }
 
 // bounded runs Do and DoMulti, the commands muster's stores send, under a
-// per-command deadline. The streaming, caching and dedicated-connection
+// per-command deadline, and fails them at once for unavailableFor after one
+// did not reach Valkey. The streaming, caching and dedicated-connection
 // methods pass through unbounded: no store uses them.
 type bounded struct {
 	valkey.Client
-	timeout time.Duration
+	now func() time.Time
+	// unavailableUntil is the Unix nanosecond time until which commands fail
+	// with ErrUnavailable without being sent.
+	unavailableUntil atomic.Int64
 }
 
-func (b bounded) Do(ctx context.Context, cmd valkey.Completed) valkey.ValkeyResult {
-	ctx, cancel := context.WithTimeout(ctx, b.timeout)
-	defer cancel()
-	return b.Client.Do(ctx, cmd)
+func newBounded(client valkey.Client, now func() time.Time) *bounded {
+	return &bounded{Client: client, now: now}
 }
 
-func (b bounded) DoMulti(ctx context.Context, multi ...valkey.Completed) []valkey.ValkeyResult {
-	ctx, cancel := context.WithTimeout(ctx, b.timeout)
+func (b *bounded) Do(ctx context.Context, cmd valkey.Completed) valkey.ValkeyResult {
+	if b.unavailable() {
+		return valkey.NewErrorResult(ErrUnavailable)
+	}
+	opCtx, cancel := context.WithTimeout(ctx, OperationTimeout)
 	defer cancel()
-	return b.Client.DoMulti(ctx, multi...)
+	result := b.Client.Do(opCtx, cmd)
+	b.record(ctx, result.NonValkeyError())
+	return result
+}
+
+func (b *bounded) DoMulti(ctx context.Context, multi ...valkey.Completed) []valkey.ValkeyResult {
+	if b.unavailable() {
+		results := make([]valkey.ValkeyResult, len(multi))
+		for i := range results {
+			results[i] = valkey.NewErrorResult(ErrUnavailable)
+		}
+		return results
+	}
+	opCtx, cancel := context.WithTimeout(ctx, OperationTimeout)
+	defer cancel()
+	results := b.Client.DoMulti(opCtx, multi...)
+	for _, r := range results {
+		if err := r.NonValkeyError(); err != nil {
+			b.record(ctx, err)
+			break
+		}
+	}
+	return results
+}
+
+func (b *bounded) unavailable() bool {
+	return b.now().UnixNano() < b.unavailableUntil.Load()
+}
+
+// record marks Valkey unavailable after a command failed to reach it. A
+// caller that gave up (its own context ended) says nothing about Valkey, and
+// an answer Valkey gave (a ValkeyError, nil included) is no failure.
+func (b *bounded) record(ctx context.Context, err error) {
+	if err == nil || ctx.Err() != nil {
+		return
+	}
+	b.unavailableUntil.Store(b.now().Add(unavailableFor).UnixNano())
 }

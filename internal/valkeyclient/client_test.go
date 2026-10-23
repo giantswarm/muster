@@ -3,6 +3,7 @@ package valkeyclient
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,12 +19,32 @@ import (
 // `initialize` sent while Valkey restarts answers or fails within it.
 const requestBound = time.Second
 
-// testClient runs the commands the session stores send on every
-// authenticated request -- a single command and a pipeline -- on a context
-// with no deadline of its own, as a request context has none, and fails the
-// test when one takes longer than the request bound.
+// manualClock is the bounded client's clock in tests: it moves only when
+// advanced, so the fail-fast window is stepped over without sleeping.
+type manualClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *manualClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *manualClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+// testClient runs the commands the stores send on every authenticated
+// request -- a single command and a pipeline -- on a context with no deadline
+// of its own, as a request context has none, and fails the test when one
+// takes longer than the request bound.
 type testClient struct {
-	valkey.Client
+	*bounded
+	clock *manualClock
 }
 
 func newClient(t *testing.T, addr string) testClient {
@@ -31,7 +52,10 @@ func newClient(t *testing.T, addr string) testClient {
 	client, err := New(config.ValkeyConfig{URL: addr})
 	require.NoError(t, err)
 	t.Cleanup(client.Close)
-	return testClient{client}
+	b := client.(*bounded)
+	clock := &manualClock{now: time.Unix(0, 0)}
+	b.now = clock.Now
+	return testClient{bounded: b, clock: clock}
 }
 
 func (c testClient) get(t *testing.T) error {
@@ -72,6 +96,7 @@ func TestNew_CommandsStayBoundedWhileValkeyIsRecreated(t *testing.T) {
 		for range 3 {
 			assert.Error(t, c.get(t), "round %d: Valkey down fails instead of waiting", round)
 			assert.Error(t, c.multi(t), "round %d: Valkey down fails instead of waiting", round)
+			c.clock.Advance(unavailableFor)
 		}
 
 		require.NoError(t, srv.Restart())
@@ -96,7 +121,45 @@ func TestNew_CommandsStayBoundedWhenValkeyDoesNotAnswer(t *testing.T) {
 	go acceptAndHold(silent)
 
 	assert.Error(t, c.get(t))
+	c.clock.Advance(unavailableFor)
 	assert.Error(t, c.multi(t))
+}
+
+// The commands a request sends in a row after one failed to reach Valkey fail
+// at once, without waiting for their own timeout; once the window passed,
+// Valkey is tried again.
+func TestNew_FailsAtOnceAfterACommandMissedValkey(t *testing.T) {
+	srv := miniredis.RunT(t)
+	c := newClient(t, srv.Addr())
+	srv.Close()
+
+	assert.NotErrorIs(t, c.get(t), ErrUnavailable, "the first command tries Valkey")
+	assert.ErrorIs(t, c.get(t), ErrUnavailable)
+	assert.ErrorIs(t, c.multi(t), ErrUnavailable)
+
+	require.NoError(t, srv.Restart())
+	assert.ErrorIs(t, c.get(t), ErrUnavailable, "still inside the window")
+	c.clock.Advance(unavailableFor)
+	assert.NoError(t, c.get(t), "the window passed: Valkey is tried again")
+}
+
+// An answer Valkey gave, a missing key included, and a caller that gave up
+// say nothing about Valkey being down.
+func TestNew_OnlyMissedValkeyOpensTheWindow(t *testing.T) {
+	srv := miniredis.RunT(t)
+	c := newClient(t, srv.Addr())
+
+	require.NoError(t, srv.Set("text", "x"))
+	err := c.Do(context.Background(), c.B().Incr().Key("text").Build()).Error()
+	require.Error(t, err, "INCR on a string is refused by Valkey")
+	assert.True(t, valkey.IsValkeyNil(c.Do(context.Background(), c.B().Get().Key("absent").Build()).Error()))
+	assert.NoError(t, c.get(t), "neither answer opened the window")
+
+	srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	assert.ErrorIs(t, c.Do(ctx, c.B().Get().Key("k").Build()).Error(), context.Canceled)
+	assert.NotErrorIs(t, c.get(t), ErrUnavailable, "the cancelled caller opened no window")
 }
 
 // A caller's shorter deadline still wins over the bound.

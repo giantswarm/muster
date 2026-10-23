@@ -240,6 +240,9 @@ func TestSessionStores_TouchStaysBoundedWhileValkeyIsRecreated(t *testing.T) {
 		srv.Close()
 		assert.Error(t, touch(), "round %d: Valkey down fails instead of waiting", round)
 		require.NoError(t, srv.Restart())
-		require.NoError(t, touch(), "round %d: Valkey back", round)
+		// The client fails commands at once for a quarter second after one
+		// missed Valkey, then tries it again.
+		require.Eventually(t, func() bool { return touch() == nil }, 2*time.Second, 50*time.Millisecond,
+			"round %d: Valkey back", round)
 	}
 }

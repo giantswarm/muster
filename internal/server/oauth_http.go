@@ -704,7 +704,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			Logger:    logger,
 			// The same bound as muster's own Valkey clients: a token
 			// validation during a Valkey restart answers 503 with
-			// Retry-After at once instead of after mcp-oauth's 3 s default.
+			// Retry-After within it instead of mcp-oauth's 3 s default.
 			OperationTimeout: valkeyclient.OperationTimeout,
 		}
 
