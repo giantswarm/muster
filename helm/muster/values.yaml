@@ -326,10 +326,10 @@ muster:
     # warn: read an unbound Secret and log a warning. enforce: refuse it.
     # Bind the Secrets your MCPServers use, then set enforce. Takes effect at
     # muster's restart.
-    mode: warn
+    mode: warn  # @schema enum: [warn, enforce]
     # Further Secrets of muster's namespace no MCPServer may read. The chart
     # adds every Secret it mounts and the ingress TLS Secrets.
-    protectedSecrets: []
+    protectedSecrets: []  # @schema item: string
 
   # Toolset presets: named selections of the tool catalogue that an agent's
   # X-Muster-Toolset header (or the filter_tools toolset argument) can reference
