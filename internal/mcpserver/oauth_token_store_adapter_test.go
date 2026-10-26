@@ -55,6 +55,8 @@ func (m *stubOAuthHandler) GetCIMDPath() string                                 
 func (m *stubOAuthHandler) ShouldServeCIMD() bool                                  { return false }
 func (m *stubOAuthHandler) GetCIMDHandler() http.HandlerFunc                       { return nil }
 func (m *stubOAuthHandler) Stop()                                                  {}
+func (m *stubOAuthHandler) SignInFinished(context.Context, string, string) bool    { return false }
+
 func (m *stubOAuthHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }

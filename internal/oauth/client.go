@@ -521,6 +521,20 @@ func (c *Client) startEndpoint() string {
 	return strings.TrimSuffix(c.publicURL, "/") + config.DefaultOAuthProxyStartPath
 }
 
+// SignInFinished reports whether the callback of the flow a start URL
+// (GetStartURL) names ran to its end, whatever its outcome, for the session.
+func (c *Client) SignInFinished(sessionID, startURL string) bool {
+	if sessionID == "" {
+		return false
+	}
+	parsed, err := url.Parse(startURL)
+	if err != nil {
+		return false
+	}
+	state := parsed.Query().Get("state")
+	return state != "" && c.stateStore.Finished(state) == sessionID
+}
+
 // ExchangeCode exchanges an authorization code for tokens. resource is the
 // RFC 8707 indicator recorded with the flow's state; it must match the value
 // sent on the authorization request. requestedScope is the scope the

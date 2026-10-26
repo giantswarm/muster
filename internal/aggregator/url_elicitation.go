@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -20,13 +22,13 @@ import (
 const signInElicitationTTL = 10 * time.Minute
 
 // signInRetryWait is how long a retry that accepted the sign-in elicitation
-// waits for the sign-in to complete before asking again. The client retries
+// waits for the sign-in's callback before asking again. The client retries
 // as soon as the person agreed to open the link, before they signed in.
 const signInRetryWait = 5 * time.Minute
 
 // signInPollInterval is how often a waiting retry reads the session's
-// authentication, which the sign-in's callback marks on whichever replica it
-// reaches.
+// authentication and the sign-in's callback outcome, which the callback
+// records on whichever replica it reaches.
 const signInPollInterval = time.Second
 
 // signInInputKey is the inputRequests key of the sign-in elicitation in an
@@ -40,6 +42,29 @@ type signInChallenge struct {
 	server    string
 	authURL   string
 	reason    string
+}
+
+// signInRequestState is the requestState of a sign-in elicitation, echoed by
+// the client on its retry: the server whose sign-in the retry waits for and
+// the sign-in link, which names the OAuth flow whose callback ends the wait.
+// Being the client's echo, it only decides what the retry waits for: the call
+// is gated as any other afterwards.
+type signInRequestState struct {
+	Server string `json:"server"`
+	Link   string `json:"link"`
+}
+
+func (s signInRequestState) encode() string {
+	encoded, _ := json.Marshal(s)
+	return string(encoded)
+}
+
+// decodeSignInRequestState reads a retry's requestState; an unreadable one
+// is the zero value, which waits for nothing.
+func decodeSignInRequestState(requestState string) signInRequestState {
+	var state signInRequestState
+	_ = json.Unmarshal([]byte(requestState), &state)
+	return state
 }
 
 type challengeRecorderKey struct{}
@@ -74,13 +99,12 @@ func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
 // passes through the model's context.
 //
 // A request on protocol 2026-07-28 or later gets an input_required result
-// carrying the elicitation, with the server as its requestState. The client
-// retries the call once the person agreed to open the link: that retry first
-// waits for the session's sign-in to the server (awaitSignIn), then runs as
-// any other call, so a sign-in that did not complete is asked again. A retry
-// carrying a declined or cancelled elicitation runs nothing and is answered
-// with a tool error. The echoed requestState only picks which sign-in to wait
-// for: the call is gated as usual afterwards. A request on an earlier
+// carrying the elicitation, with the server and the link as its requestState
+// (signInRequestState). The client retries the call once the person agreed
+// to open the link: that retry first waits for the sign-in (awaitSignIn),
+// then runs as any other call, so a sign-in that did not complete is asked
+// again. A retry carrying a declined or cancelled elicitation runs nothing and
+// is answered with a tool error. A request on an earlier
 // protocol gets URLElicitationRequiredError (-32042), and the session is sent
 // notifications/elicitation/complete when the sign-in completes
 // (signInElicitations). A client that does not declare elicitation.url keeps
@@ -92,11 +116,11 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 				return next(ctx, req)
 			}
 			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); answer != nil {
-				server := req.Params.RequestState
+				state := decodeSignInRequestState(req.Params.RequestState)
 				if answer.Action != mcp.ElicitationResponseActionAccept {
-					return declinedSignInResult(answer.Action, server), nil
+					return declinedSignInResult(answer.Action, state.Server), nil
 				}
-				a.awaitSignIn(ctx, getSessionIDFromContext(ctx), server)
+				a.awaitSignIn(ctx, getSessionIDFromContext(ctx), state)
 				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
 			}
 
@@ -115,7 +139,7 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 }
 
 // declinedSignInResult answers a retry whose sign-in elicitation the person
-// declined or cancelled. server is the client's echo of requestState.
+// declined or cancelled. server is from the client's echo of requestState.
 func declinedSignInResult(action mcp.ElicitationResponseAction, server string) *mcp.CallToolResult {
 	if server == "" {
 		return mcp.NewToolResultError(fmt.Sprintf("The tool did not run: the person answered %s to signing in.", action))
@@ -124,17 +148,28 @@ func declinedSignInResult(action mcp.ElicitationResponseAction, server string) *
 }
 
 // awaitSignIn waits, at most signInRetryWait and while ctx lasts, until the
-// session is authenticated to the server.
-func (a *AggregatorServer) awaitSignIn(ctx context.Context, sessionID, server string) {
-	if a.authStore == nil || sessionID == "" || server == "" {
+// session is authenticated to the server or the callback of the sign-in link
+// ran to its end without authenticating it: the server was suspended
+// meanwhile, the connection failed, the person was refused. The callback
+// marks the session authenticated before it records its end, so a finished
+// callback leaves nothing to wait for, and its link's state is used up: the
+// session's pending challenge is forgotten here too, as the callback may have
+// reached another replica, so the call is answered with a new link.
+func (a *AggregatorServer) awaitSignIn(ctx context.Context, sessionID string, state signInRequestState) {
+	if a.authStore == nil || sessionID == "" || state.Server == "" {
 		return
 	}
+	oauthHandler := api.GetOAuthHandler()
 	ctx, cancel := context.WithTimeout(ctx, signInRetryWait)
 	defer cancel()
 	ticker := time.NewTicker(signInPollInterval)
 	defer ticker.Stop()
 	for {
-		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, server); authenticated {
+		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, state.Server); authenticated {
+			return
+		}
+		if oauthHandler != nil && state.Link != "" && oauthHandler.SignInFinished(ctx, sessionID, state.Link) {
+			a.pendingSignIns.forget(sessionID, state.Server)
 			return
 		}
 		select {
@@ -154,7 +189,8 @@ func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInCha
 	}
 
 	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
-		return mcpserver.NewInputRequestBuilder(challenge.server).Elicit(signInInputKey, mcp.ElicitationParams{
+		state := signInRequestState{Server: challenge.server, Link: challenge.authURL}
+		return mcpserver.NewInputRequestBuilder(state.encode()).Elicit(signInInputKey, mcp.ElicitationParams{
 			Mode:    mcp.ElicitationModeURL,
 			Message: message,
 			URL:     challenge.authURL,

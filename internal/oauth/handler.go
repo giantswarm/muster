@@ -166,6 +166,11 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The single-use state is consumed: whatever the outcome below, the flow
+	// is over once this request is, and a tool call waiting on its sign-in
+	// stops waiting.
+	defer h.client.stateStore.MarkFinished(stateParam, state.SessionID)
+
 	if state.Issuer == "" {
 		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
 		h.renderErrorPage(w, summaryInvalidSession, "")

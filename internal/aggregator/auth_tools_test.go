@@ -53,6 +53,8 @@ func (m *issuerMockOAuthHandler) DeleteTokensByUser(_ string) {
 func (m *issuerMockOAuthHandler) DeleteTokensBySession(_ string) {
 }
 
+func (m *issuerMockOAuthHandler) SignInFinished(context.Context, string, string) bool { return false }
+
 func (m *issuerMockOAuthHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }

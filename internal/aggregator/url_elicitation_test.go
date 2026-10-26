@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -92,7 +93,8 @@ func TestURLElicitation(t *testing.T) {
 		require.Equal(t, mcp.ElicitationModeURL, request.Elicitation.Mode)
 		require.Equal(t, testAuthURL, request.Elicitation.URL)
 		require.Empty(t, request.Elicitation.ElicitationID, "2026-07-28 removed elicitationId")
-		require.Equal(t, "github", result.RequestState, "the retry names the sign-in to wait for")
+		require.Equal(t, signInRequestState{Server: "github", Link: testAuthURL}, decodeSignInRequestState(result.RequestState),
+			"the retry names the sign-in to wait for")
 		require.Empty(t, result.Content, "the link must not reach the model as tool output")
 	})
 
@@ -152,7 +154,7 @@ func TestURLElicitation(t *testing.T) {
 					signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: action}}),
 				}
 
-				req.Params.RequestState = "github"
+				req.Params.RequestState = signInRequestState{Server: "github", Link: testAuthURL}.encode()
 				ran := false
 				handler := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 					ran = true
@@ -437,7 +439,7 @@ func TestURLElicitation_CallToolRelaysMustersChallenge(t *testing.T) {
 	request := result.InputRequests[signInInputKey]
 	require.NotNil(t, request.Elicitation)
 	require.Contains(t, request.Elicitation.URL, "/oauth/proxy/start")
-	require.Equal(t, answerServer, result.RequestState)
+	require.Equal(t, answerServer, decodeSignInRequestState(result.RequestState).Server)
 	require.Empty(t, result.Content, "the call_tool envelope carries the link too")
 }
 
@@ -448,7 +450,7 @@ func acceptedRetry() mcp.CallToolRequest {
 	req.Params.InputResponses = mcp.InputResponses{
 		signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: mcp.ElicitationResponseActionAccept}}),
 	}
-	req.Params.RequestState = "github"
+	req.Params.RequestState = signInRequestState{Server: "github", Link: testAuthURL}.encode()
 	return req
 }
 
@@ -504,6 +506,47 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 		})
 	})
 
+	t.Run("a callback that ran without signing the session in ends the wait", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			finished := &finishedSignInHandler{}
+			api.RegisterOAuthHandler(finished)
+			t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
+			pending := pendingSignInKey{sessionID: "family-1", server: "github"}
+			a.pendingSignIns.put(pending, &api.CallToolResult{StructuredContent: map[string]any{"authUrl": testAuthURL}})
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			go func() {
+				time.Sleep(30 * time.Second)
+				finished.finish("family-1", testAuthURL)
+			}()
+			start := time.Now()
+
+			result, err := a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry())
+
+			require.NoError(t, err)
+			require.Equal(t, mcp.ResultTypeInputRequired, result.ResultType, "the person is asked again at once")
+			require.Less(t, time.Since(start), 32*time.Second)
+			_, stillPending := a.pendingSignIns.get(pending)
+			require.False(t, stillPending, "the used-up link is not handed out again")
+		})
+	})
+
+	t.Run("an unreadable requestState waits for nothing", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			req := acceptedRetry()
+			req.Params.RequestState = "github"
+			start := time.Now()
+
+			result, err := a.urlElicitation()(gatedHandler(a.authStore))(ctx, req)
+
+			require.NoError(t, err)
+			require.Equal(t, mcp.ResultTypeInputRequired, result.ResultType)
+			require.Zero(t, time.Since(start))
+		})
+	})
+
 	t.Run("a cancelled call stops waiting", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
@@ -516,4 +559,26 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 			require.Equal(t, time.Minute, time.Since(start))
 		})
 	})
+}
+
+// finishedSignInHandler reports the sign-in callbacks that ran to their end.
+type finishedSignInHandler struct {
+	issuerMockOAuthHandler
+	mu       sync.Mutex
+	finished map[[2]string]bool
+}
+
+func (h *finishedSignInHandler) finish(sessionID, startURL string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.finished == nil {
+		h.finished = make(map[[2]string]bool)
+	}
+	h.finished[[2]string{sessionID, startURL}] = true
+}
+
+func (h *finishedSignInHandler) SignInFinished(_ context.Context, sessionID, startURL string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.finished[[2]string{sessionID, startURL}]
 }

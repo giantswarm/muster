@@ -396,6 +396,8 @@ func (d *deleteCaptureMockHandler) GetClientCredentialsForIssuer(_ context.Conte
 	return "", ""
 }
 
+func (d *deleteCaptureMockHandler) SignInFinished(context.Context, string, string) bool { return false }
+
 func (d *deleteCaptureMockHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
 }
@@ -448,6 +450,8 @@ func (c *clearCaptureMockHandler) DeleteTokensBySession(_ string) {}
 func (c *clearCaptureMockHandler) GetClientCredentialsForIssuer(_ context.Context, _ string) (string, string) {
 	return "", ""
 }
+
+func (c *clearCaptureMockHandler) SignInFinished(context.Context, string, string) bool { return false }
 
 func (c *clearCaptureMockHandler) CreateAuthChallenge(_ context.Context, _ api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	return nil, nil
