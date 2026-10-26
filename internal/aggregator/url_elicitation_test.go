@@ -46,7 +46,7 @@ func newLegacySession(id string, capabilities mcp.ClientCapabilities) *legacySes
 }
 
 func modernContext(ctx context.Context, capabilities mcp.ClientCapabilities) context.Context {
-	return mcpserver.WithRequestProtocolInfo(ctx, &mcpserver.RequestProtocolInfo{
+	return mcpserver.WithRequestProtocolInfo(api.WithSessionID(ctx, "family-1"), &mcpserver.RequestProtocolInfo{
 		Modern:             true,
 		ProtocolVersion:    mcp.ProtocolVersion20260728,
 		ClientCapabilities: &capabilities,
@@ -91,6 +91,7 @@ func TestURLElicitation(t *testing.T) {
 		require.Equal(t, mcp.ElicitationModeURL, request.Elicitation.Mode)
 		require.Equal(t, testAuthURL, request.Elicitation.URL)
 		require.Empty(t, request.Elicitation.ElicitationID, "2026-07-28 removed elicitationId")
+		require.Equal(t, "github", result.RequestState, "the retry names the sign-in to wait for")
 		require.Empty(t, result.Content, "the link must not reach the model as tool output")
 	})
 
@@ -136,7 +137,7 @@ func TestURLElicitation(t *testing.T) {
 		require.Equal(t, elicitation.ElicitationID, again.Elicitations[0].ElicitationID,
 			"a retry while the sign-in is pending is the same elicitation")
 
-		require.Equal(t, map[string]string{"transport-1": elicitation.ElicitationID},
+		require.Equal(t, []sentElicitation{{transportID: "transport-1", elicitationID: elicitation.ElicitationID}},
 			a.signInElicitations.take("family-1", "github"))
 	})
 
@@ -150,10 +151,19 @@ func TestURLElicitation(t *testing.T) {
 					signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: action}}),
 				}
 
-				result, err := a.urlElicitation()(signInHandler(true))(ctx, req)
+				req.Params.RequestState = "github"
+				ran := false
+				handler := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+					ran = true
+					return mcp.NewToolResultText("done"), nil
+				}
+
+				result, err := a.urlElicitation()(handler)(ctx, req)
 
 				require.NoError(t, err)
+				require.False(t, ran, "a declined sign-in runs nothing")
 				require.True(t, result.IsError)
+				require.Contains(t, mcpText(result), "github")
 				require.Empty(t, result.InputRequests)
 				require.NotContains(t, mcpText(result), testAuthURL, "the link must not reach the model as tool output")
 			})
@@ -230,7 +240,7 @@ func TestCompleteSignInElicitations(t *testing.T) {
 	require.NoError(t, srv.RegisterSession(t.Context(), asked))
 	require.NoError(t, srv.RegisterSession(t.Context(), other))
 	a := &AggregatorServer{mcpServer: srv}
-	elicitationID := a.signInElicitations.add("family-1", "github", asked.id)
+	elicitationID := a.signInElicitations.add("family-1", "github", asked.id, testAuthURL)
 
 	a.completeSignInElicitations("family-1", "github")
 
@@ -260,7 +270,7 @@ func TestAuthCompletionCompletesSignInElicitations(t *testing.T) {
 			a.mcpServer = mcpserver.NewMCPServer("muster", "test")
 			session := newLegacySession("transport-1", urlElicitationCapabilities())
 			require.NoError(t, a.mcpServer.RegisterSession(t.Context(), session))
-			elicitationID := a.signInElicitations.add("test-session", "miro", session.id)
+			elicitationID := a.signInElicitations.add("test-session", "miro", session.id, testAuthURL)
 			am := &AggregatorManager{aggregatorServer: a}
 
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -278,14 +288,28 @@ func TestAuthCompletionCompletesSignInElicitations(t *testing.T) {
 func TestSignInElicitationsExpire(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var s signInElicitations
-		old := s.add("family-1", "github", "transport-1")
+		old := s.add("family-1", "github", "transport-1", testAuthURL)
 
 		time.Sleep(signInElicitationTTL)
-		fresh := s.add("family-1", "github", "transport-1")
+		fresh := s.add("family-1", "github", "transport-1", testAuthURL)
 
 		require.NotEqual(t, old, fresh, "an expired elicitation is not reused")
-		require.Equal(t, map[string]string{"transport-1": fresh}, s.take("family-1", "github"))
+		require.Equal(t, []sentElicitation{{transportID: "transport-1", elicitationID: fresh}}, s.take("family-1", "github"))
 	})
+}
+
+func TestSignInElicitationsPerLink(t *testing.T) {
+	var s signInElicitations
+	first := s.add("family-1", "github", "transport-1", testAuthURL)
+	require.Equal(t, first, s.add("family-1", "github", "transport-1", testAuthURL), "the same link is the same elicitation")
+
+	second := s.add("family-1", "github", "transport-1", testAuthURL+"-new")
+
+	require.NotEqual(t, first, second, "a new link is a new elicitation")
+	require.ElementsMatch(t, []sentElicitation{
+		{transportID: "transport-1", elicitationID: first},
+		{transportID: "transport-1", elicitationID: second},
+	}, s.take("family-1", "github"), "the sign-in completes every elicitation of it")
 }
 
 // TestURLElicitationOnTheWire sends real tools/call messages through an mcp-go
@@ -386,6 +410,7 @@ func acceptedRetry() mcp.CallToolRequest {
 	req.Params.InputResponses = mcp.InputResponses{
 		signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: mcp.ElicitationResponseActionAccept}}),
 	}
+	req.Params.RequestState = "github"
 	return req
 }
 
@@ -411,11 +436,18 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 				_ = store.MarkAuthenticated(context.Background(), "family-1", "github")
 			}()
 			start := time.Now()
+			calls := 0
+			counted := func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				calls++
+				require.Empty(t, req.Params.InputResponses, "the tool sees a plain call")
+				return gatedHandler(store)(ctx, req)
+			}
 
-			result, err := a.urlElicitation()(gatedHandler(store))(ctx, acceptedRetry())
+			result, err := a.urlElicitation()(counted)(ctx, acceptedRetry())
 
 			require.NoError(t, err)
 			require.Equal(t, "done", mcpText(result))
+			require.Equal(t, 1, calls, "the call runs once, after the wait: no login is spent before it")
 			require.Less(t, time.Since(start), 32*time.Second, "the retry is answered as soon as the sign-in completes")
 		})
 	})
