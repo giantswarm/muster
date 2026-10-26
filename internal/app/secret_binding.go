@@ -4,7 +4,9 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/config"
 	mcpserverPkg "github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // credentialsOptions returns the secret binding of the credentials adapter:
@@ -29,4 +31,15 @@ func protectedSecrets(cfg *Config, namespace string) []types.NamespacedName {
 		}
 	}
 	return out
+}
+
+// warnSecretBindingNotEnforced logs at start that secretBinding.mode is not
+// enforce: an MCPServer can still have muster read and send any unbound
+// Secret muster can get, other than the protected ones.
+func warnSecretBindingNotEnforced(mode string) {
+	if mode == config.SecretBindingModeEnforce {
+		return
+	}
+	logging.Warn("SecretCredentials", "secretBinding.mode is %s: muster still reads a Secret an MCPServer names that is not bound to it. "+
+		"Bind the Secrets the warnings name, then set secretBinding.mode: enforce", mode)
 }

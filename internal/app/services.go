@@ -225,6 +225,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// never one of muster's own (secretBinding).
 	credentialsAdapter := mcpserverPkg.NewCredentialsAdapter(musterClient, credentialsOptions(cfg, namespace)...)
 	credentialsAdapter.Register()
+	warnSecretBindingNotEnforced(cfg.MusterConfig.SecretBinding.Mode)
 
 	// The new adapter uses the unified client instead of the manager
 	// MCPServer operations now work through CRDs (Kubernetes) or filesystem fallback

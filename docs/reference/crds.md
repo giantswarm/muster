@@ -176,7 +176,7 @@ muster reads a Secret that `headersFrom`, `auth.tokenExchange.clientCredentialsS
 | annotation `muster.giantswarm.io/mcpserver` | comma-separated list of `<name>` (the Secret's namespace) or `<namespace>/<name>` (any) | any |
 | `ownerReference` | any version of `muster.giantswarm.io`, `kind: MCPServer`, its `name` and `uid`; one per server | the MCPServer's |
 
-A Secret rendered by GitOps next to its MCPServers has no `uid` to reference yet: use the annotation. One Secret shared by several servers lists them all:
+A Secret rendered by GitOps next to its MCPServers has no `uid` to reference yet: use the annotation. An annotation names servers, not objects: an MCPServer deleted and created again with the same name is bound again. An `ownerReference` binds only the object with its `uid`, and the Secret is deleted with it. One Secret shared by several servers lists them all:
 
 ```yaml
 apiVersion: v1
