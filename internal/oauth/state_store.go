@@ -45,6 +45,17 @@ type StateStorer interface {
 	// duplicate within the grace window renders the same outcome.
 	Completed(encodedState string) *CompletedFlow
 
+	// MarkFinished records that the callback of the flow behind an encoded
+	// state ran to its end, whatever its outcome, for the session the flow
+	// was started for. A tool call waiting on the flow's sign-in reads the
+	// record (Finished) to stop waiting once the callback has nothing left
+	// to do. The record expires after finishedGrace.
+	MarkFinished(encodedState, sessionID string)
+
+	// Finished returns the session of a flow whose callback ran to its end,
+	// or "" when the callback has not finished or never ran.
+	Finished(encodedState string) string
+
 	// Delete removes a state entry by nonce.
 	Delete(nonce string)
 
@@ -132,6 +143,10 @@ type StateStore struct {
 	// callback deliveries can re-render the outcome (see MarkCompleted).
 	completed map[string]*completedEntry
 
+	// finished records the flows whose callback ran to its end by nonce
+	// (see MarkFinished).
+	finished map[string]*finishedEntry
+
 	// Expiration configuration
 	stateExpiry time.Duration
 	stopCleanup chan struct{}
@@ -148,6 +163,7 @@ func NewStateStore() *StateStore {
 	ss := &StateStore{
 		states:      make(map[string]*OAuthState),
 		completed:   make(map[string]*completedEntry),
+		finished:    make(map[string]*finishedEntry),
 		stateExpiry: 10 * time.Minute, // State expires after 10 minutes
 		stopCleanup: make(chan struct{}),
 	}
@@ -350,6 +366,11 @@ func (ss *StateStore) cleanup() {
 	for nonce, entry := range ss.completed {
 		if time.Since(entry.at) > completionGrace {
 			delete(ss.completed, nonce)
+		}
+	}
+	for nonce, entry := range ss.finished {
+		if time.Since(entry.at) > finishedGrace {
+			delete(ss.finished, nonce)
 		}
 	}
 

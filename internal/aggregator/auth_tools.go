@@ -111,7 +111,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		return errResult, nil
 	}
 
-	return p.login(ctx, sessionID, sub, serverName, resetClientRegistration, p.rateLimited), nil
+	result := p.login(ctx, sessionID, sub, serverName, resetClientRegistration, p.rateLimited)
+	if authURL := challengeURL(result); authURL != "" {
+		recordSignInChallenge(ctx, signInChallenge{sessionID: sessionID, server: serverName, authURL: authURL})
+	}
+	return result, nil
 }
 
 // rateLimited answers the refusal for a caller over the authentication rate

@@ -83,6 +83,11 @@ type OAuthHandler interface {
 	// client identification the token was issued under.
 	GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string)
 
+	// SignInFinished reports whether the OAuth callback of the sign-in a
+	// challenge's start URL names ran to its end for the session, whatever
+	// its outcome. It reads state shared by every replica.
+	SignInFinished(ctx context.Context, sessionID, startURL string) bool
+
 	// GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.
 	GetHTTPHandler() http.Handler
 

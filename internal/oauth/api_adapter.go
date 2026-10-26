@@ -279,6 +279,11 @@ func (a *Adapter) GetClientCredentialsForIssuer(ctx context.Context, issuer stri
 	return a.manager.GetClientCredentialsForIssuer(ctx, issuer)
 }
 
+// SignInFinished implements api.OAuthHandler.
+func (a *Adapter) SignInFinished(_ context.Context, sessionID, startURL string) bool {
+	return a.manager.SignInFinished(sessionID, startURL)
+}
+
 // GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.
 func (a *Adapter) GetHTTPHandler() http.Handler {
 	return a.manager.GetHTTPHandler()
