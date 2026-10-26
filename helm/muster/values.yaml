@@ -459,6 +459,8 @@ muster:
       # This is used to construct OAuth callback URLs and auto-generate the CIMD.
       # Example: "https://muster.example.com"
       # Required when OAuth MCP client is enabled. Must be HTTPS for production.
+      # With oauth.server enabled it must be on the origin of oauth.server.baseUrl,
+      # or muster refuses to start.
       publicUrl: ""
 
       # OAuth client identifier (Client ID Metadata Document URL)

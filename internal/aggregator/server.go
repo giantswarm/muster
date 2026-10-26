@@ -141,6 +141,10 @@ type AggregatorServer struct {
 	// auth_required answers of gated tool calls reuse (pending_signin.go).
 	pendingSignIns pendingSignIns
 
+	// signInElicitations are the sign-in URL elicitations sent as -32042,
+	// awaiting notifications/elicitation/complete (url_elicitation.go).
+	signInElicitations signInElicitations
+
 	// Per-backend tool dispatch metrics. May be nil when instrument
 	// creation failed; record() is nil-safe.
 	downstreamMetrics *downstreamMetrics
@@ -966,6 +970,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	opts = append(opts, mcpServerOptions()...)
 	a.calls = newInFlightCalls()
 	opts = append(opts, mcpserver.WithToolHandlerMiddleware(a.calls.middleware()))
+	opts = append(opts, mcpserver.WithToolHandlerMiddleware(a.urlElicitation()))
 	mcpSrv := mcpserver.NewMCPServer("muster-aggregator", serverVersion, opts...)
 
 	a.mcpServer = mcpSrv
@@ -1802,13 +1807,18 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	}
 
 	var oauthHTTPServer oauthServer
+	var browserIdentity api.BrowserIdentity
 	inner, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
 	if err != nil {
 		logging.Warn("Aggregator", "OIDC discovery failed at startup, starting in degraded mode (OAuth unavailable until Dex recovers): %v", err)
-		oauthHTTPServer = server.NewLazyOAuthHTTPServer(a.ctx, cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
+		lazy := server.NewLazyOAuthHTTPServer(a.ctx, cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
+		oauthHTTPServer, browserIdentity = lazy, lazy
 	} else {
-		oauthHTTPServer = inner
+		oauthHTTPServer, browserIdentity = inner, inner
 	}
+	// The OAuth proxy start endpoint checks with it that the person signing
+	// in to a server is the person the sign-in was started for.
+	api.RegisterBrowserIdentity(browserIdentity)
 
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer

@@ -262,6 +262,7 @@ func (a *Adapter) CreateAuthChallenge(ctx context.Context, params api.AuthChalle
 	challenge, err := a.manager.CreateAuthChallenge(ctx, AuthChallengeParams{
 		SessionID:               params.SessionID,
 		UserID:                  params.UserID,
+		SignIn:                  api.SignInIdentityFromContext(ctx),
 		ServerName:              params.ServerName,
 		Issuer:                  params.Issuer,
 		Resource:                params.Resource,
@@ -286,6 +287,11 @@ func (a *Adapter) CreateAuthChallenge(ctx context.Context, params api.AuthChalle
 // registration.
 func (a *Adapter) GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string) {
 	return a.manager.GetClientCredentialsForIssuer(ctx, issuer)
+}
+
+// SignInFinished implements api.OAuthHandler.
+func (a *Adapter) SignInFinished(_ context.Context, sessionID, startURL string) bool {
+	return a.manager.SignInFinished(sessionID, startURL)
 }
 
 // GetHTTPHandler returns the HTTP handler for OAuth callback endpoints.

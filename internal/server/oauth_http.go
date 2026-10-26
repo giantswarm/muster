@@ -328,8 +328,9 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// is missing.
 		if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
 			ctx = api.WithSessionID(ctx, sessionID)
-			r = r.WithContext(ctx)
 		}
+		ctx = api.WithSignInIdentity(ctx, s.signInIdentity(userInfo))
+		r = r.WithContext(ctx)
 
 		if userInfo.Email == "" {
 			// An emailless identity can still be a valid forwarded ID token
@@ -483,6 +484,9 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 
 	ctx = api.WithSessionID(ctx, acceptance.SessionID)
 	ctx = api.WithSubject(ctx, acceptance.Subject)
+	if acceptance.UserInfo != nil {
+		ctx = api.WithSignInIdentity(ctx, api.SignInIdentity{Issuer: acceptance.Issuer, Subject: acceptance.UserInfo.ID})
+	}
 	ctx = ContextWithIDToken(ctx, bearerToken)
 
 	// Mirror the ID token into the OAuth proxy store keyed by (sessionID,

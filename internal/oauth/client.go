@@ -388,6 +388,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 	stateParams := StateParams{
 		SessionID:    params.SessionID,
 		UserID:       params.UserID,
+		SignIn:       params.SignIn,
 		ServerName:   params.ServerName,
 		Issuer:       issuer,
 		Resource:     params.Resource,
@@ -420,8 +421,26 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 // GetStartURL returns the muster-hosted start URL for an encoded state. The
 // browser is redirected from there to the upstream authorization server.
 func (c *Client) GetStartURL(encodedState string) string {
-	return strings.TrimSuffix(c.publicURL, "/") + config.DefaultOAuthProxyStartPath +
-		"?state=" + url.QueryEscape(encodedState)
+	return c.startEndpoint() + "?state=" + url.QueryEscape(encodedState)
+}
+
+// startEndpoint returns the absolute URL of the OAuth proxy start endpoint.
+func (c *Client) startEndpoint() string {
+	return strings.TrimSuffix(c.publicURL, "/") + config.DefaultOAuthProxyStartPath
+}
+
+// SignInFinished reports whether the callback of the flow a start URL
+// (GetStartURL) names ran to its end, whatever its outcome, for the session.
+func (c *Client) SignInFinished(sessionID, startURL string) bool {
+	if sessionID == "" {
+		return false
+	}
+	parsed, err := url.Parse(startURL)
+	if err != nil {
+		return false
+	}
+	state := parsed.Query().Get("state")
+	return state != "" && c.stateStore.Finished(state) == sessionID
 }
 
 // ExchangeCode exchanges the authorization code of the flow behind state for

@@ -10,6 +10,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/security"
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -32,6 +33,9 @@ type valkeyStateEntry struct {
 	RedirectURI      string    `json:"ru,omitempty"`
 	AuthorizationURL string    `json:"aurl,omitempty"`
 	PinDigest        string    `json:"pd,omitempty"`
+	SignInIssuer     string    `json:"sii,omitempty"`
+	SignInSubject    string    `json:"sis,omitempty"`
+	BrowserBinding   string    `json:"bb,omitempty"`
 }
 
 func (e *valkeyStateEntry) toState() *OAuthState {
@@ -48,6 +52,8 @@ func (e *valkeyStateEntry) toState() *OAuthState {
 		RedirectURI:      e.RedirectURI,
 		AuthorizationURL: e.AuthorizationURL,
 		PinDigest:        e.PinDigest,
+		SignIn:           api.SignInIdentity{Issuer: e.SignInIssuer, Subject: e.SignInSubject},
+		BrowserBinding:   e.BrowserBinding,
 	}
 }
 
@@ -65,6 +71,9 @@ func stateToEntry(s *OAuthState) *valkeyStateEntry {
 		RedirectURI:      s.RedirectURI,
 		AuthorizationURL: s.AuthorizationURL,
 		PinDigest:        s.PinDigest,
+		SignInIssuer:     s.SignIn.Issuer,
+		SignInSubject:    s.SignIn.Subject,
+		BrowserBinding:   s.BrowserBinding,
 	}
 }
 

@@ -532,6 +532,15 @@ func (m *Manager) GetClientCredentialsForIssuer(ctx context.Context, issuer stri
 	return m.client.GetClientCredentialsForIssuer(ctx, issuer)
 }
 
+// SignInFinished reports whether the callback of the sign-in a start URL
+// names ran to its end for the session, see Client.SignInFinished.
+func (m *Manager) SignInFinished(sessionID, startURL string) bool {
+	if m == nil {
+		return false
+	}
+	return m.client.SignInFinished(sessionID, startURL)
+}
+
 // Stop stops the OAuth manager and cleans up resources.
 func (m *Manager) Stop() {
 	if m == nil {

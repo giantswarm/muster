@@ -116,6 +116,9 @@ func (a *AggregatorServer) signInAnswer(ctx context.Context, serverName, session
 			slog.String("server", serverName))
 		return nil, true, nil
 	}
+	if authURL := challengeURL(login); authURL != "" {
+		recordSignInChallenge(ctx, signInChallenge{sessionID: sessionID, server: serverName, authURL: authURL, reason: reason})
+	}
 	return authRequiredResult(serverName, reason, login), false, nil
 }
 
