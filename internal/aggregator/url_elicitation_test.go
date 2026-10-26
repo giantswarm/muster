@@ -94,6 +94,25 @@ func TestURLElicitation(t *testing.T) {
 		require.Empty(t, result.Content, "the link must not reach the model as tool output")
 	})
 
+	t.Run("a core_auth_login challenge is answered with a URL elicitation", func(t *testing.T) {
+		a := &AggregatorServer{}
+		ctx := modernContext(t.Context(), urlElicitationCapabilities())
+		login := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			recordSignInChallenge(ctx, signInChallenge{sessionID: "family-1", server: "github", authURL: testAuthURL})
+			return &mcp.CallToolResult{
+				Content:           []mcp.Content{mcp.NewTextContent("Sign in: " + testAuthURL)},
+				StructuredContent: map[string]any{"authUrl": testAuthURL},
+			}, nil
+		}
+
+		result, err := a.urlElicitation()(login)(ctx, mcp.CallToolRequest{})
+
+		require.NoError(t, err)
+		require.Equal(t, mcp.ResultTypeInputRequired, result.ResultType)
+		require.Equal(t, testAuthURL, result.InputRequests[signInInputKey].Elicitation.URL)
+		require.Equal(t, "Sign in to github to continue.", result.InputRequests[signInInputKey].Elicitation.Message)
+	})
+
 	t.Run("a 2025-11-25 session is answered with URLElicitationRequiredError", func(t *testing.T) {
 		a := &AggregatorServer{}
 		session := newLegacySession("transport-1", urlElicitationCapabilities())
@@ -304,6 +323,24 @@ func TestURLElicitation_GatedCallRecordsMustersChallenge(t *testing.T) {
 	challenge := recorder.challenge.Load()
 	require.NotNil(t, challenge)
 	require.Equal(t, authURLOf(t, result), challenge.authURL)
+	require.Equal(t, answerServer, challenge.server)
+	require.Equal(t, answerSession, challenge.sessionID)
+}
+
+// core_auth_login records the challenge it answers with, so a client that
+// supports URL elicitation is asked to open its link too.
+func TestURLElicitation_CoreAuthLoginRecordsMustersChallenge(t *testing.T) {
+	f := newPollFixture(t)
+	ctx := api.WithSubject(api.WithSessionID(t.Context(), answerSession), answerSubject)
+	ctx, recorder := withChallengeRecorder(ctx)
+
+	result, err := NewAuthToolProvider(f.agg).handleAuthLogin(ctx, map[string]any{resourceServerArg: answerServer})
+	require.NoError(t, err)
+
+	challenge := recorder.challenge.Load()
+	require.NotNil(t, challenge)
+	require.Equal(t, challengeURL(result), challenge.authURL)
+	require.NotEmpty(t, challenge.authURL)
 	require.Equal(t, answerServer, challenge.server)
 	require.Equal(t, answerSession, challenge.sessionID)
 }

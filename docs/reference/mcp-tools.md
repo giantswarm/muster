@@ -149,7 +149,7 @@ The Go agent client (`muster agent`, `internal/agent`) unwraps the envelope back
 
 A call to a tool of a server the session has not signed in to is answered `auth_required`: `isError: true`, the sign-in link in the text and in `structuredContent.authUrl`, with `status: "auth_required"` and `server`. Through `call_tool` the same `structuredContent` is the result's own.
 
-A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked to open the link instead (MCP elicitation, URL mode), so the link never reaches the model as tool output:
+A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked to open the link instead, both for this answer and for the challenge of `core_auth_login` itself (MCP elicitation, URL mode), so the link never reaches the model as tool output:
 
 | Client's protocol version | Answer |
 |---|---|

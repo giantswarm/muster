@@ -45,9 +45,10 @@ type signInChallenge struct {
 type challengeRecorderKey struct{}
 
 // challengeRecorder holds the sign-in challenge muster issued while handling
-// one tool call. It lives in the call's context, so only muster's own answer
-// is ever turned into an elicitation: a backend that returns an auth_required
-// shaped result of its own records nothing.
+// one tool call: a gated call's auth_required answer or core_auth_login's
+// challenge. It lives in the call's context, so only muster's own answer is
+// ever turned into an elicitation: a backend that returns a result of the
+// same shape records nothing.
 type challengeRecorder struct {
 	challenge atomic.Pointer[signInChallenge]
 }
@@ -67,9 +68,10 @@ func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
 }
 
 // urlElicitation returns the ToolHandlerMiddleware that asks a client which
-// supports URL mode elicitation to open the sign-in link of an auth_required
-// answer, instead of handing the link over as tool output (MCP elicitation,
-// URL mode). The link then never passes through the model's context.
+// supports URL mode elicitation to open the sign-in link of muster's
+// auth_required answer or core_auth_login challenge, instead of handing the
+// link over as tool output (MCP elicitation, URL mode). The link then never
+// passes through the model's context.
 //
 // A request on protocol 2026-07-28 or later gets an input_required result
 // carrying the elicitation. The client retries the call once the person
@@ -91,7 +93,7 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 				return result, err
 			}
 			challenge := recorder.challenge.Load()
-			if challenge == nil || authRequiredLink(result) != challenge.authURL {
+			if challenge == nil || signInLink(result) != challenge.authURL {
 				return result, err
 			}
 			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); answer != nil {
@@ -134,7 +136,10 @@ func (a *AggregatorServer) awaitSignIn(ctx context.Context, sessionID, server st
 // elicitSignIn answers a tool call with a URL elicitation of the challenge's
 // sign-in link, in the shape of the request's protocol version.
 func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInChallenge) (*mcp.CallToolResult, error) {
-	message := fmt.Sprintf("Sign in to %s to continue: %s.", challenge.server, challenge.reason)
+	message := fmt.Sprintf("Sign in to %s to continue.", challenge.server)
+	if challenge.reason != "" {
+		message = fmt.Sprintf("Sign in to %s to continue: %s.", challenge.server, challenge.reason)
+	}
 
 	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
 		return mcpserver.NewInputRequestBuilder("").Elicit(signInInputKey, mcp.ElicitationParams{
@@ -158,17 +163,15 @@ func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInCha
 	}
 }
 
-// authRequiredLink returns the sign-in link of an auth_required answer,
-// directly or relayed by call_tool, which carries the wrapped tool's
-// structuredContent; "" for any other result.
-func authRequiredLink(result *mcp.CallToolResult) string {
-	if result == nil || !result.IsError {
+// signInLink returns the sign-in link a tool result carries in
+// structuredContent.authUrl -- an auth_required answer or a core_auth_login
+// challenge, directly or relayed by call_tool, which carries the wrapped
+// tool's structuredContent -- or "".
+func signInLink(result *mcp.CallToolResult) string {
+	if result == nil {
 		return ""
 	}
-	structured, ok := result.StructuredContent.(map[string]any)
-	if !ok || structured["status"] != "auth_required" {
-		return ""
-	}
+	structured, _ := result.StructuredContent.(map[string]any)
 	link, _ := structured["authUrl"].(string)
 	return link
 }
