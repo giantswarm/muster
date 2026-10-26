@@ -1,6 +1,8 @@
 package oauth
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"sync"
 	"testing"
@@ -122,6 +124,33 @@ func TestClient_ExchangeCode_RefusedWhenThePinChanged(t *testing.T) {
 			require.Empty(t, tokenForm, "no token endpoint may receive the code or a client secret")
 		})
 	}
+}
+
+// A callback whose description changed since the flow started is refused as
+// such, before its iss is judged against the new description, and no token
+// endpoint receives the code.
+func TestHandler_HandleCallback_RefusedWhenThePinChanged(t *testing.T) {
+	tokenForm := make(chan url.Values, 2)
+	started := newAuthorizationServer(t, authorizationServerOptions{tokenForm: tokenForm})
+	defer started.Close()
+	other := newAuthorizationServer(t, authorizationServerOptions{tokenForm: tokenForm})
+	defer other.Close()
+	client := newPinTestClient(t)
+	issuer := "https://as.example.com"
+
+	client.PinIssuer(issuer, IssuerPin{ClientID: "client-a", ClientSecret: "secret-a"}, endpointsOf(started.URL))
+	encodedState := storeCallbackState(t, client, issuer)
+	client.PinIssuer(issuer, IssuerPin{ClientID: "client-b", ClientSecret: "secret-b", ExpectedIssuer: other.URL}, endpointsOf(other.URL))
+
+	query := url.Values{"code": {"auth-code"}, "state": {encodedState}, "iss": {started.URL}}
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/oauth/proxy/callback?"+query.Encode(), nil)
+	recorder := httptest.NewRecorder()
+	NewHandler(client).HandleCallback(recorder, request)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.Contains(t, recorder.Body.String(), summaryNotCompleted)
+	require.NotContains(t, recorder.Body.String(), summaryUnverifiedResponse)
+	require.Empty(t, tokenForm, "no token endpoint may receive the code or a client secret")
 }
 
 func TestClient_ExchangeCode_RotatedSecretKeepsTheFlow(t *testing.T) {

@@ -126,6 +126,17 @@ func (c *Client) issuerPin(issuer string) *IssuerPin {
 	return c.pins[strings.TrimSuffix(issuer, "/")]
 }
 
+// flowPin returns the issuer pin the callback of a flow runs under, which is
+// the pin the flow started under. It returns errPinChanged when the issuer's
+// pin changed since: nothing of the response may be acted on then.
+func (c *Client) flowPin(state *OAuthState) (*IssuerPin, error) {
+	pin := c.issuerPin(state.Issuer)
+	if pinDigest(pin) != state.PinDigest {
+		return nil, errPinChanged
+	}
+	return pin, nil
+}
+
 // metadataFor returns the metadata of the authorization server behind an
 // issuer key: the pin's own document when it has one, else the document the
 // plain issuer publishes. A pin is filed under its key only, so a server

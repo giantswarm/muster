@@ -55,8 +55,9 @@ var (
 	errTenantNoClient  = errors.New("a server outside muster's namespace signs in with its own pin (spec.auth.authorizationServer.clientCredentialsSecretRef) or with a dynamic client registration, and this authorization server offers neither")
 	errTenantPinIsCIMD = errors.New("a server outside muster's namespace may not pin muster's own client ID metadata document URL as its client")
 
-	// errPinChanged refuses the code exchange of a flow whose issuer pin
-	// changed after the flow started: the code was issued to another client.
+	// errPinChanged refuses the callback of a flow whose issuer pin changed
+	// after the flow started: the code and its PKCE verifier would go to a
+	// token endpoint and a client the code was not issued for.
 	errPinChanged = errors.New("the authorization server's description changed after the sign-in started; sign in again")
 )
 
@@ -442,9 +443,9 @@ func (c *Client) GetStartURL(encodedState string) string {
 // the next sign-in registers muster again instead of failing the same way.
 func (c *Client) ExchangeCode(ctx context.Context, state *OAuthState, code string) (*pkgoauth.Token, error) {
 	issuer := state.Issuer
-	pin := c.issuerPin(issuer)
-	if pinDigest(pin) != state.PinDigest {
-		return nil, errPinChanged
+	pin, err := c.flowPin(state)
+	if err != nil {
+		return nil, err
 	}
 	metadata, err := c.metadataFor(ctx, issuer, pin)
 	if err != nil {
