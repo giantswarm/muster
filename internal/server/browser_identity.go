@@ -13,8 +13,12 @@ import (
 // signInIdentity is who a validated bearer was issued to. mcp-oauth names the
 // issuer of a trusted-issuer token; every other bearer was issued for a
 // sign-in at muster's own identity provider. ID is the raw sub claim on both
-// paths, never the trusted issuer's subjectClaim mapping.
+// paths, never the trusted issuer's subjectClaim mapping. A JWT access token
+// muster issued itself carries no identity: its sub may be that mapping.
 func (s *OAuthHTTPServer) signInIdentity(userInfo *providers.UserInfo) api.SignInIdentity {
+	if userInfo.TokenSource == providers.TokenSourceJWT {
+		return api.SignInIdentity{}
+	}
 	issuer := userInfo.Issuer
 	if issuer == "" {
 		issuer = s.musterIssuer()
