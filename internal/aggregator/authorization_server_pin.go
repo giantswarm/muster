@@ -59,7 +59,7 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 		if secrets == nil {
 			return fmt.Errorf("server %s references client credentials but no secret handler is registered", serverInfo.Name)
 		}
-		creds, err := secrets.LoadClientCredentials(ctx, as.ClientCredentialsSecretRef, serverInfo.GetNamespace())
+		creds, err := secrets.LoadMCPServerClientCredentials(ctx, serverInfo.SecretOwner(), api.SecretFieldAuthorizationServer, as.ClientCredentialsSecretRef)
 		if err != nil {
 			return fmt.Errorf("load client credentials for server %s: %w", serverInfo.Name,
 				tenantSecretReadError(serverInfo.Name, serverInfo.GetNamespace(), as.ClientCredentialsSecretRef.Name, err))
@@ -68,6 +68,7 @@ func pinAuthorizationServer(ctx context.Context, serverInfo *ServerInfo) error {
 	}
 
 	pinner.PinIssuer(issuer, pin)
+	forgetPinDeferral(serverInfo)
 	logging.InfoWithAttrs("Aggregator", "oauth_authorization_server_pinned",
 		slog.String("server", serverInfo.Name),
 		slog.String("issuer", issuer),
@@ -165,7 +166,7 @@ func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, na
 		}
 		pinner.UnpinIssuer(issuer)
 		if err := pinAuthorizationServer(ctx, info); err != nil {
-			logging.Warn("Aggregator", "Authorization server pin of %s could not be re-applied after %s changed: %v", other, name, err)
+			logPinDeferred(info, err)
 		}
 		logging.InfoWithAttrs("Aggregator", "oauth_authorization_server_pin_replaced",
 			slog.String("server", name),

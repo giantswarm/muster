@@ -25,6 +25,35 @@ type MusterConfig struct {
 	// preset that tries, on a malformed rule, or on a composition that names
 	// an unknown preset.
 	ToolsetPresets toolset.PresetsConfig `yaml:"toolsetPresets,omitempty"`
+	// SecretBinding decides which Secrets muster reads for an MCPServer
+	// (spec.headersFrom and the clientCredentialsSecretRef of its auth).
+	SecretBinding SecretBindingConfig `yaml:"secretBinding,omitempty"`
+}
+
+// Secret binding modes (SecretBindingConfig.Mode).
+const (
+	// SecretBindingModeWarn reads a Secret not bound to the MCPServer that
+	// names it and logs a warning. The default.
+	SecretBindingModeWarn = "warn"
+	// SecretBindingModeEnforce refuses a Secret not bound to the MCPServer
+	// that names it.
+	SecretBindingModeEnforce = "enforce"
+)
+
+// SecretBindingConfig configures which Secrets an MCPServer may have muster
+// read and send. A Secret is bound to an MCPServer by an ownerReference to it,
+// the label muster.giantswarm.io/mcpserver=<name> or the annotation of the same
+// key (a comma-separated list of <name> or <namespace>/<name>). A change takes
+// effect at muster's restart.
+type SecretBindingConfig struct {
+	// Mode is warn (default: an unbound Secret is read, with a warning) or
+	// enforce (an unbound Secret is refused).
+	Mode string `yaml:"mode,omitempty"`
+	// ProtectedSecrets are Secrets of muster's namespace no MCPServer may
+	// read, in either mode: muster's own (the chart lists those it mounts).
+	// Secrets muster's configuration names (provider Apps, broker targets and
+	// clients) are not protected: an MCPServer may share one once it is bound.
+	ProtectedSecrets []string `yaml:"protectedSecrets,omitempty"`
 }
 
 // WritesAsCallerConfig configures caller-identity writes. In Kubernetes mode,

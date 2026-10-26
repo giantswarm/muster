@@ -38,13 +38,18 @@ func DefinitionHeaders(headers map[string]string) map[string]string {
 // Secret it names in the server's namespace. An entry of headersFrom wins over
 // a spec.headers entry of the same name, in any case.
 //
+// owner is the MCPServer the headers are for: a Secret is read only when it is
+// bound to that MCPServer (api.SecretCredentialsHandler), and a refusal fails
+// the whole call, so no header of a refused Secret is ever sent.
+//
 // muster calls it when it builds a connection's client, so a value lives in
 // that client alone: never in the definition, the service data or the output
 // of a core tool. The reference has no namespace, so the Secret is always in
-// namespace, the server's own ("default" when empty, as in filesystem mode).
+// owner.Namespace, the server's own ("default" when empty, as in filesystem
+// mode).
 //
 // headers is returned unchanged when headersFrom is empty.
-func ResolveHeaders(ctx context.Context, namespace string, headers map[string]string, headersFrom []api.MCPServerHeaderFrom) (map[string]string, error) {
+func ResolveHeaders(ctx context.Context, owner api.SecretOwner, headers map[string]string, headersFrom []api.MCPServerHeaderFrom) (map[string]string, error) {
 	if len(headersFrom) == 0 {
 		return headers, nil
 	}
@@ -58,7 +63,7 @@ func ResolveHeaders(ctx context.Context, namespace string, headers map[string]st
 	}
 	for _, h := range headersFrom {
 		ref := &api.ClientCredentialsSecretRef{Name: h.ValueFrom.Name}
-		value, err := secrets.LoadSecretKey(ctx, ref, h.ValueFrom.Key, namespace)
+		value, err := secrets.LoadMCPServerSecretKey(ctx, owner, api.SecretFieldHeadersFrom, ref, h.ValueFrom.Key)
 		if err != nil {
 			return nil, &HeaderSecretError{Header: h.Name, Err: err}
 		}
@@ -89,7 +94,9 @@ type HeaderSecretError struct {
 }
 
 func (e *HeaderSecretError) Error() string {
-	return fmt.Sprintf("read header %s from its Secret: %v", e.Header, e.Err)
+	// No "Secret:" in the text: the status sanitizer (reconciler.SanitizeErrorMessage)
+	// redacts the word after it as a value.
+	return fmt.Sprintf("header %s: its Secret could not be read (%v)", e.Header, e.Err)
 }
 
 func (e *HeaderSecretError) Unwrap() error { return e.Err }

@@ -19,15 +19,19 @@ type stubSecretHandler struct {
 	err   error
 }
 
-func (s *stubSecretHandler) LoadClientCredentials(_ context.Context, _ *api.ClientCredentialsSecretRef, _ string) (*api.ClientCredentials, error) {
+func (s *stubSecretHandler) LoadClientCredentialsForConfig(_ context.Context, _ *api.ClientCredentialsSecretRef, _ string) (*api.ClientCredentials, error) {
 	if s.err != nil {
 		return nil, s.err
 	}
 	return s.creds, nil
 }
 
-func (s *stubSecretHandler) LoadSecretKey(_ context.Context, _ *api.ClientCredentialsSecretRef, _ string, _ string) ([]byte, error) {
-	return nil, fmt.Errorf("not implemented")
+func (s *stubSecretHandler) LoadMCPServerClientCredentials(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef) (*api.ClientCredentials, error) {
+	return nil, fmt.Errorf("broker client seeding must not read Secrets for an MCPServer")
+}
+
+func (s *stubSecretHandler) LoadMCPServerSecretKey(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef, string) ([]byte, error) {
+	return nil, fmt.Errorf("broker client seeding must not read Secrets for an MCPServer")
 }
 
 func newTestOAuthServer(t *testing.T) *oauth.Server {

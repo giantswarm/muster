@@ -27,7 +27,7 @@ type stubCredentialsHandler struct {
 	loadCallObserved bool
 }
 
-func (s *stubCredentialsHandler) LoadClientCredentials(_ context.Context, ref *api.ClientCredentialsSecretRef, defaultNamespace string) (*api.ClientCredentials, error) {
+func (s *stubCredentialsHandler) LoadClientCredentialsForConfig(_ context.Context, ref *api.ClientCredentialsSecretRef, defaultNamespace string) (*api.ClientCredentials, error) {
 	s.loadCallObserved = true
 	s.gotRef = ref
 	s.gotDefaultNS = defaultNamespace
@@ -37,8 +37,13 @@ func (s *stubCredentialsHandler) LoadClientCredentials(_ context.Context, ref *a
 	return s.creds, nil
 }
 
-func (s *stubCredentialsHandler) LoadSecretKey(_ context.Context, _ *api.ClientCredentialsSecretRef, _ string, _ string) ([]byte, error) {
-	return nil, fmt.Errorf("LoadSecretKey not implemented in stubCredentialsHandler")
+// The broker's Secrets are configuration: it never reads one for an MCPServer.
+func (s *stubCredentialsHandler) LoadMCPServerClientCredentials(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef) (*api.ClientCredentials, error) {
+	return nil, fmt.Errorf("the broker must not read Secrets for an MCPServer")
+}
+
+func (s *stubCredentialsHandler) LoadMCPServerSecretKey(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef, string) ([]byte, error) {
+	return nil, fmt.Errorf("the broker must not read Secrets for an MCPServer")
 }
 
 // withCredentialsHandler registers h for the duration of the test and restores

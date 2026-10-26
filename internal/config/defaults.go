@@ -35,6 +35,7 @@ const (
 // GetDefaultConfigWithRoles returns default configuration
 func GetDefaultConfigWithRoles() MusterConfig {
 	return MusterConfig{
+		SecretBinding: SecretBindingConfig{Mode: SecretBindingModeWarn},
 		Aggregator: AggregatorConfig{
 			Port:      8090,
 			Host:      "localhost",

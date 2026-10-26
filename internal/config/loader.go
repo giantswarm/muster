@@ -79,6 +79,10 @@ func LoadConfig(configPath string) (MusterConfig, error) {
 	}
 	logging.Info("ConfigLoader", "Loaded configuration from %s", configFilePath)
 
+	if err := validateSecretBinding(&config.SecretBinding); err != nil {
+		return MusterConfig{}, fmt.Errorf("error loading config from %s: %w", configFilePath, err)
+	}
+
 	// Resolve secrets from files (recommended for production deployments)
 	if err := resolveSecretFiles(&config); err != nil {
 		return MusterConfig{}, fmt.Errorf("error resolving secret files: %w", err)
@@ -130,4 +134,17 @@ func readSecretFile(path string) (string, error) {
 	}
 	// Trim trailing whitespace/newlines which are common in mounted secrets
 	return strings.TrimSpace(string(data)), nil
+}
+
+// validateSecretBinding defaults an empty secretBinding.mode to warn and
+// refuses an unknown one.
+func validateSecretBinding(c *SecretBindingConfig) error {
+	switch c.Mode {
+	case "":
+		c.Mode = SecretBindingModeWarn
+	case SecretBindingModeWarn, SecretBindingModeEnforce:
+	default:
+		return fmt.Errorf("secretBinding.mode %q: must be %q or %q", c.Mode, SecretBindingModeWarn, SecretBindingModeEnforce)
+	}
+	return nil
 }

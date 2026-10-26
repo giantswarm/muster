@@ -147,6 +147,8 @@ func TestProviderApps_PinnedSubjectScopedWithoutAnyMCPServer(t *testing.T) {
 	assert.Empty(t, gl.AuthorizationEndpoint, "GitLab is discovered")
 	assert.Equal(t, gitlabAppIssuer+"/oauth/revoke", gl.RevocationEndpoint)
 	assert.Equal(t, "muster", f.secrets.lastDefaultNS, "a Secret reference defaults to muster's namespace")
+	assert.Nil(t, f.secrets.lastOwner, "an App's Secret is configuration, read without an MCPServer binding")
+	assert.Positive(t, f.secrets.configCalls)
 }
 
 func TestProviderApps_PinWithoutSecretIsRetried(t *testing.T) {

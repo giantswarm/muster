@@ -20,26 +20,34 @@ import (
 	"github.com/giantswarm/muster/v5/internal/services"
 )
 
-// stubSecretHandler answers LoadClientCredentials with a fixed outcome, the
+// stubSecretHandler answers LoadMCPServerClientCredentials with a fixed outcome, the
 // way the Kubernetes-backed handler answers for a Secret that does or does
 // not exist.
 type stubSecretHandler struct {
-	mu    sync.Mutex
-	err   error
-	loads int
+	mu     sync.Mutex
+	err    error
+	loads  int
+	owners []api.SecretOwner
+	fields []string
 }
 
-func (s *stubSecretHandler) LoadClientCredentials(_ context.Context, _ *api.ClientCredentialsSecretRef, _ string) (*api.ClientCredentials, error) {
+func (s *stubSecretHandler) LoadClientCredentialsForConfig(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
+	return nil, errors.New("an MCPServer's Secret is never read as configuration")
+}
+
+func (s *stubSecretHandler) LoadMCPServerClientCredentials(_ context.Context, owner api.SecretOwner, field string, _ *api.ClientCredentialsSecretRef) (*api.ClientCredentials, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.loads++
+	s.owners = append(s.owners, owner)
+	s.fields = append(s.fields, field)
 	if s.err != nil {
 		return nil, s.err
 	}
 	return &api.ClientCredentials{ClientID: "muster-token-exchange", ClientSecret: "not-logged"}, nil
 }
 
-func (s *stubSecretHandler) LoadSecretKey(context.Context, *api.ClientCredentialsSecretRef, string, string) ([]byte, error) {
+func (s *stubSecretHandler) LoadMCPServerSecretKey(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef, string) ([]byte, error) {
 	return nil, errors.New("not used")
 }
 

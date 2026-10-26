@@ -215,6 +215,46 @@ tests:
           path: data["config.yaml"]
           pattern: "\nmcpServersInAllNamespaces: true\n"
 
+  - it: renders secretBinding mode warn by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\nsecretBinding:\n  mode: \"warn\"\n"
+
+  - it: renders secretBinding mode enforce
+    set:
+      muster.secretBinding.mode: enforce
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\nsecretBinding:\n  mode: \"enforce\"\n"
+
+  - it: protects every Secret the chart mounts
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.dex.clientSecret: "s"
+      muster.oauth.server.registrationToken: "r"
+      muster.oauth.server.encryptionKeyValue: "0123456789abcdef0123456789abcdef"
+      muster.oauth.server.storage.type: valkey
+      muster.oauth.server.storage.valkey.existingSecret: valkey-auth
+      muster.extraCaFile.secret.name: internal-ca
+      volumes:
+        - name: extra
+          secret:
+            secretName: mounted-extra
+      ingress.enabled: true
+      ingress.tls:
+        - hosts: [muster.example.com]
+          secretName: muster-tls
+      muster.secretBinding.protectedSecrets: [operator-listed]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "protectedSecrets:\n    - RELEASE-NAME-muster-oauth\n    - valkey-auth\n    - internal-ca\n    - mounted-extra\n    - muster-tls\n    - operator-listed\n"
+
   - it: omits toolsetPresets by default (only the built-in presets exist)
     asserts:
       - notMatchRegex:

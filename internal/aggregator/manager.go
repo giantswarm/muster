@@ -454,7 +454,7 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 		pinCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		am.aggregatorServer.releaseAuthorizationServerPin(pinCtx, registration.Name, previousAuth)
 		if err := pinAuthorizationServer(pinCtx, info); err != nil {
-			logging.Warn("Aggregator", "Authorization server pin deferred for %s: %v", registration.Name, err)
+			logPinDeferred(info, err)
 		}
 		cancel()
 	}

@@ -356,6 +356,13 @@ func (s *ServerInfo) GetNamespace() string {
 	return s.Namespace
 }
 
+// SecretOwner is the MCPServer this server's Secret references are read for
+// (spec.headersFrom, the client Secrets of auth.tokenExchange and
+// auth.authorizationServer): only a Secret bound to it is read.
+func (s *ServerInfo) SecretOwner() api.SecretOwner {
+	return api.MCPServerSecretOwner(s.Name, s.GetNamespace(), s.UID)
+}
+
 // AggregatorConfig holds configuration args for the aggregator.
 // This structure defines how the aggregator should behave and
 // what endpoints it should expose.
