@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net/url"
 	"sync"
 )
 
@@ -15,13 +16,13 @@ import (
 // session has a person to compare against, and no check is made.
 type BrowserIdentity interface {
 	// SignInURL returns the provider URL the browser is sent to. The browser
-	// comes back to the OAuth proxy start endpoint with code and state.
+	// comes back to returnURL, on the issuer's origin, with code and state.
 	// codeChallenge is the S256 challenge of the verifier Subject is given.
-	SignInURL(ctx context.Context, state, codeChallenge string) (string, error)
+	SignInURL(ctx context.Context, returnURL *url.URL, state, codeChallenge string) (string, error)
 
-	// Subject redeems the code the start endpoint received and returns the
-	// subject of the person who signed in, the subject sessions are keyed by.
-	Subject(ctx context.Context, code, codeVerifier string) (string, error)
+	// Subject redeems the code returnURL received and returns the subject of
+	// the person who signed in, the subject sessions are keyed by.
+	Subject(ctx context.Context, returnURL *url.URL, code, codeVerifier string) (string, error)
 }
 
 var (

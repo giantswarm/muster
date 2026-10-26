@@ -31,24 +31,24 @@ func TestOAuthHTTPServer_BrowserIdentity(t *testing.T) {
 		DisableNonceEchoRequirement: true,
 	}, slog.Default())
 	require.NoError(t, err)
-	s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, oauthServer: oauthSrv}
+	s := &OAuthHTTPServer{oauthServer: oauthSrv}
+	returnURL, err := url.Parse("https://muster.example.com" + config.DefaultOAuthProxyStartPath)
+	require.NoError(t, err)
 
 	verifier := "identity-verifier-identity-verifier-identity-verifier"
 	sum := sha256.Sum256([]byte(verifier))
 	state := "identity-state-identity-state"
 
-	signIn, err := s.SignInURL(t.Context(), state, base64.RawURLEncoding.EncodeToString(sum[:]))
+	signIn, err := s.SignInURL(t.Context(), returnURL, state, base64.RawURLEncoding.EncodeToString(sum[:]))
 	require.NoError(t, err)
 	require.NotEmpty(t, signIn)
 
 	code, clientState, err := oauthSrv.HandleProviderCallback(t.Context(), providerState, "provider-code")
 	require.NoError(t, err)
 	require.Equal(t, state, clientState)
-	returnURL, err := url.Parse(code.RedirectURI)
-	require.NoError(t, err)
-	require.Equal(t, "https://muster.example.com"+config.DefaultOAuthProxyStartPath, returnURL.String())
+	require.Equal(t, returnURL.String(), code.RedirectURI)
 
-	subject, err := s.Subject(t.Context(), code.Code, verifier)
+	subject, err := s.Subject(t.Context(), returnURL, code.Code, verifier)
 	require.NoError(t, err)
 	require.NotEmpty(t, subject)
 }
@@ -58,8 +58,9 @@ func TestOAuthHTTPServer_BrowserIdentity(t *testing.T) {
 func TestLazyOAuthHTTPServer_BrowserIdentityRefusesUntilReady(t *testing.T) {
 	l := &LazyOAuthHTTPServer{}
 
-	_, err := l.SignInURL(t.Context(), "state", "challenge")
+	returnURL := &url.URL{Scheme: "https", Host: "muster.example.com", Path: config.DefaultOAuthProxyStartPath}
+	_, err := l.SignInURL(t.Context(), returnURL, "state", "challenge")
 	require.Error(t, err)
-	_, err = l.Subject(t.Context(), "code", "verifier")
+	_, err = l.Subject(t.Context(), returnURL, "code", "verifier")
 	require.Error(t, err)
 }

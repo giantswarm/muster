@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
@@ -522,11 +523,17 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	// The tool returns the muster-hosted start URL; the browser is redirected
 	// from there to the upstream authorization URL. Simulate that hop to get
 	// the URL carrying the OAuth parameters (client_id, PKCE, redirect_uri).
+	// One browser follows the start URL and delivers the callback: muster
+	// accepts a callback only from the browser that passed its sign-in check.
+	browser, err := newBrowser()
+	if err != nil {
+		return nil, err
+	}
 	if strings.Contains(authURL, "/oauth/proxy/start") {
 		// "signed_in_as" is the person in the browser for muster's sign-in
 		// check; by default the person the link was issued to.
 		signedInAs, _ := args["signed_in_as"].(string)
-		upstreamURL, err := h.resolveStartRedirect(ctx, authURL, signedInAs)
+		upstreamURL, err := h.resolveStartRedirect(ctx, browser, authURL, signedInAs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve start URL redirect: %w", err)
 		}
@@ -641,14 +648,6 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		callbackURL += "&iss=" + url.QueryEscape(issParam)
 	}
 
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Don't follow redirects - we want to capture the callback result
-			return http.ErrUseLastResponse
-		},
-	}
-
 	lastStatus := 0
 	for i := range deliveries {
 		if h.debug {
@@ -660,7 +659,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 			return nil, fmt.Errorf("failed to create callback request: %w", err)
 		}
 
-		resp, err := client.Do(req)
+		resp, err := browser.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("callback request %d failed: %w", i+1, err)
 		}
@@ -704,13 +703,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 // mock) back to muster, and from there to the start endpoint again. Those
 // hops are followed; the first redirect elsewhere is the upstream one.
 // signedInAs is who signs in at the check; empty means the link's owner.
-func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, startURL, signedInAs string) (string, error) {
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, browser *http.Client, startURL, signedInAs string) (string, error) {
 	start, err := url.Parse(startURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse start URL: %w", err)
@@ -718,7 +711,7 @@ func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, startURL, s
 
 	next := startURL
 	for range maxSignInCheckHops {
-		location, err := redirectLocation(ctx, client, next)
+		location, err := redirectLocation(ctx, browser, next)
 		if err != nil {
 			return "", err
 		}
@@ -811,6 +804,22 @@ func (h *TestToolsHandler) approveIdentitySignIn(location, subject string) (stri
 		return callback.String(), nil
 	}
 	return "", fmt.Errorf("no mock OAuth server serves muster's identity provider at %s", issuer)
+}
+
+// newBrowser returns a client that keeps cookies like a browser and does not
+// follow redirects, so each hop can be inspected.
+func newBrowser() (*http.Client, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cookie jar: %w", err)
+	}
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Jar:     jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}, nil
 }
 
 // redirectLocation requests target and returns the Location of its redirect.

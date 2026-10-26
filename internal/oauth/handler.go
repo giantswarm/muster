@@ -70,8 +70,8 @@ const (
 //
 // When muster runs its own OAuth server (api.BrowserIdentity), the browser
 // first signs in to muster's identity provider and comes back here with a
-// code: the flow continues only for the person it was started for
-// (handler_identity.go).
+// code: the flow continues only for the person it was started for, and only
+// in the browser that passed the check (handler_identity.go).
 func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 	identity := api.GetBrowserIdentity()
 	if identity != nil && r.URL.Query().Has("code") {
@@ -112,8 +112,8 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
-	if identity != nil && !state.BrowserVerified {
-		h.sendToIdentityCheck(w, r, identity, stateParam, state)
+	if identity != nil && !boundToBrowser(r, state) {
+		h.sendToIdentityCheck(w, r, identity, state)
 		return
 	}
 
@@ -171,11 +171,11 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// A flow whose browser never passed the start endpoint's sign-in check
-	// was not completed by the person it was started for, as far as muster
-	// can tell: its code is never exchanged.
-	if api.GetBrowserIdentity() != nil && !state.BrowserVerified {
-		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: the browser did not pass the sign-in check", state.ServerName)
+	// A callback from a browser that did not pass the start endpoint's
+	// sign-in check for this flow was not completed by the person it was
+	// started for, as far as muster can tell: its code is never exchanged.
+	if api.GetBrowserIdentity() != nil && !boundToBrowser(r, state) {
+		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: the browser did not pass the sign-in check for this flow", state.ServerName)
 		h.renderErrorPage(w, summaryUnverifiedResponse, "")
 		return
 	}
