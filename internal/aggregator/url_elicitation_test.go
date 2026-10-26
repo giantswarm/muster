@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/metatools"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 )
 
@@ -401,6 +402,43 @@ func TestURLElicitation_CoreAuthLoginRecordsMustersChallenge(t *testing.T) {
 	require.NotEmpty(t, challenge.authURL)
 	require.Equal(t, answerServer, challenge.server)
 	require.Equal(t, answerSession, challenge.sessionID)
+}
+
+// call_tool relays the wrapped tool's structuredContent, so a gated call made
+// through it is elicited like a direct call, and the envelope that repeats the
+// link in its text never reaches the model.
+func TestURLElicitation_CallToolRelaysMustersChallenge(t *testing.T) {
+	f := newPollFixture(t)
+	previousMeta, previousData := api.GetMetaTools(), api.GetMetaToolsDataProvider()
+	meta := metatools.NewAdapter()
+	meta.Register()
+	api.RegisterMetaToolsDataProvider(f.agg)
+	t.Cleanup(func() {
+		api.RegisterMetaTools(previousMeta)
+		api.RegisterMetaToolsDataProvider(previousData)
+	})
+	callTool := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		result, err := meta.GetProvider().ExecuteTool(ctx, "call_tool", map[string]any{
+			"name":      f.agg.registry.ExposedToolPrefix(answerServer) + "op",
+			"arguments": map[string]any{},
+		})
+		return convertToMCPResult(result), err
+	}
+	ctx := mcpserver.WithRequestProtocolInfo(api.WithSubject(api.WithSessionID(t.Context(), answerSession), answerSubject), &mcpserver.RequestProtocolInfo{
+		Modern:             true,
+		ProtocolVersion:    mcp.ProtocolVersion20260728,
+		ClientCapabilities: new(urlElicitationCapabilities()),
+	})
+
+	result, err := f.agg.urlElicitation()(callTool)(ctx, mcp.CallToolRequest{})
+
+	require.NoError(t, err)
+	require.Equal(t, mcp.ResultTypeInputRequired, result.ResultType)
+	request := result.InputRequests[signInInputKey]
+	require.NotNil(t, request.Elicitation)
+	require.Contains(t, request.Elicitation.URL, "/oauth/proxy/start")
+	require.Equal(t, answerServer, result.RequestState)
+	require.Empty(t, result.Content, "the call_tool envelope carries the link too")
 }
 
 // acceptedRetry is a 2026-07-28 retry of a call whose sign-in elicitation the
