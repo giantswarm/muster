@@ -104,6 +104,25 @@ func TestHandler_IdentityCheck_OwnerContinuesUpstream(t *testing.T) {
 		"a checked flow goes straight upstream in the browser that passed the check")
 }
 
+// SECURITY: over https the browser cookie carries the __Host- prefix, so no
+// other host, a sibling subdomain included, can set it in the browser.
+func TestHandler_IdentityCheck_HostOnlyCookie(t *testing.T) {
+	handler, encodedState := startTestHandler(t, "https://idp.example.com/authorize?state=abc")
+	registerBrowserIdentity(t, &fakeBrowserIdentity{subject: "user-1"})
+	owner := &browser{}
+	require.Equal(t, http.StatusFound, passIdentityCheck(t, handler, owner, encodedState).Code)
+
+	require.Len(t, owner.cookies, 1)
+	cookie := owner.cookies[0]
+	require.Equal(t, "__Host-muster_oauth_browser", cookie.Name)
+	require.True(t, cookie.Secure)
+	require.Equal(t, "/", cookie.Path)
+	require.Empty(t, cookie.Domain)
+
+	unprefixed := &browser{cookies: []*http.Cookie{{Name: browserCookieName, Value: cookie.Value}}}
+	sendToSignIn(t, handler, unprefixed, encodedState)
+}
+
 // SECURITY: a sign-in link forwarded to, or phished from, another person must
 // not connect that person's account to the owner's session.
 func TestHandler_IdentityCheck_RefusesSomeoneElse(t *testing.T) {
@@ -183,7 +202,7 @@ func TestHandler_IdentityCheck_RefusesAReturnInAnotherBrowser(t *testing.T) {
 
 	for name, other := range map[string]*browser{
 		"no cookie":    {},
-		"other cookie": {cookies: []*http.Cookie{{Name: browserCookieName, Value: "other-browser"}}},
+		"other cookie": {cookies: []*http.Cookie{{Name: secureBrowserCookieName, Value: "other-browser"}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			back := other.start(handler, "code=identity-code&state="+url.QueryEscape(identityState))

@@ -23,21 +23,47 @@ import (
 // connects nobody else's account.
 const browserCookieName = "muster_oauth_browser"
 
+// secureBrowserCookieName is the cookie's name over https. The __Host- prefix
+// makes the browser refuse the cookie from any other host, so a sibling
+// subdomain cannot plant a value whose binding its owner already holds.
+const secureBrowserCookieName = "__Host-" + browserCookieName
+
+func (h *Handler) secureCookie() bool {
+	return strings.HasPrefix(h.client.publicURL, "https://")
+}
+
+func (h *Handler) browserCookieName() string {
+	if h.secureCookie() {
+		return secureBrowserCookieName
+	}
+	return browserCookieName
+}
+
+// browserCookieValue returns the browser's cookie value, empty when the
+// request carries none.
+func (h *Handler) browserCookieValue(r *http.Request) string {
+	c, err := r.Cookie(h.browserCookieName())
+	if err != nil {
+		return ""
+	}
+	return c.Value
+}
+
 // browserCookie returns the browser's cookie value, issuing one when the
 // request carries none.
 func (h *Handler) browserCookie(w http.ResponseWriter, r *http.Request) string {
-	if c, err := r.Cookie(browserCookieName); err == nil && c.Value != "" {
-		return c.Value
+	if value := h.browserCookieValue(r); value != "" {
+		return value
 	}
 	value := rand.Text()
 	// Path "/" because the callback path is configurable. SameSite=Lax still
 	// sends the cookie on the authorization servers' top-level redirects back.
 	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure whenever muster is served over https
-		Name:     browserCookieName,
+		Name:     h.browserCookieName(),
 		Value:    value,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   strings.HasPrefix(h.client.publicURL, "https://"),
+		Secure:   h.secureCookie(),
 		SameSite: http.SameSiteLaxMode,
 	})
 	return value
@@ -51,12 +77,12 @@ func browserBinding(cookie string) string {
 
 // boundToBrowser reports whether the request comes from the browser the flow
 // is bound to.
-func boundToBrowser(r *http.Request, state *OAuthState) bool {
-	c, err := r.Cookie(browserCookieName)
-	if err != nil || c.Value == "" || state.BrowserBinding == "" {
+func (h *Handler) boundToBrowser(r *http.Request, state *OAuthState) bool {
+	value := h.browserCookieValue(r)
+	if value == "" || state.BrowserBinding == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(browserBinding(c.Value)), []byte(state.BrowserBinding)) == 1
+	return subtle.ConstantTimeCompare([]byte(browserBinding(value)), []byte(state.BrowserBinding)) == 1
 }
 
 // identityVerifier is the PKCE verifier of a flow's identity sign-in. It is
@@ -115,8 +141,8 @@ func (h *Handler) finishIdentityCheck(w http.ResponseWriter, r *http.Request, id
 		h.renderErrorPage(w, summaryExpiredLink, "")
 		return
 	}
-	cookie, err := r.Cookie(browserCookieName)
-	if err != nil || cookie.Value == "" {
+	cookie := h.browserCookieValue(r)
+	if cookie == "" {
 		logging.Warn("OAuth", "Refusing sign-in check for server=%s: the browser came back without its cookie", state.ServerName)
 		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
@@ -127,7 +153,7 @@ func (h *Handler) finishIdentityCheck(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	signedIn, err := identity.Identity(r.Context(), returnURL, code, identityVerifier(cookie.Value, state.Nonce))
+	signedIn, err := identity.Identity(r.Context(), returnURL, code, identityVerifier(cookie, state.Nonce))
 	if err != nil {
 		logging.Warn("OAuth", "Sign-in check failed for server=%s: %v", state.ServerName, err)
 		h.renderErrorPage(w, summaryNotCompleted, "")
@@ -149,7 +175,7 @@ func (h *Handler) finishIdentityCheck(w http.ResponseWriter, r *http.Request, id
 	}
 
 	bound := h.client.stateStore.Update(stateParam, func(s *OAuthState) {
-		s.BrowserBinding = browserBinding(cookie.Value)
+		s.BrowserBinding = browserBinding(cookie)
 	})
 	if bound == nil {
 		h.renderErrorPage(w, summaryExpiredLink, "")

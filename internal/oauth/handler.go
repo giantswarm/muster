@@ -113,7 +113,7 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
-	if identity != nil && !boundToBrowser(r, state) {
+	if identity != nil && !h.boundToBrowser(r, state) {
 		h.sendToIdentityCheck(w, r, identity, state)
 		return
 	}
@@ -175,7 +175,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	// A callback from a browser that did not pass the start endpoint's
 	// sign-in check for this flow was not completed by the person it was
 	// started for, as far as muster can tell: its code is never exchanged.
-	if api.GetBrowserIdentity() != nil && !boundToBrowser(r, state) {
+	if api.GetBrowserIdentity() != nil && !h.boundToBrowser(r, state) {
 		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: the browser did not pass the sign-in check for this flow", state.ServerName)
 		h.renderErrorPage(w, summaryUnverifiedResponse, "")
 		return
