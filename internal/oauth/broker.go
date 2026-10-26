@@ -196,7 +196,7 @@ func (b *BrokerExchanger) loadCredentials(ctx context.Context, ref *config.Broke
 	if handler == nil {
 		return nil, fmt.Errorf("no secret credentials handler registered (broker secret refs require Kubernetes mode)")
 	}
-	return handler.LoadClientCredentials(ctx, &api.ClientCredentialsSecretRef{
+	return handler.LoadClientCredentialsForConfig(ctx, &api.ClientCredentialsSecretRef{
 		Name:            ref.Name,
 		Namespace:       ref.Namespace,
 		ClientIDKey:     ref.ClientIDKey,

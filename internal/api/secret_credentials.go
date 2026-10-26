@@ -16,45 +16,39 @@ type ClientCredentials struct {
 }
 
 // SecretCredentialsHandler defines the interface for loading OAuth client
-// credentials from Kubernetes secrets. This is used for token exchange
-// authentication with remote Dex instances.
+// credentials and other values from Kubernetes secrets.
 //
-// Implementations should:
-//   - Load credentials from the specified Kubernetes secret
-//   - Validate that required keys exist in the secret
-//   - Handle missing secrets or keys gracefully with clear error messages
+// A read on behalf of an MCPServer -- a Secret its spec names -- goes through
+// the methods that take a SecretOwner: they read only a Secret bound to that
+// MCPServer (MCPServerSecretAnnotation or an ownerReference) and never one of
+// muster's own (secretBinding). LoadClientCredentialsForConfig is for Secrets
+// muster's own configuration names and must never be called with a reference
+// taken from an MCPServer.
 //
 // Thread-safe: All methods must be safe for concurrent use.
 type SecretCredentialsHandler interface {
-	// LoadClientCredentials loads OAuth client credentials from a Kubernetes secret.
+	// LoadClientCredentialsForConfig loads OAuth client credentials from a
+	// Secret muster's configuration names (broker targets and clients,
+	// provider Apps). No binding is checked.
 	//
-	// The secret should contain:
-	//   - clientIdKey: The OAuth client ID (defaults to "client-id")
-	//   - clientSecretKey: The OAuth client secret (defaults to "client-secret")
-	//
-	// Args:
-	//   - ctx: Context for Kubernetes API calls
-	//   - secretRef: Reference to the secret containing credentials
-	//   - defaultNamespace: Namespace to use if not specified in secretRef
-	//
-	// Returns:
-	//   - *ClientCredentials: The loaded credentials
-	//   - error: Error if the secret cannot be found or is missing required keys
-	LoadClientCredentials(ctx context.Context, secretRef *ClientCredentialsSecretRef, defaultNamespace string) (*ClientCredentials, error)
+	// The secret should contain clientIdKey (default "client-id") and
+	// clientSecretKey (default "client-secret"). defaultNamespace is used
+	// when secretRef names none.
+	LoadClientCredentialsForConfig(ctx context.Context, secretRef *ClientCredentialsSecretRef, defaultNamespace string) (*ClientCredentials, error)
 
-	// LoadSecretKey loads raw bytes for a single named key from a Kubernetes secret.
-	// Callers are responsible for not logging the returned value.
-	//
-	// Args:
-	//   - ctx: Context for Kubernetes API calls
-	//   - secretRef: Secret name and namespace (ClientIDKey/ClientSecretKey are ignored)
-	//   - key: Key name within the secret's data map
-	//   - defaultNamespace: Namespace to use if not specified in secretRef
-	//
-	// Returns:
-	//   - []byte: The raw secret data for the key
-	//   - error: Error if the secret cannot be found or is missing the key
-	LoadSecretKey(ctx context.Context, secretRef *ClientCredentialsSecretRef, key, defaultNamespace string) ([]byte, error)
+	// LoadMCPServerClientCredentials loads OAuth client credentials from a
+	// Secret the MCPServer owner names in field (SecretField*). The Secret
+	// must be bound to owner (or secretBinding.mode is warn) and must not be
+	// protected; otherwise nothing is returned. A reference without a
+	// namespace resolves to owner.Namespace.
+	LoadMCPServerClientCredentials(ctx context.Context, owner SecretOwner, field string, secretRef *ClientCredentialsSecretRef) (*ClientCredentials, error)
+
+	// LoadMCPServerSecretKey loads raw bytes for a single named key from a
+	// Secret the MCPServer owner names in field, with the binding rules of
+	// LoadMCPServerClientCredentials. Callers are responsible for not
+	// logging the returned value. ClientIDKey/ClientSecretKey of secretRef
+	// are ignored.
+	LoadMCPServerSecretKey(ctx context.Context, owner SecretOwner, field string, secretRef *ClientCredentialsSecretRef, key string) ([]byte, error)
 }
 
 // secretCredentialsHandler stores the registered handler implementation.

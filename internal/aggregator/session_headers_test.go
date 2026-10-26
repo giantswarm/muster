@@ -11,19 +11,25 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// sessionHeaderSecrets answers LoadSecretKey by key and records the namespace
+// sessionHeaderSecrets answers LoadMCPServerSecretKey by key and records the namespace
 // of each read.
 type sessionHeaderSecrets struct {
 	values     map[string]string
 	namespaces []string
+	owners     []api.SecretOwner
 }
 
-func (s *sessionHeaderSecrets) LoadClientCredentials(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
+func (s *sessionHeaderSecrets) LoadClientCredentialsForConfig(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
 	return nil, errors.New("not used")
 }
 
-func (s *sessionHeaderSecrets) LoadSecretKey(_ context.Context, _ *api.ClientCredentialsSecretRef, key, defaultNamespace string) ([]byte, error) {
-	s.namespaces = append(s.namespaces, defaultNamespace)
+func (s *sessionHeaderSecrets) LoadMCPServerClientCredentials(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef) (*api.ClientCredentials, error) {
+	return nil, errors.New("not used")
+}
+
+func (s *sessionHeaderSecrets) LoadMCPServerSecretKey(_ context.Context, owner api.SecretOwner, _ string, _ *api.ClientCredentialsSecretRef, key string) ([]byte, error) {
+	s.namespaces = append(s.namespaces, owner.Namespace)
+	s.owners = append(s.owners, owner)
 	value, ok := s.values[key]
 	if !ok {
 		return nil, errors.New("secret not found")

@@ -401,13 +401,34 @@ type mockSecretCredentialsHandler struct {
 	loadCalls     int
 	lastSecretRef *api.ClientCredentialsSecretRef
 	lastDefaultNS string
+	// lastOwner and lastField are set by the MCPServer reads only;
+	// configCalls counts the reads for muster's configuration.
+	lastOwner   *api.SecretOwner
+	lastField   string
+	configCalls int
 }
 
-func (m *mockSecretCredentialsHandler) LoadClientCredentials(
-	ctx context.Context,
+func (m *mockSecretCredentialsHandler) LoadClientCredentialsForConfig(
+	_ context.Context,
 	secretRef *api.ClientCredentialsSecretRef,
 	defaultNamespace string,
 ) (*api.ClientCredentials, error) {
+	m.configCalls++
+	return m.load(secretRef, defaultNamespace)
+}
+
+func (m *mockSecretCredentialsHandler) LoadMCPServerClientCredentials(
+	_ context.Context,
+	owner api.SecretOwner,
+	field string,
+	secretRef *api.ClientCredentialsSecretRef,
+) (*api.ClientCredentials, error) {
+	m.lastOwner = &owner
+	m.lastField = field
+	return m.load(secretRef, owner.Namespace)
+}
+
+func (m *mockSecretCredentialsHandler) load(secretRef *api.ClientCredentialsSecretRef, defaultNamespace string) (*api.ClientCredentials, error) {
 	m.loadCalls++
 	m.lastSecretRef = secretRef
 	m.lastDefaultNS = defaultNamespace
@@ -417,8 +438,8 @@ func (m *mockSecretCredentialsHandler) LoadClientCredentials(
 	return m.credentials, nil
 }
 
-func (m *mockSecretCredentialsHandler) LoadSecretKey(_ context.Context, _ *api.ClientCredentialsSecretRef, _ string, _ string) ([]byte, error) {
-	return nil, fmt.Errorf("LoadSecretKey not implemented in mockSecretCredentialsHandler")
+func (m *mockSecretCredentialsHandler) LoadMCPServerSecretKey(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef, string) ([]byte, error) {
+	return nil, fmt.Errorf("LoadMCPServerSecretKey not implemented in mockSecretCredentialsHandler")
 }
 
 func TestLoadTokenExchangeCredentials(t *testing.T) {

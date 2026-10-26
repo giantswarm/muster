@@ -162,10 +162,33 @@ the MCP server as its own workload and register it with `streamable-http` or
 |-------|------|----------|-------------|-------------|
 | `name` | `string` | Yes | HTTP header name, for example `Authorization` | 1 to 256 characters; unique in the list |
 | `valueFrom.type` | `string` | Yes | Kind of object that holds the value | `Secret` |
-| `valueFrom.name` | `string` | Yes | Name of the Secret, in the MCPServer's own namespace | There is no namespace field |
+| `valueFrom.name` | `string` | Yes | Name of the Secret, in the MCPServer's own namespace | There is no namespace field; must be [bound](#secret-binding) to the MCPServer |
 | `valueFrom.key` | `string` | Yes | Key in the Secret's data that holds the value | |
 
 muster's ServiceAccount needs `get` on the Secret. The chart grants it in the release namespace and in each namespace listed in `rbac.additionalSecretNamespaces`; an MCPServer in another namespace needs that namespace listed there. A missing Secret or key fails the connect: the server is `Failed` and is retried on its reconnect backoff (`status.nextRetryAfter`) until the Secret exists. muster drops one trailing newline (`\n` or `\r\n`) of the value. A person's session connection sends its own `Authorization` and does not read the Secret of an `Authorization` entry.
+
+#### Secret binding
+
+muster reads a Secret that `headersFrom`, `auth.tokenExchange.clientCredentialsSecretRef` or `auth.authorizationServer.clientCredentialsSecretRef` names only when the Secret is bound to that MCPServer by one of:
+
+| Binding | Value | Secret's namespace |
+|---------|-------|--------------------|
+| annotation `muster.giantswarm.io/mcpserver` | comma-separated list of `<name>` (the Secret's namespace) or `<namespace>/<name>` (any) | any |
+| `ownerReference` | any version of `muster.giantswarm.io`, `kind: MCPServer`, its `name` and `uid`; one per server | the MCPServer's |
+
+A Secret rendered by GitOps next to its MCPServers has no `uid` to reference yet: use the annotation. An annotation names servers, not objects: an MCPServer deleted and created again with the same name is bound again. An `ownerReference` binds only the object with its `uid`, and the Secret is deleted with it. One Secret shared by several servers lists them all:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gazelle-token-exchange-credentials
+  namespace: agent-platform
+  annotations:
+    muster.giantswarm.io/mcpserver: gazelle-kubernetes, gazelle-prometheus, gazelle-capi
+```
+
+What happens to an unbound Secret depends on muster's `secretBinding.mode` ([configuration](configuration.md#secret-binding)): `warn` (default) reads it and logs a warning, `enforce` refuses it and the server reads `Failed` with the reason in `status.lastError`. Refused in both modes: muster's own Secrets (`secretBinding.protectedSecrets`) and Secrets of type `helm.sh/release.v1`, `kubernetes.io/tls`, `kubernetes.io/service-account-token`, `bootstrap.kubernetes.io/token`, `kubernetes.io/dockerconfigjson` and `kubernetes.io/dockercfg`. A Secret muster's configuration names (a provider App's client, a broker target's credentials) is an ordinary Secret here: an MCPServer may share it once bound.
 
 #### Credentials in the definition
 
@@ -204,7 +227,7 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 | `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
 | `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
-| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below |
+| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below; must be [bound](#secret-binding) to the MCPServer |
 
 **Security Note**: muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
 
@@ -217,13 +240,15 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 | `tokenEndpoint` | `string` | No | Token endpoint of such a server | Set together with `authorizationEndpoint`; HTTPS |
 | `expectedIssuer` | `string` | No | Issuer identifier the server puts in the RFC 9207 `iss` parameter of its authorization responses when that differs from `issuer`, which stays the grant key -- two GitHub Apps pinned under `https://github.com/apps/<slug>` each, both with `expectedIssuer: https://github.com/login/oauth` | Needs `authorizationEndpoint` and `tokenEndpoint`; HTTPS. Default: `issuer` |
 | `revocationEndpoint` | `string` | No | RFC 7009 revocation endpoint `core_auth_logout` revokes a `subject` grant at before dropping it, so the provider stops honouring the tokens (GitLab: `https://gitlab.example.com/oauth/revoke`) | HTTPS. Default: the metadata's `revocation_endpoint`; none: the grant is only dropped, logged |
-| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Secret holding a client registered with the server out of band (a GitHub App or OAuth App); used instead of muster's Client ID Metadata Document or a dynamic registration | See below |
+| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Secret holding a client registered with the server out of band (a GitHub App or OAuth App); used instead of muster's Client ID Metadata Document or a dynamic registration | See below; must be [bound](#secret-binding) to the MCPServer |
 | `grantScope` | `string` | No | Whom a token belongs to: `session` (the muster session that obtained it; for a forwarded or trusted-issuer bearer that is the principal, see below) or `subject` (the person; every session of the same person reuses it until `core_auth_logout` on this server) | `session` or `subject`. Default: `session` |
 | `scopes` | `string` | No | OAuth `scope` parameter value (space-separated scope tokens); leave empty for a GitHub App | |
 
 See [Connecting to MCP servers that don't publish RFC 9728 metadata](../how-to/connecting-non-rfc9728-mcp-servers.md) for the flows these fields configure.
 
 **What a `session` grant is bound to.** For a client that signs in to muster itself (`muster auth login`, Claude Code), the session is that login's refresh-token family: another login of the same person starts signed out. For a forwarded or trusted-issuer bearer (an ID token a portal or an agent gateway presents), the session is the token's principal -- issuer, subject, authorized party (`azp`, or the audience when the token has none) and the actor chain -- not the token itself, so a refreshed token keeps its session. A fresh token of the same person through the same client is the same principal: a `session` grant obtained under one such token serves every later one until `core_auth_logout` on the server. Another person, another client (`azp`) or another actor chain is another session and starts signed out. `subject` differs in reaching every session of the person, across clients and login families.
+
+**One description per issuer.** The MCPServers of one namespace that name the same `issuer` share its sign-in: one client, one set of endpoints, one grant scope. When several of them pin something (`authorizationEndpoint`, `clientCredentialsSecretRef` or `grantScope: subject`), the oldest MCPServer's description is used, then the first by name. Another server may name the issuer only with the same endpoints, `expectedIssuer`, `revocationEndpoint`, `clientCredentialsSecretRef` and `grantScope`; `scopes` may differ. A server that describes the issuer differently is refused: it reads `Failed`, its `Ready` condition has reason `AuthorizationServerConflict` and names the server whose description is used, `core_auth_login` answers the same, and it does not connect with that server's grants. It is retried with backoff and reads `Auth Required` once both describe the issuer the same way or the other server goes. When the oldest server goes, the next oldest one's description takes over. A sign-in started under a description that changed before its callback is refused, and the person signs in again; a rotated client secret does not end it.
 
 #### ClientCredentialsSecretRef Fields
 

@@ -159,11 +159,16 @@ func (s *Service) loadTokenExchangeCredentials(ctx context.Context) (*api.Client
 	if handler == nil {
 		return nil, api.NewTokenExchangeCredentialsError(ref, namespace, fmt.Errorf("secret credentials handler not registered"))
 	}
-	credentials, err := handler.LoadClientCredentials(ctx, ref, namespace)
+	credentials, err := handler.LoadMCPServerClientCredentials(ctx, s.secretOwner(), api.SecretFieldTokenExchange, ref)
 	if err != nil {
 		return nil, api.NewTokenExchangeCredentialsError(ref, namespace, err)
 	}
 	return credentials, nil
+}
+
+// secretOwner is the MCPServer this service's Secret references are read for.
+func (s *Service) secretOwner() api.SecretOwner {
+	return api.MCPServerSecretOwner(s.definition.Name, s.definition.Namespace, s.definition.UID)
 }
 
 // credentialsNamespace is the namespace a Secret reference without one

@@ -1371,12 +1371,10 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 	}
 	a.reconnects.settled(registration.Name)
 	if info, ok := a.registry.GetServerInfo(registration.Name); ok {
-		if err := pinAuthorizationServer(ctx, info); err != nil {
+		if err := a.pinAuthorizationServer(ctx, info); err != nil {
 			// Logins for this server retry the pin (auth_tools), so a Secret
 			// that is not there yet only delays, never blocks.
-			logging.WarnWithAttrs("Aggregator", "Authorization server pin deferred",
-				slog.String("server", registration.Name),
-				slog.String("error", err.Error()))
+			logPinDeferred(info, err)
 		}
 	}
 	return nil
@@ -1492,6 +1490,7 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		forgetCtx, cancel := context.WithTimeout(context.Background(), tenantForgetTimeout)
 		a.forgetTenantServer(forgetCtx, name)
 		cancel()
+		forgetServerPinDeferrals(name)
 	}
 	if !reconnecting || (tracked && (err != nil || !removed)) {
 		a.reconnects.settled(name)

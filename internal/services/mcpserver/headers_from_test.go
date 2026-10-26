@@ -19,26 +19,36 @@ import (
 	"github.com/giantswarm/muster/v5/internal/services"
 )
 
-// headerSecret answers LoadSecretKey with one value and records the
+// headerSecret answers LoadMCPServerSecretKey with one value and records the
 // namespace of each read.
 type headerSecret struct {
 	mu         sync.Mutex
 	value      string
+	err        error
 	namespaces []string
+	owners     []api.SecretOwner
 }
 
-func (s *headerSecret) LoadClientCredentials(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
+func (s *headerSecret) LoadClientCredentialsForConfig(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
 	return nil, errors.New("not used")
 }
 
-func (s *headerSecret) LoadSecretKey(_ context.Context, ref *api.ClientCredentialsSecretRef, _ string, defaultNamespace string) ([]byte, error) {
+func (s *headerSecret) LoadMCPServerClientCredentials(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef) (*api.ClientCredentials, error) {
+	return nil, errors.New("not used")
+}
+
+func (s *headerSecret) LoadMCPServerSecretKey(_ context.Context, owner api.SecretOwner, _ string, ref *api.ClientCredentialsSecretRef, _ string) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	namespace := ref.Namespace
 	if namespace == "" {
-		namespace = defaultNamespace
+		namespace = owner.Namespace
 	}
 	s.namespaces = append(s.namespaces, namespace)
+	s.owners = append(s.owners, owner)
+	if s.err != nil {
+		return nil, s.err
+	}
 	return []byte(s.value), nil
 }
 
@@ -96,16 +106,20 @@ func TestStartSendsHeadersFromAndKeepsTheValueOutOfServiceData(t *testing.T) {
 	assert.NotContains(t, string(definition), "never-in-service-data")
 }
 
-// missingHeaderSecret answers every LoadSecretKey as a Secret that does not
+// missingHeaderSecret answers every LoadMCPServerSecretKey as a Secret that does not
 // exist yet.
 type missingHeaderSecret struct{}
 
-func (missingHeaderSecret) LoadClientCredentials(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
+func (missingHeaderSecret) LoadClientCredentialsForConfig(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
 	return nil, errors.New("not used")
 }
 
-func (missingHeaderSecret) LoadSecretKey(_ context.Context, ref *api.ClientCredentialsSecretRef, _ string, defaultNamespace string) ([]byte, error) {
-	return nil, fmt.Errorf("secret %s/%s not found", defaultNamespace, ref.Name)
+func (missingHeaderSecret) LoadMCPServerClientCredentials(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef) (*api.ClientCredentials, error) {
+	return nil, errors.New("not used")
+}
+
+func (missingHeaderSecret) LoadMCPServerSecretKey(_ context.Context, owner api.SecretOwner, _ string, ref *api.ClientCredentialsSecretRef, _ string) ([]byte, error) {
+	return nil, fmt.Errorf("secret %s/%s not found", owner.Namespace, ref.Name)
 }
 
 // TestStartRetriesAMissingHeadersFromSecret: Flux applies an MCPServer and

@@ -127,7 +127,7 @@ func (s *providerAppSet) pin(ctx context.Context, name string) error {
 		loadErr = fmt.Errorf("no secret handler is registered")
 		if secrets := api.GetSecretCredentialsHandler(); secrets != nil {
 			var creds *api.ClientCredentials
-			creds, loadErr = secrets.LoadClientCredentials(ctx, &api.ClientCredentialsSecretRef{
+			creds, loadErr = secrets.LoadClientCredentialsForConfig(ctx, &api.ClientCredentialsSecretRef{
 				Name:            ref.Name,
 				Namespace:       ref.Namespace,
 				ClientIDKey:     ref.ClientIDKey,

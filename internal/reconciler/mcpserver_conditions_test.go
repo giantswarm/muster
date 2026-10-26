@@ -115,6 +115,13 @@ func TestReadyConditionExplainsEachState(t *testing.T) {
 			status: metav1.ConditionFalse, reason: "TokenExchangeEndpoint",
 			message: []string{"connection refused", "Next attempt at 2026-09-30T21:00:00Z."},
 		},
+		"failed by another MCPServer's description of its authorization server": {
+			state:     musterv1alpha1.MCPServerStateFailed,
+			lastError: "server newer: another MCPServer describes this authorization server differently: server owner, whose description of https://as.example.com is used",
+			data:      map[string]interface{}{api.ServiceDataFailureReason: api.FailureReasonAuthorizationServerConflict},
+			status:    metav1.ConditionFalse, reason: "AuthorizationServerConflict",
+			message: []string{"server owner"},
+		},
 		"no state yet": {
 			state: "", status: metav1.ConditionUnknown, reason: "Unknown",
 		},
