@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	configPkg "github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/internal/oauth"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -88,6 +89,11 @@ func NewAggregatorManager(ctx context.Context, config AggregatorConfig, orchestr
 	if config.OAuth.Enabled {
 		if err := config.OAuth.ValidateNamespaceCallback(); err != nil {
 			return nil, err
+		}
+		if serverCfg, ok := config.OAuthServer.Config.(configPkg.OAuthServerConfig); ok && config.OAuthServer.Enabled {
+			if err := configPkg.ValidateSignInCheckOrigin(config.OAuth.PublicURL, serverCfg.BaseURL); err != nil {
+				return nil, err
+			}
 		}
 		var oauthOpts []oauth.ManagerOption
 		if vClient := manager.aggregatorServer.getValkeyClient(); vClient != nil {
