@@ -172,6 +172,7 @@ func NewService(definition *api.MCPServer, opts ...Option) (*Service, error) {
 	for _, opt := range opts {
 		opt(service)
 	}
+	service.warnIfTimeoutClamped()
 
 	return service, nil
 }
@@ -623,6 +624,7 @@ func (s *Service) UpdateConfiguration(newConfig interface{}) error {
 	}
 
 	s.definition = newDef
+	s.warnIfTimeoutClamped()
 	return nil
 }
 
@@ -1027,11 +1029,16 @@ func (s *Service) getRemoteInitContext(ctx context.Context) (context.Context, co
 // call as much as a remote one. For a remote server the first connect, the
 // health probe and the session-recovery handshake run under it as well.
 func (s *Service) operationTimeout() time.Duration {
-	timeout := s.definition.Timeout
-	if timeout == 0 {
-		timeout = DefaultRemoteTimeout
+	timeout, _ := s.definition.OperationTimeout()
+	return timeout
+}
+
+// warnIfTimeoutClamped logs once per definition that spec.timeout is above
+// api.MaxTimeoutSeconds and is applied as that maximum.
+func (s *Service) warnIfTimeoutClamped() {
+	if timeout, clamped := s.definition.OperationTimeout(); clamped {
+		s.LogWarn("spec.timeout %ds is above the maximum of %ds; using %s", s.definition.Timeout, api.MaxTimeoutSeconds, timeout)
 	}
-	return time.Duration(timeout) * time.Second
 }
 
 // createAndInitializeClient creates the appropriate MCP client based on the server type.
