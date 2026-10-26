@@ -61,7 +61,7 @@ that run their own OAuth.
 | Path | Purpose |
 |---|---|
 | `/.well-known/oauth-client.json` | muster's client metadata document (CIMD), the `client_id` it presents to authorization servers that support it |
-| `/oauth/proxy/start` | Starts a login to a remote server; `core_auth_login` returns URLs pointing here. When muster runs its own OAuth server, the browser first signs in to muster's identity provider and comes back here: the login continues only when the person who signed in is the person the link was issued to, and only in that browser (`muster_oauth_browser` cookie, required again on the callback), so a forwarded link connects nobody else's account. An optional `redirect` parameter, checked against `postLoginRedirectAllowlist`, sends the browser on after the login |
+| `/oauth/proxy/start` | Starts a login to a remote server; `core_auth_login` returns URLs pointing here. When muster runs its own OAuth server, the browser first signs in to muster's identity provider and comes back here: the login continues only when the person who signed in is the person the link was issued to (same issuer and `sub` as the session's token), and only in that browser (`muster_oauth_browser` cookie, required again on the callback), so a forwarded link connects nobody else's account. An optional `redirect` parameter, checked against `postLoginRedirectAllowlist`, sends the browser on after the login |
 | `/oauth/proxy/callback` | Return from the remote authorization server (`oauth.mcpClient.callbackPath`) for the servers in muster's namespace |
 | `/oauth/ns/<namespace>/callback` | Return from the remote authorization server for the servers of `<namespace>` (with `mcpServersInAllNamespaces`); a flow is accepted only on the callback of its own namespace |
 

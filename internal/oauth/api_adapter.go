@@ -252,6 +252,7 @@ func (a *Adapter) CreateAuthChallenge(ctx context.Context, params api.AuthChalle
 	challenge, err := a.manager.CreateAuthChallenge(ctx, AuthChallengeParams{
 		SessionID:               params.SessionID,
 		UserID:                  params.UserID,
+		SignIn:                  api.SignInIdentityFromContext(ctx),
 		ServerName:              params.ServerName,
 		Issuer:                  params.Issuer,
 		Resource:                params.Resource,

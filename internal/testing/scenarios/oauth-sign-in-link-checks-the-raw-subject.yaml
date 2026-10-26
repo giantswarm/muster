@@ -1,0 +1,113 @@
+name: "oauth-sign-in-link-checks-the-raw-subject"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  The start endpoint's sign-in check compares the person who signs in with the
+  issuer and raw sub the session authenticated with, not with the session's
+  subject. A trusted issuer with subjectClaim: email keys the session by
+  email (a portal user's or an agent's forwarded Dex token); the check still
+  confirms its owner, by the raw sub, and still refuses anyone else.
+
+  1. Bob opening Alice's link is refused.
+  2. Alice, signing in with the raw sub her forwarded token carries,
+     completes the sign-in and the server connects.
+tags: ["oauth", "authentication", "security", "multi-user", "token-forwarding", "mcpserver"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's identity provider, which also issues the bearers a front end
+    # forwards (Dex, trusted as an issuer): the sign-in check runs here.
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "connector-idp"
+      scopes: ["mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      client_id: "connector-client"
+      use_tls: true
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "muster-idp"
+        accepted_typ_headers: [""]
+        subject_claim: "email"
+
+  mcp_servers:
+    - name: "connector"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "connector-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_me"
+            description: "The authenticated user"
+            responses:
+              - response:
+                  login: "alice"
+
+steps:
+  - id: "server-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["connector"]
+      wait_for_state: "30s"
+
+  - id: mint-alice
+    tool: "test_mint_token"
+    args: {server: "muster-idp", name: "alice", sub: "CgVhbGljZRIEbGRhcA", email: "alice@example.com", email_verified: true, azp: "portal"}
+    expected: {success: true}
+
+  - id: alice-connects
+    tool: "test_reconnect_with_token"
+    args: {token_ref: "alice"}
+    expected:
+      success: true
+      wait_for_state: "30s"
+
+  - id: bob-opens-alices-link
+    description: "Bob signs in at the check with Alice's link: refused"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "connector"
+      signed_in_as: "CgNib2ISBGxkYXA"
+    expected:
+      success: false
+      contains:
+        - "issued to someone else"
+
+  - id: alice-still-signed-out
+    tool: "x_connector_get_me"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required"]
+
+  - id: alice-opens-her-link
+    description: "Alice signs in at the check with the raw sub of her token: the flow completes"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "connector"
+      signed_in_as: "CgVhbGljZRIEbGRhcA"
+    expected:
+      success: true
+
+  - id: alice-calls-the-tool
+    tool: "x_connector_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"

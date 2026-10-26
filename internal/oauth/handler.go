@@ -59,6 +59,7 @@ const (
 	summaryDenied             = "The sign-in was denied or failed"
 	summaryNotCompleted       = "The sign-in could not be completed"
 	summaryOtherPerson        = "This sign-in link was issued to someone else"
+	summaryUnconfirmedPerson  = "muster cannot confirm that this sign-in link was issued to you"
 )
 
 // HandleStart handles the OAuth proxy start endpoint. Auth challenges point

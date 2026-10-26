@@ -481,6 +481,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 	stateParams := StateParams{
 		SessionID:    params.SessionID,
 		UserID:       params.UserID,
+		SignIn:       params.SignIn,
 		ServerName:   params.ServerName,
 		Issuer:       issuer,
 		Resource:     params.Resource,

@@ -13,6 +13,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 )
 
@@ -31,7 +32,7 @@ func TestOAuthHTTPServer_BrowserIdentity(t *testing.T) {
 		DisableNonceEchoRequirement: true,
 	}, slog.Default())
 	require.NoError(t, err)
-	s := &OAuthHTTPServer{oauthServer: oauthSrv}
+	s := &OAuthHTTPServer{config: config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, oauthServer: oauthSrv}
 	returnURL, err := url.Parse("https://muster.example.com" + config.DefaultOAuthProxyStartPath)
 	require.NoError(t, err)
 
@@ -48,9 +49,10 @@ func TestOAuthHTTPServer_BrowserIdentity(t *testing.T) {
 	require.Equal(t, state, clientState)
 	require.Equal(t, returnURL.String(), code.RedirectURI)
 
-	subject, err := s.Subject(t.Context(), returnURL, code.Code, verifier)
+	identity, err := s.Identity(t.Context(), returnURL, code.Code, verifier)
 	require.NoError(t, err)
-	require.NotEmpty(t, subject)
+	require.Equal(t, "https://muster.example.com", identity.Issuer)
+	require.NotEmpty(t, identity.Subject)
 }
 
 // Until OIDC discovery completed the check refuses, so no sign-in completes
@@ -61,6 +63,22 @@ func TestLazyOAuthHTTPServer_BrowserIdentityRefusesUntilReady(t *testing.T) {
 	returnURL := &url.URL{Scheme: "https", Host: "muster.example.com", Path: config.DefaultOAuthProxyStartPath}
 	_, err := l.SignInURL(t.Context(), returnURL, "state", "challenge")
 	require.Error(t, err)
-	_, err = l.Subject(t.Context(), returnURL, "code", "verifier")
+	_, err = l.Identity(t.Context(), returnURL, "code", "verifier")
 	require.Error(t, err)
+}
+
+// A trusted issuer's token names its issuer and raw sub, whatever its
+// subjectClaim maps the session subject to; any other bearer was issued for a
+// sign-in at muster's own identity provider.
+func TestOAuthHTTPServer_SignInIdentity(t *testing.T) {
+	s := &OAuthHTTPServer{config: config.OAuthServerConfig{
+		Provider: OAuthProviderDex,
+		Dex:      config.DexConfig{IssuerURL: "https://dex.example.com"},
+	}}
+
+	require.Equal(t, api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"},
+		s.signInIdentity(&providers.UserInfo{ID: "CgVhbGljZRIGZ2l0aHVi", Email: "alice@example.com"}))
+	require.Equal(t, api.SignInIdentity{Issuer: "https://dex.other.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"},
+		s.signInIdentity(&providers.UserInfo{ID: "CgVhbGljZRIGZ2l0aHVi", Email: "alice@example.com",
+			Issuer: "https://dex.other.example.com", TokenSource: providers.TokenSourceTrustedIssuer}))
 }

@@ -17,9 +17,14 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// fakeBrowserIdentity signs every browser in as subject. Like the real
-// identity flow, it redeems a code only with the verifier of the challenge
-// the sign-in was started with.
+// testSignIn is who the test flows' caller authenticated as.
+var testSignIn = api.SignInIdentity{Issuer: testIdentityIssuer, Subject: "user-1"}
+
+const testIdentityIssuer = "https://dex.example.com"
+
+// fakeBrowserIdentity signs every browser in as subject at
+// testIdentityIssuer. Like the real identity flow, it redeems a code only
+// with the verifier of the challenge the sign-in was started with.
 type fakeBrowserIdentity struct {
 	subject   string
 	challenge string
@@ -30,12 +35,12 @@ func (f *fakeBrowserIdentity) SignInURL(_ context.Context, _ *url.URL, state, co
 	return "https://dex.example.com/auth?state=" + url.QueryEscape(state), nil
 }
 
-func (f *fakeBrowserIdentity) Subject(_ context.Context, _ *url.URL, code, codeVerifier string) (string, error) {
+func (f *fakeBrowserIdentity) Identity(_ context.Context, _ *url.URL, code, codeVerifier string) (api.SignInIdentity, error) {
 	sum := sha256.Sum256([]byte(codeVerifier))
 	if code == "" || base64.RawURLEncoding.EncodeToString(sum[:]) != f.challenge {
-		return "", errors.New("invalid identity code")
+		return api.SignInIdentity{}, errors.New("invalid identity code")
 	}
-	return f.subject, nil
+	return api.SignInIdentity{Issuer: testIdentityIssuer, Subject: f.subject}, nil
 }
 
 func registerBrowserIdentity(t *testing.T, identity api.BrowserIdentity) {
@@ -116,6 +121,47 @@ func TestHandler_IdentityCheck_RefusesSomeoneElse(t *testing.T) {
 	identity.subject = "user-1"
 	owner := passIdentityCheck(t, handler, &browser{}, encodedState)
 	require.Equal(t, http.StatusFound, owner.Code, "the link stays usable by its owner")
+}
+
+// A session whose subject a trusted issuer maps from email is checked by the
+// raw sub it authenticated with, not by the mapped subject.
+func TestHandler_IdentityCheck_ComparesTheRawSubject(t *testing.T) {
+	handler, _ := startTestHandler(t, "https://idp.example.com/authorize?state=abc")
+	registerBrowserIdentity(t, &fakeBrowserIdentity{subject: "CgVhbGljZRIGZ2l0aHVi"})
+	encodedState, err := handler.client.stateStore.GenerateState(StateParams{
+		SessionID: "session-1", UserID: "alice@example.com", ServerName: "test-server",
+		SignIn: api.SignInIdentity{Issuer: testIdentityIssuer, Subject: "CgVhbGljZRIGZ2l0aHVi"},
+	}, func(string) (string, error) { return "https://idp.example.com/authorize?state=abc", nil })
+	require.NoError(t, err)
+
+	back := passIdentityCheck(t, handler, &browser{}, encodedState)
+
+	require.Equal(t, http.StatusFound, back.Code, back.Body.String())
+}
+
+// SECURITY: a person is the issuer and its sub together (OIDC Core §5.7). A
+// link issued to an identity of another issuer, or to no identity, cannot be
+// confirmed at muster's identity provider.
+func TestHandler_IdentityCheck_RefusesAnIdentityItCannotConfirm(t *testing.T) {
+	for name, signIn := range map[string]api.SignInIdentity{
+		"another issuer": {Issuer: "https://dex.other.example.com", Subject: "user-1"},
+		"no identity":    {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			handler, _ := startTestHandler(t, "https://idp.example.com/authorize?state=abc")
+			registerBrowserIdentity(t, &fakeBrowserIdentity{subject: "user-1"})
+			encodedState, err := handler.client.stateStore.GenerateState(StateParams{
+				SessionID: "session-1", UserID: "user-1", ServerName: "test-server", SignIn: signIn,
+			}, func(string) (string, error) { return "https://idp.example.com/authorize?state=abc", nil })
+			require.NoError(t, err)
+
+			back := passIdentityCheck(t, handler, &browser{}, encodedState)
+
+			require.Equal(t, http.StatusBadRequest, back.Code)
+			require.Contains(t, back.Body.String(), summaryUnconfirmedPerson)
+			require.Empty(t, back.Header().Get("Location"))
+		})
+	}
 }
 
 // SECURITY: the owner passing the check and then forwarding the link must not
@@ -221,7 +267,8 @@ func TestHandler_IdentityCheck_CallbackCompletesACheckedFlow(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 }
 
-// The browser binding survives Valkey: a replica that handles the callback
+// The sign-in identity and the browser binding survive Valkey: a replica
+// that handles the callback
 // reads what another wrote.
 func TestValkeyStateStore_KeepsTheBrowserBinding(t *testing.T) {
 	srv := miniredis.RunT(t)
@@ -230,11 +277,12 @@ func TestValkeyStateStore_KeepsTheBrowserBinding(t *testing.T) {
 	t.Cleanup(vc.Close)
 	store := NewValkeyStateStore(vc, "muster:", nil)
 
-	encodedState, err := store.GenerateState(StateParams{SessionID: "session-1", UserID: "user-1", ServerName: "server-1"}, nil)
+	encodedState, err := store.GenerateState(StateParams{SessionID: "session-1", UserID: "user-1", SignIn: testSignIn, ServerName: "server-1"}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, store.Update(encodedState, func(s *OAuthState) { s.BrowserBinding = "binding" }))
 
 	consumed := store.ValidateState(encodedState)
 	require.NotNil(t, consumed)
 	require.Equal(t, "binding", consumed.BrowserBinding)
+	require.Equal(t, testSignIn, consumed.SignIn)
 }

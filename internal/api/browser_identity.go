@@ -20,9 +20,31 @@ type BrowserIdentity interface {
 	// codeChallenge is the S256 challenge of the verifier Subject is given.
 	SignInURL(ctx context.Context, returnURL *url.URL, state, codeChallenge string) (string, error)
 
-	// Subject redeems the code returnURL received and returns the subject of
-	// the person who signed in, the subject sessions are keyed by.
-	Subject(ctx context.Context, returnURL *url.URL, code, codeVerifier string) (string, error)
+	// Identity redeems the code returnURL received and returns who signed in.
+	Identity(ctx context.Context, returnURL *url.URL, code, codeVerifier string) (SignInIdentity, error)
+}
+
+// SignInIdentity is the person a request was authenticated as at an identity
+// provider: the issuer and its raw sub claim, together the only stable
+// identifier of a person (OIDC Core §5.7). It differs from the session
+// subject when a trusted issuer maps the subject from another claim.
+type SignInIdentity struct {
+	Issuer  string
+	Subject string
+}
+
+type signInIdentityContextKey struct{}
+
+// WithSignInIdentity returns a context carrying the request's sign-in identity.
+func WithSignInIdentity(ctx context.Context, identity SignInIdentity) context.Context {
+	return context.WithValue(ctx, signInIdentityContextKey{}, identity)
+}
+
+// SignInIdentityFromContext returns the request's sign-in identity; the zero
+// value when the request carries none.
+func SignInIdentityFromContext(ctx context.Context) SignInIdentity {
+	identity, _ := ctx.Value(signInIdentityContextKey{}).(SignInIdentity)
+	return identity
 }
 
 var (

@@ -127,15 +127,23 @@ func (h *Handler) finishIdentityCheck(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	subject, err := identity.Subject(r.Context(), returnURL, code, identityVerifier(cookie.Value, state.Nonce))
+	signedIn, err := identity.Identity(r.Context(), returnURL, code, identityVerifier(cookie.Value, state.Nonce))
 	if err != nil {
 		logging.Warn("OAuth", "Sign-in check failed for server=%s: %v", state.ServerName, err)
 		h.renderErrorPage(w, summaryNotCompleted, "")
 		return
 	}
-	if state.UserID == "" || subject != state.UserID {
+	// The issuer and raw sub, never a mapped claim such as email: together
+	// they are the only stable identifier of a person (OIDC Core §5.7).
+	switch {
+	case state.SignIn.Subject == "" || state.SignIn.Issuer != signedIn.Issuer:
+		logging.Warn("OAuth", "Refusing sign-in to server=%s: the link was issued to an identity of issuer %q, the check signs in at %q",
+			state.ServerName, state.SignIn.Issuer, signedIn.Issuer)
+		h.renderErrorPage(w, summaryUnconfirmedPerson, "")
+		return
+	case state.SignIn.Subject != signedIn.Subject:
 		logging.Warn("OAuth", "Refusing sign-in to server=%s: the browser signed in as %s, the link was issued to %s",
-			state.ServerName, logging.TruncateIdentifier(subject), logging.TruncateIdentifier(state.UserID))
+			state.ServerName, logging.TruncateIdentifier(signedIn.Subject), logging.TruncateIdentifier(state.SignIn.Subject))
 		h.renderErrorPage(w, summaryOtherPerson, "")
 		return
 	}

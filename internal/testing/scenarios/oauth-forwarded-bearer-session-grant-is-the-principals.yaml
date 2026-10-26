@@ -19,6 +19,8 @@ timeout: "3m"
 
 pre_configuration:
   mock_oauth_servers:
+    # muster's identity provider, which also issues the bearers a front end
+    # forwards (Dex, trusted as an issuer): a server's sign-in check runs here.
     - name: "muster-idp"
       scopes: ["openid", "profile", "email"]
       auto_approve: true
@@ -27,10 +29,6 @@ pre_configuration:
       client_id: "muster-client"
       client_secret: "muster-secret"
       use_as_muster_oauth_server: true
-
-    # The issuer of the bearers a front end forwards (Dex's stand-in).
-    - name: "workload-idp"
-      token_lifetime: "1h"
 
     # The server's own authorization server, a separate issuer: the grant
     # obtained there is filed under the bearer's muster session.
@@ -44,7 +42,7 @@ pre_configuration:
 
   muster_broker:
     trusted_issuers:
-      - oauth_server_ref: "workload-idp"
+      - oauth_server_ref: "muster-idp"
         accepted_typ_headers: [""]
 
   mcp_servers:
@@ -73,23 +71,23 @@ steps:
 
   - id: "mint-alice-first"
     tool: "test_mint_token"
-    args: {server: "workload-idp", name: "alice-first", sub: "alice", azp: "portal", jti: "alice-1"}
+    args: {server: "muster-idp", name: "alice-first", sub: "alice", azp: "portal", jti: "alice-1"}
     expected: {success: true}
   - id: "mint-alice-second"
     tool: "test_mint_token"
-    args: {server: "workload-idp", name: "alice-second", sub: "alice", azp: "portal", jti: "alice-2"}
+    args: {server: "muster-idp", name: "alice-second", sub: "alice", azp: "portal", jti: "alice-2"}
     expected: {success: true}
   - id: "mint-alice-third"
     tool: "test_mint_token"
-    args: {server: "workload-idp", name: "alice-third", sub: "alice", azp: "portal", jti: "alice-3"}
+    args: {server: "muster-idp", name: "alice-third", sub: "alice", azp: "portal", jti: "alice-3"}
     expected: {success: true}
   - id: "mint-alice-other-client"
     tool: "test_mint_token"
-    args: {server: "workload-idp", name: "alice-cli", sub: "alice", azp: "cli", jti: "alice-cli"}
+    args: {server: "muster-idp", name: "alice-cli", sub: "alice", azp: "cli", jti: "alice-cli"}
     expected: {success: true}
   - id: "mint-bob"
     tool: "test_mint_token"
-    args: {server: "workload-idp", name: "bob", sub: "bob", azp: "portal", jti: "bob-1"}
+    args: {server: "muster-idp", name: "bob", sub: "bob", azp: "portal", jti: "bob-1"}
     expected: {success: true}
 
   - id: "alice-first-connects"
