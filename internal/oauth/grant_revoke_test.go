@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
@@ -201,4 +202,30 @@ func TestDeleteByIssuerForUser_SessionScopedIssuerRevokesNothing(t *testing.T) {
 	if got := as.requests(); len(got) != 0 {
 		t.Errorf("revocation requests = %+v, want none for a session-scoped issuer", got)
 	}
+}
+
+func TestDeleteByIssuerForUser_TenantKeyRevokesAtTheIssuer(t *testing.T) {
+	var issuer string
+	as := &revocationAS{advertise: true}
+	srv := httptest.NewTLSServer(as.handler(t, &issuer))
+	defer srv.Close()
+	issuer = srv.URL
+	key := api.IssuerKey("org-a", issuer)
+
+	client := NewClient("https://muster.example.com/.well-known/oauth-client.json", "https://muster.example.com", "/oauth/proxy/callback", "openid")
+	client.oauthClient = pkgoauth.NewClient(pkgoauth.WithHTTPClient(srv.Client()))
+	defer client.Stop()
+	client.PinIssuer(key, IssuerPin{ClientID: "tenant-app", ClientSecret: "tenant-secret", SubjectScoped: true}, nil)
+	client.StoreToken("session-a", "alice", &pkgoauth.Token{AccessToken: "glpat_access", RefreshToken: "glrt_refresh", Issuer: key, Scope: "api"})
+
+	client.DeleteByIssuerForUser("session-a", "alice", key)
+
+	got := as.requests()
+	if len(got) != 2 {
+		t.Fatalf("revocation requests = %+v, want both tokens revoked at the issuer behind the key", got)
+	}
+	if got[0].clientID != "tenant-app" {
+		t.Errorf("revocation identified as %q, want the tenant pin's client", got[0].clientID)
+	}
+	assertGrantGone(t, client, key)
 }

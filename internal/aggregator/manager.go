@@ -368,6 +368,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 	family, _ := serviceData["family"].(*api.MCPServerFamily)
 	namespace, _ := serviceData["namespace"].(string)
 	uid, _ := serviceData[api.ServiceDataUID].(string)
+	createdAt, _ := serviceData[api.ServiceDataCreatedAt].(time.Time)
 	timeout, _ := serviceData["timeout"].(time.Duration)
 	maxCallDuration, _ := serviceData["maxCallDuration"].(time.Duration)
 
@@ -385,6 +386,7 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 		Name:            serverName,
 		Namespace:       namespace,
 		UID:             uid,
+		CreatedAt:       createdAt,
 		ToolPrefix:      toolPrefix,
 		Family:          family,
 		Timeout:         timeout,
@@ -453,7 +455,7 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	if info, ok := am.aggregatorServer.GetRegistry().GetServerInfo(registration.Name); ok {
 		pinCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		am.aggregatorServer.releaseAuthorizationServerPin(pinCtx, registration.Name, previousAuth)
-		if err := pinAuthorizationServer(pinCtx, info); err != nil {
+		if err := am.aggregatorServer.pinAuthorizationServer(pinCtx, info); err != nil {
 			logPinDeferred(info, err)
 		}
 		cancel()
@@ -904,6 +906,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 	family, _ := serviceData["family"].(*api.MCPServerFamily)
 	namespace, _ := serviceData["namespace"].(string)
 	uid, _ := serviceData[api.ServiceDataUID].(string)
+	createdAt, _ := serviceData[api.ServiceDataCreatedAt].(time.Time)
 	meta, _ := serviceData["meta"].(map[string]string)
 	headers, _ := serviceData["headers"].(map[string]string)
 	headersFrom, _ := serviceData["headersFrom"].([]api.MCPServerHeaderFrom)
@@ -922,6 +925,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 			Name:            service.GetName(),
 			Namespace:       namespace,
 			UID:             uid,
+			CreatedAt:       createdAt,
 			ToolPrefix:      toolPrefix,
 			Family:          family,
 			Timeout:         timeout,

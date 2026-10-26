@@ -128,13 +128,13 @@ func TestClient_ExpectedResponseIssuer(t *testing.T) {
 	client.PinIssuer("https://as.example.com/apps/one/", IssuerPin{ExpectedIssuer: "https://as.example.com"}, pinnedMetadata())
 	client.PinIssuer("https://as.example.com/apps/two", IssuerPin{SubjectScoped: true}, pinnedMetadata())
 
-	if got := client.expectedResponseIssuer("https://as.example.com/apps/one"); got != "https://as.example.com" {
-		t.Errorf("expectedResponseIssuer(one) = %q, want the pin's expected issuer", got)
+	if got := client.issuerPin("https://as.example.com/apps/one").expectedIssuer(); got != "https://as.example.com" {
+		t.Errorf("expectedIssuer(one) = %q, want the pin's expected issuer", got)
 	}
-	if got := client.expectedResponseIssuer("https://as.example.com/apps/two"); got != "" {
-		t.Errorf("expectedResponseIssuer(two) = %q, want empty for a pin without the field", got)
+	if got := client.issuerPin("https://as.example.com/apps/two").expectedIssuer(); got != "" {
+		t.Errorf("expectedIssuer(two) = %q, want empty for a pin without the field", got)
 	}
-	if got := client.expectedResponseIssuer("https://unpinned.example.com"); got != "" {
-		t.Errorf("expectedResponseIssuer(unpinned) = %q, want empty", got)
+	if got := client.issuerPin("https://unpinned.example.com").expectedIssuer(); got != "" {
+		t.Errorf("expectedIssuer(unpinned) = %q, want empty", got)
 	}
 }

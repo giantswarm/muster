@@ -44,3 +44,17 @@ func (s *Service) refusedPinSecret(ctx context.Context) error {
 	}
 	return nil
 }
+
+// conflictingAuthorizationServer returns the aggregator's refusal of the
+// server's spec.auth.authorizationServer when an older MCPServer of its
+// namespace describes the same issuer differently
+// (api.ErrAuthorizationServerConflict). The server is Failed with it and
+// retried with backoff, and reads Auth Required once the descriptions match
+// or the other MCPServer goes.
+func (s *Service) conflictingAuthorizationServer() error {
+	checker, ok := api.GetAggregator().(api.AuthorizationServerConflictChecker)
+	if !ok {
+		return nil
+	}
+	return checker.AuthorizationServerConflict(s.GetName())
+}

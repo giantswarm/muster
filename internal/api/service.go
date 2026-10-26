@@ -342,7 +342,8 @@ const ServiceDataHealthCheckFailures = "consecutiveHealthCheckFailures"
 // read why a server is Awaiting Session or Failed without the logs.
 const (
 	// ServiceDataFailureReason is a string: the class of the failure the
-	// service is in (a TokenExchangeFailureClass), present only while the
+	// service is in (a TokenExchangeFailureClass or
+	// FailureReasonAuthorizationServerConflict), present only while the
 	// state is Failed for a reason other than the endpoint itself.
 	ServiceDataFailureReason = "failureReason"
 	// ServiceDataLastTokenExchangeSucceededAt is a time.Time: when a caller's
@@ -350,3 +351,8 @@ const (
 	// first successful exchange since the process started.
 	ServiceDataLastTokenExchangeSucceededAt = "lastTokenExchangeSucceededAt"
 )
+
+// FailureReasonAuthorizationServerConflict is the ServiceDataFailureReason of
+// a server Failed with ErrAuthorizationServerConflict, and the reason of its
+// Ready condition.
+const FailureReasonAuthorizationServerConflict = "AuthorizationServerConflict"

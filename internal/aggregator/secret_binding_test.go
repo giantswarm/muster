@@ -43,7 +43,7 @@ func TestPinReadsTheSecretForTheMCPServer(t *testing.T) {
 	api.RegisterSecretCredentialsHandler(secrets)
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(nil) })
 
-	require.NoError(t, pinAuthorizationServer(context.Background(), tenantGithub(ref)))
+	require.NoError(t, bareAggregator().pinAuthorizationServer(context.Background(), tenantGithub(ref)))
 	require.NotNil(t, secrets.lastOwner)
 	assert.Equal(t, tenantGithubOwner, *secrets.lastOwner)
 	assert.Equal(t, api.SecretFieldAuthorizationServer, secrets.lastField)
@@ -51,7 +51,7 @@ func TestPinReadsTheSecretForTheMCPServer(t *testing.T) {
 
 	handler.pins = map[string]api.IssuerPin{}
 	api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{err: errSecretNotBound})
-	err := pinAuthorizationServer(context.Background(), tenantGithub(ref))
+	err := bareAggregator().pinAuthorizationServer(context.Background(), tenantGithub(ref))
 	require.ErrorIs(t, err, api.ErrSecretNotBound)
 	assert.Empty(t, handler.pins, "a refused Secret is never pinned")
 }

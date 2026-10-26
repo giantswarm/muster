@@ -13,7 +13,7 @@ const definitionPinTimeout = 10 * time.Second
 
 // definedServers returns the servers the MCPServer definitions describe, in
 // whatever state their connection is, shaped as the registry would hold them
-// (name, namespace, UID, auth config). Nil without a service registry.
+// (name, namespace, UID, creation time, auth config). Nil without a service registry.
 func (am *AggregatorManager) definedServers() map[string]*ServerInfo {
 	if am.serviceRegistry == nil {
 		return nil
@@ -27,10 +27,12 @@ func (am *AggregatorManager) definedServers() map[string]*ServerInfo {
 		auth, _ := data["auth"].(*api.MCPServerAuth)
 		namespace, _ := data["namespace"].(string)
 		uid, _ := data[api.ServiceDataUID].(string)
+		createdAt, _ := data[api.ServiceDataCreatedAt].(time.Time)
 		defined[service.GetName()] = &ServerInfo{
 			Name:       service.GetName(),
 			Namespace:  namespace,
 			UID:        uid,
+			CreatedAt:  createdAt,
 			AuthConfig: auth,
 		}
 	}
@@ -79,7 +81,7 @@ func (am *AggregatorManager) pinDefinedAuthorizationServers(ctx context.Context)
 			continue
 		}
 		pinCtx, cancel := context.WithTimeout(ctx, definitionPinTimeout)
-		err := pinAuthorizationServer(pinCtx, info)
+		err := am.aggregatorServer.pinAuthorizationServer(pinCtx, info)
 		cancel()
 		if err != nil {
 			logPinDeferred(info, err)

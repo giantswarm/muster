@@ -54,6 +54,11 @@ const ClientIDMethodNone = "none"
 var (
 	errTenantNoClient  = errors.New("a server outside muster's namespace signs in with its own pin (spec.auth.authorizationServer.clientCredentialsSecretRef) or with a dynamic client registration, and this authorization server offers neither")
 	errTenantPinIsCIMD = errors.New("a server outside muster's namespace may not pin muster's own client ID metadata document URL as its client")
+
+	// errPinChanged refuses the callback of a flow whose issuer pin changed
+	// after the flow started: the code and its PKCE verifier would go to a
+	// token endpoint and a client the code was not issued for.
+	errPinChanged = errors.New("the authorization server's description changed after the sign-in started; sign in again")
 )
 
 // ClientIDMethodPreregistered marks a client the operator registered with
@@ -61,28 +66,6 @@ var (
 // clientCredentialsSecretRef): the only way in against an authorization
 // server that supports neither CIMD nor RFC 7591, GitHub being the case.
 const ClientIDMethodPreregistered = "preregistered"
-
-// IssuerPin is what an operator configured for one authorization server on an
-// MCPServer (spec.auth.authorizationServer) beyond the issuer itself: a
-// pre-registered client, whether the tokens the AS issues belong to the
-// person (subject) or to the login session that obtained them, and the
-// issuer identifier the AS puts in the RFC 9207 iss parameter when the pinned
-// identity is not it.
-type IssuerPin struct {
-	ClientID      string
-	ClientSecret  string
-	SubjectScoped bool
-
-	// ExpectedIssuer is what a present iss on the authorization response has
-	// to equal instead of the pinned identity; empty for the identity itself.
-	// The identity stays the grant key either way.
-	ExpectedIssuer string
-
-	// RevocationEndpoint is the RFC 7009 endpoint a disconnect revokes the
-	// person's grant at, in place of the one the metadata advertises; empty
-	// to use the metadata's.
-	RevocationEndpoint string
-}
 
 // subjectSessionID is the token-store session under which a subject-scoped
 // grant is filed in addition to the real session: any session of the same
@@ -125,7 +108,9 @@ type Client struct {
 	// Shared OAuth client for protocol operations
 	oauthClient *pkgoauth.Client
 
-	// pins holds the operator-configured authorization servers by issuer.
+	// pins holds the operator-configured authorization servers by issuer
+	// key. A stored pin is never modified: a reader that took one sees its
+	// endpoints and its client from the same description.
 	pinsMu sync.RWMutex
 	pins   map[string]*IssuerPin
 
@@ -217,21 +202,6 @@ func (c *Client) callbackPathFor(issuerKey string) string {
 	return config.OAuthProxyNamespaceCallbackPath(namespace)
 }
 
-// discoverMetadata returns the authorization server metadata for an issuer
-// key. For muster's namespace the key is the issuer and a pin made for it
-// answers, as before. For a server outside it only the pin filed under the
-// key answers; otherwise the metadata comes from the plain issuer's own
-// discovery document, never from a pin of muster's namespace.
-func (c *Client) discoverMetadata(ctx context.Context, issuerKey string) (*pkgoauth.Metadata, error) {
-	if !api.IsTenantIssuerKey(issuerKey) {
-		return c.oauthClient.DiscoverMetadata(ctx, issuerKey)
-	}
-	if metadata := c.oauthClient.PinnedMetadata(issuerKey); metadata != nil {
-		return metadata, nil
-	}
-	return c.oauthClient.DiscoverPublishedMetadata(ctx, api.IssuerURL(issuerKey))
-}
-
 // GetCIMDURL returns the URL where the Client ID Metadata Document is served.
 // This is derived from the clientID which is expected to be the CIMD URL.
 func (c *Client) GetCIMDURL() string {
@@ -252,70 +222,6 @@ func (c *Client) GetToken(sessionID, issuer, scope string) *pkgoauth.Token {
 
 	// Fall back to issuer-only match for SSO
 	return c.tokenStore.GetByIssuer(sessionID, issuer)
-}
-
-// PinIssuer records the operator's description of an authorization server:
-// the pre-registered client to identify with, whether its grants are
-// subject-scoped, and -- for an AS without a discovery document -- its
-// metadata. Calling it again for the same issuer replaces the pin, which is
-// how a rotated client secret takes effect.
-func (c *Client) PinIssuer(issuer string, pin IssuerPin, metadata *pkgoauth.Metadata) {
-	issuer = strings.TrimSuffix(issuer, "/")
-	if metadata != nil {
-		c.oauthClient.PinMetadata(issuer, metadata)
-	} else {
-		// The pin describes the AS by its issuer alone now: a document
-		// pinned by an earlier description (explicit endpoints) must not
-		// keep standing in for discovery.
-		c.oauthClient.UnpinMetadata(issuer)
-	}
-	c.pinsMu.Lock()
-	c.pins[issuer] = &pin
-	c.pinsMu.Unlock()
-	logging.Info("OAuth", "Pinned authorization server issuer=%s preregisteredClient=%t subjectScoped=%t pinnedMetadata=%t expectedIssuer=%q revocationEndpoint=%q",
-		issuer, pin.ClientID != "", pin.SubjectScoped, metadata != nil, pin.ExpectedIssuer, pin.RevocationEndpoint)
-}
-
-// UnpinIssuer forgets the operator's description of an authorization server:
-// the pre-registered client, the grant scope and any pinned metadata. The next
-// flow against the issuer discovers the AS again and identifies to it as it
-// would without a pin. Called when no MCPServer describes the issuer any more,
-// or before a changed description is recorded.
-func (c *Client) UnpinIssuer(issuer string) {
-	issuer = strings.TrimSuffix(issuer, "/")
-	c.pinsMu.Lock()
-	_, hadPin := c.pins[issuer]
-	delete(c.pins, issuer)
-	c.pinsMu.Unlock()
-	hadMetadata := c.oauthClient.UnpinMetadata(issuer)
-	if hadPin || hadMetadata {
-		logging.Info("OAuth", "Unpinned authorization server issuer=%s pin=%t pinnedMetadata=%t",
-			issuer, hadPin, hadMetadata)
-	}
-}
-
-// issuerPin returns the operator pin for an issuer, or nil.
-func (c *Client) issuerPin(issuer string) *IssuerPin {
-	c.pinsMu.RLock()
-	defer c.pinsMu.RUnlock()
-	return c.pins[strings.TrimSuffix(issuer, "/")]
-}
-
-// expectedResponseIssuer returns the issuer identifier the operator says the
-// pinned authorization server puts in the RFC 9207 iss parameter, or "" when
-// the pin names none and the pinned identity itself is expected.
-func (c *Client) expectedResponseIssuer(issuer string) string {
-	pin := c.issuerPin(issuer)
-	if pin == nil {
-		return ""
-	}
-	return pin.ExpectedIssuer
-}
-
-// subjectScoped reports whether grants from the issuer belong to the person.
-func (c *Client) subjectScoped(issuer string) bool {
-	pin := c.issuerPin(issuer)
-	return pin != nil && pin.SubjectScoped
 }
 
 // IssuerSubjectScoped is the exported form of subjectScoped: whether the
@@ -383,12 +289,12 @@ func (c *Client) DeleteByIssuerForUser(sessionID, userID, issuer string) {
 // would stay poisoned until an operator deleted it by hand. A flow that is
 // being completed (code exchange, token refresh) uses the stored credentials
 // as they are: they are the identification the flow started with.
-func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkgoauth.Metadata, allowRegistration bool) *resolvedClient {
+func (c *Client) resolveClient(ctx context.Context, issuer string, pin *IssuerPin, metadata *pkgoauth.Metadata, allowRegistration bool) *resolvedClient {
 	tenant := api.IsTenantIssuerKey(issuer)
 
 	// An operator-registered client wins over every discovered mechanism:
 	// it exists precisely because the AS accepts nothing else.
-	if pin := c.issuerPin(issuer); pin != nil && pin.ClientID != "" {
+	if pin != nil && pin.ClientID != "" {
 		if tenant && pin.ClientID == c.clientID {
 			return &resolvedClient{Method: ClientIDMethodNone, RegistrationError: errTenantPinIsCIMD}
 		}
@@ -448,7 +354,8 @@ func (c *Client) resolveClient(ctx context.Context, issuer string, metadata *pkg
 // same RFC 8707 value as the authorization request.
 func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams) (string, *resolvedClient, error) {
 	issuer := params.Issuer
-	metadata, err := c.discoverMetadata(ctx, issuer)
+	pin := c.issuerPin(issuer)
+	metadata, err := c.metadataFor(ctx, issuer, pin)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
@@ -463,7 +370,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 
 	// Resolve the client identification for this issuer, registering via
 	// RFC 7591 when the AS supports DCR but not CIMD.
-	resolved := c.resolveClient(ctx, issuer, metadata, true)
+	resolved := c.resolveClient(ctx, issuer, pin, metadata, true)
 	if resolved.Method == ClientIDMethodNone {
 		return "", nil, fmt.Errorf("authorization server %q: %w", api.IssuerURL(issuer), resolved.RegistrationError)
 	}
@@ -486,6 +393,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 		Resource:     params.Resource,
 		Scope:        params.Scope,
 		CodeVerifier: pkce.CodeVerifier,
+		PinDigest:    pin.stateDigest(),
 	}
 	state, err := c.stateStore.GenerateState(stateParams,
 		func(encodedState string) (string, error) {
@@ -516,22 +424,30 @@ func (c *Client) GetStartURL(encodedState string) string {
 		"?state=" + url.QueryEscape(encodedState)
 }
 
-// ExchangeCode exchanges an authorization code for tokens. resource is the
-// RFC 8707 indicator recorded with the flow's state; it must match the value
-// sent on the authorization request. requestedScope is the scope the
-// authorization request asked for: an authorization server that omits
-// `scope` from its token response granted exactly that (RFC 6749 §5.1), so
-// the token is recorded with it. Dex omits the parameter; without this every
-// Dex grant was filed under an empty scope -- the token-store key of the
-// session's own login token when the pinned issuer is muster's IdP
-// (giantswarm/muster#1174).
+// ExchangeCode exchanges the authorization code of the flow behind state for
+// tokens. The token request carries the RFC 8707 resource recorded with the
+// flow, the value sent on the authorization request. The scope recorded with
+// the flow is the one the authorization request asked for: an authorization
+// server that omits `scope` from its token response granted exactly that
+// (RFC 6749 §5.1), so the token is recorded with it. Dex omits the
+// parameter; without this every Dex grant was filed under an empty scope --
+// the token-store key of the session's own login token when the pinned
+// issuer is muster's IdP (giantswarm/muster#1174).
+//
+// The code was issued to the client of the description the flow started
+// under. When the issuer's pin has changed since (another description took
+// over, or the pin went), nothing is sent and errPinChanged is returned.
 //
 // An invalid_client answer from the token endpoint means the AS no longer
 // accepts the DCR credentials the flow was started with; they are dropped so
 // the next sign-in registers muster again instead of failing the same way.
-func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, resource, requestedScope string) (*pkgoauth.Token, error) {
-	// Fetch OAuth metadata using shared client
-	metadata, err := c.discoverMetadata(ctx, issuer)
+func (c *Client) ExchangeCode(ctx context.Context, state *OAuthState, code string) (*pkgoauth.Token, error) {
+	issuer := state.Issuer
+	pin, err := c.flowPin(state)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := c.metadataFor(ctx, issuer, pin)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch OAuth metadata: %w", err)
 	}
@@ -539,7 +455,7 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, r
 	// Resolve the same client identification the authorization request used.
 	// Registration is not attempted here: any DCR registration happened in
 	// GenerateAuthURL, and its credentials are read back from the store.
-	resolved := c.resolveClient(ctx, issuer, metadata, false)
+	resolved := c.resolveClient(ctx, issuer, pin, metadata, false)
 	if resolved.Method == ClientIDMethodNone {
 		return nil, fmt.Errorf("authorization server %q: %w", api.IssuerURL(issuer), resolved.RegistrationError)
 	}
@@ -553,8 +469,8 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, r
 		c.redirectURIFor(issuer),
 		resolved.ClientID,
 		resolved.ClientSecret,
-		codeVerifier,
-		resource,
+		state.CodeVerifier,
+		state.Resource,
 	)
 	if err != nil {
 		if resolved.Method == ClientIDMethodDCR && pkgoauth.IsInvalidClientError(err) {
@@ -566,7 +482,7 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier, issuer, r
 	// Set issuer on the token
 	token.Issuer = issuer
 	if token.Scope == "" {
-		token.Scope = requestedScope
+		token.Scope = state.Scope
 	}
 
 	logging.Debug("OAuth", "Successfully exchanged code for token (issuer=%s, scope=%q, expires_in=%d)",
@@ -625,8 +541,8 @@ func (c *Client) GetClientMetadata() *pkgoauth.ClientMetadata {
 	}
 }
 
-// DiscoverMetadata fetches OAuth metadata for an issuer key (api.IssuerKey).
-// This is exposed for external access to metadata discovery.
+// DiscoverMetadata returns the metadata of the authorization server behind an
+// issuer key (api.IssuerKey), see metadataFor.
 func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*pkgoauth.Metadata, error) {
-	return c.discoverMetadata(ctx, issuer)
+	return c.metadataFor(ctx, issuer, c.issuerPin(issuer))
 }
