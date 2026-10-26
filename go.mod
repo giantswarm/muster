@@ -211,10 +211,10 @@ replace github.com/prometheus/prometheus v0.51.0 => github.com/prometheus/promet
 
 replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
 
-// The Giant Swarm line of mcp-go: v1.3.0 plus the two streamable-http fixes
-// that stop request notifications from being dropped or sent after the
-// response, and the request body bound of the HTTP transports
-// (CVE-2026-108859) (giantswarm/mcp-go FORK.md and fork/). Pinned to v1.3.0
-// only, so an mcp-go bump leaves the line and the progress tests show whether
-// upstream carries the fixes; moving the pin follows FORK.md "Moving the pin".
-replace github.com/mark3labs/mcp-go v1.3.0 => github.com/giantswarm/mcp-go v1.1.2-0.20261020060120-17fa7f3a8f53
+// The Giant Swarm line of mcp-go: v1.4.0 plus the streamable-http fix that
+// sends a request's notifications on its POST stream, and the request body
+// bound of the HTTP transports (CVE-2026-108859) (giantswarm/mcp-go FORK.md
+// and fork/). Pinned to v1.4.0 only, so an mcp-go bump leaves the line and the
+// progress tests show whether upstream carries the fixes; moving the pin
+// follows FORK.md "Moving the pin".
+replace github.com/mark3labs/mcp-go v1.4.0 => github.com/giantswarm/mcp-go v1.1.2-0.20261026142157-6f05d7202221
