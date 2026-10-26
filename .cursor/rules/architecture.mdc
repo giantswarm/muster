@@ -69,12 +69,12 @@ alwaysApply: true
   -   **Don't change schema.json manually** It is generated via `muster test --generate-schema` and changes are the result of the actual api of `muster serve`.
 
 - **BDD test scenarios**
-  - **Execute test scenarios like this**: `muster test --scenario <scenario> --verbose`
-  - **Make sure muster is up to date**: Use `go install`
-  - **Always update muster after a code change in go**
+  - **Execute test scenarios like this**: `./muster test --scenario <scenario> --verbose`
+  - **Make sure muster is up to date**: Run `go build -o ./muster .` and use `./muster` from the worktree (never `go install`: it overwrites the shared `~/.go/bin/muster`)
+  - **Always rebuild `./muster` after a code change in go**
   - **There is no need to start muster serve**: Each test scenario is executed in its own environment and its own instance of `muster serve`
   - **Always treat the scenario as the defined and supposed user behavior**: If a scenario fails it is most likely a regression and the code needs to be fixed and not the scenario.
-  - **To see debug messages during test scenario execution**: You need to add a `--debug` flag: `muster test --scenario <scenario> --verbose --debug`
+  - **To see debug messages during test scenario execution**: You need to add a `--debug` flag: `./muster test --scenario <scenario> --verbose --debug`
   - **Never ever stop or commit with failing test scenarios**: You must fix them.
 
 - **Testing Standards**
@@ -93,8 +93,8 @@ alwaysApply: true
 
 - **When ever you get a "Finish this up":**
   - **Run the tests:** `make test`
-  - **Update the binary:** `go install`
-  - **Run the scenarios:** `muster test --parallel 50`
+  - **Rebuild the binary:** `go build -o ./muster .`
+  - **Run the scenarios:** `./muster test --parallel 50`
   - **Format the code:** `goimports -w . && go fmt ./...`
   - **Commit & Push & Pull Request**: Check the github workflow
 
