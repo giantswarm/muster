@@ -71,7 +71,7 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 
 ### Secret binding
 
-muster reads a Secret an MCPServer names (`headersFrom`, `auth.tokenExchange` and `auth.authorizationServer` `clientCredentialsSecretRef`) only when the Secret is bound to that MCPServer: the annotation `muster.giantswarm.io/mcpserver` (a list of servers), the label of the same key, or an `ownerReference` ([CRD reference](crds.md#secret-binding)).
+muster reads a Secret an MCPServer names (`headersFrom`, `auth.tokenExchange` and `auth.authorizationServer` `clientCredentialsSecretRef`) only when the Secret is bound to that MCPServer: the annotation `muster.giantswarm.io/mcpserver` (a list of servers) or an `ownerReference` ([CRD reference](crds.md#secret-binding)).
 
 ```yaml
 secretBinding:

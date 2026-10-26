@@ -63,7 +63,7 @@ func typed(t corev1.SecretType) func(*corev1.Secret) {
 
 func labelled(value string) func(*corev1.Secret) {
 	return func(s *corev1.Secret) {
-		s.Labels = map[string]string{api.MCPServerSecretLabel: value}
+		s.Labels = map[string]string{api.MCPServerSecretAnnotation: value}
 	}
 }
 
@@ -94,8 +94,7 @@ func TestCredentialsAdapter_SecretBinding(t *testing.T) {
 		{"ownerReference with the MCPServer's UID binds", bindingSecret("github-oauth-client", ownedBy("github", "uid-github")), nil},
 		{"ownerReference with another UID does not bind", bindingSecret("github-oauth-client", ownedBy("github", "uid-earlier")), api.ErrSecretNotBound},
 		{"ownerReference to another MCPServer does not bind", bindingSecret("github-oauth-client", ownedBy("gitlab", "uid-github")), api.ErrSecretNotBound},
-		{"label with the MCPServer's name binds", bindingSecret("github-oauth-client", labelled("github")), nil},
-		{"label for another MCPServer does not bind", bindingSecret("github-oauth-client", labelled("gitlab")), api.ErrSecretNotBound},
+		{"a label of the annotation's key does not bind", bindingSecret("github-oauth-client", labelled("github")), api.ErrSecretNotBound},
 		{"annotation with the MCPServer's name binds", bindingSecret("github-oauth-client", annotated("github")), nil},
 		{"annotation with namespace and name binds", bindingSecret("github-oauth-client", annotated("agent-platform/github")), nil},
 		{"annotation for another namespace's MCPServer does not bind", bindingSecret("github-oauth-client", annotated("org-acme/github")), api.ErrSecretNotBound},
@@ -121,7 +120,7 @@ func TestCredentialsAdapter_SecretBinding(t *testing.T) {
 			assert.Nil(t, key)
 			assert.Contains(t, err.Error(), "agent-platform/github")
 			assert.Contains(t, err.Error(), api.SecretFieldAuthorizationServer)
-			assert.Contains(t, err.Error(), api.MCPServerSecretLabel+"=github", "the error says how to bind it")
+			assert.Contains(t, err.Error(), "add github to the Secret's annotation "+api.MCPServerSecretAnnotation, "the error says how to bind it")
 			assert.Contains(t, err.Error(), "uid-github")
 		})
 	}
@@ -143,7 +142,7 @@ func TestCredentialsAdapter_SecretBindingWarnMode(t *testing.T) {
 	assert.Contains(t, out, "agent-platform/github")
 	assert.Contains(t, out, "agent-platform/github-oauth-client")
 	assert.Contains(t, out, api.SecretFieldTokenExchange)
-	assert.Contains(t, out, api.MCPServerSecretLabel+"=github")
+	assert.Contains(t, out, "add github to the Secret's annotation "+api.MCPServerSecretAnnotation)
 }
 
 func TestCredentialsAdapter_SecretBindingDefaultsToWarn(t *testing.T) {
@@ -159,7 +158,7 @@ func TestCredentialsAdapter_SecretBindingDefaultsToWarn(t *testing.T) {
 // configuration keeps reading them.
 func TestCredentialsAdapter_ProtectedSecrets(t *testing.T) {
 	protected := WithProtectedSecrets(types.NamespacedName{Namespace: "agent-platform", Name: "muster-oauth"})
-	secret := bindingSecret("muster-oauth", labelled("github"), ownedBy("github", "uid-github"))
+	secret := bindingSecret("muster-oauth", annotated("github"), ownedBy("github", "uid-github"))
 	ref := &api.ClientCredentialsSecretRef{Name: "muster-oauth"}
 
 	for _, mode := range []api.SecretBindingMode{api.SecretBindingWarn, api.SecretBindingEnforce} {
@@ -189,8 +188,8 @@ func TestCredentialsAdapter_ConfigReadsAreUnbound(t *testing.T) {
 	assert.Equal(t, "secret", creds.ClientSecret)
 }
 
-// TestCredentialsAdapter_CrossNamespaceBinding: an ownerReference or a label
-// cannot reach across namespaces, so a Secret in another namespace than the
+// TestCredentialsAdapter_CrossNamespaceBinding: an ownerReference cannot
+// reach across namespaces, so a Secret in another namespace than the
 // MCPServer's is bound by the annotation "<namespace>/<name>" only.
 func TestCredentialsAdapter_CrossNamespaceBinding(t *testing.T) {
 	enforce := WithSecretBindingMode(api.SecretBindingEnforce)
@@ -207,7 +206,6 @@ func TestCredentialsAdapter_CrossNamespaceBinding(t *testing.T) {
 	}{
 		"qualified annotation binds":    {inShared(annotated("agent-platform/github")), true},
 		"bare name annotation does not": {inShared(annotated("github")), false},
-		"label does not":                {inShared(labelled("github")), false},
 		"ownerReference does not":       {inShared(ownedBy("github", "uid-github")), false},
 		"another namespace's server":    {inShared(annotated("org-acme/github")), false},
 	} {
@@ -237,21 +235,6 @@ func TestCredentialsAdapter_OwnerReferenceNeedsTheUID(t *testing.T) {
 	require.ErrorIs(t, err, api.ErrSecretNotBound)
 }
 
-// TestCredentialsAdapter_LongNameIsBoundByAnnotation: a label value holds at
-// most 63 characters, so for a longer MCPServer name muster advises the
-// annotation.
-func TestCredentialsAdapter_LongNameIsBoundByAnnotation(t *testing.T) {
-	owner := githubServer
-	owner.Name = strings.Repeat("a", 64)
-	adapter := bindingAdapter(t, bindingSecret("github-oauth-client"), WithSecretBindingMode(api.SecretBindingEnforce))
-
-	_, err := adapter.LoadMCPServerClientCredentials(context.Background(), owner, api.SecretFieldTokenExchange,
-		&api.ClientCredentialsSecretRef{Name: "github-oauth-client"})
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
-	assert.Contains(t, err.Error(), "add "+owner.Name+" to the Secret's annotation "+api.MCPServerSecretAnnotation)
-	assert.NotContains(t, err.Error(), "the label")
-}
-
 // TestCredentialsAdapter_ReservedSecretTypes: a Secret of a type that holds
 // muster's or the cluster's credentials -- a Helm release, a TLS key, a
 // ServiceAccount token -- is refused in either mode, however it is bound,
@@ -261,7 +244,7 @@ func TestCredentialsAdapter_ReservedSecretTypes(t *testing.T) {
 		corev1.SecretTypeBootstrapToken, corev1.SecretTypeDockerConfigJson, corev1.SecretTypeDockercfg} {
 		for _, mode := range []api.SecretBindingMode{api.SecretBindingWarn, api.SecretBindingEnforce} {
 			t.Run(string(secretType)+"/"+string(mode), func(t *testing.T) {
-				secret := bindingSecret("sh.helm.release.v1.muster.v3", typed(secretType), labelled("github"), ownedBy("github", "uid-github"))
+				secret := bindingSecret("sh.helm.release.v1.muster.v3", typed(secretType), annotated("github"), ownedBy("github", "uid-github"))
 				adapter := bindingAdapter(t, secret, WithSecretBindingMode(mode))
 				ref := &api.ClientCredentialsSecretRef{Name: secret.Name}
 
@@ -297,8 +280,8 @@ func TestCredentialsAdapter_RefusalsAreLoggedOnce(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(logs.String(), "of type kubernetes.io/tls"))
 }
 
-// TestCredentialsAdapter_OwnerWithoutNameBindsNothing: a Secret without the
-// label must not count as bound to a request that names no MCPServer.
+// TestCredentialsAdapter_OwnerWithoutNameBindsNothing: an unbound Secret
+// must not count as bound to a request that names no MCPServer.
 func TestCredentialsAdapter_OwnerWithoutNameBindsNothing(t *testing.T) {
 	adapter := bindingAdapter(t, bindingSecret("github-oauth-client"), WithSecretBindingMode(api.SecretBindingEnforce))
 

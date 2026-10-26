@@ -162,9 +162,6 @@ func (b *secretBinding) checkBound(req *secretRequest, namespace string, secret 
 	return nil
 }
 
-// maxLabelValue is the longest label value Kubernetes accepts.
-const maxLabelValue = 63
-
 // howToBind tells the operator what to add to the Secret.
 func (b *secretBinding) howToBind(req *secretRequest, namespace string) string {
 	annotation := fmt.Sprintf("add %s to the Secret's annotation %s (a comma-separated list binds several MCPServers)",
@@ -176,20 +173,15 @@ func (b *secretBinding) howToBind(req *secretRequest, namespace string) string {
 	if uid == "" {
 		uid = "<its uid>"
 	}
-	label := ""
-	if len(req.owner.Name) <= maxLabelValue {
-		label = fmt.Sprintf("the label %s=%s, ", api.MCPServerSecretLabel, req.owner.Name)
-	}
 	return fmt.Sprintf("add %s to the Secret's annotation %s (a comma-separated list binds several MCPServers), "+
-		"%sor an ownerReference to the MCPServer (apiVersion %s, kind MCPServer, name %s, uid %s)",
-		req.owner.Name, api.MCPServerSecretAnnotation, label, musterv1alpha1.GroupVersion.String(), req.owner.Name, uid)
+		"or an ownerReference to the MCPServer (apiVersion %s, kind MCPServer, name %s, uid %s)",
+		req.owner.Name, api.MCPServerSecretAnnotation, musterv1alpha1.GroupVersion.String(), req.owner.Name, uid)
 }
 
 // boundTo reports whether a Secret in namespace is bound to the requesting
 // MCPServer:
 //   - an ownerReference to it, in its namespace, whose UID matches the
 //     MCPServer's (never without a known UID);
-//   - MCPServerSecretLabel with its name, in its namespace;
 //   - MCPServerSecretAnnotation, a comma-separated list, with an entry
 //     "<namespace>/<name>" in any namespace, or its name in its namespace.
 func boundTo(req *secretRequest, namespace string, secret *corev1.Secret) bool {
@@ -205,9 +197,6 @@ func boundTo(req *secretRequest, namespace string, secret *corev1.Secret) bool {
 	}
 	if !sameNamespace {
 		return false
-	}
-	if secret.Labels[api.MCPServerSecretLabel] == req.owner.Name {
-		return true
 	}
 	if req.owner.UID == "" {
 		return false

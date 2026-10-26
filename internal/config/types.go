@@ -41,10 +41,9 @@ const (
 )
 
 // SecretBindingConfig configures which Secrets an MCPServer may have muster
-// read and send. A Secret is bound to an MCPServer by an ownerReference to it,
-// the label muster.giantswarm.io/mcpserver=<name> or the annotation of the same
-// key (a comma-separated list of <name> or <namespace>/<name>). A change takes
-// effect at muster's restart.
+// read and send. A Secret is bound to an MCPServer by an ownerReference to it
+// or the annotation muster.giantswarm.io/mcpserver (a comma-separated list of
+// <name> or <namespace>/<name>). A change takes effect at muster's restart.
 type SecretBindingConfig struct {
 	// Mode is warn (default: an unbound Secret is read, with a warning) or
 	// enforce (an unbound Secret is refused).

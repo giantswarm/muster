@@ -320,8 +320,7 @@ muster:
   # Which Secrets muster reads for an MCPServer (spec.headersFrom and the
   # clientCredentialsSecretRef of spec.auth): only one bound to that MCPServer,
   # by the annotation muster.giantswarm.io/mcpserver (comma-separated list of
-  # <name> or <namespace>/<name>), the label of the same key (<name>) or an
-  # ownerReference.
+  # <name> or <namespace>/<name>) or an ownerReference.
   secretBinding:
     # warn: read an unbound Secret and log a warning. enforce: refuse it.
     # Bind the Secrets your MCPServers use, then set enforce. Takes effect at

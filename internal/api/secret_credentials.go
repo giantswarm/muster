@@ -20,7 +20,7 @@ type ClientCredentials struct {
 //
 // A read on behalf of an MCPServer -- a Secret its spec names -- goes through
 // the methods that take a SecretOwner: they read only a Secret bound to that
-// MCPServer (MCPServerSecretLabel or an ownerReference) and never one of
+// MCPServer (MCPServerSecretAnnotation or an ownerReference) and never one of
 // muster's own (secretBinding). LoadClientCredentialsForConfig is for Secrets
 // muster's own configuration names and must never be called with a reference
 // taken from an MCPServer.

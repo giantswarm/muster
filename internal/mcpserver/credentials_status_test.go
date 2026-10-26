@@ -24,5 +24,5 @@ func TestRefusalsSurviveTheStatusSanitizer(t *testing.T) {
 	sanitized := reconciler.SanitizeErrorMessage(err.Error())
 	assert.NotContains(t, sanitized, "[REDACTED]")
 	assert.Contains(t, sanitized, "MCPServer agent-platform/github may not read Secret agent-platform/github-token")
-	assert.Contains(t, sanitized, api.MCPServerSecretLabel+"=github")
+	assert.Contains(t, sanitized, "add github to the Secret's annotation "+api.MCPServerSecretAnnotation)
 }

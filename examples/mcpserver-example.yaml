@@ -55,8 +55,7 @@ spec:
 ---
 # The Secret a headersFrom entry names. muster reads it only for the
 # MCPServers it is bound to: this annotation (a comma-separated list of
-# <name> or <namespace>/<name>), the label of the same key, or an
-# ownerReference to the MCPServer.
+# <name> or <namespace>/<name>) or an ownerReference to the MCPServer.
 apiVersion: v1
 kind: Secret
 metadata:

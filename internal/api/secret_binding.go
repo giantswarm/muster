@@ -5,15 +5,11 @@ import (
 	"fmt"
 )
 
-// MCPServerSecretLabel binds a Secret to the MCPServer of its namespace that
-// the value names. An ownerReference to the MCPServer binds it too.
-const MCPServerSecretLabel = "muster.giantswarm.io/mcpserver"
-
 // MCPServerSecretAnnotation binds a Secret to the MCPServers it lists, comma
 // separated: "<namespace>/<name>" (any namespace) or "<name>" (the Secret's
-// namespace). It binds a Secret shared by several MCPServers, one in another
-// namespace than the MCPServer's, one rendered by GitOps before the MCPServer
-// has a UID, or one for a name longer than a label value may be.
+// namespace). An ownerReference to an MCPServer of the Secret's namespace
+// binds it too; the annotation also binds a Secret shared by several
+// MCPServers, or rendered by GitOps before the MCPServer has a UID.
 const MCPServerSecretAnnotation = "muster.giantswarm.io/mcpserver"
 
 // SecretBindingMode is what muster does with a Secret an MCPServer's spec
@@ -45,7 +41,7 @@ var ErrSecretNotBound = errors.New("the Secret is not bound to the MCPServer")
 var ErrSecretProtected = errors.New("muster never reads this Secret for an MCPServer")
 
 // SecretOwner is the MCPServer whose spec names a Secret. Only a Secret bound
-// to it is read on its behalf (see MCPServerSecretLabel).
+// to it is read on its behalf (see MCPServerSecretAnnotation).
 type SecretOwner struct {
 	// Name is the MCPServer object's name (not its key).
 	Name string

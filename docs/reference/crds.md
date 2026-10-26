@@ -174,7 +174,6 @@ muster reads a Secret that `headersFrom`, `auth.tokenExchange.clientCredentialsS
 | Binding | Value | Secret's namespace |
 |---------|-------|--------------------|
 | annotation `muster.giantswarm.io/mcpserver` | comma-separated list of `<name>` (the Secret's namespace) or `<namespace>/<name>` (any) | any |
-| label `muster.giantswarm.io/mcpserver` | `<name>`, one server, up to 63 characters | the MCPServer's |
 | `ownerReference` | any version of `muster.giantswarm.io`, `kind: MCPServer`, its `name` and `uid`; one per server | the MCPServer's |
 
 A Secret rendered by GitOps next to its MCPServers has no `uid` to reference yet: use the annotation. One Secret shared by several servers lists them all:
