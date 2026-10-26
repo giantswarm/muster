@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/giantswarm/muster/v5/internal/api"
-	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -96,7 +95,7 @@ func identityVerifier(cookie, nonce string) string {
 // identityReturnURL is where the identity sign-in sends the browser back: the
 // start endpoint, on the host the browser cookie belongs to.
 func (h *Handler) identityReturnURL() (*url.URL, error) {
-	return url.Parse(strings.TrimSuffix(h.client.publicURL, "/") + config.DefaultOAuthProxyStartPath)
+	return url.Parse(h.client.startEndpoint())
 }
 
 // sendToIdentityCheck sends the browser to sign in to muster's identity
