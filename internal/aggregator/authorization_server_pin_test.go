@@ -28,6 +28,11 @@ func (p *pinCaptureHandler) UnpinIssuer(issuer string) {
 	delete(p.pins, issuer)
 }
 
+func (p *pinCaptureHandler) PinnedDescriptionKey(issuer string) (string, bool) {
+	pin, ok := p.pins[issuer]
+	return pin.DescriptionKey, ok
+}
+
 var _ api.IssuerPinner = (*pinCaptureHandler)(nil)
 
 // bareAggregator is an aggregator whose registry and definitions are empty.

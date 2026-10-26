@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strconv"
 	"strings"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -59,14 +60,10 @@ func describedBefore(a, b *ServerInfo) bool {
 	return a.Name < b.Name
 }
 
-// errAuthorizationServerConflict marks a server whose description of its
-// authorization server is not the one pinned under its issuer key.
-var errAuthorizationServerConflict = errors.New("another MCPServer describes this authorization server differently")
-
 // issuerPinOwner returns the server whose description is pinned under the
 // issuer key of info; nil when info pins nothing or a provider App owns the
-// key. It returns errAuthorizationServerConflict when info's description is
-// not the owner's.
+// key. It returns api.ErrAuthorizationServerConflict when info's description
+// is not the owner's.
 func (a *AggregatorServer) issuerPinOwner(info *ServerInfo) (*ServerInfo, error) {
 	as, issuer := pinnedDescription(info)
 	if as == nil {
@@ -83,7 +80,7 @@ func (a *AggregatorServer) issuerPinOwner(info *ServerInfo) (*ServerInfo, error)
 	owner := issuerOwner(described, issuer)
 	if ownerAS, _ := pinnedDescription(owner); !samePin(as, ownerAS) {
 		return nil, fmt.Errorf("server %s: %w: server %s, whose description of %s is used; give both the same spec.auth.authorizationServer",
-			info.Name, errAuthorizationServerConflict, owner.Name, api.IssuerURL(issuer))
+			info.Name, api.ErrAuthorizationServerConflict, owner.Name, api.IssuerURL(issuer))
 	}
 	return owner, nil
 }
@@ -91,7 +88,7 @@ func (a *AggregatorServer) issuerPinOwner(info *ServerInfo) (*ServerInfo, error)
 // pinAuthorizationServer hands the description of the authorization server
 // under a server's issuer key to the OAuth handler: the owner's (issuerOwner),
 // which is the server's own or the same. It returns
-// errAuthorizationServerConflict, and pins nothing, for a server that
+// api.ErrAuthorizationServerConflict, and pins nothing, for a server that
 // describes the key differently.
 //
 // Idempotent. It runs when the server registers and again before every login,
@@ -103,6 +100,29 @@ func (a *AggregatorServer) pinAuthorizationServer(ctx context.Context, serverInf
 		return err
 	}
 	return pinDescription(ctx, owner)
+}
+
+// AuthorizationServerConflict implements api.AuthorizationServerConflictChecker.
+func (a *AggregatorServer) AuthorizationServerConflict(serverName string) error {
+	_, err := a.issuerPinOwner(a.describedServers()[serverName])
+	return err
+}
+
+// connectionConflict returns the error issuerPinOwner returns for a server
+// about to connect. A server whose description is the one pinned under its
+// issuer key is let through without looking at every other MCPServer.
+func (a *AggregatorServer) connectionConflict(info *ServerInfo) error {
+	as, issuer := pinnedDescription(info)
+	if as == nil {
+		return nil
+	}
+	if pinner, err := issuerPinner(); err == nil {
+		if pinned, ok := pinner.PinnedDescriptionKey(issuer); ok && pinned == descriptionKey(as) {
+			return nil
+		}
+	}
+	_, err := a.issuerPinOwner(info)
+	return err
 }
 
 // issuerPinner returns the OAuth handler that records pins.
@@ -130,6 +150,7 @@ func pinDescription(ctx context.Context, serverInfo *ServerInfo) error {
 	}
 
 	pin := api.IssuerPin{
+		DescriptionKey:        descriptionKey(as),
 		AuthorizationEndpoint: as.AuthorizationEndpoint,
 		TokenEndpoint:         as.TokenEndpoint,
 		ExpectedIssuer:        as.ExpectedIssuer,
@@ -171,26 +192,25 @@ func authorizationServerOf(auth *api.MCPServerAuth) *api.MCPServerAuthAuthorizat
 	return auth.AuthorizationServer
 }
 
-// samePin reports whether two descriptions pin the same: endpoints (revocation
+// descriptionKey identifies what a description pins: endpoints (revocation
 // included), expected issuer, client Secret reference and grant scope. A
-// rotated Secret behind an unchanged reference is not a difference here; the
-// re-pin every login performs picks that up.
+// rotated Secret behind an unchanged reference keeps the key; the re-pin
+// every login performs picks that up.
+func descriptionKey(as *api.MCPServerAuthAuthorizationServer) string {
+	fields := []string{as.AuthorizationEndpoint, as.TokenEndpoint, as.ExpectedIssuer, as.RevocationEndpoint,
+		strconv.FormatBool(as.SubjectScoped())}
+	if ref := as.ClientCredentialsSecretRef; ref != nil {
+		fields = append(fields, ref.Name, ref.Namespace, ref.ClientIDKey, ref.ClientSecretKey)
+	}
+	return strings.Join(fields, "\x00")
+}
+
+// samePin reports whether two descriptions pin the same (descriptionKey).
 func samePin(a, b *api.MCPServerAuthAuthorizationServer) bool {
 	if a == nil || b == nil {
 		return a == b
 	}
-	if a.AuthorizationEndpoint != b.AuthorizationEndpoint ||
-		a.TokenEndpoint != b.TokenEndpoint ||
-		a.ExpectedIssuer != b.ExpectedIssuer ||
-		a.RevocationEndpoint != b.RevocationEndpoint ||
-		a.SubjectScoped() != b.SubjectScoped() {
-		return false
-	}
-	ra, rb := a.ClientCredentialsSecretRef, b.ClientCredentialsSecretRef
-	if ra == nil || rb == nil {
-		return ra == rb
-	}
-	return *ra == *rb
+	return descriptionKey(a) == descriptionKey(b)
 }
 
 // sameAuthorizationServer reports whether two descriptions of an authorization

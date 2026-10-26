@@ -34,11 +34,15 @@ type IssuerPin struct {
 	// to use the metadata's.
 	RevocationEndpoint string
 
+	// DescriptionKey identifies the MCPServer description that placed the
+	// pin (api.IssuerPin.DescriptionKey). Not part of the digest.
+	DescriptionKey string
+
 	// metadata stands in for the discovery document of an authorization
 	// server that publishes none (GitHub); nil to discover. Set by PinIssuer.
 	metadata *pkgoauth.Metadata
 
-	// digest identifies the description, see pinDigest. Set by PinIssuer.
+	// digest identifies the description, see stateDigest. Set by PinIssuer.
 	digest string
 }
 
@@ -52,15 +56,15 @@ func (p *IssuerPin) expectedIssuer() string {
 	return p.ExpectedIssuer
 }
 
-// pinDigest identifies the description of the authorization server a flow
-// starts under: its endpoints, its client and how its grants are filed. The
-// client secret is left out, so a rotated secret does not end the flows in
-// progress. Empty without a pin.
-func pinDigest(pin *IssuerPin) string {
-	if pin == nil {
+// stateDigest identifies the description of the authorization server a flow
+// starts under, as its state records it: its endpoints, its client and how
+// its grants are filed. The client secret is left out, so a rotated secret
+// does not end the flows in progress. Empty without a pin.
+func (p *IssuerPin) stateDigest() string {
+	if p == nil {
 		return ""
 	}
-	return pin.digest
+	return p.digest
 }
 
 func (p *IssuerPin) computeDigest() string {
@@ -131,7 +135,7 @@ func (c *Client) issuerPin(issuer string) *IssuerPin {
 // pin changed since: nothing of the response may be acted on then.
 func (c *Client) flowPin(state *OAuthState) (*IssuerPin, error) {
 	pin := c.issuerPin(state.Issuer)
-	if pinDigest(pin) != state.PinDigest {
+	if pin.stateDigest() != state.PinDigest {
 		return nil, errPinChanged
 	}
 	return pin, nil

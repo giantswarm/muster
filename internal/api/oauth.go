@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"sync"
 	"time"
@@ -135,6 +136,10 @@ type OAuthHandler interface {
 // MCPServer spec.auth.authorizationServer carries, with the client
 // credentials resolved from their Secret.
 type IssuerPin struct {
+	// DescriptionKey identifies the MCPServer description that placed the
+	// pin; opaque to the OAuth handler, which only stores it with the pin.
+	DescriptionKey string
+
 	AuthorizationEndpoint string
 	TokenEndpoint         string
 	// ExpectedIssuer is the issuer identifier the authorization server puts in
@@ -163,6 +168,25 @@ type IssuerPinner interface {
 	// issuer any more, or before a changed description is recorded; a pin
 	// nobody owns would otherwise outlive its MCPServer until a restart.
 	UnpinIssuer(issuer string)
+
+	// PinnedDescriptionKey returns the IssuerPin.DescriptionKey of the pin
+	// recorded for an issuer; false without a pin.
+	PinnedDescriptionKey(issuer string) (string, bool)
+}
+
+// ErrAuthorizationServerConflict marks an MCPServer whose description of its
+// authorization server is not the one pinned under its issuer key: an older
+// MCPServer of its namespace describes the same issuer differently.
+var ErrAuthorizationServerConflict = errors.New("another MCPServer describes this authorization server differently")
+
+// AuthorizationServerConflictChecker is implemented by an AggregatorHandler
+// that knows which MCPServer's description is pinned under each issuer key.
+type AuthorizationServerConflictChecker interface {
+	// AuthorizationServerConflict returns an error wrapping
+	// ErrAuthorizationServerConflict, naming the MCPServer whose description
+	// is used, when the named server describes its authorization server
+	// differently; nil otherwise.
+	AuthorizationServerConflict(serverName string) error
 }
 
 // TenantIssuerForgetter is implemented by an OAuthHandler whose stored state

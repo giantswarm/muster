@@ -81,7 +81,7 @@ type StateParams struct {
 	// CodeVerifier is the PKCE code verifier for this flow.
 	CodeVerifier string
 
-	// PinDigest identifies the issuer pin the flow started under (pinDigest).
+	// PinDigest identifies the issuer pin the flow started under (IssuerPin.stateDigest).
 	PinDigest string
 }
 

@@ -43,6 +43,10 @@ func newAppGrantHandler() *appGrantHandler {
 
 func (h *appGrantHandler) PinIssuer(issuer string, pin api.IssuerPin) { h.pins[issuer] = pin }
 func (h *appGrantHandler) UnpinIssuer(issuer string)                  { delete(h.pins, issuer) }
+func (h *appGrantHandler) PinnedDescriptionKey(issuer string) (string, bool) {
+	pin, ok := h.pins[issuer]
+	return pin.DescriptionKey, ok
+}
 
 func (h *appGrantHandler) GetFullTokenByIssuerForUser(_, userID, issuer string) *api.OAuthToken {
 	return h.grants[userID+"|"+issuer]

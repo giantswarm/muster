@@ -102,7 +102,7 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 
 		// A server that conflicts with the description pinned under its
 		// issuer key must not connect with the grants of that description.
-		if _, err := a.issuerPinOwner(serverInfo); err != nil {
+		if err := a.connectionConflict(serverInfo); err != nil {
 			return nil, err
 		}
 

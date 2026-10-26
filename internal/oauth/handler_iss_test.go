@@ -69,7 +69,7 @@ func storeCallbackState(t *testing.T, client *Client, issuer string) string {
 		Issuer:       issuer,
 		Resource:     callbackTestResource,
 		CodeVerifier: "verifier",
-		PinDigest:    pinDigest(client.issuerPin(issuer)),
+		PinDigest:    client.issuerPin(issuer).stateDigest(),
 	}, nil)
 	if err != nil {
 		t.Fatalf("failed to generate state: %v", err)

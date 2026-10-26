@@ -111,15 +111,15 @@ func TestPinAuthorizationServer_OneDescriptionPerIssuerKey(t *testing.T) {
 		registerDescribing(t, a, newer)
 
 		err := a.pinAuthorizationServer(t.Context(), newer)
-		require.ErrorIs(t, err, errAuthorizationServerConflict)
+		require.ErrorIs(t, err, api.ErrAuthorizationServerConflict)
 		assert.Contains(t, err.Error(), "server owner")
 		assert.Empty(t, handler.pins)
 
 		_, err = a.resolveServerAuthInfo(t.Context(), newer)
-		require.ErrorIs(t, err, errAuthorizationServerConflict, "the newer server's sign-in is refused")
+		require.ErrorIs(t, err, api.ErrAuthorizationServerConflict, "the newer server's sign-in is refused")
 
 		_, err = a.newSessionClient(t.Context(), newer, "session-a", "alice", false)
-		require.ErrorIs(t, err, errAuthorizationServerConflict, "the newer server does not connect with the owner's grants")
+		require.ErrorIs(t, err, api.ErrAuthorizationServerConflict, "the newer server does not connect with the owner's grants")
 	})
 
 	t.Run("the owner keeps its description while a conflicting server exists", func(t *testing.T) {
@@ -142,6 +142,55 @@ func TestPinAuthorizationServer_OneDescriptionPerIssuerKey(t *testing.T) {
 		require.NotNil(t, secrets.lastOwner)
 		assert.Equal(t, "owner", secrets.lastOwner.Name, "the owner's Secret binding is the one read")
 	})
+}
+
+func TestConnectionConflict(t *testing.T) {
+	handler := &pinCaptureHandler{mockOAuthHandler: newMockOAuthHandler(true), pins: map[string]api.IssuerPin{}}
+	api.RegisterOAuthHandler(handler)
+	defer api.RegisterOAuthHandler(nil)
+	api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{credentials: &api.ClientCredentials{ClientID: "owner-client"}})
+	defer api.RegisterSecretCredentialsHandler(nil)
+
+	a := bareAggregator()
+	owner := describingServer("owner", 0, "owner.example.com", "owner-client")
+	registerDescribing(t, a, owner)
+	newer := describingServer("newer", time.Minute, "elsewhere.example.com", "newer-client")
+	registerDescribing(t, a, newer)
+	same := describingServer("same", time.Minute, "owner.example.com", "owner-client")
+	registerDescribing(t, a, same)
+	require.NoError(t, a.pinAuthorizationServer(t.Context(), owner))
+	require.Equal(t, descriptionKey(owner.AuthConfig.AuthorizationServer), handler.pins[ownerTestIssuer].DescriptionKey)
+
+	t.Run("a server with the pinned description connects without listing the MCPServers", func(t *testing.T) {
+		a.definedServers = func() map[string]*ServerInfo {
+			t.Fatal("the MCPServer definitions were listed")
+			return nil
+		}
+		defer func() { a.definedServers = nil }()
+		require.NoError(t, a.connectionConflict(same))
+	})
+
+	t.Run("a server with another description is refused, naming the owner", func(t *testing.T) {
+		err := a.connectionConflict(newer)
+		require.ErrorIs(t, err, api.ErrAuthorizationServerConflict)
+		assert.Contains(t, err.Error(), "server owner")
+	})
+
+	t.Run("without a pin the owner is worked out", func(t *testing.T) {
+		delete(handler.pins, ownerTestIssuer)
+		require.NoError(t, a.connectionConflict(same))
+		require.ErrorIs(t, a.connectionConflict(newer), api.ErrAuthorizationServerConflict)
+	})
+}
+
+func TestAuthorizationServerConflict(t *testing.T) {
+	a := bareAggregator()
+	registerDescribing(t, a, describingServer("owner", 0, "owner.example.com", "owner-client"))
+	registerDescribing(t, a, describingServer("newer", time.Minute, "elsewhere.example.com", "newer-client"))
+
+	require.NoError(t, a.AuthorizationServerConflict("owner"))
+	require.ErrorIs(t, a.AuthorizationServerConflict("newer"), api.ErrAuthorizationServerConflict)
+	require.NoError(t, a.AuthorizationServerConflict("unknown"), "a server muster does not know of conflicts with nothing")
 }
 
 func TestReleaseAuthorizationServerPin_HandsTheKeyToTheNextOwner(t *testing.T) {

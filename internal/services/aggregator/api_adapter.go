@@ -271,3 +271,19 @@ func (a *APIAdapter) DeregisterServer(name string) error {
 func (a *APIAdapter) Register() {
 	api.RegisterAggregator(a)
 }
+
+// AuthorizationServerConflict implements api.AuthorizationServerConflictChecker.
+func (a *APIAdapter) AuthorizationServerConflict(serverName string) error {
+	if a.service == nil {
+		return nil
+	}
+	manager := a.service.GetManager()
+	if manager == nil {
+		return nil
+	}
+	server := manager.GetAggregatorServer()
+	if server == nil {
+		return nil
+	}
+	return server.AuthorizationServerConflict(serverName)
+}

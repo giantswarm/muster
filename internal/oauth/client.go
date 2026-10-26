@@ -393,7 +393,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 		Resource:     params.Resource,
 		Scope:        params.Scope,
 		CodeVerifier: pkce.CodeVerifier,
-		PinDigest:    pinDigest(pin),
+		PinDigest:    pin.stateDigest(),
 	}
 	state, err := c.stateStore.GenerateState(stateParams,
 		func(encodedState string) (string, error) {
