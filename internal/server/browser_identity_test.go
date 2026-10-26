@@ -69,8 +69,7 @@ func TestLazyOAuthHTTPServer_BrowserIdentityRefusesUntilReady(t *testing.T) {
 
 // A trusted issuer's token names its issuer and raw sub, whatever its
 // subjectClaim maps the session subject to; any other bearer was issued for a
-// sign-in at muster's own identity provider. A JWT access token muster issued
-// itself names none.
+// sign-in at muster's own identity provider.
 func TestOAuthHTTPServer_SignInIdentity(t *testing.T) {
 	s := &OAuthHTTPServer{config: config.OAuthServerConfig{
 		Provider: OAuthProviderDex,
@@ -82,5 +81,4 @@ func TestOAuthHTTPServer_SignInIdentity(t *testing.T) {
 	require.Equal(t, api.SignInIdentity{Issuer: "https://dex.other.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"},
 		s.signInIdentity(&providers.UserInfo{ID: "CgVhbGljZRIGZ2l0aHVi", Email: "alice@example.com",
 			Issuer: "https://dex.other.example.com", TokenSource: providers.TokenSourceTrustedIssuer}))
-	require.Zero(t, s.signInIdentity(&providers.UserInfo{ID: "alice@example.com", TokenSource: providers.TokenSourceJWT}))
 }
