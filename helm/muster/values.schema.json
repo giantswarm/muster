@@ -210,6 +210,26 @@
                 }
             }
         },
+        "mcpServerSecretReferences": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "validationActions": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "Deny",
+                            "Warn",
+                            "Audit"
+                        ]
+                    }
+                }
+            }
+        },
         "muster": {
             "type": "object",
             "additionalProperties": false,
@@ -628,13 +648,6 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                        "mode": {
-                            "type": "string",
-                            "enum": [
-                                "warn",
-                                "enforce"
-                            ]
-                        },
                         "protectedSecrets": {
                             "type": "array",
                             "items": {

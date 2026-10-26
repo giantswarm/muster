@@ -15,9 +15,9 @@ import (
 	"github.com/giantswarm/muster/v5/internal/services"
 )
 
-// errNotBound is how the Secret reader refuses a Secret not bound to the
-// MCPServer that names it (secretBinding.mode enforce).
-var errNotBound = fmt.Errorf("MCPServer agent-platform/x may not read Secret agent-platform/x: %w", api.ErrSecretNotBound)
+// errProtected is how the Secret reader refuses a Secret muster keeps for
+// itself.
+var errProtected = fmt.Errorf("MCPServer agent-platform/x may not read Secret agent-platform/x: %w", api.ErrSecretProtected)
 
 // TestTokenExchangeSecretIsReadForTheMCPServer: the client Secret of
 // spec.auth.tokenExchange is read for the MCPServer, and a refused Secret
@@ -45,11 +45,11 @@ func TestTokenExchangeSecretIsReadForTheMCPServer(t *testing.T) {
 
 	// A probe is due, and the Secret is refused: nothing is posted.
 	svc.RecordTokenExchangeOutcome(errEndpointTimeout)
-	secrets.fail(errNotBound)
+	secrets.fail(errProtected)
 	err = svc.Start(t.Context())
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	require.ErrorIs(t, err, api.ErrSecretProtected)
 	assert.Equal(t, services.StateFailed, svc.GetState())
-	assert.ErrorIs(t, svc.GetLastError(), api.ErrSecretNotBound, "the refusal is the server's last error")
+	assert.ErrorIs(t, svc.GetLastError(), api.ErrSecretProtected, "the refusal is the server's last error")
 	assert.Empty(t, prober.probes(), "a refused Secret's credentials never reach the token endpoint")
 }
 
@@ -57,7 +57,7 @@ func TestTokenExchangeSecretIsReadForTheMCPServer(t *testing.T) {
 // the MCPServer, and a refused Secret fails the connect before any request
 // reaches the backend.
 func TestHeadersFromSecretIsReadForTheMCPServer(t *testing.T) {
-	secrets := &headerSecret{value: "Bearer s3cr3t", err: errNotBound}
+	secrets := &headerSecret{value: "Bearer s3cr3t", err: errProtected}
 	prev := api.GetSecretCredentialsHandler()
 	api.RegisterSecretCredentialsHandler(secrets)
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
@@ -87,7 +87,7 @@ func TestHeadersFromSecretIsReadForTheMCPServer(t *testing.T) {
 	t.Cleanup(func() { _ = svc.Stop(context.Background()) })
 
 	err = svc.Start(t.Context())
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	require.ErrorIs(t, err, api.ErrSecretProtected)
 
 	secrets.mu.Lock()
 	assert.Equal(t, []api.SecretOwner{{Name: "github", Namespace: "org-acme", UID: "uid-github"}}, secrets.owners,
@@ -101,10 +101,10 @@ func TestHeadersFromSecretIsReadForTheMCPServer(t *testing.T) {
 // TestRefusedPinSecretIsTheServersStatus: a refused client Secret of
 // spec.auth.authorizationServer makes the server Failed with the refusal,
 // retried with backoff, instead of Auth Required with nothing in the status;
-// once the Secret is bound the server reads Auth Required.
+// once the spec names a readable Secret the server reads Auth Required.
 func TestRefusedPinSecretIsTheServersStatus(t *testing.T) {
 	secrets := &stubSecretHandler{}
-	secrets.fail(errNotBound)
+	secrets.fail(errProtected)
 	prev := api.GetSecretCredentialsHandler()
 	api.RegisterSecretCredentialsHandler(secrets)
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
@@ -125,11 +125,11 @@ func TestRefusedPinSecretIsTheServersStatus(t *testing.T) {
 	t.Cleanup(func() { _ = svc.Stop(context.Background()) })
 
 	err = svc.Start(t.Context())
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	require.ErrorIs(t, err, api.ErrSecretProtected)
 	assert.False(t, api.IsAuthRequiredError(err), "a refusal is a failed start, not a server waiting for a sign-in")
 	assert.Equal(t, services.StateFailed, svc.GetState())
-	assert.ErrorIs(t, svc.GetLastError(), api.ErrSecretNotBound)
-	assert.NotNil(t, svc.GetNextRetryAfter(), "binding the Secret needs no restart")
+	assert.ErrorIs(t, svc.GetLastError(), api.ErrSecretProtected)
+	assert.NotNil(t, svc.GetNextRetryAfter(), "fixing the reference needs no restart")
 	secrets.mu.Lock()
 	assert.Equal(t, []string{api.SecretFieldAuthorizationServer}, secrets.fields)
 	assert.Equal(t, api.SecretOwner{Name: "github", Namespace: "agent-platform", UID: "uid-github"}, secrets.owners[0])

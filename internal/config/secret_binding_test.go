@@ -17,22 +17,15 @@ func TestLoadConfig_SecretBinding(t *testing.T) {
 		return LoadConfig(dir)
 	}
 
-	t.Run("defaults to warn", func(t *testing.T) {
-		assert.Equal(t, SecretBindingModeWarn, GetDefaultConfigWithRoles().SecretBinding.Mode)
+	t.Run("protected Secrets", func(t *testing.T) {
 		cfg, err := load(t, "secretBinding:\n  protectedSecrets: [muster-oauth]\n")
 		require.NoError(t, err)
-		assert.Equal(t, SecretBindingModeWarn, cfg.SecretBinding.Mode)
 		assert.Equal(t, []string{"muster-oauth"}, cfg.SecretBinding.ProtectedSecrets)
 	})
 
-	t.Run("enforce", func(t *testing.T) {
-		cfg, err := load(t, "secretBinding:\n  mode: enforce\n")
+	t.Run("a config rendered with a mode still loads", func(t *testing.T) {
+		cfg, err := load(t, "secretBinding:\n  mode: enforce\n  protectedSecrets: [muster-oauth]\n")
 		require.NoError(t, err)
-		assert.Equal(t, SecretBindingModeEnforce, cfg.SecretBinding.Mode)
-	})
-
-	t.Run("refuses an unknown mode", func(t *testing.T) {
-		_, err := load(t, "secretBinding:\n  mode: off\n")
-		require.ErrorContains(t, err, `secretBinding.mode "off"`)
+		assert.Equal(t, []string{"muster-oauth"}, cfg.SecretBinding.ProtectedSecrets)
 	})
 }

@@ -19,17 +19,16 @@ type ClientCredentials struct {
 // credentials and other values from Kubernetes secrets.
 //
 // A read on behalf of an MCPServer -- a Secret its spec names -- goes through
-// the methods that take a SecretOwner: they read only a Secret bound to that
-// MCPServer (MCPServerSecretAnnotation or an ownerReference) and never one of
-// muster's own (secretBinding). LoadClientCredentialsForConfig is for Secrets
-// muster's own configuration names and must never be called with a reference
-// taken from an MCPServer.
+// the methods that take a SecretOwner: they never read one of muster's own
+// (secretBinding) or one of a reserved type. LoadClientCredentialsForConfig
+// is for Secrets muster's own configuration names and must never be called
+// with a reference taken from an MCPServer.
 //
 // Thread-safe: All methods must be safe for concurrent use.
 type SecretCredentialsHandler interface {
 	// LoadClientCredentialsForConfig loads OAuth client credentials from a
 	// Secret muster's configuration names (broker targets and clients,
-	// provider Apps). No binding is checked.
+	// provider Apps). No Secret is refused.
 	//
 	// The secret should contain clientIdKey (default "client-id") and
 	// clientSecretKey (default "client-secret"). defaultNamespace is used
@@ -37,14 +36,13 @@ type SecretCredentialsHandler interface {
 	LoadClientCredentialsForConfig(ctx context.Context, secretRef *ClientCredentialsSecretRef, defaultNamespace string) (*ClientCredentials, error)
 
 	// LoadMCPServerClientCredentials loads OAuth client credentials from a
-	// Secret the MCPServer owner names in field (SecretField*). The Secret
-	// must be bound to owner (or secretBinding.mode is warn) and must not be
-	// protected; otherwise nothing is returned. A reference without a
+	// Secret the MCPServer owner names in field (SecretField*). A protected
+	// Secret is refused and nothing is returned. A reference without a
 	// namespace resolves to owner.Namespace.
 	LoadMCPServerClientCredentials(ctx context.Context, owner SecretOwner, field string, secretRef *ClientCredentialsSecretRef) (*ClientCredentials, error)
 
 	// LoadMCPServerSecretKey loads raw bytes for a single named key from a
-	// Secret the MCPServer owner names in field, with the binding rules of
+	// Secret the MCPServer owner names in field, with the refusals of
 	// LoadMCPServerClientCredentials. Callers are responsible for not
 	// logging the returned value. ClientIDKey/ClientSecretKey of secretRef
 	// are ignored.

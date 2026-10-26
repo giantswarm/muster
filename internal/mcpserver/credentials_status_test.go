@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/reconciler"
@@ -15,14 +16,15 @@ import (
 // status.lastError through reconciler.SanitizeErrorMessage, which redacts the
 // word after "secret:" as a value. The refusal must read the same afterwards.
 func TestRefusalsSurviveTheStatusSanitizer(t *testing.T) {
-	adapter := bindingAdapter(t, bindingSecret("github-token"), WithSecretBindingMode(api.SecretBindingEnforce))
+	adapter := bindingAdapter(t, bindingSecret("muster-oauth"),
+		WithProtectedSecrets(types.NamespacedName{Namespace: "agent-platform", Name: "muster-oauth"}))
 	registerSecretKeyReader(t, adapter)
 
-	_, err := ResolveHeaders(context.Background(), githubServer, nil, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	_, err := ResolveHeaders(context.Background(), githubServer, nil, []api.MCPServerHeaderFrom{bearerFrom("muster-oauth")})
+	require.ErrorIs(t, err, api.ErrSecretProtected)
 
 	sanitized := reconciler.SanitizeErrorMessage(err.Error())
 	assert.NotContains(t, sanitized, "[REDACTED]")
-	assert.Contains(t, sanitized, "MCPServer agent-platform/github may not read Secret agent-platform/github-token")
-	assert.Contains(t, sanitized, "add github to the Secret's annotation "+api.MCPServerSecretAnnotation)
+	assert.Contains(t, sanitized, "MCPServer agent-platform/github may not read Secret agent-platform/muster-oauth")
+	assert.Contains(t, sanitized, "reference a Secret of its own")
 }

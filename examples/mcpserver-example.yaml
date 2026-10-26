@@ -53,16 +53,14 @@ spec:
   description: "Python-based MCP server providing custom tools"
 
 ---
-# The Secret a headersFrom entry names. muster reads it only for the
-# MCPServers it is bound to: this annotation (a comma-separated list of
-# <name> or <namespace>/<name>) or an ownerReference to the MCPServer.
+# The Secret a headersFrom entry names. Whoever writes the MCPServer must be
+# able to get it: the chart's admission policy refuses the MCPServer
+# otherwise.
 apiVersion: v1
 kind: Secret
 metadata:
   name: remote-api-tools-token
   namespace: default
-  annotations:
-    muster.giantswarm.io/mcpserver: remote-api-tools
 stringData:
   authorization: "Bearer <token>"
 
@@ -79,9 +77,8 @@ spec:
   timeout: 30
   headers:
     Content-Type: "application/json"
-  # A credential comes from a Secret in the MCPServer's namespace, bound to
-  # it (see the Secret above); muster refuses one written into headers, url
-  # or env.
+  # A credential comes from a Secret in the MCPServer's namespace (see the
+  # Secret above); muster refuses one written into headers, url or env.
   headersFrom:
     - name: Authorization
       valueFrom:
@@ -101,7 +98,6 @@ spec:
   type: sse
   url: "https://sse.example.com/mcp"
   timeout: 60
-  # remote-sse-tools-token is annotated muster.giantswarm.io/mcpserver: remote-sse-tools
   headersFrom:
     - name: Authorization
       valueFrom:

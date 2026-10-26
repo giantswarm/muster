@@ -67,26 +67,22 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
 | `toolsetPresets` | `map[string]Preset` | `{}` | Toolset presets an agent's `X-muster-Toolset` header can name as `preset:<name>`; `read-only`, `none` and `full` are built in and cannot be redefined. See [Toolsets](toolsets.md). |
-| `secretBinding` | `SecretBindingConfig` | `mode: warn` | Which Secrets muster reads for an MCPServer. See [Secret binding](#secret-binding). |
+| `secretBinding` | `SecretBindingConfig` | `{}` | Secrets muster never reads for an MCPServer. See [Protected Secrets](#protected-secrets). |
 
-### Secret binding
+### Protected Secrets
 
-muster reads a Secret an MCPServer names (`headersFrom`, `auth.tokenExchange` and `auth.authorizationServer` `clientCredentialsSecretRef`) only when the Secret is bound to that MCPServer: the annotation `muster.giantswarm.io/mcpserver` (a list of servers) or an `ownerReference` ([CRD reference](crds.md#secret-binding)).
+muster never reads for an MCPServer (`headersFrom`, `auth.tokenExchange` and `auth.authorizationServer` `clientCredentialsSecretRef`) a Secret listed here, whoever writes the MCPServer. Which Secrets an MCPServer may name at all is the chart's admission policy: those its writer may `get` ([CRD reference](crds.md#secret-references)).
 
 ```yaml
 secretBinding:
-  mode: enforce              # warn (default) | enforce
   protectedSecrets: [muster-oauth]
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `mode` | `string` | `warn` | `warn`: an unbound Secret is read and a warning logged once per MCPServer, Secret, field and reason. `enforce`: it is refused; nothing of it is sent. Helm: `muster.secretBinding.mode`. |
-| `protectedSecrets` | `[]string` | `[]` | Secrets of `namespace` no MCPServer may read, in either mode. The chart lists every Secret it mounts and the ingress TLS Secrets. muster also refuses Secrets of the Helm release, TLS, ServiceAccount token, bootstrap token and image pull types. Secrets named here in `aggregator.providerApps` or `tokenExchangeBroker` are not protected: an MCPServer may share one once bound. Helm: `muster.secretBinding.protectedSecrets` (added to the chart's list). |
+| `protectedSecrets` | `[]string` | `[]` | Secrets of `namespace` no MCPServer may read. The chart lists every Secret it mounts and the ingress TLS Secrets. muster also refuses Secrets of the Helm release, TLS, ServiceAccount token, bootstrap token and image pull types. Secrets named here in `aggregator.providerApps` or `tokenExchangeBroker` are not protected: an MCPServer may share one. Helm: `muster.secretBinding.protectedSecrets` (added to the chart's list). |
 
 A change takes effect when muster restarts: credentials already pinned stay for the process's lifetime.
-
-To switch to `enforce`: bind the Secrets your MCPServers use (the warnings name each one and what to add), then set `mode: enforce`.
 
 ### Who sees which MCP server
 

@@ -215,19 +215,11 @@ tests:
           path: data["config.yaml"]
           pattern: "\nmcpServersInAllNamespaces: true\n"
 
-  - it: renders secretBinding mode warn by default
+  - it: omits secretBinding when no Secret is protected
     asserts:
-      - matchRegex:
+      - notMatchRegex:
           path: data["config.yaml"]
-          pattern: "\nsecretBinding:\n  mode: \"warn\"\n"
-
-  - it: renders secretBinding mode enforce
-    set:
-      muster.secretBinding.mode: enforce
-    asserts:
-      - matchRegex:
-          path: data["config.yaml"]
-          pattern: "\nsecretBinding:\n  mode: \"enforce\"\n"
+          pattern: "secretBinding:"
 
   - it: protects every Secret the chart mounts
     set:

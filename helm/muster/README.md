@@ -41,6 +41,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | rbac.workflowEditor.subjects[0].apiGroup | string | `"rbac.authorization.k8s.io"` |  |
 | rbac.workflowEditor.subjects[0].kind | string | `"Group"` |  |
 | rbac.workflowEditor.subjects[0].name | string | `"system:authenticated"` |  |
+| mcpServerSecretReferences.enabled | bool | `true` |  |
+| mcpServerSecretReferences.validationActions[0] | string | `"Deny"` |  |
 | podAnnotations | object | `{}` |  |
 | podLabels | object | `{}` |  |
 | podSecurityContext.runAsUser | int | `1000` |  |
@@ -101,7 +103,6 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.debug | bool | `false` |  |
 | muster.writesAsCaller.kubernetesAudience | string | `""` |  |
 | muster.mcpServersInAllNamespaces | bool | `false` |  |
-| muster.secretBinding.mode | string | `"warn"` |  |
 | muster.secretBinding.protectedSecrets | list | `[]` |  |
 | muster.toolsetPresets | object | `{}` |  |
 | muster.providerApps | list | `[]` |  |

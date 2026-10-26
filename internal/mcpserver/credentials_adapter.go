@@ -30,7 +30,7 @@ const DefaultClientSecretKey = "client-secret"
 //
 // Args:
 //   - k8sClient: The Kubernetes client for reading secrets
-//   - opts: secret binding options (WithSecretBindingMode, WithProtectedSecrets)
+//   - opts: secret binding options (WithProtectedSecrets)
 //
 // Returns:
 //   - *CredentialsAdapter: The adapter instance
@@ -214,8 +214,7 @@ func (a *CredentialsAdapter) LoadMCPServerSecretKey(
 
 // getSecret reads a Secret. A non-nil req is a read on behalf of an MCPServer:
 // a protected Secret is refused before it is read, one of a reserved type
-// after it in either mode, and an unbound one after (secretBinding.mode
-// enforce) or with a warning (warn).
+// after it.
 func (a *CredentialsAdapter) getSecret(ctx context.Context, namespace, name string, req *secretRequest) (*corev1.Secret, error) {
 	if req != nil {
 		if err := a.binding.checkProtected(req, namespace, name); err != nil {
@@ -228,9 +227,6 @@ func (a *CredentialsAdapter) getSecret(ctx context.Context, namespace, name stri
 	}
 	if req != nil {
 		if err := a.binding.checkReserved(req, namespace, secret); err != nil {
-			return nil, err
-		}
-		if err := a.binding.checkBound(req, namespace, secret); err != nil {
 			return nil, err
 		}
 	}

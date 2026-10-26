@@ -28,11 +28,11 @@
 //
 // CredentialsAdapter reads the Secrets a server's spec names (headersFrom,
 // the clientCredentialsSecretRef of auth.tokenExchange and
-// auth.authorizationServer) only when they are bound to that MCPServer, by an
-// ownerReference or the annotation api.MCPServerSecretAnnotation, and never a Secret muster keeps for itself:
-// its own and reserved Secret types (credentials_binding.go). Secrets muster's
-// own configuration names are read with LoadClientCredentialsForConfig; an
-// MCPServer may share such a Secret once it is bound to it.
+// auth.authorizationServer), never a Secret muster keeps for itself: its own
+// and reserved Secret types (credentials_binding.go). Which Secrets a spec may
+// name is the chart's admission policy: only those its writer may get.
+// Secrets muster's own configuration names are read with
+// LoadClientCredentialsForConfig; an MCPServer may share such a Secret.
 //
 // # Request metadata
 //

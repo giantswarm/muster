@@ -20,8 +20,8 @@ import (
 
 // TestPinSecretWithTheRealAdapter runs a pinned server's start against the
 // Kubernetes-backed Secret reader: only a refusal fails the server; a Secret
-// read with a warning, or one that does not exist yet, leaves it Auth
-// Required, where every login retries the pin.
+// that is read, or one that does not exist yet, leaves it Auth Required,
+// where every login retries the pin.
 func TestPinSecretWithTheRealAdapter(t *testing.T) {
 	const secretName = "github-oauth-client"
 	clientSecret := &corev1.Secret{
@@ -35,16 +35,11 @@ func TestPinSecretWithTheRealAdapter(t *testing.T) {
 		wantState services.ServiceState
 		wantErr   error
 	}{
-		{name: "warn mode, unbound", objects: []*corev1.Secret{clientSecret},
-			opts: []mcpserver.CredentialsOption{mcpserver.WithSecretBindingMode(api.SecretBindingWarn)}, wantState: services.StateAuthRequired},
+		{name: "readable", objects: []*corev1.Secret{clientSecret}, wantState: services.StateAuthRequired},
 		{name: "protected", objects: []*corev1.Secret{clientSecret},
 			opts:      []mcpserver.CredentialsOption{mcpserver.WithProtectedSecrets(types.NamespacedName{Namespace: "agent-platform", Name: secretName})},
 			wantState: services.StateFailed, wantErr: api.ErrSecretProtected},
-		{name: "enforce mode, unbound", objects: []*corev1.Secret{clientSecret},
-			opts:      []mcpserver.CredentialsOption{mcpserver.WithSecretBindingMode(api.SecretBindingEnforce)},
-			wantState: services.StateFailed, wantErr: api.ErrSecretNotBound},
-		{name: "missing", opts: []mcpserver.CredentialsOption{mcpserver.WithSecretBindingMode(api.SecretBindingEnforce)},
-			wantState: services.StateAuthRequired},
+		{name: "missing", wantState: services.StateAuthRequired},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

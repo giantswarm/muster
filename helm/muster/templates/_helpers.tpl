@@ -209,7 +209,7 @@ the chart mounts into muster -- the OAuth and Valkey credentials, the extra CA,
 Secrets of .Values.volumes --, the ingress TLS Secrets, and
 muster.secretBinding.protectedSecrets. A JSON list. Secrets muster's
 configuration names (provider Apps, broker targets) are not protected: an
-MCPServer may share one once it is bound.
+MCPServer may share one.
 */}}
 {{- define "muster.protectedSecrets" -}}
 {{- $names := list -}}
