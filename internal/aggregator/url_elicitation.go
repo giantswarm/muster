@@ -19,6 +19,16 @@ import (
 // the OAuth state behind its link lives 10 minutes (the state stores' expiry).
 const signInElicitationTTL = 10 * time.Minute
 
+// signInRetryWait is how long a retry that accepted the sign-in elicitation
+// waits for the sign-in to complete before asking again. The client retries
+// as soon as the person agreed to open the link, before they signed in.
+const signInRetryWait = 5 * time.Minute
+
+// signInPollInterval is how often a waiting retry reads the session's
+// authentication, which the sign-in's callback marks on whichever replica it
+// reaches.
+const signInPollInterval = time.Second
+
 // signInInputKey is the inputRequests key of the sign-in elicitation in an
 // input_required answer.
 const signInInputKey = "muster_sign_in"
@@ -62,19 +72,21 @@ func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
 // URL mode). The link then never passes through the model's context.
 //
 // A request on protocol 2026-07-28 or later gets an input_required result
-// carrying the elicitation; the client retries the call once the person
-// signed in, and the retry is answered as any other call. A retry carrying a
-// declined or cancelled elicitation is answered with a tool error instead of
-// asking again. A request on an earlier protocol gets
-// URLElicitationRequiredError (-32042), and the session is sent
-// notifications/elicitation/complete when the sign-in completes
+// carrying the elicitation. The client retries the call once the person
+// agreed to open the link: that retry waits for the sign-in to complete
+// (awaitSignIn) and is then answered as any other call, or asked again when
+// it did not. A retry carrying a declined or cancelled elicitation is
+// answered with a tool error instead of asking again. A request on an
+// earlier protocol gets URLElicitationRequiredError (-32042), and the session
+// is sent notifications/elicitation/complete when the sign-in completes
 // (signInElicitations). A client that does not declare elicitation.url keeps
 // the auth_required answer.
 func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 	return func(next mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
-		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			ctx, recorder := withChallengeRecorder(ctx)
-			result, err := next(ctx, req)
+		var handler mcpserver.ToolHandlerFunc
+		handler = func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			callCtx, recorder := withChallengeRecorder(ctx)
+			result, err := next(callCtx, req)
 			if err != nil || !clientSupportsURLElicitation(ctx) {
 				return result, err
 			}
@@ -82,10 +94,39 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 			if challenge == nil || authRequiredLink(result) != challenge.authURL {
 				return result, err
 			}
-			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); answer != nil && answer.Action != mcp.ElicitationResponseActionAccept {
-				return mcp.NewToolResultError(fmt.Sprintf("The tool did not run: the person answered %s to signing in to %s.", answer.Action, challenge.server)), nil
+			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); answer != nil {
+				if answer.Action != mcp.ElicitationResponseActionAccept {
+					return mcp.NewToolResultError(fmt.Sprintf("The tool did not run: the person answered %s to signing in to %s.", answer.Action, challenge.server)), nil
+				}
+				if a.awaitSignIn(ctx, challenge.sessionID, challenge.server) {
+					req.Params.InputResponses = nil
+					return handler(ctx, req)
+				}
 			}
-			return a.elicitSignIn(ctx, *challenge)
+			return a.elicitSignIn(callCtx, *challenge)
+		}
+		return handler
+	}
+}
+
+// awaitSignIn waits, at most signInRetryWait and while ctx lasts, until the
+// session is authenticated to the server, and reports whether it is.
+func (a *AggregatorServer) awaitSignIn(ctx context.Context, sessionID, server string) bool {
+	if a.authStore == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, signInRetryWait)
+	defer cancel()
+	ticker := time.NewTicker(signInPollInterval)
+	defer ticker.Stop()
+	for {
+		if authenticated, _ := a.authStore.IsAuthenticated(ctx, sessionID, server); authenticated {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
 		}
 	}
 }

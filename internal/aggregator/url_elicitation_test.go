@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 )
 
 const testAuthURL = "https://muster.example.com/oauth/proxy/start?state=abc"
@@ -304,4 +306,73 @@ func TestURLElicitation_GatedCallRecordsMustersChallenge(t *testing.T) {
 	require.Equal(t, authURLOf(t, result), challenge.authURL)
 	require.Equal(t, answerServer, challenge.server)
 	require.Equal(t, answerSession, challenge.sessionID)
+}
+
+// acceptedRetry is a 2026-07-28 retry of a call whose sign-in elicitation the
+// person accepted.
+func acceptedRetry() mcp.CallToolRequest {
+	var req mcp.CallToolRequest
+	req.Params.InputResponses = mcp.InputResponses{
+		signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: mcp.ElicitationResponseActionAccept}}),
+	}
+	return req
+}
+
+// gatedHandler answers like a gated tool call: done once the session is
+// authenticated to the server, muster's challenge until then.
+func gatedHandler(store oauthstore.SessionAuthStore) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if authenticated, _ := store.IsAuthenticated(ctx, "family-1", "github"); authenticated {
+			return mcp.NewToolResultText("done"), nil
+		}
+		return signInHandler(true)(ctx, req)
+	}
+}
+
+func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
+	t.Run("the call runs once the sign-in completes", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			store := oauthstore.NewInMemorySessionAuthStore(time.Hour)
+			a := &AggregatorServer{authStore: store}
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			go func() {
+				time.Sleep(30 * time.Second)
+				_ = store.MarkAuthenticated(context.Background(), "family-1", "github")
+			}()
+			start := time.Now()
+
+			result, err := a.urlElicitation()(gatedHandler(store))(ctx, acceptedRetry())
+
+			require.NoError(t, err)
+			require.Equal(t, "done", mcpText(result))
+			require.Less(t, time.Since(start), 32*time.Second, "the retry is answered as soon as the sign-in completes")
+		})
+	})
+
+	t.Run("a sign-in that does not complete is asked again", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			start := time.Now()
+
+			result, err := a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry())
+
+			require.NoError(t, err)
+			require.Equal(t, mcp.ResultTypeInputRequired, result.ResultType)
+			require.Equal(t, signInRetryWait, time.Since(start))
+		})
+	})
+
+	t.Run("a cancelled call stops waiting", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
+			ctx, cancel := context.WithTimeout(modernContext(t.Context(), urlElicitationCapabilities()), time.Minute)
+			defer cancel()
+			start := time.Now()
+
+			_, _ = a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry())
+
+			require.Equal(t, time.Minute, time.Since(start))
+		})
+	})
 }
