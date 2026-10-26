@@ -607,6 +607,27 @@ const DefaultProgressMaxDurationSeconds = 3600
 // CRD's default.
 const defaultTimeoutSeconds = 30
 
+// MaxTimeoutSeconds is the largest spec.timeout muster applies, the CRD's
+// Maximum. A definition that never went through the CRD's validation (a
+// filesystem-mode file, an older CRD) can hold a larger value.
+const MaxTimeoutSeconds = 300
+
+// OperationTimeout is spec.timeout as muster applies it to every operation
+// on the server: defaultTimeoutSeconds when unset, MaxTimeoutSeconds when
+// larger. clamped reports that spec.timeout was cut down to
+// MaxTimeoutSeconds.
+func (s *MCPServer) OperationTimeout() (timeout time.Duration, clamped bool) {
+	seconds := s.Timeout
+	if seconds <= 0 {
+		seconds = defaultTimeoutSeconds
+	}
+	if seconds > MaxTimeoutSeconds {
+		seconds = MaxTimeoutSeconds
+		clamped = true
+	}
+	return time.Duration(seconds) * time.Second, clamped
+}
+
 // MCPServerProgress configures how progress the server reports on a tool
 // call affects that call's budget.
 type MCPServerProgress struct {
