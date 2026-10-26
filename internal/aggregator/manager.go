@@ -646,6 +646,7 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 	if result != nil && len(result.Content) > 0 {
 		logging.Debug("Aggregator-Manager", "Connection established successfully")
 	}
+	aggregatorServer.completeSignInElicitations(sessionID, serverName)
 
 	return nil
 }

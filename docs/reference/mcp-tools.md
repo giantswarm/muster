@@ -145,6 +145,20 @@ Through `muster agent --mcp-server`, `call_tool` additionally takes `timeout` (s
 
 The Go agent client (`muster agent`, `internal/agent`) unwraps the envelope back into the wrapped tool's result and puts `tool` into its `_meta` under the same key; `metatools.DispatchedToolFromMeta` reads it.
 
+#### A call that needs a sign-in
+
+A call to a tool of a server the session has not signed in to is answered `auth_required`: `isError: true`, the sign-in link in the text and in `structuredContent.authUrl`, with `status: "auth_required"` and `server`. Through `call_tool` the same `structuredContent` is the result's own.
+
+A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked to open the link instead (MCP elicitation, URL mode), so the link never reaches the model as tool output:
+
+| Client's protocol version | Answer |
+|---|---|
+| 2026-07-28 or later, `elicitation.url` in the request's client capabilities | `resultType: "input_required"` with one `elicitation/create` input request (`mode: "url"`, `url`, `message`) under the key `muster_sign_in`. Retry the call once the person signed in; until then the retry gets the same answer. |
+| 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitation and its `elicitationId`. When the sign-in completes on the replica that answered, the session is sent `notifications/elicitation/complete` with that `elicitationId`; retry the call then. |
+| Any other | The `auth_required` answer. |
+
+Only the sign-in answers muster issues are elicited: a backend result that has the same shape is returned unchanged. A server muster connects with the person's muster sign-in (token forwarding, token exchange) has no link to open, and keeps the `auth_required` answer.
+
 ### Resource Access
 
 | Meta-Tool | Description | Arguments |
