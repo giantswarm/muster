@@ -45,10 +45,15 @@ func oauthProtected(s *ServerInfo) bool {
 // restart never runs one (its login short-circuits with "already
 // authenticated"), so its tool calls could not choose an auth method.
 //
-// A pin that cannot be applied is an error (the login must not proceed with
-// a client the operator did not intend); a discovery failure is logged and
+// A server whose description of its authorization server conflicts with the
+// one pinned under its issuer key (issuerPinOwner) is an error, and so is a
+// pin that cannot be applied (the login must not proceed with a client the
+// operator did not intend); a discovery failure is logged and
 // leaves the caller with whatever the entry already knew.
 func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo *ServerInfo) (*AuthInfo, error) {
+	if _, err := a.issuerPinOwner(serverInfo); err != nil {
+		return nil, err
+	}
 	authInfo := &AuthInfo{}
 	if current := serverInfo.GetAuthInfo(); current != nil {
 		copied := *current
@@ -62,7 +67,7 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 		return authInfo, nil
 	}
 
-	if err := pinAuthorizationServer(ctx, serverInfo); err != nil {
+	if err := a.pinAuthorizationServer(ctx, serverInfo); err != nil {
 		return nil, err
 	}
 	var override *api.MCPServerAuthAuthorizationServer

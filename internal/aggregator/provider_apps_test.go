@@ -175,7 +175,7 @@ func TestProviderApps_MCPServerPinLeavesTheAppPin(t *testing.T) {
 	legacy.AuthConfig.AuthorizationServer.Issuer = githubAppIssuer
 	legacy.AuthConfig.AuthorizationServer.AuthorizationEndpoint = "https://other.example.com/authorize"
 
-	require.NoError(t, pinAuthorizationServer(context.Background(), legacy))
+	require.NoError(t, bareAggregator().pinAuthorizationServer(context.Background(), legacy))
 	assert.Equal(t, "https://github.com/login/oauth/authorize", f.handler.pins[githubAppIssuer].AuthorizationEndpoint)
 
 	f.agg.releaseAuthorizationServerPin(context.Background(), legacy.Name, legacy.AuthConfig)

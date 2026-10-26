@@ -780,6 +780,9 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	if s.definition.UID != "" {
 		data[api.ServiceDataUID] = s.definition.UID
 	}
+	if !s.definition.CreatedAt.IsZero() {
+		data[api.ServiceDataCreatedAt] = s.definition.CreatedAt
+	}
 
 	// Add failure tracking data for unreachable server detection (thread-safe
 	// read). The orchestrator's retry loop and the reconciler's status sync

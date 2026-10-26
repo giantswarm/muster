@@ -15,6 +15,8 @@ import (
 type pinCaptureHandler struct {
 	*mockOAuthHandler
 	pins map[string]api.IssuerPin
+	// unpinned lists every UnpinIssuer call.
+	unpinned []string
 }
 
 func (p *pinCaptureHandler) PinIssuer(issuer string, pin api.IssuerPin) {
@@ -22,10 +24,16 @@ func (p *pinCaptureHandler) PinIssuer(issuer string, pin api.IssuerPin) {
 }
 
 func (p *pinCaptureHandler) UnpinIssuer(issuer string) {
+	p.unpinned = append(p.unpinned, issuer)
 	delete(p.pins, issuer)
 }
 
 var _ api.IssuerPinner = (*pinCaptureHandler)(nil)
+
+// bareAggregator is an aggregator whose registry and definitions are empty.
+func bareAggregator() *AggregatorServer {
+	return &AggregatorServer{registry: NewServerRegistry("x")}
+}
 
 func githubStyleServer(secretRef *api.ClientCredentialsSecretRef, grantScope string) *ServerInfo {
 	return &ServerInfo{
@@ -51,15 +59,15 @@ func TestPinAuthorizationServer(t *testing.T) {
 	secretRef := &api.ClientCredentialsSecretRef{Name: "github-oauth-client"}
 
 	t.Run("nothing to pin for a plain issuer override or no auth", func(t *testing.T) {
-		require.NoError(t, pinAuthorizationServer(ctx, nil))
-		require.NoError(t, pinAuthorizationServer(ctx, &ServerInfo{Name: "plain"}))
+		require.NoError(t, bareAggregator().pinAuthorizationServer(ctx, nil))
+		require.NoError(t, bareAggregator().pinAuthorizationServer(ctx, &ServerInfo{Name: "plain"}))
 		plain := &ServerInfo{Name: "plain", AuthConfig: &api.MCPServerAuth{
 			Type:                "oauth",
 			AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: "https://cf.mcp.example.com"},
 		}}
 		// No handler registered at all: a plain override never needs one.
 		api.RegisterOAuthHandler(nil)
-		require.NoError(t, pinAuthorizationServer(ctx, plain))
+		require.NoError(t, bareAggregator().pinAuthorizationServer(ctx, plain))
 	})
 
 	t.Run("hands endpoints, secret credentials and grant scope to the handler", func(t *testing.T) {
@@ -70,7 +78,7 @@ func TestPinAuthorizationServer(t *testing.T) {
 		api.RegisterSecretCredentialsHandler(secrets)
 		defer api.RegisterSecretCredentialsHandler(nil)
 
-		require.NoError(t, pinAuthorizationServer(ctx, githubStyleServer(secretRef, api.GrantScopeSubject)))
+		require.NoError(t, bareAggregator().pinAuthorizationServer(ctx, githubStyleServer(secretRef, api.GrantScopeSubject)))
 
 		pin, ok := handler.pins["https://github.com/login/oauth"]
 		require.True(t, ok, "pin is filed under the normalized issuer, got %v", handler.pins)
@@ -89,7 +97,7 @@ func TestPinAuthorizationServer(t *testing.T) {
 		api.RegisterOAuthHandler(handler)
 		defer api.RegisterOAuthHandler(nil)
 
-		require.NoError(t, pinAuthorizationServer(ctx, githubStyleServer(nil, "")))
+		require.NoError(t, bareAggregator().pinAuthorizationServer(ctx, githubStyleServer(nil, "")))
 		pin := handler.pins["https://github.com/login/oauth"]
 		assert.Empty(t, pin.ClientID)
 		assert.False(t, pin.SubjectScoped)
@@ -103,7 +111,7 @@ func TestPinAuthorizationServer(t *testing.T) {
 
 		tenant := githubStyleServer(nil, api.GrantScopeSubject)
 		tenant.Name, tenant.Namespace = "org-a/github", "org-a"
-		require.NoError(t, pinAuthorizationServer(ctx, tenant))
+		require.NoError(t, bareAggregator().pinAuthorizationServer(ctx, tenant))
 		assert.Equal(t, []string{"ns:org-a:https://github.com/login/oauth"}, keysOf(handler.pins),
 			"the pin applies to no server outside org-a")
 	})
@@ -115,7 +123,7 @@ func TestPinAuthorizationServer(t *testing.T) {
 		api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{err: errors.New("secret not found")})
 		defer api.RegisterSecretCredentialsHandler(nil)
 
-		err := pinAuthorizationServer(ctx, githubStyleServer(secretRef, api.GrantScopeSubject))
+		err := bareAggregator().pinAuthorizationServer(ctx, githubStyleServer(secretRef, api.GrantScopeSubject))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "secret not found")
 		assert.Empty(t, handler.pins, "nothing is pinned on failure")
@@ -124,10 +132,10 @@ func TestPinAuthorizationServer(t *testing.T) {
 	t.Run("fails when the OAuth proxy is disabled or cannot pin", func(t *testing.T) {
 		api.RegisterOAuthHandler(newMockOAuthHandler(false))
 		defer api.RegisterOAuthHandler(nil)
-		require.Error(t, pinAuthorizationServer(ctx, githubStyleServer(nil, api.GrantScopeSubject)))
+		require.Error(t, bareAggregator().pinAuthorizationServer(ctx, githubStyleServer(nil, api.GrantScopeSubject)))
 
 		api.RegisterOAuthHandler(newMockOAuthHandler(true)) // enabled but no IssuerPinner
-		require.Error(t, pinAuthorizationServer(ctx, githubStyleServer(nil, api.GrantScopeSubject)))
+		require.Error(t, bareAggregator().pinAuthorizationServer(ctx, githubStyleServer(nil, api.GrantScopeSubject)))
 	})
 }
 

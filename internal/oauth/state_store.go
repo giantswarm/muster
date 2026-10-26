@@ -80,6 +80,25 @@ type StateParams struct {
 
 	// CodeVerifier is the PKCE code verifier for this flow.
 	CodeVerifier string
+
+	// PinDigest identifies the issuer pin the flow started under (pinDigest).
+	PinDigest string
+}
+
+// newOAuthState returns the state a store records for a new flow.
+func newOAuthState(params StateParams, nonce string) *OAuthState {
+	return &OAuthState{
+		SessionID:    params.SessionID,
+		UserID:       params.UserID,
+		ServerName:   params.ServerName,
+		Nonce:        nonce,
+		CreatedAt:    time.Now(),
+		Issuer:       params.Issuer,
+		Resource:     params.Resource,
+		Scope:        params.Scope,
+		CodeVerifier: params.CodeVerifier,
+		PinDigest:    params.PinDigest,
+	}
 }
 
 // CompletedFlow is what a duplicate callback delivery needs to re-render a
@@ -164,17 +183,7 @@ func (ss *StateStore) GenerateState(params StateParams,
 	}
 
 	nonce := base64.URLEncoding.EncodeToString(nonceBytes)
-	state := &OAuthState{
-		SessionID:    params.SessionID,
-		UserID:       params.UserID,
-		ServerName:   params.ServerName,
-		Nonce:        nonce,
-		CreatedAt:    time.Now(),
-		Issuer:       params.Issuer,
-		Resource:     params.Resource,
-		Scope:        params.Scope,
-		CodeVerifier: params.CodeVerifier,
-	}
+	state := newOAuthState(params, nonce)
 
 	stateJSON, err := json.Marshal(state)
 	if err != nil {

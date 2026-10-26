@@ -233,6 +233,7 @@ func (a *APIAdapter) RegisterServerPendingAuth(registration api.PendingAuthRegis
 			Name:            registration.Name,
 			Namespace:       registration.Namespace,
 			UID:             registration.UID,
+			CreatedAt:       registration.CreatedAt,
 			ToolPrefix:      registration.ToolPrefix,
 			Family:          registration.Family,
 			Timeout:         registration.Timeout,

@@ -165,6 +165,10 @@ type PendingAuthRegistration struct {
 	// Empty in filesystem mode.
 	UID string
 
+	// CreatedAt is the creation time of the MCPServer resource
+	// (MCPServer.CreatedAt). Zero in filesystem mode.
+	CreatedAt time.Time
+
 	// URL is the remote server endpoint.
 	URL string
 

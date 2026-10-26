@@ -35,6 +35,12 @@ type MCPServer struct {
 	// from the resource's metadata, not persisted.
 	UID string `yaml:"-" json:"-"`
 
+	// CreatedAt is the creation time of the MCPServer resource. Of the servers
+	// that describe one authorization server differently, the oldest one's
+	// description is used. Zero in filesystem mode. Runtime information taken
+	// from the resource's metadata, not persisted.
+	CreatedAt time.Time `yaml:"-" json:"-"`
+
 	// Type specifies how this MCP server should be executed.
 	// Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events
 	Type MCPServerType `yaml:"type" json:"type"`
@@ -464,6 +470,7 @@ func (i MCPServerInfo) ToMCPServer() *MCPServer {
 		Name:        i.ServerKey(),
 		Namespace:   i.Namespace,
 		UID:         i.UID,
+		CreatedAt:   i.CreatedAt,
 		Type:        MCPServerType(i.Type),
 		Description: i.Description,
 		ToolPrefix:  i.ToolPrefix,
@@ -728,6 +735,10 @@ type MCPServerInfo struct {
 	// MCPServer.UID). Empty in filesystem mode.
 	UID string `json:"-"`
 
+	// CreatedAt is the creation time of the MCPServer resource (see
+	// MCPServer.CreatedAt). Zero in filesystem mode.
+	CreatedAt time.Time `json:"-"`
+
 	// Labels mirrors the MCPServer resource's metadata.labels in both storage
 	// modes. Toolset presets select servers by label (label: rules, #1168) —
 	// notably agent-platform.giantswarm.io/tool-group — and read this live.
@@ -942,3 +953,7 @@ type MCPServerLifecycleAsCaller interface {
 // ServiceDataUID is the service data key of an MCPServer service's
 // Kubernetes UID (MCPServer.UID), absent in filesystem mode.
 const ServiceDataUID = "uid"
+
+// ServiceDataCreatedAt is the service data key of an MCPServer service's
+// creation time (MCPServer.CreatedAt), absent in filesystem mode.
+const ServiceDataCreatedAt = "createdAt"

@@ -100,6 +100,12 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 			return nil, fmt.Errorf("OAuth handler not available for %s", serverName)
 		}
 
+		// A server that conflicts with the description pinned under its
+		// issuer key must not connect with the grants of that description.
+		if _, err := a.issuerPinOwner(serverInfo); err != nil {
+			return nil, err
+		}
+
 		// What the 401 discovered, else the operator's pin. A server that
 		// registered from its 401 alone after a restart and has no pin knows
 		// neither: resolve its RFC 9728 metadata once and record it on the

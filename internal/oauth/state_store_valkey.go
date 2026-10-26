@@ -31,6 +31,7 @@ type valkeyStateEntry struct {
 	CodeVerifier     string    `json:"cv,omitempty"`
 	RedirectURI      string    `json:"ru,omitempty"`
 	AuthorizationURL string    `json:"aurl,omitempty"`
+	PinDigest        string    `json:"pd,omitempty"`
 }
 
 func (e *valkeyStateEntry) toState() *OAuthState {
@@ -46,6 +47,7 @@ func (e *valkeyStateEntry) toState() *OAuthState {
 		CodeVerifier:     e.CodeVerifier,
 		RedirectURI:      e.RedirectURI,
 		AuthorizationURL: e.AuthorizationURL,
+		PinDigest:        e.PinDigest,
 	}
 }
 
@@ -62,6 +64,7 @@ func stateToEntry(s *OAuthState) *valkeyStateEntry {
 		CodeVerifier:     s.CodeVerifier,
 		RedirectURI:      s.RedirectURI,
 		AuthorizationURL: s.AuthorizationURL,
+		PinDigest:        s.PinDigest,
 	}
 }
 
@@ -114,16 +117,7 @@ func (s *ValkeyStateStore) GenerateState(params StateParams,
 
 	nonce := base64.URLEncoding.EncodeToString(nonceBytes)
 
-	state := &OAuthState{
-		SessionID:    params.SessionID,
-		UserID:       params.UserID,
-		ServerName:   params.ServerName,
-		Nonce:        nonce,
-		CreatedAt:    time.Now(),
-		Issuer:       params.Issuer,
-		Resource:     params.Resource,
-		CodeVerifier: params.CodeVerifier,
-	}
+	state := newOAuthState(params, nonce)
 
 	stateJSON, err := json.Marshal(state)
 	if err != nil {

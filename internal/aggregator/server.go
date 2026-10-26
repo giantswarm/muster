@@ -1366,7 +1366,7 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 	}
 	a.reconnects.settled(registration.Name)
 	if info, ok := a.registry.GetServerInfo(registration.Name); ok {
-		if err := pinAuthorizationServer(ctx, info); err != nil {
+		if err := a.pinAuthorizationServer(ctx, info); err != nil {
 			// Logins for this server retry the pin (auth_tools), so a Secret
 			// that is not there yet only delays, never blocks.
 			logPinDeferred(info, err)

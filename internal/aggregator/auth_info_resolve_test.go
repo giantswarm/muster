@@ -12,7 +12,7 @@ import (
 
 func TestResolveServerAuthInfo(t *testing.T) {
 	ctx := context.Background()
-	a := &AggregatorServer{}
+	a := bareAggregator()
 
 	t.Run("fills the issuer from the pinned authorization server without a login and records it", func(t *testing.T) {
 		handler := &pinCaptureHandler{mockOAuthHandler: newMockOAuthHandler(true), pins: map[string]api.IssuerPin{}}

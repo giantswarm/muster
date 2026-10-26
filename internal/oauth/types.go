@@ -89,6 +89,10 @@ type OAuthState struct {
 	// CodeVerifier is the PKCE code verifier for this flow.
 	// Stored server-side only, not transmitted in the state parameter.
 	CodeVerifier string `json:"-"`
+
+	// PinDigest identifies the issuer pin the flow started under: the code
+	// exchange is refused under another one. Stored server-side only.
+	PinDigest string `json:"-"`
 }
 
 // AuthRequiredResponse represents an authentication challenge returned when
