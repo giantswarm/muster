@@ -592,6 +592,10 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 	// The session's challenge is used up: a later auth_required answer
 	// issues a new one.
 	aggregatorServer.pendingSignIns.forget(sessionID, serverName)
+	// The browser part is over whatever the connection's outcome: the client
+	// retries and is answered with the call's result, its refusal, or a new
+	// challenge.
+	defer aggregatorServer.completeSignInElicitations(sessionID, serverName)
 
 	// A provider App's grant is stored already and connects nothing: the
 	// servers that receive it read it on their next request.
@@ -646,7 +650,6 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 	if result != nil && len(result.Content) > 0 {
 		logging.Debug("Aggregator-Manager", "Connection established successfully")
 	}
-	aggregatorServer.completeSignInElicitations(sessionID, serverName)
 
 	return nil
 }

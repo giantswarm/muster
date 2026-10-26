@@ -242,16 +242,50 @@ func TestCompleteSignInElicitations(t *testing.T) {
 	require.Empty(t, a.signInElicitations.take("family-1", "github"), "an elicitation completes once")
 }
 
+// The OAuth callback completes the elicitations of the sign-in whether or
+// not the connection it then makes succeeds, so the client retries instead
+// of waiting for a notification that never comes.
+func TestAuthCompletionCompletesSignInElicitations(t *testing.T) {
+	for name, suspended := range map[string]bool{
+		"the server was suspended meanwhile": true,
+		"the connection fails":               false,
+	} {
+		t.Run(name, func(t *testing.T) {
+			a := newSuspensionTestServer(t)
+			state := api.StateAuthRequired
+			if suspended {
+				state = api.StateDisconnected
+			}
+			registerSuspendableServer(t, a.registry, "miro", suspended, state)
+			a.mcpServer = mcpserver.NewMCPServer("muster", "test")
+			session := newLegacySession("transport-1", urlElicitationCapabilities())
+			require.NoError(t, a.mcpServer.RegisterSession(t.Context(), session))
+			elicitationID := a.signInElicitations.add("test-session", "miro", session.id)
+			am := &AggregatorManager{aggregatorServer: a}
+
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			_ = am.handleAuthCompletion(ctx, "test-session", "test-user", "miro", "access-token")
+
+			require.Len(t, session.ch, 1)
+			notification := <-session.ch
+			require.Equal(t, string(mcp.MethodNotificationElicitationComplete), notification.Method)
+			require.Equal(t, elicitationID, notification.Params.AdditionalFields["elicitationId"])
+		})
+	}
+}
+
 func TestSignInElicitationsExpire(t *testing.T) {
-	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
-	s := signInElicitations{now: func() time.Time { return now }}
-	old := s.add("family-1", "github", "transport-1")
+	synctest.Test(t, func(t *testing.T) {
+		var s signInElicitations
+		old := s.add("family-1", "github", "transport-1")
 
-	now = now.Add(signInElicitationTTL)
-	fresh := s.add("family-1", "github", "transport-1")
+		time.Sleep(signInElicitationTTL)
+		fresh := s.add("family-1", "github", "transport-1")
 
-	require.NotEqual(t, old, fresh, "an expired elicitation is not reused")
-	require.Equal(t, map[string]string{"transport-1": fresh}, s.take("family-1", "github"))
+		require.NotEqual(t, old, fresh, "an expired elicitation is not reused")
+		require.Equal(t, map[string]string{"transport-1": fresh}, s.take("family-1", "github"))
+	})
 }
 
 // TestURLElicitationOnTheWire sends real tools/call messages through an mcp-go

@@ -202,8 +202,6 @@ func clientSupportsURLElicitation(ctx context.Context) bool {
 type signInElicitations struct {
 	mu      sync.Mutex
 	entries map[signInElicitationKey]signInElicitation
-	// now is the clock; nil means time.Now. Tests set it.
-	now func() time.Time
 }
 
 type signInElicitationKey struct {
@@ -216,13 +214,6 @@ type signInElicitation struct {
 	expiresAt     time.Time
 }
 
-func (s *signInElicitations) clock() time.Time {
-	if s.now != nil {
-		return s.now()
-	}
-	return time.Now()
-}
-
 // add returns the elicitationId the transport session is asked to sign the
 // session in to the server with: the pending one, or a new one. A request
 // without a transport session gets an id that nothing completes.
@@ -232,7 +223,7 @@ func (s *signInElicitations) add(sessionID, server, transportID string) string {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.clock()
+	now := time.Now()
 	for key, e := range s.entries {
 		if !now.Before(e.expiresAt) {
 			delete(s.entries, key)
@@ -255,7 +246,7 @@ func (s *signInElicitations) add(sessionID, server, transportID string) string {
 func (s *signInElicitations) take(sessionID, server string) map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.clock()
+	now := time.Now()
 	taken := make(map[string]string)
 	for key, e := range s.entries {
 		if key.pendingSignInKey != (pendingSignInKey{sessionID: sessionID, server: server}) {
