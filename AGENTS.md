@@ -9,15 +9,15 @@ Muster is a universal control plane and meta-MCP (Model Context Protocol) server
 ## Build & Development Commands
 
 ```bash
-# Build and install
-make build                        # Build local binary
-go install                        # Install binary (use after every code change)
+# Build
+go build -o ./muster .         # Build the worktree-local binary (gitignored); rebuild after every code change
+./muster ...                    # Run it from the worktree; do not `go install` (overwrites the shared ~/.go/bin/muster)
 
 # Testing
 make test                         # Unit tests with race detector
-muster test --scenario <name> --verbose         # Run a single BDD scenario
-muster test --scenario <name> --verbose --debug # With debug output
-muster test --parallel 50 --base-port 20000     # Run all scenarios (never 30000-32767: kind NodePorts)
+./muster test --scenario <name> --verbose         # Run a single BDD scenario
+./muster test --scenario <name> --verbose --debug # With debug output
+./muster test --parallel 50 --base-port 20000     # Run all scenarios (never 30000-32767: kind NodePorts)
 
 # Code quality (run before every commit)
 goimports -w . && go fmt ./...    # Format code
