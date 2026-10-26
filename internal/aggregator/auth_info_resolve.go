@@ -51,7 +51,8 @@ func oauthProtected(s *ServerInfo) bool {
 // operator did not intend); a discovery failure is logged and
 // leaves the caller with whatever the entry already knew.
 func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo *ServerInfo) (*AuthInfo, error) {
-	if _, err := a.issuerPinOwner(serverInfo); err != nil {
+	owner, err := a.issuerPinOwner(serverInfo)
+	if err != nil {
 		return nil, err
 	}
 	authInfo := &AuthInfo{}
@@ -67,8 +68,10 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 		return authInfo, nil
 	}
 
-	if err := a.pinAuthorizationServer(ctx, serverInfo); err != nil {
-		return nil, err
+	if owner != nil {
+		if err := pinDescription(ctx, owner); err != nil {
+			return nil, err
+		}
 	}
 	var override *api.MCPServerAuthAuthorizationServer
 	if serverInfo.AuthConfig != nil {

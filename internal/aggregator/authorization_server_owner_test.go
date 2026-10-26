@@ -117,6 +117,9 @@ func TestPinAuthorizationServer_OneDescriptionPerIssuerKey(t *testing.T) {
 
 		_, err = a.resolveServerAuthInfo(t.Context(), newer)
 		require.ErrorIs(t, err, errAuthorizationServerConflict, "the newer server's sign-in is refused")
+
+		_, err = a.newSessionClient(t.Context(), newer, "session-a", "alice", false)
+		require.ErrorIs(t, err, errAuthorizationServerConflict, "the newer server does not connect with the owner's grants")
 	})
 
 	t.Run("the owner keeps its description while a conflicting server exists", func(t *testing.T) {
