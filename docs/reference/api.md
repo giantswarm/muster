@@ -46,7 +46,7 @@ server towards its clients and delegates the sign-in to Dex; these endpoints are
 |---|---|
 | `/.well-known/oauth-protected-resource` | Protected-resource metadata (RFC 9728): where clients find the authorization server |
 | `/.well-known/oauth-authorization-server` | Authorization-server metadata (RFC 8414): endpoints, supported grants, PKCE methods |
-| `/.well-known/jwks.json` | The keys that verify tokens muster issues |
+| `/.well-known/jwks.json` | Not served: muster issues opaque access tokens, which have no signing key, so this path answers `404` and the authorization-server metadata has no `jwks_uri`. muster checks a token it issued by looking it up in its own token store; to check one from elsewhere, call `/oauth/introspect` |
 | `/oauth/authorize` | Start of the authorization-code flow (PKCE required) |
 | `/oauth/callback` | Return from Dex |
 | `/oauth/token` | Token issuance and refresh; RFC 8693 token exchange for configured broker clients |

@@ -449,7 +449,7 @@ dex (or their own IdP), never against muster.
 
 #### Brokered Token Exchange (`tokenExchangeBroker`)
 
-Exposes muster's RFC 8693 token exchange to external confidential clients: a broker client POSTs a token-exchange request with an `audience` parameter to `/oauth/token` and receives a token minted by the audience's downstream Dex (instead of a muster-issued JWT). Subject tokens are validated against `trustedIssuers`, so at least one issuer entry covering the broker client's tokens is required.
+Exposes muster's RFC 8693 token exchange to external confidential clients: a broker client POSTs a token-exchange request with an `audience` parameter to `/oauth/token` and receives a token minted by the audience's downstream Dex (muster issues no JWTs). Subject tokens are validated against `trustedIssuers`, so at least one issuer entry covering the broker client's tokens is required.
 
 Policy enforced by the broker path (mcp-oauth): client authentication is mandatory and only confidential clients are accepted; audiences are gated by the per-client allowlist; no refresh tokens are issued (`expires_in` is bounded by the downstream token's expiry — clients re-exchange); DPoP is rejected.
 
