@@ -89,6 +89,14 @@ type OAuthState struct {
 	// CodeVerifier is the PKCE code verifier for this flow.
 	// Stored server-side only, not transmitted in the state parameter.
 	CodeVerifier string `json:"-"`
+
+	// BrowserVerifier is the PKCE verifier of the identity sign-in the start
+	// endpoint sent the browser through. Stored server-side only.
+	BrowserVerifier string `json:"-"`
+
+	// BrowserVerified records that the person in the browser signed in to
+	// muster's identity provider as UserID. Stored server-side only.
+	BrowserVerified bool `json:"-"`
 }
 
 // AuthRequiredResponse represents an authentication challenge returned when

@@ -1,0 +1,101 @@
+name: "oauth-sign-in-link-is-the-owners"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  A server's sign-in link completes only for the person it was issued to.
+  Before the browser reaches the server's authorization server, the start
+  endpoint signs it in to muster's identity provider and compares who signed
+  in with the person the link was issued to (MCP URL mode elicitation: the
+  server binds the sign-in to the user who completes it).
+
+  1. Bob opening Alice's link is refused: no grant reaches Alice's session.
+  2. The link stays usable by Alice, whose sign-in connects the server.
+tags: ["oauth", "authentication", "security", "multi-user", "mcpserver"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's own IdP: test_muster_auth_login mints Alice's session, and the
+    # start endpoint's sign-in check signs the browser in here.
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "connector-idp"
+      scopes: ["mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      client_id: "connector-client"
+      use_tls: true
+
+  mcp_servers:
+    - name: "connector"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "connector-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_me"
+            description: "The authenticated user"
+            responses:
+              - response:
+                  login: "alice"
+
+steps:
+  - id: login-alice
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+
+  - id: open-alice-session
+    tool: "test_create_user"
+    args:
+      name: "alice"
+    expected:
+      success: true
+
+  - id: bob-opens-alices-link
+    description: "Bob signs in at the check with Alice's link: refused"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "connector"
+      signed_in_as: "bob"
+    expected:
+      success: false
+      contains:
+        - "issued to someone else"
+
+  - id: alice-still-signed-out
+    description: "No grant reached Alice's session"
+    tool: "x_connector_get_me"
+    args: {}
+    expected:
+      success: false
+      contains:
+        - "auth_required"
+
+  - id: alice-opens-her-link
+    description: "Alice signs in at the check with her own link: the flow completes"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "connector"
+    expected:
+      success: true
+
+  - id: alice-calls-the-tool
+    tool: "x_connector_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"

@@ -32,7 +32,7 @@ func (h *TestToolsHandler) handleResolveAuthRedirect(ctx context.Context, args m
 	}
 	upstream := startURL
 	if strings.Contains(startURL, "/oauth/proxy/start") {
-		if upstream, err = h.resolveStartRedirect(ctx, startURL); err != nil {
+		if upstream, err = h.resolveStartRedirect(ctx, startURL, ""); err != nil {
 			return nil, fmt.Errorf("failed to resolve start URL redirect: %w", err)
 		}
 	}

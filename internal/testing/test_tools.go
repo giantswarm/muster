@@ -5,6 +5,7 @@ package testing
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -522,7 +523,10 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	// from there to the upstream authorization URL. Simulate that hop to get
 	// the URL carrying the OAuth parameters (client_id, PKCE, redirect_uri).
 	if strings.Contains(authURL, "/oauth/proxy/start") {
-		upstreamURL, err := h.resolveStartRedirect(ctx, authURL)
+		// "signed_in_as" is the person in the browser for muster's sign-in
+		// check; by default the person the link was issued to.
+		signedInAs, _ := args["signed_in_as"].(string)
+		upstreamURL, err := h.resolveStartRedirect(ctx, authURL, signedInAs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve start URL redirect: %w", err)
 		}
@@ -693,33 +697,141 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 	}, nil
 }
 
-// resolveStartRedirect follows the muster-hosted start URL one hop (without
-// following further redirects) and returns the upstream authorization URL it
-// points at, the way a browser would reach the IdP.
-func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, startURL string) (string, error) {
+// resolveStartRedirect follows the muster-hosted start URL the way a browser
+// would and returns the upstream authorization URL it leads to. When muster
+// runs its own OAuth server, the start endpoint first sends the browser
+// through the sign-in check: muster's identity provider (an auto-approving
+// mock) back to muster, and from there to the start endpoint again. Those
+// hops are followed; the first redirect elsewhere is the upstream one.
+// signedInAs is who signs in at the check; empty means the link's owner.
+func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, startURL, signedInAs string) (string, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, startURL, nil)
+	start, err := url.Parse(startURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to create start request: %w", err)
+		return "", fmt.Errorf("failed to parse start URL: %w", err)
+	}
+
+	next := startURL
+	for range maxSignInCheckHops {
+		location, err := redirectLocation(ctx, client, next)
+		if err != nil {
+			return "", err
+		}
+		switch {
+		case sameOrigin(start, location):
+			next = location
+		case identitySignIn(start, location):
+			subject := signedInAs
+			if subject == "" {
+				subject = linkOwner(start)
+			}
+			if next, err = h.approveIdentitySignIn(location, subject); err != nil {
+				return "", err
+			}
+		default:
+			return location, nil
+		}
+	}
+	return "", fmt.Errorf("start URL did not lead to an upstream authorization URL within %d redirects", maxSignInCheckHops)
+}
+
+// maxSignInCheckHops bounds the redirects resolveStartRedirect follows: the
+// start endpoint, muster's identity provider, muster's OAuth callback and the
+// start endpoint again.
+const maxSignInCheckHops = 5
+
+// sameOrigin reports whether location is on the start URL's origin: muster
+// itself, its OAuth server's callback or the start endpoint again.
+func sameOrigin(start *url.URL, location string) bool {
+	parsed, err := url.Parse(location)
+	return err == nil && parsed.Scheme == start.Scheme && parsed.Host == start.Host
+}
+
+// identitySignIn reports whether location is the sign-in check's request to
+// muster's identity provider: an authorization URL whose redirect_uri is
+// muster's OAuth server callback.
+func identitySignIn(start *url.URL, location string) bool {
+	parsed, err := url.Parse(location)
+	if err != nil {
+		return false
+	}
+	redirectURI, err := url.Parse(parsed.Query().Get("redirect_uri"))
+	return err == nil && redirectURI.Host == start.Host && redirectURI.Path == "/oauth/callback"
+}
+
+// linkOwner is the person a start URL was issued to: the user_id its state
+// carries.
+func linkOwner(start *url.URL) string {
+	decoded, err := base64.URLEncoding.DecodeString(start.Query().Get("state"))
+	if err != nil {
+		return ""
+	}
+	var state struct {
+		UserID string `json:"user_id"`
+	}
+	if json.Unmarshal(decoded, &state) != nil {
+		return ""
+	}
+	return state.UserID
+}
+
+// approveIdentitySignIn plays muster's identity provider approving the
+// sign-in check for subject, the person in the browser, and returns where the
+// provider sends the browser: muster's OAuth server callback with the code.
+func (h *TestToolsHandler) approveIdentitySignIn(location, subject string) (string, error) {
+	signIn, err := url.Parse(location)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse sign-in check URL: %w", err)
+	}
+	issuer := signIn.Scheme + "://" + signIn.Host
+	for name, info := range h.currentInstance.MockOAuthServers {
+		if info == nil || !strings.HasPrefix(info.IssuerURL, issuer) {
+			continue
+		}
+		idp := h.instanceManager.GetMockOAuthServer(h.currentInstance.ID, name)
+		if idp == nil {
+			break
+		}
+		q := signIn.Query()
+		code := idp.GenerateAuthCodeWithSubject(q.Get("client_id"), q.Get("redirect_uri"), q.Get("scope"), q.Get("state"),
+			q.Get("code_challenge"), q.Get("code_challenge_method"), subject, q.Get("nonce"))
+		callback, err := url.Parse(q.Get("redirect_uri"))
+		if err != nil {
+			return "", fmt.Errorf("failed to parse sign-in check redirect_uri: %w", err)
+		}
+		cq := callback.Query()
+		cq.Set("code", code)
+		cq.Set("state", q.Get("state"))
+		callback.RawQuery = cq.Encode()
+		return callback.String(), nil
+	}
+	return "", fmt.Errorf("no mock OAuth server serves muster's identity provider at %s", issuer)
+}
+
+// redirectLocation requests target and returns the Location of its redirect.
+func redirectLocation(ctx context.Context, client *http.Client, target string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request for %s: %w", target, err)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("start request failed: %w", err)
+		return "", fmt.Errorf("request to %s failed: %w", target, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 300 || resp.StatusCode >= 400 {
-		return "", fmt.Errorf("start endpoint returned status %d instead of a redirect", resp.StatusCode)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return "", fmt.Errorf("%s returned status %d instead of a redirect: %s", target, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	location := resp.Header.Get("Location")
 	if location == "" {
-		return "", fmt.Errorf("start endpoint redirect has no Location header")
+		return "", fmt.Errorf("%s redirect has no Location header", target)
 	}
 	return location, nil
 }

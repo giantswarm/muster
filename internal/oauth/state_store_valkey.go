@@ -31,6 +31,8 @@ type valkeyStateEntry struct {
 	CodeVerifier     string    `json:"cv,omitempty"`
 	RedirectURI      string    `json:"ru,omitempty"`
 	AuthorizationURL string    `json:"aurl,omitempty"`
+	BrowserVerifier  string    `json:"bv,omitempty"`
+	BrowserVerified  bool      `json:"bok,omitempty"`
 }
 
 func (e *valkeyStateEntry) toState() *OAuthState {
@@ -46,6 +48,8 @@ func (e *valkeyStateEntry) toState() *OAuthState {
 		CodeVerifier:     e.CodeVerifier,
 		RedirectURI:      e.RedirectURI,
 		AuthorizationURL: e.AuthorizationURL,
+		BrowserVerifier:  e.BrowserVerifier,
+		BrowserVerified:  e.BrowserVerified,
 	}
 }
 
@@ -62,6 +66,8 @@ func stateToEntry(s *OAuthState) *valkeyStateEntry {
 		CodeVerifier:     s.CodeVerifier,
 		RedirectURI:      s.RedirectURI,
 		AuthorizationURL: s.AuthorizationURL,
+		BrowserVerifier:  s.BrowserVerifier,
+		BrowserVerified:  s.BrowserVerified,
 	}
 }
 
