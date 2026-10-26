@@ -481,6 +481,7 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 	stateParams := StateParams{
 		SessionID:    params.SessionID,
 		UserID:       params.UserID,
+		SignIn:       params.SignIn,
 		ServerName:   params.ServerName,
 		Issuer:       issuer,
 		Resource:     params.Resource,
@@ -512,8 +513,12 @@ func (c *Client) GenerateAuthURL(ctx context.Context, params AuthChallengeParams
 // GetStartURL returns the muster-hosted start URL for an encoded state. The
 // browser is redirected from there to the upstream authorization server.
 func (c *Client) GetStartURL(encodedState string) string {
-	return strings.TrimSuffix(c.publicURL, "/") + config.DefaultOAuthProxyStartPath +
-		"?state=" + url.QueryEscape(encodedState)
+	return c.startEndpoint() + "?state=" + url.QueryEscape(encodedState)
+}
+
+// startEndpoint returns the absolute URL of the OAuth proxy start endpoint.
+func (c *Client) startEndpoint() string {
+	return strings.TrimSuffix(c.publicURL, "/") + config.DefaultOAuthProxyStartPath
 }
 
 // ExchangeCode exchanges an authorization code for tokens. resource is the

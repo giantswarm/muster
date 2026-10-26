@@ -2,6 +2,8 @@ package oauth
 
 import (
 	"time"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // TokenKey uniquely identifies a token in the store.
@@ -24,6 +26,10 @@ type AuthChallengeParams struct {
 
 	// UserID is the authenticated user's identity (sub claim).
 	UserID string
+
+	// SignIn is the identity the caller authenticated as at its identity
+	// provider; the start endpoint's sign-in check compares against it.
+	SignIn api.SignInIdentity
 
 	// ServerName is the MCP server that requires authentication.
 	ServerName string
@@ -89,6 +95,15 @@ type OAuthState struct {
 	// CodeVerifier is the PKCE code verifier for this flow.
 	// Stored server-side only, not transmitted in the state parameter.
 	CodeVerifier string `json:"-"`
+
+	// SignIn is the identity the flow's caller authenticated as at its
+	// identity provider. Stored server-side only.
+	SignIn api.SignInIdentity `json:"-"`
+
+	// BrowserBinding is the hash of the browser cookie of the browser whose
+	// person signed in to muster's identity provider as SignIn. Stored
+	// server-side only.
+	BrowserBinding string `json:"-"`
 }
 
 // AuthRequiredResponse represents an authentication challenge returned when

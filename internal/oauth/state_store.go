@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -61,6 +62,10 @@ type StateParams struct {
 
 	// UserID is the user's identity (sub claim).
 	UserID string
+
+	// SignIn is the identity the caller authenticated as at its identity
+	// provider.
+	SignIn api.SignInIdentity
 
 	// ServerName is the MCP server that requires authentication.
 	ServerName string
@@ -167,6 +172,7 @@ func (ss *StateStore) GenerateState(params StateParams,
 	state := &OAuthState{
 		SessionID:    params.SessionID,
 		UserID:       params.UserID,
+		SignIn:       params.SignIn,
 		ServerName:   params.ServerName,
 		Nonce:        nonce,
 		CreatedAt:    time.Now(),

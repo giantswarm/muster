@@ -10,6 +10,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/security"
 	"github.com/valkey-io/valkey-go"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -31,6 +32,9 @@ type valkeyStateEntry struct {
 	CodeVerifier     string    `json:"cv,omitempty"`
 	RedirectURI      string    `json:"ru,omitempty"`
 	AuthorizationURL string    `json:"aurl,omitempty"`
+	SignInIssuer     string    `json:"sii,omitempty"`
+	SignInSubject    string    `json:"sis,omitempty"`
+	BrowserBinding   string    `json:"bb,omitempty"`
 }
 
 func (e *valkeyStateEntry) toState() *OAuthState {
@@ -46,6 +50,8 @@ func (e *valkeyStateEntry) toState() *OAuthState {
 		CodeVerifier:     e.CodeVerifier,
 		RedirectURI:      e.RedirectURI,
 		AuthorizationURL: e.AuthorizationURL,
+		SignIn:           api.SignInIdentity{Issuer: e.SignInIssuer, Subject: e.SignInSubject},
+		BrowserBinding:   e.BrowserBinding,
 	}
 }
 
@@ -62,6 +68,9 @@ func stateToEntry(s *OAuthState) *valkeyStateEntry {
 		CodeVerifier:     s.CodeVerifier,
 		RedirectURI:      s.RedirectURI,
 		AuthorizationURL: s.AuthorizationURL,
+		SignInIssuer:     s.SignIn.Issuer,
+		SignInSubject:    s.SignIn.Subject,
+		BrowserBinding:   s.BrowserBinding,
 	}
 }
 
@@ -117,6 +126,7 @@ func (s *ValkeyStateStore) GenerateState(params StateParams,
 	state := &OAuthState{
 		SessionID:    params.SessionID,
 		UserID:       params.UserID,
+		SignIn:       params.SignIn,
 		ServerName:   params.ServerName,
 		Nonce:        nonce,
 		CreatedAt:    time.Now(),

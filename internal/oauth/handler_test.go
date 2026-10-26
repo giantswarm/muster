@@ -534,7 +534,7 @@ func startTestHandler(t *testing.T, authorizationURL string, allowlist ...string
 	}
 	handler.SetPostLoginRedirectAllowlist(prefixes)
 
-	encodedState, err := client.stateStore.GenerateState(StateParams{SessionID: "session-1", UserID: "user-1", ServerName: "test-server", Issuer: "https://idp.example.com", CodeVerifier: "verifier"},
+	encodedState, err := client.stateStore.GenerateState(StateParams{SessionID: "session-1", UserID: "user-1", SignIn: testSignIn, ServerName: "test-server", Issuer: "https://idp.example.com", CodeVerifier: "verifier"},
 		func(string) (string, error) { return authorizationURL, nil })
 	if err != nil {
 		t.Fatalf("GenerateState: %v", err)
@@ -720,6 +720,7 @@ func startCallbackFlow(t *testing.T, client *Client, issuer string) string {
 	startURL, _, err := client.GenerateAuthURL(context.Background(), AuthChallengeParams{
 		SessionID:  "session-1",
 		UserID:     "user-1",
+		SignIn:     testSignIn,
 		ServerName: "server-1",
 		Issuer:     issuer,
 		Resource:   "https://backend.example.com",

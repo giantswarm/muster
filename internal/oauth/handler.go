@@ -58,6 +58,8 @@ const (
 	summaryUnverifiedResponse = "The sign-in response could not be verified"
 	summaryDenied             = "The sign-in was denied or failed"
 	summaryNotCompleted       = "The sign-in could not be completed"
+	summaryOtherPerson        = "This sign-in link was issued to someone else"
+	summaryUnconfirmedPerson  = "muster cannot confirm that this sign-in link was issued to you"
 )
 
 // HandleStart handles the OAuth proxy start endpoint. Auth challenges point
@@ -66,7 +68,18 @@ const (
 // against the operator allowlist, is recorded on the state so a successful
 // callback sends the browser there instead of the static success page. An
 // unacceptable redirect target is dropped (the login still proceeds).
+//
+// When muster runs its own OAuth server (api.BrowserIdentity), the browser
+// first signs in to muster's identity provider and comes back here with a
+// code: the flow continues only for the person it was started for, and only
+// in the browser that passed the check (handler_identity.go).
 func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
+	identity := api.GetBrowserIdentity()
+	if identity != nil && r.URL.Query().Has("code") {
+		h.finishIdentityCheck(w, r, identity)
+		return
+	}
+
 	stateParam := r.URL.Query().Get("state")
 	if stateParam == "" {
 		logging.Warn("OAuth", "Start endpoint called without state parameter")
@@ -98,6 +111,10 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 	if state.AuthorizationURL == "" {
 		logging.Warn("OAuth", "State has no authorization URL: nonce=%s", state.Nonce)
 		h.renderErrorPage(w, summaryInvalidSession, "")
+		return
+	}
+	if identity != nil && !h.boundToBrowser(r, state) {
+		h.sendToIdentityCheck(w, r, identity, state)
 		return
 	}
 
@@ -152,6 +169,15 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if state.Issuer == "" {
 		logging.Warn("OAuth", "Missing issuer in state for nonce=%s", state.Nonce)
 		h.renderErrorPage(w, summaryInvalidSession, "")
+		return
+	}
+
+	// A callback from a browser that did not pass the start endpoint's
+	// sign-in check for this flow was not completed by the person it was
+	// started for, as far as muster can tell: its code is never exchanged.
+	if api.GetBrowserIdentity() != nil && !h.boundToBrowser(r, state) {
+		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: the browser did not pass the sign-in check for this flow", state.ServerName)
+		h.renderErrorPage(w, summaryUnverifiedResponse, "")
 		return
 	}
 

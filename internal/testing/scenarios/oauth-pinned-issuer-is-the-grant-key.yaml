@@ -37,7 +37,9 @@ timeout: "3m"
 pre_configuration:
   mock_oauth_servers:
     # muster's own identity provider and the pinned authorization server of
-    # platform-fixture: a Dex, with its token responses' omitted `scope`.
+    # platform-fixture: a Dex, with its token responses' omitted `scope`. It
+    # also issues the bearer the session presents to muster (trusted as an
+    # issuer), like the lab's portal and agent tokens.
     - name: "platform-idp"
       profile: "dex"
       scopes: ["openid", "profile", "email", "offline_access"]
@@ -47,10 +49,6 @@ pre_configuration:
       client_id: "platform-client"
       client_secret: "platform-secret"
       use_as_muster_oauth_server: true
-
-    # Issues the externally issued bearer the session presents to muster (a
-    # Dex-issued token muster trusts), like the lab's portal and agent tokens.
-    - name: "workload-idp"
 
     # What both backends' resource metadata names as their authorization
     # server -- not the one their tokens come from.
@@ -71,7 +69,7 @@ pre_configuration:
 
   muster_broker:
     trusted_issuers:
-      - oauth_server_ref: "workload-idp"
+      - oauth_server_ref: "platform-idp"
         accepted_typ_headers: [""]
 
   mcp_servers:
@@ -112,7 +110,7 @@ steps:
     description: "The session's bearer is an externally issued token muster trusts (portal/agent shape)"
     tool: "test_mint_token"
     args:
-      server: "workload-idp"
+      server: "platform-idp"
       name: "person-token"
       sub: "person@example.com"
       email: "person@example.com"
