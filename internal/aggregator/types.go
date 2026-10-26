@@ -91,6 +91,10 @@ type ServerRegistration struct {
 	// registers (adoptTenantServer). Empty in filesystem mode.
 	UID string
 
+	// CreatedAt is the creation time of the MCPServer resource
+	// (api.MCPServer.CreatedAt). Zero in filesystem mode.
+	CreatedAt time.Time
+
 	// ToolPrefix is the per-server tool prefix used when Family is nil.
 	// Pattern: {musterPrefix}_{toolPrefix-or-name}_{toolName}.
 	ToolPrefix string
@@ -156,6 +160,11 @@ type ServerInfo struct {
 	// UID is the Kubernetes UID of the server's MCPServer object
 	// (ServerRegistration.UID). Empty in filesystem mode.
 	UID string
+
+	// CreatedAt is the creation time of the server's MCPServer object
+	// (ServerRegistration.CreatedAt); issuerOwner orders by it. Zero in
+	// filesystem mode.
+	CreatedAt time.Time
 
 	// Client is the MCP client instance used to communicate with the server
 	Client MCPClient
@@ -354,6 +363,13 @@ func (s *ServerInfo) GetNamespace() string {
 		return metav1.NamespaceDefault
 	}
 	return s.Namespace
+}
+
+// SecretOwner is the MCPServer this server's Secret references are read for
+// (spec.headersFrom, the client Secrets of auth.tokenExchange and
+// auth.authorizationServer): only a Secret bound to it is read.
+func (s *ServerInfo) SecretOwner() api.SecretOwner {
+	return api.MCPServerSecretOwner(s.Name, s.GetNamespace(), s.UID)
 }
 
 // AggregatorConfig holds configuration args for the aggregator.

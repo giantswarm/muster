@@ -624,6 +624,25 @@
                 "providerApps": {
                     "type": "array"
                 },
+                "secretBinding": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "mode": {
+                            "type": "string",
+                            "enum": [
+                                "warn",
+                                "enforce"
+                            ]
+                        },
+                        "protectedSecrets": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
                 "toolsetPresets": {
                     "type": "object",
                     "additionalProperties": true

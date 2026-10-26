@@ -2,7 +2,6 @@ package oauth
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -41,16 +40,18 @@ func (c *Client) revokeSubjectGrant(userID, issuer string) {
 	ctx, cancel := context.WithTimeout(context.Background(), subjectGrantRevokeTimeout)
 	defer cancel()
 
-	endpoint, metadata, err := c.revocationEndpoint(ctx, issuer)
+	pin := c.issuerPin(issuer)
+	metadata, err := c.metadataFor(ctx, issuer, pin)
 	if err != nil {
-		log(logging.WarnWithAttrs, "subject_grant_revocation_failed", slog.String("error", err.Error()))
+		log(logging.WarnWithAttrs, "subject_grant_revocation_failed", slog.String("error", "authorization server metadata unavailable: "+err.Error()))
 		return
 	}
+	endpoint := revocationEndpoint(pin, metadata)
 	if endpoint == "" {
 		log(logging.InfoWithAttrs, "subject_grant_revocation_unsupported")
 		return
 	}
-	resolved := c.resolveClient(ctx, issuer, metadata, false)
+	resolved := c.resolveClient(ctx, issuer, pin, metadata, false)
 
 	tokens := []struct{ value, hint string }{
 		{grant.RefreshToken, pkgoauth.FormFieldRefreshToken},
@@ -70,16 +71,12 @@ func (c *Client) revokeSubjectGrant(userID, issuer string) {
 	}
 }
 
-// revocationEndpoint returns the RFC 7009 endpoint of the issuer -- the
-// operator's pin, else the metadata's revocation_endpoint, empty when there
-// is none -- and the metadata the client identification is resolved from.
-func (c *Client) revocationEndpoint(ctx context.Context, issuer string) (string, *pkgoauth.Metadata, error) {
-	metadata, err := c.oauthClient.DiscoverMetadata(ctx, issuer)
-	if err != nil {
-		return "", nil, fmt.Errorf("authorization server metadata unavailable: %w", err)
+// revocationEndpoint returns the RFC 7009 endpoint of an authorization server:
+// the operator's pin, else the metadata's revocation_endpoint, empty when
+// there is none.
+func revocationEndpoint(pin *IssuerPin, metadata *pkgoauth.Metadata) string {
+	if pin != nil && pin.RevocationEndpoint != "" {
+		return pin.RevocationEndpoint
 	}
-	if pin := c.issuerPin(issuer); pin != nil && pin.RevocationEndpoint != "" {
-		return pin.RevocationEndpoint, metadata, nil
-	}
-	return metadata.RevocationEndpoint, metadata, nil
+	return metadata.RevocationEndpoint
 }

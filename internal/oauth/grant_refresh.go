@@ -152,7 +152,8 @@ func (c *Client) refreshSubjectGrant(ctx context.Context, userID, issuer string)
 		return usableToken(current)
 	}
 
-	metadata, err := c.discoverMetadata(ctx, issuer)
+	pin := c.issuerPin(issuer)
+	metadata, err := c.metadataFor(ctx, issuer, pin)
 	if err != nil {
 		logging.WarnWithAttrs("OAuth", "subject_grant_refresh_failed",
 			slog.String("issuer", issuer),
@@ -160,7 +161,7 @@ func (c *Client) refreshSubjectGrant(ctx context.Context, userID, issuer string)
 			slog.String("error", "authorization server metadata unavailable: "+err.Error()))
 		return usableToken(current)
 	}
-	resolved := c.resolveClient(ctx, issuer, metadata, false)
+	resolved := c.resolveClient(ctx, issuer, pin, metadata, false)
 	if resolved.Method == ClientIDMethodNone {
 		logging.WarnWithAttrs("OAuth", "subject_grant_refresh_failed",
 			slog.String("issuer", issuer),

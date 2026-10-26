@@ -229,6 +229,14 @@ func (s *Service) Start(ctx context.Context) error {
 				// orchestrator's retry and the reconciler took the failure for
 				// a server awaiting a sign-in (issue #1265).
 				err = &machineIdentityUnauthorizedError{authErr: authErr}
+			} else if pinErr := s.refusedPinSecret(ctx); pinErr != nil {
+				// The pin's client Secret is refused: no sign-in can work,
+				// so the refusal is the server's status, not Auth Required.
+				err = pinErr
+			} else if conflictErr := s.conflictingAuthorizationServer(); conflictErr != nil {
+				// Another MCPServer's description is pinned under the
+				// issuer: no sign-in for this one works either.
+				err = conflictErr
 			} else if s.isRemoteServer() && s.definition.Auth.UsesSessionAuth() {
 				// The 401 proves the endpoint is up. A server reached with the
 				// caller's identity has nothing to connect until a session
@@ -297,6 +305,9 @@ func (s *Service) failStart(err error) error {
 		credentials := api.ClassifyTokenExchangeError(err) == api.TokenExchangeFailureCredentials
 		var headerSecretErr *mcpserver.HeaderSecretError
 		headerSecret := errors.As(err, &headerSecretErr)
+		var pinErr *pinSecretError
+		pinSecret := errors.As(err, &pinErr)
+		conflict := errors.Is(err, api.ErrAuthorizationServerConflict)
 		var unavailableErr *api.TokenEndpointUnavailableError
 		tokenEndpoint := errors.As(err, &unavailableErr)
 		retryAfter := retryAfterFromError(err)
@@ -308,8 +319,10 @@ func (s *Service) failStart(err error) error {
 		failures := s.consecutiveFailures
 		outcome := s.httpOutcomeLocked()
 		switch {
-		case credentials, headerSecret:
+		case credentials, headerSecret, pinSecret:
 			outcome = "credentials Secret unavailable"
+		case conflict:
+			outcome = "authorization server described differently"
 		case tokenEndpoint:
 			outcome = s.tokenEndpointOutcomeLocked()
 		}
@@ -326,7 +339,7 @@ func (s *Service) failStart(err error) error {
 		// missing credentials Secret or a token endpoint that does not answer
 		// is not the MCP endpoint's fault: the server stays Failed, on the
 		// same schedule, and never reads unreachable.
-		if failures >= UnreachableThreshold && !credentials && !headerSecret && !tokenEndpoint {
+		if failures >= UnreachableThreshold && !credentials && !headerSecret && !pinSecret && !conflict && !tokenEndpoint {
 			s.UpdateState(services.StateUnreachable, services.HealthUnknown, err)
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("server unreachable after %d consecutive failures (%s): %s", failures, schedule, err.Error()),
@@ -343,6 +356,14 @@ func (s *Service) failStart(err error) error {
 		case headerSecret:
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
 				Error: fmt.Sprintf("the server cannot connect until its headersFrom Secret exists (%s): %s", schedule, err.Error()),
+			})
+		case pinSecret:
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("no sign-in works until its authorizationServer client Secret is bound to it (%s): %s", schedule, err.Error()),
+			})
+		case conflict:
+			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
+				Error: fmt.Sprintf("no sign-in works while another MCPServer describes its authorization server differently (%s): %s", schedule, err.Error()),
 			})
 		case tokenEndpoint:
 			s.generateEvent(events.ReasonMCPServerFailed, events.EventData{
@@ -770,6 +791,9 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	if s.definition.UID != "" {
 		data[api.ServiceDataUID] = s.definition.UID
 	}
+	if !s.definition.CreatedAt.IsZero() {
+		data[api.ServiceDataCreatedAt] = s.definition.CreatedAt
+	}
 
 	// Add failure tracking data for unreachable server detection (thread-safe
 	// read). The orchestrator's retry loop and the reconciler's status sync
@@ -792,6 +816,9 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	s.healthEventMutex.Unlock()
 
 	s.sessionAuthServiceData(data)
+	if errors.Is(s.GetLastError(), api.ErrAuthorizationServerConflict) {
+		data[api.ServiceDataFailureReason] = api.FailureReasonAuthorizationServerConflict
+	}
 
 	return data
 }
@@ -1030,7 +1057,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	// client's configuration only: the definition and the service data keep
 	// the references.
 	// Note: Headers can be nil - the factory and client constructors handle nil maps gracefully
-	headers, err := mcpserver.ResolveHeaders(ctx, s.definition.Namespace, s.definition.Headers, s.definition.HeadersFrom)
+	headers, err := mcpserver.ResolveHeaders(ctx, s.secretOwner(), s.definition.Headers, s.definition.HeadersFrom)
 	if err != nil {
 		return err
 	}
@@ -1219,6 +1246,20 @@ func (s *Service) isTransientConnectivityError(err error) bool {
 	// own once the Secret exists.
 	var headerSecretErr *mcpserver.HeaderSecretError
 	if errors.As(err, &headerSecretErr) {
+		return true
+	}
+
+	// The client Secret of spec.auth.authorizationServer is refused: binding
+	// it needs no restart, so the server is retried with backoff.
+	var pinErr *pinSecretError
+	if errors.As(err, &pinErr) {
+		return true
+	}
+
+	// An older MCPServer describes the same authorization server differently:
+	// the conflict ends when either spec changes or the other MCPServer goes,
+	// none of which restarts this server, so it is retried with backoff.
+	if errors.Is(err, api.ErrAuthorizationServerConflict) {
 		return true
 	}
 

@@ -27,10 +27,6 @@ const (
 type metadataCacheEntry struct {
 	metadata  *Metadata
 	fetchedAt time.Time
-	// pinned entries were supplied by the operator for an authorization
-	// server without a discovery document; they never expire and survive
-	// ClearMetadataCache.
-	pinned bool
 }
 
 // Client handles OAuth 2.1 protocol operations.
@@ -85,60 +81,15 @@ func NewClient(opts ...ClientOption) *Client {
 // It tries RFC 8414 (/.well-known/oauth-authorization-server) first,
 // then falls back to OpenID Connect (/.well-known/openid-configuration).
 //
-// Results are cached with a TTL to reduce network requests. Metadata pinned
-// for the issuer (PinMetadata) answers instead of the network.
+// Results are cached with a TTL to reduce network requests.
 func (c *Client) DiscoverMetadata(ctx context.Context, issuer string) (*Metadata, error) {
-	return c.discoverMetadata(ctx, issuer, true)
-}
-
-// DiscoverPublishedMetadata is DiscoverMetadata without the pins: it answers
-// only with what the authorization server publishes itself. A caller whose
-// pins are filed under another key (PinnedMetadata) uses it, so a pin made
-// for the plain issuer never stands in for that caller's discovery.
-func (c *Client) DiscoverPublishedMetadata(ctx context.Context, issuer string) (*Metadata, error) {
-	return c.discoverMetadata(ctx, issuer, false)
-}
-
-// PinnedMetadata returns the metadata pinned under key (PinMetadata), or nil.
-func (c *Client) PinnedMetadata(key string) *Metadata {
-	key = strings.TrimSuffix(key, "/")
-	c.metadataMu.RLock()
-	defer c.metadataMu.RUnlock()
-	if entry, ok := c.metadataCache[key]; ok && entry.pinned {
-		return entry.metadata
-	}
-	return nil
-}
-
-// publishedMetadataKeyPrefix starts the cache key of metadata discovered for
-// DiscoverPublishedMetadata. No issuer URL starts with it.
-const publishedMetadataKeyPrefix = "published|"
-
-func (c *Client) discoverMetadata(ctx context.Context, issuer string, usePinned bool) (*Metadata, error) {
 	issuer = strings.TrimSuffix(issuer, "/")
-
-	// Published metadata wanted next to a pin of the same issuer is cached
-	// under its own key, which no pin uses: the pin cannot hide it, and it
-	// cannot replace the pin.
-	cacheKey := issuer
-	if !usePinned {
-		cacheKey = publishedMetadataKeyPrefix + issuer
-	}
 
 	cached := func() *Metadata {
 		c.metadataMu.RLock()
 		defer c.metadataMu.RUnlock()
-		entry, ok := c.metadataCache[cacheKey]
-		if !ok {
-			return nil
-		}
-		if entry.pinned {
-			if usePinned {
-				return entry.metadata
-			}
-			return nil
-		}
-		if time.Since(entry.fetchedAt) < c.metadataTTL {
+		entry, ok := c.metadataCache[issuer]
+		if ok && time.Since(entry.fetchedAt) < c.metadataTTL {
 			return entry.metadata
 		}
 		return nil
@@ -149,9 +100,8 @@ func (c *Client) discoverMetadata(ctx context.Context, issuer string, usePinned 
 		return metadata, nil
 	}
 
-	// Use singleflight to deduplicate concurrent fetches. A flight that may
-	// answer from a pin is not shared with one that may not.
-	result, err, _ := c.metadataGroup.Do(cacheKey, func() (interface{}, error) {
+	// Use singleflight to deduplicate concurrent fetches
+	result, err, _ := c.metadataGroup.Do(issuer, func() (any, error) {
 		// Double-check cache after acquiring singleflight lock
 		if metadata := cached(); metadata != nil {
 			return metadata, nil
@@ -160,7 +110,7 @@ func (c *Client) discoverMetadata(ctx context.Context, issuer string, usePinned 
 		if err != nil {
 			return nil, err
 		}
-		c.cacheMetadata(cacheKey, metadata)
+		c.cacheMetadata(issuer, metadata)
 		return metadata, nil
 	})
 
@@ -290,44 +240,8 @@ func (c *Client) fetchMetadata(ctx context.Context, metadataURL string) (*Metada
 }
 
 // cacheMetadata stores metadata in the cache.
-// PinMetadata supplies the metadata of an authorization server that publishes
-// no RFC 8414 / OIDC discovery document (GitHub). DiscoverMetadata answers
-// from the pin from then on, without a network request, until PinMetadata is
-// called again for the issuer. When the pinned document lists no
-// code_challenge_methods_supported, S256 is assumed: the operator vouching
-// for the endpoints is the only source of that fact, and MCP's refusal rule
-// exists for servers that could have advertised it.
-func (c *Client) PinMetadata(issuer string, metadata *Metadata) {
-	issuer = strings.TrimSuffix(issuer, "/")
-	pinned := *metadata
-	if pinned.Issuer == "" {
-		pinned.Issuer = issuer
-	}
-	if len(pinned.CodeChallengeMethodsSupported) == 0 {
-		pinned.CodeChallengeMethodsSupported = []string{"S256"}
-	}
-
-	c.metadataMu.Lock()
-	c.metadataCache[issuer] = &metadataCacheEntry{
-		metadata:  &pinned,
-		fetchedAt: time.Now(),
-		pinned:    true,
-	}
-	c.metadataMu.Unlock()
-
-	c.logger.Info("Pinned OAuth metadata",
-		"issuer", issuer,
-		"authorization_endpoint", pinned.AuthorizationEndpoint,
-		"token_endpoint", pinned.TokenEndpoint)
-}
-
 func (c *Client) cacheMetadata(issuer string, metadata *Metadata) {
 	c.metadataMu.Lock()
-	if entry, ok := c.metadataCache[issuer]; ok && entry.pinned {
-		// An operator pin is not overwritten by a discovery result.
-		c.metadataMu.Unlock()
-		return
-	}
 	c.metadataCache[issuer] = &metadataCacheEntry{
 		metadata:  metadata,
 		fetchedAt: time.Now(),
@@ -607,44 +521,10 @@ func (c *Client) BuildAuthorizationURL(request AuthorizationRequest) (string, er
 	return authURL.String(), nil
 }
 
-// UnpinMetadata drops the operator-pinned metadata for an issuer, so the
-// next DiscoverMetadata fetches the authorization server's own document
-// again. It reports whether a pinned entry was dropped. A discovered entry is
-// left alone: it came from the authorization server itself and expires with
-// the cache TTL.
-//
-// Pinned entries never expire, so without this a pin that an MCPServer no
-// longer carries -- removed, or changed to a different authorization server --
-// would keep answering every flow against the issuer until the process
-// restarts (giantswarm/muster#1175).
-func (c *Client) UnpinMetadata(issuer string) bool {
-	issuer = strings.TrimSuffix(issuer, "/")
-	c.metadataMu.Lock()
-	entry, ok := c.metadataCache[issuer]
-	if ok && entry.pinned {
-		delete(c.metadataCache, issuer)
-	}
-	c.metadataMu.Unlock()
-	if !ok || !entry.pinned {
-		return false
-	}
-	c.logger.Info("Dropped pinned OAuth metadata",
-		"issuer", issuer,
-		"authorization_endpoint", entry.metadata.AuthorizationEndpoint,
-		"token_endpoint", entry.metadata.TokenEndpoint)
-	return true
-}
-
 // ClearMetadataCache clears the metadata cache.
 // Useful for testing or when metadata needs to be refreshed immediately.
 func (c *Client) ClearMetadataCache() {
 	c.metadataMu.Lock()
-	kept := make(map[string]*metadataCacheEntry)
-	for issuer, entry := range c.metadataCache {
-		if entry.pinned {
-			kept[issuer] = entry
-		}
-	}
-	c.metadataCache = kept
+	c.metadataCache = make(map[string]*metadataCacheEntry)
 	c.metadataMu.Unlock()
 }

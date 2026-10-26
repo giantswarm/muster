@@ -1081,7 +1081,7 @@ func sessionHeaders(ctx context.Context, info *ServerInfo) (map[string]string, e
 			headersFrom = append(headersFrom, h)
 		}
 	}
-	headers, err := internalmcp.ResolveHeaders(ctx, info.Namespace, info.Headers, headersFrom)
+	headers, err := internalmcp.ResolveHeaders(ctx, info.SecretOwner(), info.Headers, headersFrom)
 	if err != nil {
 		return nil, fmt.Errorf("headers of %s: %w", info.Name, err)
 	}
@@ -1512,7 +1512,7 @@ func loadTokenExchangeCredentials(ctx context.Context, serverInfo *ServerInfo) (
 
 	// Typed, so the failure is classified as the server's: every caller's
 	// exchange fails the same way until the Secret exists.
-	credentials, err := handler.LoadClientCredentials(ctx, ref, defaultNamespace)
+	credentials, err := handler.LoadMCPServerClientCredentials(ctx, serverInfo.SecretOwner(), api.SecretFieldTokenExchange, ref)
 	if err != nil {
 		return nil, api.NewTokenExchangeCredentialsError(ref, defaultNamespace, err)
 	}

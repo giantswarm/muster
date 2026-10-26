@@ -12,23 +12,31 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 )
 
-// secretKeyReader answers LoadSecretKey from a map keyed by
+// secretKeyReader answers LoadMCPServerSecretKey from a map keyed by
 // "namespace/name/key" and records the namespace each read went to.
 type secretKeyReader struct {
 	values     map[string]string
 	namespaces []string
+	owners     []api.SecretOwner
+	fields     []string
 }
 
-func (s *secretKeyReader) LoadClientCredentials(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
+func (s *secretKeyReader) LoadClientCredentialsForConfig(context.Context, *api.ClientCredentialsSecretRef, string) (*api.ClientCredentials, error) {
 	return nil, fmt.Errorf("not used")
 }
 
-func (s *secretKeyReader) LoadSecretKey(_ context.Context, ref *api.ClientCredentialsSecretRef, key, defaultNamespace string) ([]byte, error) {
+func (s *secretKeyReader) LoadMCPServerClientCredentials(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef) (*api.ClientCredentials, error) {
+	return nil, fmt.Errorf("not used")
+}
+
+func (s *secretKeyReader) LoadMCPServerSecretKey(_ context.Context, owner api.SecretOwner, field string, ref *api.ClientCredentialsSecretRef, key string) ([]byte, error) {
 	namespace := ref.Namespace
 	if namespace == "" {
-		namespace = defaultNamespace
+		namespace = owner.Namespace
 	}
 	s.namespaces = append(s.namespaces, namespace)
+	s.owners = append(s.owners, owner)
+	s.fields = append(s.fields, field)
 	value, ok := s.values[namespace+"/"+ref.Name+"/"+key]
 	if !ok {
 		return nil, fmt.Errorf("secret %s/%s missing required key %q", namespace, ref.Name, key)
@@ -42,6 +50,9 @@ func registerSecretKeyReader(t *testing.T, reader api.SecretCredentialsHandler) 
 	api.RegisterSecretCredentialsHandler(reader)
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
 }
+
+// githubOwner is the MCPServer org-acme/github the headers are resolved for.
+var githubOwner = api.SecretOwner{Name: "github", Namespace: "org-acme", UID: "uid-github"}
 
 func bearerFrom(secret string) api.MCPServerHeaderFrom {
 	return api.MCPServerHeaderFrom{
@@ -58,22 +69,41 @@ func TestResolveHeadersReadsTheServersOwnNamespace(t *testing.T) {
 	registerSecretKeyReader(t, reader)
 
 	static := map[string]string{"authorization": "", "X-MCP-Toolsets": "repos"}
-	got, err := ResolveHeaders(t.Context(), "org-acme", static, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
+	got, err := ResolveHeaders(t.Context(), githubOwner, static, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
 	require.NoError(t, err)
 
 	assert.Equal(t, map[string]string{"Authorization": "Bearer s3cr3t", "X-MCP-Toolsets": "repos"}, got)
 	assert.Equal(t, []string{"org-acme"}, reader.namespaces)
+	assert.Equal(t, []api.SecretOwner{githubOwner}, reader.owners, "the Secret is read for the MCPServer, so its binding is checked")
+	assert.Equal(t, []string{api.SecretFieldHeadersFrom}, reader.fields)
 	assert.Equal(t, map[string]string{"authorization": "", "X-MCP-Toolsets": "repos"}, static, "the definition's map is not changed")
 }
 
 func TestResolveHeadersFailsOnAMissingKey(t *testing.T) {
 	registerSecretKeyReader(t, &secretKeyReader{})
 
-	_, err := ResolveHeaders(t.Context(), "org-acme", nil, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
+	_, err := ResolveHeaders(t.Context(), githubOwner, nil, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
 	require.ErrorContains(t, err, "Authorization")
 	require.ErrorContains(t, err, "org-acme/github-token")
 	var headerSecretErr *HeaderSecretError
 	require.ErrorAs(t, err, &headerSecretErr, "typed, so the service retries it")
+}
+
+// TestResolveHeadersSendsNothingOfARefusedSecret: one refused Secret fails
+// the whole set, so no header is sent, not even those that were readable.
+func TestResolveHeadersSendsNothingOfARefusedSecret(t *testing.T) {
+	registerSecretKeyReader(t, &refusingReader{})
+
+	got, err := ResolveHeaders(t.Context(), githubOwner, map[string]string{"X-MCP-Toolsets": "repos"}, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
+	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	assert.Nil(t, got)
+}
+
+// refusingReader refuses every Secret as not bound to the MCPServer.
+type refusingReader struct{ secretKeyReader }
+
+func (refusingReader) LoadMCPServerSecretKey(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef, string) ([]byte, error) {
+	return nil, fmt.Errorf("refused: %w", api.ErrSecretNotBound)
 }
 
 // TestResolveHeadersTrimsOneTrailingNewline: a Secret written with echo or
@@ -87,7 +117,7 @@ func TestResolveHeadersTrimsOneTrailingNewline(t *testing.T) {
 		"Bearer s3cr3t\r":   "Bearer s3cr3t\r",
 	} {
 		registerSecretKeyReader(t, &secretKeyReader{values: map[string]string{"org-acme/github-token/token": stored}})
-		got, err := ResolveHeaders(t.Context(), "org-acme", nil, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
+		got, err := ResolveHeaders(t.Context(), githubOwner, nil, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
 		require.NoError(t, err)
 		assert.Equal(t, want, got["Authorization"], "stored %q", stored)
 	}
@@ -99,11 +129,11 @@ func TestResolveHeadersWithoutHeadersFromNeedsNoSecretReader(t *testing.T) {
 	registerSecretKeyReader(t, nil)
 
 	static := map[string]string{"X-MCP-Toolsets": "repos"}
-	got, err := ResolveHeaders(t.Context(), "", static, nil)
+	got, err := ResolveHeaders(t.Context(), api.SecretOwner{}, static, nil)
 	require.NoError(t, err)
 	assert.Equal(t, static, got)
 
-	_, err = ResolveHeaders(t.Context(), "", static, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
+	_, err = ResolveHeaders(t.Context(), api.SecretOwner{}, static, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
 	require.ErrorContains(t, err, "Kubernetes mode")
 }
 

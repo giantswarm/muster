@@ -145,6 +145,7 @@ func (a *Adapter) PinIssuer(issuer string, pin api.IssuerPin) {
 		}
 	}
 	a.manager.PinIssuer(issuer, IssuerPin{
+		DescriptionKey:     pin.DescriptionKey,
 		ClientID:           pin.ClientID,
 		ClientSecret:       pin.ClientSecret,
 		SubjectScoped:      pin.SubjectScoped,
@@ -202,6 +203,15 @@ func (a *Adapter) LoginIDToken(sessionID, issuer string) *api.OAuthToken {
 // UnpinIssuer implements api.IssuerPinner.
 func (a *Adapter) UnpinIssuer(issuer string) {
 	a.manager.UnpinIssuer(issuer)
+}
+
+// PinnedDescriptionKey implements api.IssuerPinner.
+func (a *Adapter) PinnedDescriptionKey(issuer string) (string, bool) {
+	pin := a.manager.client.issuerPin(issuer)
+	if pin == nil {
+		return "", false
+	}
+	return pin.DescriptionKey, true
 }
 
 // ForgetTenantIssuers implements api.TenantIssuerForgetter.

@@ -24,6 +24,16 @@
 // optional per-server assume-role hop, and a signing http.RoundTripper. See
 // sigv4_credentials.go and sigv4_transport.go.
 //
+// # Secrets
+//
+// CredentialsAdapter reads the Secrets a server's spec names (headersFrom,
+// the clientCredentialsSecretRef of auth.tokenExchange and
+// auth.authorizationServer) only when they are bound to that MCPServer, by an
+// ownerReference or the annotation api.MCPServerSecretAnnotation, and never a Secret muster keeps for itself:
+// its own and reserved Secret types (credentials_binding.go). Secrets muster's
+// own configuration names are read with LoadClientCredentialsForConfig; an
+// MCPServer may share such a Secret once it is bound to it.
+//
 // # Request metadata
 //
 // A remote server may declare spec.meta, whose entries are merged into the

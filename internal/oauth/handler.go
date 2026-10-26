@@ -198,7 +198,14 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.validateResponseIssuer(r.Context(), state, issParam); err != nil {
+	pin, err := h.client.flowPin(state)
+	if err != nil {
+		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: %v", state.ServerName, err)
+		h.renderErrorPage(w, summaryNotCompleted, "")
+		return
+	}
+
+	if err := h.validateResponseIssuer(r.Context(), state, pin, issParam); err != nil {
 		logging.Warn("OAuth", "Rejecting OAuth callback for server=%s: %v", state.ServerName, err)
 		h.renderErrorPage(w, summaryUnverifiedResponse, "")
 		return
@@ -243,7 +250,7 @@ func (h *Handler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	ctx, cancelFlow := context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
 	defer cancelFlow()
 
-	token, err := h.client.ExchangeCode(ctx, code, state.CodeVerifier, state.Issuer, state.Resource, state.Scope)
+	token, err := h.client.ExchangeCode(ctx, state, code)
 	if err != nil {
 		logging.Error("OAuth", err, "Failed to exchange authorization code")
 		h.renderErrorPage(w, summaryNotCompleted, "")
@@ -307,8 +314,8 @@ func (h *Handler) onFlowCallback(r *http.Request, issuerKey string) bool {
 // comparison falls back to the issuer recorded with the state. Both of those
 // values are operator-configured rather than published by the server, so the
 // comparison against them ignores a trailing slash on either side.
-func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState, iss string) error {
-	metadata, err := h.client.DiscoverMetadata(ctx, state.Issuer)
+func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState, pin *IssuerPin, iss string) error {
+	metadata, err := h.client.metadataFor(ctx, state.Issuer, pin)
 	if (err != nil || metadata == nil) && iss == "" {
 		return fmt.Errorf("no iss on the response and AS metadata for %q is unavailable: %v", state.Issuer, err)
 	}
@@ -320,7 +327,7 @@ func (h *Handler) validateResponseIssuer(ctx context.Context, state *OAuthState,
 		return nil
 	}
 
-	if expected := h.client.expectedResponseIssuer(state.Issuer); expected != "" {
+	if expected := pin.expectedIssuer(); expected != "" {
 		if strings.TrimSuffix(iss, "/") != strings.TrimSuffix(expected, "/") {
 			return fmt.Errorf("iss mismatch: response carried %q, expected %q", iss, expected)
 		}

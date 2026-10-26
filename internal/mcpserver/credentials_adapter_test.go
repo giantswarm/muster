@@ -41,7 +41,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 			Name: "test-credentials",
 		}
 
-		credentials, err := adapter.LoadClientCredentials(ctx, secretRef, "muster")
+		credentials, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "muster")
 
 		require.NoError(t, err)
 		assert.Equal(t, "my-client-id", credentials.ClientID)
@@ -71,7 +71,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 			ClientSecretKey: "oauth-secret",
 		}
 
-		credentials, err := adapter.LoadClientCredentials(ctx, secretRef, "muster")
+		credentials, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "muster")
 
 		require.NoError(t, err)
 		assert.Equal(t, "custom-id", credentials.ClientID)
@@ -99,7 +99,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 			// Namespace not specified
 		}
 
-		credentials, err := adapter.LoadClientCredentials(ctx, secretRef, "default-ns")
+		credentials, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "default-ns")
 
 		require.NoError(t, err)
 		assert.Equal(t, "id", credentials.ClientID)
@@ -116,7 +116,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 			Namespace: "muster",
 		}
 
-		_, err := adapter.LoadClientCredentials(ctx, secretRef, "muster")
+		_, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "muster")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get secret")
@@ -142,7 +142,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 			Name: "incomplete-secret",
 		}
 
-		_, err := adapter.LoadClientCredentials(ctx, secretRef, "muster")
+		_, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "muster")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "missing required key 'client-id'")
@@ -168,7 +168,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 			Name: "incomplete-secret",
 		}
 
-		_, err := adapter.LoadClientCredentials(ctx, secretRef, "muster")
+		_, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "muster")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "missing required key 'client-secret'")
@@ -194,7 +194,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 			Name: "empty-values-secret",
 		}
 
-		_, err := adapter.LoadClientCredentials(ctx, secretRef, "muster")
+		_, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "muster")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "empty value for key 'client-id'")
@@ -206,7 +206,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 
 		ctx := context.Background()
 
-		_, err := adapter.LoadClientCredentials(ctx, nil, "muster")
+		_, err := adapter.LoadClientCredentialsForConfig(ctx, nil, "muster")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "secret reference is nil")
@@ -221,7 +221,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 			Name: "",
 		}
 
-		_, err := adapter.LoadClientCredentials(ctx, secretRef, "muster")
+		_, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "muster")
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "secret name is required")
@@ -250,7 +250,7 @@ func TestCredentialsAdapter_LoadClientCredentials(t *testing.T) {
 		}
 
 		// Both secretRef.Namespace and defaultNamespace are empty
-		credentials, err := adapter.LoadClientCredentials(ctx, secretRef, "")
+		credentials, err := adapter.LoadClientCredentialsForConfig(ctx, secretRef, "")
 
 		require.NoError(t, err)
 		assert.Equal(t, "fallback-id", credentials.ClientID)
@@ -308,7 +308,7 @@ func TestCredentialsAdapter_CrossNamespaceWarning(t *testing.T) {
 		logs := captureLogs(t)
 		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).WithObjects(secretIn("agent-platform")).Build())
 
-		creds, err := adapter.LoadClientCredentials(context.Background(),
+		creds, err := adapter.LoadClientCredentialsForConfig(context.Background(),
 			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "agent-platform"}, "agent-platform")
 
 		require.NoError(t, err)
@@ -320,7 +320,7 @@ func TestCredentialsAdapter_CrossNamespaceWarning(t *testing.T) {
 		logs := captureLogs(t)
 		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).WithObjects(secretIn("agent-platform")).Build())
 
-		_, err := adapter.LoadClientCredentials(context.Background(),
+		_, err := adapter.LoadClientCredentialsForConfig(context.Background(),
 			&api.ClientCredentialsSecretRef{Name: "github-oauth-client"}, "agent-platform")
 
 		require.NoError(t, err)
@@ -331,7 +331,7 @@ func TestCredentialsAdapter_CrossNamespaceWarning(t *testing.T) {
 		logs := captureLogs(t)
 		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).WithObjects(secretIn("shared-secrets")).Build())
 
-		_, err := adapter.LoadClientCredentials(context.Background(),
+		_, err := adapter.LoadClientCredentialsForConfig(context.Background(),
 			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "shared-secrets"}, "agent-platform")
 
 		require.NoError(t, err, "the read itself is allowed; RBAC decides, the warning only audits")
@@ -344,26 +344,27 @@ func TestCredentialsAdapter_CrossNamespaceWarning(t *testing.T) {
 		logs := captureLogs(t)
 		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).WithObjects(secretIn("default")).Build())
 
-		_, err := adapter.LoadClientCredentials(context.Background(),
+		_, err := adapter.LoadClientCredentialsForConfig(context.Background(),
 			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "default"}, "")
 
 		require.NoError(t, err)
 		assert.NotContains(t, logs.String(), warning)
 	})
 
-	t.Run("LoadSecretKey applies the same rule", func(t *testing.T) {
+	t.Run("LoadMCPServerSecretKey applies the same rule", func(t *testing.T) {
 		logs := captureLogs(t)
 		adapter := NewCredentialsAdapter(fake.NewClientBuilder().WithScheme(scheme).
 			WithObjects(secretIn("agent-platform"), secretIn("shared-secrets")).Build())
 
-		key, err := adapter.LoadSecretKey(context.Background(),
-			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "agent-platform"}, "private-key", "agent-platform")
+		owner := api.SecretOwner{Name: "github", Namespace: "agent-platform"}
+		key, err := adapter.LoadMCPServerSecretKey(context.Background(), owner, api.SecretFieldHeadersFrom,
+			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "agent-platform"}, "private-key")
 		require.NoError(t, err)
 		assert.Equal(t, "-----BEGIN", string(key))
 		assert.NotContains(t, logs.String(), warning)
 
-		_, err = adapter.LoadSecretKey(context.Background(),
-			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "shared-secrets"}, "private-key", "agent-platform")
+		_, err = adapter.LoadMCPServerSecretKey(context.Background(), owner, api.SecretFieldHeadersFrom,
+			&api.ClientCredentialsSecretRef{Name: "github-oauth-client", Namespace: "shared-secrets"}, "private-key")
 		require.NoError(t, err)
 		assert.Contains(t, logs.String(), warning)
 		assert.Contains(t, logs.String(), "from namespace agent-platform")
