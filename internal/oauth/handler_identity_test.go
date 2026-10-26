@@ -268,8 +268,7 @@ func TestHandler_IdentityCheck_CallbackCompletesACheckedFlow(t *testing.T) {
 }
 
 // The sign-in identity and the browser binding survive Valkey: a replica
-// that handles the callback
-// reads what another wrote.
+// that handles the callback reads what another wrote.
 func TestValkeyStateStore_KeepsTheBrowserBinding(t *testing.T) {
 	srv := miniredis.RunT(t)
 	vc, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{srv.Addr()}, DisableCache: true})
