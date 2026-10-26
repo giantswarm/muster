@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -38,8 +39,7 @@ type challengeRecorderKey struct{}
 // is ever turned into an elicitation: a backend that returns an auth_required
 // shaped result of its own records nothing.
 type challengeRecorder struct {
-	mu        sync.Mutex
-	challenge *signInChallenge
+	challenge atomic.Pointer[signInChallenge]
 }
 
 func withChallengeRecorder(ctx context.Context) (context.Context, *challengeRecorder) {
@@ -51,22 +51,9 @@ func withChallengeRecorder(ctx context.Context) (context.Context, *challengeReco
 // with, for the URL elicitation middleware. Outside a tool call it does
 // nothing.
 func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
-	recorder, ok := ctx.Value(challengeRecorderKey{}).(*challengeRecorder)
-	if !ok {
-		return
+	if recorder, ok := ctx.Value(challengeRecorderKey{}).(*challengeRecorder); ok {
+		recorder.challenge.Store(&challenge)
 	}
-	recorder.mu.Lock()
-	defer recorder.mu.Unlock()
-	recorder.challenge = &challenge
-}
-
-func (r *challengeRecorder) recorded() (signInChallenge, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.challenge == nil {
-		return signInChallenge{}, false
-	}
-	return *r.challenge, true
 }
 
 // urlElicitation returns the ToolHandlerMiddleware that asks a client which
@@ -76,9 +63,11 @@ func (r *challengeRecorder) recorded() (signInChallenge, bool) {
 //
 // A request on protocol 2026-07-28 or later gets an input_required result
 // carrying the elicitation; the client retries the call once the person
-// signed in, and the retry is answered as any other call. A request on an
-// earlier protocol gets URLElicitationRequiredError (-32042), and the session
-// is sent notifications/elicitation/complete when the sign-in completes
+// signed in, and the retry is answered as any other call. A retry carrying a
+// declined or cancelled elicitation is answered with a tool error instead of
+// asking again. A request on an earlier protocol gets
+// URLElicitationRequiredError (-32042), and the session is sent
+// notifications/elicitation/complete when the sign-in completes
 // (signInElicitations). A client that does not declare elicitation.url keeps
 // the auth_required answer.
 func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
@@ -86,14 +75,17 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			ctx, recorder := withChallengeRecorder(ctx)
 			result, err := next(ctx, req)
-			if err != nil || !isAuthRequiredAnswer(result) || !clientSupportsURLElicitation(ctx) {
+			if err != nil || !clientSupportsURLElicitation(ctx) {
 				return result, err
 			}
-			challenge, ok := recorder.recorded()
-			if !ok {
+			challenge := recorder.challenge.Load()
+			if challenge == nil || authRequiredLink(result) != challenge.authURL {
 				return result, err
 			}
-			return a.elicitSignIn(ctx, challenge)
+			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); answer != nil && answer.Action != mcp.ElicitationResponseActionAccept {
+				return mcp.NewToolResultError(fmt.Sprintf("The tool did not run: the person answered %s to signing in to %s.", answer.Action, challenge.server)), nil
+			}
+			return a.elicitSignIn(ctx, *challenge)
 		}
 	}
 }
@@ -111,10 +103,7 @@ func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInCha
 		}).ToolResult(), nil
 	}
 
-	elicitationID := rand.Text()
-	if transportID := getTransportSessionID(ctx); transportID != "" {
-		a.signInElicitations.add(challenge.sessionID, challenge.server, transportID, elicitationID)
-	}
+	elicitationID := a.signInElicitations.add(challenge.sessionID, challenge.server, getTransportSessionID(ctx))
 	logging.InfoWithAttrs("Aggregator", "Answering a tool call with a sign-in URL elicitation",
 		slog.String("server", challenge.server),
 		slog.String("sessionID", logging.TruncateIdentifier(challenge.sessionID)))
@@ -128,15 +117,19 @@ func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInCha
 	}
 }
 
-// isAuthRequiredAnswer reports whether a tool result is an auth_required
-// answer, directly or relayed by call_tool, which carries the wrapped tool's
-// structuredContent.
-func isAuthRequiredAnswer(result *mcp.CallToolResult) bool {
+// authRequiredLink returns the sign-in link of an auth_required answer,
+// directly or relayed by call_tool, which carries the wrapped tool's
+// structuredContent; "" for any other result.
+func authRequiredLink(result *mcp.CallToolResult) string {
 	if result == nil || !result.IsError {
-		return false
+		return ""
 	}
 	structured, ok := result.StructuredContent.(map[string]any)
-	return ok && structured["status"] == "auth_required"
+	if !ok || structured["status"] != "auth_required" {
+		return ""
+	}
+	link, _ := structured["authUrl"].(string)
+	return link
 }
 
 // clientSupportsURLElicitation reports whether the client declared URL mode
@@ -154,21 +147,27 @@ func clientSupportsURLElicitation(ctx context.Context) bool {
 }
 
 // signInElicitations remembers the URL elicitations sent as -32042 per
-// session and server, so the transport sessions that received them are sent
-// notifications/elicitation/complete when the sign-in completes.
+// session, server and transport session, so the transport sessions that
+// received them are sent notifications/elicitation/complete when the sign-in
+// completes. A transport session asked again for the same sign-in while it is
+// pending gets the same elicitationId: it is one elicitation, completed once.
 //
 // The zero value is ready to use. It is local to the replica: a sign-in that
 // completes on another replica sends no notification, which the protocol
 // allows (the notification is optional; the client keeps its own retry).
 type signInElicitations struct {
 	mu      sync.Mutex
-	entries map[pendingSignInKey][]signInElicitation
+	entries map[signInElicitationKey]signInElicitation
 	// now is the clock; nil means time.Now. Tests set it.
 	now func() time.Time
 }
 
+type signInElicitationKey struct {
+	pendingSignInKey
+	transportID string
+}
+
 type signInElicitation struct {
-	transportID   string
 	elicitationID string
 	expiresAt     time.Time
 }
@@ -180,47 +179,50 @@ func (s *signInElicitations) clock() time.Time {
 	return time.Now()
 }
 
-func (s *signInElicitations) add(sessionID, server, transportID, elicitationID string) {
+// add returns the elicitationId the transport session is asked to sign the
+// session in to the server with: the pending one, or a new one. A request
+// without a transport session gets an id that nothing completes.
+func (s *signInElicitations) add(sessionID, server, transportID string) string {
+	if transportID == "" {
+		return rand.Text()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.clock()
-	if s.entries == nil {
-		s.entries = make(map[pendingSignInKey][]signInElicitation)
-	}
-	for key, pending := range s.entries {
-		if live := unexpired(pending, now); len(live) > 0 {
-			s.entries[key] = live
-		} else {
+	for key, e := range s.entries {
+		if !now.Before(e.expiresAt) {
 			delete(s.entries, key)
 		}
 	}
-	key := pendingSignInKey{sessionID: sessionID, server: server}
-	s.entries[key] = append(s.entries[key], signInElicitation{
-		transportID:   transportID,
-		elicitationID: elicitationID,
-		expiresAt:     now.Add(signInElicitationTTL),
-	})
+	key := signInElicitationKey{pendingSignInKey{sessionID: sessionID, server: server}, transportID}
+	if e, ok := s.entries[key]; ok {
+		return e.elicitationID
+	}
+	if s.entries == nil {
+		s.entries = make(map[signInElicitationKey]signInElicitation)
+	}
+	e := signInElicitation{elicitationID: rand.Text(), expiresAt: now.Add(signInElicitationTTL)}
+	s.entries[key] = e
+	return e.elicitationID
 }
 
-// take removes and returns the unexpired elicitations of the session's
-// sign-in to the server.
-func (s *signInElicitations) take(sessionID, server string) []signInElicitation {
+// take removes the unexpired elicitations of the session's sign-in to the
+// server and returns their elicitationId per transport session.
+func (s *signInElicitations) take(sessionID, server string) map[string]string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	key := pendingSignInKey{sessionID: sessionID, server: server}
-	pending := s.entries[key]
-	delete(s.entries, key)
-	return unexpired(pending, s.clock())
-}
-
-func unexpired(pending []signInElicitation, now time.Time) []signInElicitation {
-	var live []signInElicitation
-	for _, e := range pending {
+	now := s.clock()
+	taken := make(map[string]string)
+	for key, e := range s.entries {
+		if key.pendingSignInKey != (pendingSignInKey{sessionID: sessionID, server: server}) {
+			continue
+		}
+		delete(s.entries, key)
 		if now.Before(e.expiresAt) {
-			live = append(live, e)
+			taken[key.transportID] = e.elicitationID
 		}
 	}
-	return live
+	return taken
 }
 
 // completeSignInElicitations sends notifications/elicitation/complete to each
@@ -229,11 +231,11 @@ func (a *AggregatorServer) completeSignInElicitations(sessionID, server string) 
 	if a.mcpServer == nil {
 		return
 	}
-	for _, e := range a.signInElicitations.take(sessionID, server) {
-		params := map[string]any{"elicitationId": e.elicitationID}
-		if err := a.mcpServer.SendNotificationToSpecificClient(e.transportID, string(mcp.MethodNotificationElicitationComplete), params); err != nil {
+	for transportID, elicitationID := range a.signInElicitations.take(sessionID, server) {
+		params := map[string]any{"elicitationId": elicitationID}
+		if err := a.mcpServer.SendNotificationToSpecificClient(transportID, string(mcp.MethodNotificationElicitationComplete), params); err != nil {
 			logging.Debug("Aggregator", "elicitation complete to session %s failed: %v",
-				logging.TruncateIdentifier(e.transportID), err)
+				logging.TruncateIdentifier(transportID), err)
 		}
 	}
 }

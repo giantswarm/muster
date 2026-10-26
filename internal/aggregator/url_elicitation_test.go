@@ -52,7 +52,10 @@ func modernContext(ctx context.Context, capabilities mcp.ClientCapabilities) con
 }
 
 func authRequiredAnswerFor(server string) *mcp.CallToolResult {
-	return authRequiredResult(server, "this session is not authenticated to it", nil)
+	return authRequiredResult(server, "this session is not authenticated to it", &api.CallToolResult{
+		Content:           []any{"Sign in: " + testAuthURL},
+		StructuredContent: map[string]any{"authUrl": testAuthURL},
+	})
 }
 
 // signInHandler answers like a gated tool call: it records muster's
@@ -105,10 +108,35 @@ func TestURLElicitation(t *testing.T) {
 		require.Equal(t, testAuthURL, elicitation.URL)
 		require.NoError(t, elicitation.Validate())
 
-		pending := a.signInElicitations.take("family-1", "github")
-		require.Len(t, pending, 1)
-		require.Equal(t, "transport-1", pending[0].transportID)
-		require.Equal(t, elicitation.ElicitationID, pending[0].elicitationID)
+		retried, err := a.urlElicitation()(signInHandler(true))(ctx, mcp.CallToolRequest{})
+		require.Nil(t, retried)
+		var again mcp.URLElicitationRequiredError
+		require.True(t, errors.As(err, &again))
+		require.Equal(t, elicitation.ElicitationID, again.Elicitations[0].ElicitationID,
+			"a retry while the sign-in is pending is the same elicitation")
+
+		require.Equal(t, map[string]string{"transport-1": elicitation.ElicitationID},
+			a.signInElicitations.take("family-1", "github"))
+	})
+
+	t.Run("a 2026-07-28 retry that declined or cancelled the sign-in is not asked again", func(t *testing.T) {
+		for _, action := range []mcp.ElicitationResponseAction{mcp.ElicitationResponseActionDecline, mcp.ElicitationResponseActionCancel} {
+			t.Run(string(action), func(t *testing.T) {
+				a := &AggregatorServer{}
+				ctx := modernContext(t.Context(), urlElicitationCapabilities())
+				var req mcp.CallToolRequest
+				req.Params.InputResponses = mcp.InputResponses{
+					signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: action}}),
+				}
+
+				result, err := a.urlElicitation()(signInHandler(true))(ctx, req)
+
+				require.NoError(t, err)
+				require.True(t, result.IsError)
+				require.Empty(t, result.InputRequests)
+				require.NotContains(t, mcpText(result), testAuthURL, "the link must not reach the model as tool output")
+			})
+		}
 	})
 
 	t.Run("a client without elicitation.url keeps the auth_required answer", func(t *testing.T) {
@@ -141,6 +169,23 @@ func TestURLElicitation(t *testing.T) {
 		require.Equal(t, authRequiredAnswerFor("github"), result)
 	})
 
+	t.Run("an auth_required result with another link than muster's challenge is passed through", func(t *testing.T) {
+		a := &AggregatorServer{}
+		ctx := modernContext(t.Context(), urlElicitationCapabilities())
+		backend := authRequiredResult("github", "backend", &api.CallToolResult{
+			StructuredContent: map[string]any{"authUrl": "https://attacker.example.com/"},
+		})
+		handler := func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			_, _ = signInHandler(true)(ctx, req)
+			return backend, nil
+		}
+
+		result, err := a.urlElicitation()(handler)(ctx, mcp.CallToolRequest{})
+
+		require.NoError(t, err)
+		require.Same(t, backend, result)
+	})
+
 	t.Run("a call answered with anything but auth_required is passed through", func(t *testing.T) {
 		a := &AggregatorServer{}
 		ctx := modernContext(t.Context(), urlElicitationCapabilities())
@@ -164,14 +209,14 @@ func TestCompleteSignInElicitations(t *testing.T) {
 	require.NoError(t, srv.RegisterSession(t.Context(), asked))
 	require.NoError(t, srv.RegisterSession(t.Context(), other))
 	a := &AggregatorServer{mcpServer: srv}
-	a.signInElicitations.add("family-1", "github", asked.id, "elicitation-1")
+	elicitationID := a.signInElicitations.add("family-1", "github", asked.id)
 
 	a.completeSignInElicitations("family-1", "github")
 
 	require.Len(t, asked.ch, 1)
 	notification := <-asked.ch
 	require.Equal(t, string(mcp.MethodNotificationElicitationComplete), notification.Method)
-	require.Equal(t, "elicitation-1", notification.Params.AdditionalFields["elicitationId"])
+	require.Equal(t, elicitationID, notification.Params.AdditionalFields["elicitationId"])
 	require.Empty(t, other.ch, "only the session that was asked is told")
 	require.Empty(t, a.signInElicitations.take("family-1", "github"), "an elicitation completes once")
 }
@@ -179,14 +224,13 @@ func TestCompleteSignInElicitations(t *testing.T) {
 func TestSignInElicitationsExpire(t *testing.T) {
 	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
 	s := signInElicitations{now: func() time.Time { return now }}
-	s.add("family-1", "github", "transport-1", "old")
+	old := s.add("family-1", "github", "transport-1")
 
 	now = now.Add(signInElicitationTTL)
-	s.add("family-1", "github", "transport-1", "fresh")
+	fresh := s.add("family-1", "github", "transport-1")
 
-	pending := s.take("family-1", "github")
-	require.Len(t, pending, 1)
-	require.Equal(t, "fresh", pending[0].elicitationID)
+	require.NotEqual(t, old, fresh, "an expired elicitation is not reused")
+	require.Equal(t, map[string]string{"transport-1": fresh}, s.take("family-1", "github"))
 }
 
 // TestURLElicitationOnTheWire sends real tools/call messages through an mcp-go
@@ -255,8 +299,8 @@ func TestURLElicitation_GatedCallRecordsMustersChallenge(t *testing.T) {
 	result, err := f.agg.callToolWithTokenExchangeRetry(ctx, answerServer, "op", map[string]any{}, answerSession, answerSubject)
 	require.NoError(t, err)
 
-	challenge, ok := recorder.recorded()
-	require.True(t, ok)
+	challenge := recorder.challenge.Load()
+	require.NotNil(t, challenge)
 	require.Equal(t, authURLOf(t, result), challenge.authURL)
 	require.Equal(t, answerServer, challenge.server)
 	require.Equal(t, answerSession, challenge.sessionID)
