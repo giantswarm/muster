@@ -162,16 +162,26 @@ func TestNew_OnlyMissedValkeyOpensTheWindow(t *testing.T) {
 	assert.NotErrorIs(t, c.get(t), ErrUnavailable, "the cancelled caller opened no window")
 }
 
+// silentClient is a Valkey that never answers: Do returns only when its
+// context ends.
+type silentClient struct{ valkey.Client }
+
+func (silentClient) Do(ctx context.Context, _ valkey.Completed) valkey.ValkeyResult {
+	<-ctx.Done()
+	return valkey.NewErrorResult(ctx.Err())
+}
+
 // A caller's shorter deadline still wins over the bound.
 func TestNew_CallerDeadlineWins(t *testing.T) {
-	srv := miniredis.RunT(t)
-	c := newClient(t, srv.Addr())
-	srv.Close()
+	c := newClient(t, miniredis.RunT(t).Addr())
+	b := newBounded(silentClient{c.Client}, time.Now)
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
-	err := c.Do(ctx, c.B().Get().Key("k").Build()).Error()
+	start := time.Now()
+	err := b.Do(ctx, b.B().Get().Key("k").Build()).Error()
 	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Less(t, time.Since(start), OperationTimeout, "the caller's deadline ended the call, not the bound")
 }
 
 func TestNew_FailsWhenValkeyIsNotThere(t *testing.T) {
