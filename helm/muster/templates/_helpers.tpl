@@ -201,3 +201,43 @@ muster.oauth.server.acknowledgeUnauthenticatedExposure.
 {{- fail (printf "%s is true while muster.oauth.server.enabled is false: the route would accept every request unauthenticated. Enable muster.oauth.server, or set muster.oauth.server.acknowledgeUnauthenticatedExposure=true for a deliberately unauthenticated install behind a trusted proxy." $switch) -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Secrets of muster's namespace no MCPServer may have muster read
+(secretBinding.protectedSecrets, giantswarm/giantswarm#38827): every Secret
+the chart mounts into muster -- the OAuth and Valkey credentials, the extra CA,
+Secrets of .Values.volumes --, the ingress TLS Secrets, and
+muster.secretBinding.protectedSecrets. A JSON list. Secrets muster's
+configuration names (provider Apps, broker targets) are not protected: an
+MCPServer may share one once it is bound.
+*/}}
+{{- define "muster.protectedSecrets" -}}
+{{- $names := list -}}
+{{- $s := .Values.muster.oauth.server -}}
+{{- if $s.enabled -}}
+{{- $names = append $names ($s.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .))) -}}
+{{- end -}}
+{{- with $s.storage.valkey.existingSecret -}}
+{{- $names = append $names . -}}
+{{- end -}}
+{{- with .Values.muster.extraCaFile.secret.name -}}
+{{- $names = append $names . -}}
+{{- end -}}
+{{- range .Values.volumes -}}
+{{- with .secret -}}{{- with .secretName -}}{{- $names = append $names . -}}{{- end -}}{{- end -}}
+{{- with .projected -}}
+{{- range .sources -}}
+{{- with .secret -}}{{- with .name -}}{{- $names = append $names . -}}{{- end -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if .Values.ingress.enabled -}}
+{{- range .Values.ingress.tls -}}
+{{- with .secretName -}}{{- $names = append $names . -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- range .Values.muster.secretBinding.protectedSecrets -}}
+{{- $names = append $names . -}}
+{{- end -}}
+{{- $names | uniq | toJson -}}
+{{- end }}

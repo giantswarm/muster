@@ -233,6 +233,7 @@ func (a *APIAdapter) RegisterServerPendingAuth(registration api.PendingAuthRegis
 			Name:            registration.Name,
 			Namespace:       registration.Namespace,
 			UID:             registration.UID,
+			CreatedAt:       registration.CreatedAt,
 			ToolPrefix:      registration.ToolPrefix,
 			Family:          registration.Family,
 			Timeout:         registration.Timeout,
@@ -269,4 +270,20 @@ func (a *APIAdapter) DeregisterServer(name string) error {
 // Register registers this adapter with the API package
 func (a *APIAdapter) Register() {
 	api.RegisterAggregator(a)
+}
+
+// AuthorizationServerConflict implements api.AuthorizationServerConflictChecker.
+func (a *APIAdapter) AuthorizationServerConflict(serverName string) error {
+	if a.service == nil {
+		return nil
+	}
+	manager := a.service.GetManager()
+	if manager == nil {
+		return nil
+	}
+	server := manager.GetAggregatorServer()
+	if server == nil {
+		return nil
+	}
+	return server.AuthorizationServerConflict(serverName)
 }

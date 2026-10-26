@@ -178,6 +178,12 @@ data:
     {{- if .Values.muster.mcpServersInAllNamespaces }}
     mcpServersInAllNamespaces: true
     {{- end }}
+    secretBinding:
+      mode: {{ .Values.muster.secretBinding.mode | quote }}
+      {{- with (include "muster.protectedSecrets" . | fromJsonArray) }}
+      protectedSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     {{- with .Values.muster.writesAsCaller.kubernetesAudience }}
     writesAsCaller:
       kubernetesAudience: {{ . | quote }}

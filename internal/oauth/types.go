@@ -96,6 +96,10 @@ type OAuthState struct {
 	// Stored server-side only, not transmitted in the state parameter.
 	CodeVerifier string `json:"-"`
 
+	// PinDigest identifies the issuer pin the flow started under: the code
+	// exchange is refused under another one. Stored server-side only.
+	PinDigest string `json:"-"`
+
 	// SignIn is the identity the flow's caller authenticated as at its
 	// identity provider. Stored server-side only.
 	SignIn api.SignInIdentity `json:"-"`

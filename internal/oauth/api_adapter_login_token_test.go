@@ -91,7 +91,7 @@ func TestClient_ExchangeCode_ScopeFromRequestWhenOmitted(t *testing.T) {
 	client := NewClient("client-id", "https://muster.example.com", "/oauth/proxy/callback", "openid")
 	defer client.Stop()
 
-	token, err := client.ExchangeCode(context.Background(), "code", "verifier", server.URL, "", "openid profile email")
+	token, err := client.ExchangeCode(context.Background(), &OAuthState{CodeVerifier: "verifier", Issuer: server.URL, Scope: "openid profile email"}, "code")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestClient_ExchangeCode_ScopeFromRequestWhenOmitted(t *testing.T) {
 	}
 
 	responseScope = "openid"
-	token, err = client.ExchangeCode(context.Background(), "code", "verifier", server.URL, "", "openid profile email")
+	token, err = client.ExchangeCode(context.Background(), &OAuthState{CodeVerifier: "verifier", Issuer: server.URL, Scope: "openid profile email"}, "code")
 	if err != nil {
 		t.Fatalf("ExchangeCode: %v", err)
 	}

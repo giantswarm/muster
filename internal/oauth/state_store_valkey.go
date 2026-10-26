@@ -32,6 +32,7 @@ type valkeyStateEntry struct {
 	CodeVerifier     string    `json:"cv,omitempty"`
 	RedirectURI      string    `json:"ru,omitempty"`
 	AuthorizationURL string    `json:"aurl,omitempty"`
+	PinDigest        string    `json:"pd,omitempty"`
 	SignInIssuer     string    `json:"sii,omitempty"`
 	SignInSubject    string    `json:"sis,omitempty"`
 	BrowserBinding   string    `json:"bb,omitempty"`
@@ -50,6 +51,7 @@ func (e *valkeyStateEntry) toState() *OAuthState {
 		CodeVerifier:     e.CodeVerifier,
 		RedirectURI:      e.RedirectURI,
 		AuthorizationURL: e.AuthorizationURL,
+		PinDigest:        e.PinDigest,
 		SignIn:           api.SignInIdentity{Issuer: e.SignInIssuer, Subject: e.SignInSubject},
 		BrowserBinding:   e.BrowserBinding,
 	}
@@ -68,6 +70,7 @@ func stateToEntry(s *OAuthState) *valkeyStateEntry {
 		CodeVerifier:     s.CodeVerifier,
 		RedirectURI:      s.RedirectURI,
 		AuthorizationURL: s.AuthorizationURL,
+		PinDigest:        s.PinDigest,
 		SignInIssuer:     s.SignIn.Issuer,
 		SignInSubject:    s.SignIn.Subject,
 		BrowserBinding:   s.BrowserBinding,
@@ -123,17 +126,7 @@ func (s *ValkeyStateStore) GenerateState(params StateParams,
 
 	nonce := base64.URLEncoding.EncodeToString(nonceBytes)
 
-	state := &OAuthState{
-		SessionID:    params.SessionID,
-		UserID:       params.UserID,
-		SignIn:       params.SignIn,
-		ServerName:   params.ServerName,
-		Nonce:        nonce,
-		CreatedAt:    time.Now(),
-		Issuer:       params.Issuer,
-		Resource:     params.Resource,
-		CodeVerifier: params.CodeVerifier,
-	}
+	state := newOAuthState(params, nonce)
 
 	stateJSON, err := json.Marshal(state)
 	if err != nil {

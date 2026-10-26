@@ -220,9 +220,12 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		api.RegisterMCPServerVisibility(mcpserverPkg.NewVisibility(musterClient, callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience, namespace))
 	}
 
-	// Initialize and register credentials adapter for loading OAuth client credentials from secrets
-	credentialsAdapter := mcpserverPkg.NewCredentialsAdapter(musterClient)
+	// Initialize and register credentials adapter for loading OAuth client
+	// credentials from secrets. An MCPServer reads only a Secret bound to it,
+	// never one of muster's own (secretBinding).
+	credentialsAdapter := mcpserverPkg.NewCredentialsAdapter(musterClient, credentialsOptions(cfg, namespace)...)
 	credentialsAdapter.Register()
+	warnSecretBindingNotEnforced(cfg.MusterConfig.SecretBinding.Mode)
 
 	// The new adapter uses the unified client instead of the manager
 	// MCPServer operations now work through CRDs (Kubernetes) or filesystem fallback

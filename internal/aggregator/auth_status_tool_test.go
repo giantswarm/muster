@@ -18,10 +18,12 @@ type challengeMockOAuthHandler struct {
 	challenged []api.AuthChallengeParams
 }
 
-// PinIssuer and UnpinIssuer make the mock an api.IssuerPinner, as the real
-// handler is, so a pinned server's login can record its pin.
-func (m *challengeMockOAuthHandler) PinIssuer(string, api.IssuerPin) {}
-func (m *challengeMockOAuthHandler) UnpinIssuer(string)              {}
+// PinIssuer, UnpinIssuer and PinnedDescriptionKey make the mock an
+// api.IssuerPinner, as the real handler is, so a pinned server's login can
+// record its pin.
+func (m *challengeMockOAuthHandler) PinIssuer(string, api.IssuerPin)            {}
+func (m *challengeMockOAuthHandler) UnpinIssuer(string)                         {}
+func (m *challengeMockOAuthHandler) PinnedDescriptionKey(string) (string, bool) { return "", false }
 
 func (m *challengeMockOAuthHandler) CreateAuthChallenge(_ context.Context, params api.AuthChallengeParams) (*api.AuthChallenge, error) {
 	m.challenged = append(m.challenged, params)

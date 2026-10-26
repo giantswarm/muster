@@ -190,13 +190,12 @@ func (c *Client) registrationMetadataFor(issuerKey string) *pkgoauth.ClientMetad
 // registration. This backs mcp-go's transport-level token refresh, which
 // must present the same client identification the token was issued under.
 func (c *Client) GetClientCredentialsForIssuer(ctx context.Context, issuer string) (clientID, clientSecret string) {
-	if pin := c.issuerPin(issuer); pin != nil && pin.ClientID != "" {
-		if api.IsTenantIssuerKey(issuer) && pin.ClientID == c.clientID {
-			return "", ""
-		}
-		return pin.ClientID, pin.ClientSecret
+	pin := c.issuerPin(issuer)
+	if pin != nil && pin.ClientID != "" {
+		resolved := c.resolveClient(ctx, issuer, pin, nil, false)
+		return resolved.ClientID, resolved.ClientSecret
 	}
-	metadata, err := c.discoverMetadata(ctx, issuer)
+	metadata, err := c.metadataFor(ctx, issuer, pin)
 	if err != nil {
 		if api.IsTenantIssuerKey(issuer) {
 			return "", ""
@@ -206,6 +205,6 @@ func (c *Client) GetClientCredentialsForIssuer(ctx context.Context, issuer strin
 		logging.Debug("OAuth", "GetClientCredentialsForIssuer: metadata discovery for %s failed, using CIMD URL: %v", issuer, err)
 		return c.clientID, ""
 	}
-	resolved := c.resolveClient(ctx, issuer, metadata, false)
+	resolved := c.resolveClient(ctx, issuer, pin, metadata, false)
 	return resolved.ClientID, resolved.ClientSecret
 }

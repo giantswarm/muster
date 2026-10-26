@@ -343,6 +343,7 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		Name:            definition.Name,
 		Namespace:       definition.Namespace,
 		UID:             definition.UID,
+		CreatedAt:       definition.CreatedAt,
 		URL:             definition.URL,
 		ToolPrefix:      definition.ToolPrefix,
 		Family:          definition.Family,

@@ -61,8 +61,9 @@ func pinSecretReadable(ctx context.Context, serverName string, definition *api.M
 	if secrets == nil {
 		return nil
 	}
-	namespace := (&ServerInfo{Namespace: definition.Namespace}).GetNamespace()
-	if _, err := secrets.LoadClientCredentials(ctx, as.ClientCredentialsSecretRef, namespace); err != nil {
+	info := &ServerInfo{Name: serverName, Namespace: definition.Namespace, UID: definition.UID}
+	namespace := info.GetNamespace()
+	if _, err := secrets.LoadMCPServerClientCredentials(ctx, info.SecretOwner(), api.SecretFieldAuthorizationServer, as.ClientCredentialsSecretRef); err != nil {
 		return fmt.Errorf("load client credentials for server %s: %w", serverName,
 			tenantSecretReadError(serverName, namespace, as.ClientCredentialsSecretRef.Name, err))
 	}

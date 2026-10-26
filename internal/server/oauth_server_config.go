@@ -256,7 +256,7 @@ func seedBrokerClients(ctx context.Context, srv *oauth.Server, broker config.Tok
 				continue
 			}
 			ref := bc.ClientCredentialsSecretRef
-			creds, err := handler.LoadClientCredentials(ctx, &api.ClientCredentialsSecretRef{
+			creds, err := handler.LoadClientCredentialsForConfig(ctx, &api.ClientCredentialsSecretRef{
 				Name:            ref.Name,
 				Namespace:       ref.Namespace,
 				ClientIDKey:     ref.ClientIDKey,
