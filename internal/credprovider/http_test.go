@@ -26,6 +26,24 @@ func asPerson(sub string, h http.HandlerFunc) http.Handler {
 	})
 }
 
+// The binding records who the bind request's bearer was issued to, the
+// identity a sign-in link of the actor's requests must be completed by.
+func TestBindRecordsTheSignInIdentity(t *testing.T) {
+	p, store := newTestProvider(t, fakeGrants{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, BindingsPath, strings.NewReader(testBindBody))
+	req = req.WithContext(api.WithSignInIdentity(req.Context(), api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "raw-alice"}))
+	asPerson("alice@example.com", p.HandleBind).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+
+	b, err := store.Get(context.Background(), testActor)
+	require.NoError(t, err)
+	require.NotNil(t, b)
+	assert.Equal(t, "alice@example.com", b.Subject)
+	assert.Equal(t, "https://dex.example.com", b.SignInIssuer)
+	assert.Equal(t, "raw-alice", b.SignInSubject, "the raw sub, not the session subject")
+}
+
 func bind(t *testing.T, p *Provider, sub, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()

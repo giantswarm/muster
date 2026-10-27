@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -138,6 +139,24 @@ func TestActorBearerCarriesTheBoundToolset(t *testing.T) {
 	caller, err = ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
 	require.NoError(t, err)
 	assert.Nil(t, caller.Toolset, "a binding without a toolset bounds nothing")
+}
+
+func TestActorBearerCarriesTheBindersSignInIdentity(t *testing.T) {
+	ctx := context.Background()
+	iss := newActorIssuer(t)
+	store := NewMemoryStore()
+	ab := iss.bearer(t, store)
+
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider},
+		SignInIssuer: "https://dex.example.com", SignInSubject: "raw-alice"}, time.Hour))
+	caller, err := ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
+	require.NoError(t, err)
+	assert.Equal(t, api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "raw-alice"}, caller.SignIn)
+
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}}, time.Hour))
+	caller, err = ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
+	require.NoError(t, err)
+	assert.Zero(t, caller.SignIn, "a binding that recorded none carries none")
 }
 
 func TestActorBearerRefusals(t *testing.T) {

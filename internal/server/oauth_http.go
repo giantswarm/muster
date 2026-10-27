@@ -565,7 +565,14 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauthhandler.Handler {
 // This is used for API endpoints that need to identify the user but don't need
 // the full SSO/token-injection logic of the MCP middleware chain.
 func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handler {
-	return s.oauthHandler.ValidateToken(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return s.oauthHandler.ValidateToken(s.withValidatedSubject(next))
+}
+
+// withValidatedSubject puts the person a validated bearer was issued to into
+// the context: the subject, the sign-in identity (who a sign-in link minted
+// for this request must be completed by) and the session ID.
+func (s *OAuthHTTPServer) withValidatedSubject(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
 		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
@@ -575,6 +582,7 @@ func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handl
 		}
 
 		ctx = api.WithSubject(ctx, userInfo.ID)
+		ctx = api.WithSignInIdentity(ctx, s.signInIdentity(userInfo))
 
 		// Propagate the session ID from mcp-oauth's ValidateToken middleware.
 		if sessionID, ok := oauthhandler.SessionIDFromContext(ctx); ok {
@@ -582,7 +590,7 @@ func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handl
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
-	}))
+	})
 }
 
 // GetTokenStore returns the token store for downstream OAuth passthrough.

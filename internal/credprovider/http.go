@@ -82,7 +82,11 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	b := Binding{Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset, BoundAt: time.Now().UTC()}
+	signIn := api.SignInIdentityFromContext(r.Context())
+	b := Binding{
+		Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
+		SignInIssuer: signIn.Issuer, SignInSubject: signIn.Subject, BoundAt: time.Now().UTC(),
+	}
 	err := p.store.Put(r.Context(), req.Actor, b, p.ttl)
 	if errors.Is(err, ErrBoundToAnother) {
 		logging.WarnWithAttrs(logSubsystem, "bind_refused",

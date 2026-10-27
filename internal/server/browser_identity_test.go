@@ -4,10 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
 	oauth "github.com/giantswarm/mcp-oauth"
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/mock"
 	"github.com/giantswarm/mcp-oauth/storage/memory"
@@ -81,4 +84,33 @@ func TestOAuthHTTPServer_SignInIdentity(t *testing.T) {
 	require.Equal(t, api.SignInIdentity{Issuer: "https://dex.other.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"},
 		s.signInIdentity(&providers.UserInfo{ID: "CgVhbGljZRIGZ2l0aHVi", Email: "alice@example.com",
 			Issuer: "https://dex.other.example.com", TokenSource: providers.TokenSourceTrustedIssuer}))
+}
+
+// An API endpoint behind ValidateTokenWithSubject, such as the Session
+// binding agent-manager makes as the person, gets the sign-in identity of the
+// validated bearer beside its subject.
+func TestOAuthHTTPServer_ValidatedSubjectCarriesTheSignInIdentity(t *testing.T) {
+	s := &OAuthHTTPServer{config: config.OAuthServerConfig{
+		Provider: OAuthProviderDex,
+		Dex:      config.DexConfig{IssuerURL: "https://dex.example.com"},
+	}}
+	var subject string
+	var identity api.SignInIdentity
+	h := s.withValidatedSubject(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		subject = api.GetSubjectFromContext(r.Context())
+		identity = api.SignInIdentityFromContext(r.Context())
+	}))
+
+	req := httptest.NewRequest(http.MethodPut, "/session-bindings", nil)
+	req = req.WithContext(oauthhandler.ContextWithUserInfo(req.Context(), &providers.UserInfo{ID: "CgVhbGljZRIGZ2l0aHVi", Email: "alice@example.com"}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "CgVhbGljZRIGZ2l0aHVi", subject)
+	require.Equal(t, api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"}, identity)
+
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/session-bindings", nil))
+	require.Equal(t, http.StatusUnauthorized, rec.Code, "no validated user, no identity")
 }
