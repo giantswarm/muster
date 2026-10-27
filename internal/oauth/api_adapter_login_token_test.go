@@ -2,11 +2,14 @@ package oauth
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
@@ -121,7 +124,7 @@ func TestAdapter_PersonLoginIDToken_LongestLivedOfThePersonsSessions(t *testing.
 	const issuer = "https://dex.example.com/dex"
 	now := time.Now()
 
-	if got := adapter.PersonLoginIDToken("alice", issuer); got != nil {
+	if got := adapter.PersonLoginIDToken("alice", issuer, ""); got != nil {
 		t.Fatalf("person token before any login = %+v, want nil", got)
 	}
 	api.StoreLoginIDToken(adapter, "cli", "alice", issuer, "cli-token", now.Add(2*time.Hour))
@@ -129,15 +132,15 @@ func TestAdapter_PersonLoginIDToken_LongestLivedOfThePersonsSessions(t *testing.
 	api.StoreLoginIDToken(adapter, "copy", "", issuer, "copy-token", now.Add(5*time.Hour))
 	api.StoreLoginIDToken(adapter, "bob-cli", "bob", issuer, "bob-token", now.Add(4*time.Hour))
 	manager.StoreToken("grant", "alice", issuer, &pkgoauth.Token{AccessToken: "at", IDToken: "grant-id", ExpiresAt: now.Add(6 * time.Hour), Issuer: issuer})
-	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got == nil || got.IDToken != "cli-token" {
+	if got := api.PersonLoginIDToken(adapter, "alice", issuer, ""); got == nil || got.IDToken != "cli-token" {
 		t.Fatalf("person token = %+v, want the login that lives longest, no copy, grant or other person", got)
 	}
-	if got := api.PersonLoginIDToken(adapter, "alice", "https://other.example.com"); got != nil {
+	if got := api.PersonLoginIDToken(adapter, "alice", "https://other.example.com", ""); got != nil {
 		t.Fatalf("another issuer = %+v, want nil", got)
 	}
 
 	manager.DeleteTokensBySession("cli") // the CLI login is revoked
-	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got == nil || got.IDToken != "portal-token" {
+	if got := api.PersonLoginIDToken(adapter, "alice", issuer, ""); got == nil || got.IDToken != "portal-token" {
 		t.Fatalf("person token after a revocation = %+v, want the remaining login's", got)
 	}
 
@@ -145,16 +148,49 @@ func TestAdapter_PersonLoginIDToken_LongestLivedOfThePersonsSessions(t *testing.
 	if got := api.LoginIDToken(adapter, "copy", issuer); got != nil && got.IDToken == "copy-token" {
 		t.Fatalf("cleared login token = %+v, want gone", got)
 	}
-	if got := api.PersonLoginIDToken(adapter, "", issuer); got != nil {
+	if got := api.PersonLoginIDToken(adapter, "", issuer, ""); got != nil {
 		t.Fatalf("no subject = %+v, want nil", got)
 	}
-	if got := api.PersonLoginIDToken(&legacyHandler{}, "alice", issuer); got != nil {
+	if got := api.PersonLoginIDToken(&legacyHandler{}, "alice", issuer, ""); got != nil {
 		t.Fatalf("a handler without the mirror = %+v, want nil", got)
 	}
 	api.ClearLoginIDToken(&legacyHandler{}, "copy", issuer) // no mirror: nothing to do
 
 	manager.client.tokenStore.DeleteByUser("alice")
-	if got := api.PersonLoginIDToken(adapter, "alice", issuer); got != nil {
+	if got := api.PersonLoginIDToken(adapter, "alice", issuer, ""); got != nil {
 		t.Fatalf("person token after sign out everywhere = %+v, want nil", got)
 	}
+}
+
+// A login without the audience the caller needs is never the person's token
+// for that caller, however long it lives: muster's own connection to a server
+// it fronts forwards a token minted for another client back into muster, and
+// it is filed as a login of the person.
+func TestAdapter_PersonLoginIDToken_OnlyALoginCarryingTheAudience(t *testing.T) {
+	manager := NewManager(config.OAuthMCPClientConfig{
+		Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback",
+	})
+	defer manager.Stop()
+	adapter := NewAdapter(manager)
+	const issuer = "https://dex.example.com/dex"
+	now := time.Now()
+	kube := audienceJWT(t, "muster", "dex-k8s-authenticator")
+	forwarded := audienceJWT(t, "agent-platform")
+
+	api.StoreLoginIDToken(adapter, "login", "alice", issuer, kube, now.Add(time.Hour))
+	api.StoreLoginIDToken(adapter, "forwarded", "alice", issuer, forwarded, now.Add(2*time.Hour))
+
+	require.Equal(t, kube, api.PersonLoginIDToken(adapter, "alice", issuer, "dex-k8s-authenticator").IDToken)
+	require.Equal(t, forwarded, api.PersonLoginIDToken(adapter, "alice", issuer, "").IDToken,
+		"without an audience to carry the longest-lived login serves")
+
+	manager.DeleteTokensBySession("login")
+	require.Nil(t, api.PersonLoginIDToken(adapter, "alice", issuer, "dex-k8s-authenticator"))
+}
+
+func audienceJWT(t *testing.T, audiences ...string) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"sub": "alice", "aud": audiences, "exp": time.Now().Add(time.Hour).Unix()})
+	require.NoError(t, err)
+	return "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
 }

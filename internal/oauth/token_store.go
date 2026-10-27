@@ -59,7 +59,8 @@ type TokenStorer interface {
 
 	// GetLongestLivedForUser returns the live token, among the user's
 	// sessions, filed under the issuer and scope that expires last, or nil.
-	GetLongestLivedForUser(userID, issuer, scope string) *pkgoauth.Token
+	// A non-nil accept passes over every token it returns false for.
+	GetLongestLivedForUser(userID, issuer, scope string, accept func(*pkgoauth.Token) bool) *pkgoauth.Token
 
 	// DeleteBySession removes all tokens for a session.
 	DeleteBySession(sessionID string)

@@ -280,8 +280,9 @@ func LoginIDToken(h OAuthHandler, sessionID, issuer string) *OAuthToken {
 // of its own, a Session's sandbox actor bound to the person.
 type PersonLoginTokenMirror interface {
 	// PersonLoginIDToken returns the person's longest-lived live login ID
-	// token for the issuer, or nil when none of their sessions holds one.
-	PersonLoginIDToken(subject, issuer string) *OAuthToken
+	// token for the issuer that carries audience (any audience when empty),
+	// or nil when none of their sessions holds one.
+	PersonLoginIDToken(subject, issuer, audience string) *OAuthToken
 
 	// ClearLoginIDToken removes the session's login ID token for the issuer.
 	ClearLoginIDToken(sessionID, issuer string)
@@ -289,12 +290,12 @@ type PersonLoginTokenMirror interface {
 
 // PersonLoginIDToken reads the person's longest-lived login ID token through
 // the handler's mirror, or nil when the handler keeps none.
-func PersonLoginIDToken(h OAuthHandler, subject, issuer string) *OAuthToken {
+func PersonLoginIDToken(h OAuthHandler, subject, issuer, audience string) *OAuthToken {
 	mirror, ok := h.(PersonLoginTokenMirror)
 	if !ok || subject == "" {
 		return nil
 	}
-	if token := mirror.PersonLoginIDToken(subject, issuer); token != nil && token.IDToken != "" {
+	if token := mirror.PersonLoginIDToken(subject, issuer, audience); token != nil && token.IDToken != "" {
 		return token
 	}
 	return nil

@@ -227,7 +227,8 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   never forwarded downstream. Servers that forward (`forwardToken`, `forwardIdentity`) or
   exchange (`tokenExchange`) the person's ID token get the person's own login ID token instead:
   the one that lives longest among the person's live muster logins (the CLI's, the portal's
-  forwarded one), read on every request, so a login's sign-out or revocation takes its token
+  forwarded one) and, with `mcpServersInAllNamespaces`, carries `writesAsCaller.kubernetesAudience`,
+  so the actor sees the servers the person's RBAC lets them list. It is read on every request, so a login's sign-out or revocation takes its token
   out at once. When none is live, muster refreshes the person's logins it serves at the
   identity provider, at most once every 30 seconds per person; without any, those servers
   stay unconnected for the actor.
