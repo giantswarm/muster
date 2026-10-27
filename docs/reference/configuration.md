@@ -205,9 +205,9 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   `gitUsers` entry or `x-access-token`, GitHub's; a GitLab instance sets `oauth2`, for
   `.../<provider>/api` the token itself (the rule adds `Bearer `), when the actor is bound,
   the provider is in its binding and listed in `releasable`, and the person holds the grant.
-  Anything else is refused (`PERMISSION_DENIED`, or `NOT_FOUND` without a grant). The
-  `NOT_FOUND` reason, which the gateway shows the actor, names the call that starts the
-  person's sign-in: `core_auth_login` with `app "<provider>"`. Only the
+  Anything else is refused (`PERMISSION_DENIED`, or `NOT_FOUND` without a grant). For a
+  provider App, the `NOT_FOUND` reason, which the gateway shows the actor, names the call that
+  starts the person's sign-in: `core_auth_login` with `app "<provider>"`. Only the
   access token leaves muster, never the refresh token. Every answer and refusal is logged
   (`credential_released`, `credential_refused`: person, Session, actor, provider, use).
 - **Freshness.** muster refreshes a subject-scoped grant 15 minutes before it expires, so a

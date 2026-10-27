@@ -115,6 +115,7 @@ func newTestProvider(t *testing.T, grants fakeGrants) (*Provider, *MemoryStore) 
 	p, err := NewProvider(Options{
 		GatewayIdentity: testGateway,
 		Releasable:      map[string]string{"github": testIssuer},
+		ProviderApps:    []string{"github"},
 		BindingTTL:      time.Hour,
 		Store:           store,
 		Grants:          grants.source,
@@ -239,10 +240,6 @@ func TestFetchSecretRefusals(t *testing.T) {
 		})
 	}
 
-	_, err := client.FetchSecret(ctx, &credproviderpb.FetchSecretRequest{Uri: testGitURI, ActorSpiffeId: other})
-	assert.Equal(t, `the person holds no grant for github: call muster's core_auth_login tool with app "github", which asks the person to sign in, then retry`,
-		status.Convert(err).Message(), "the actor is told the call that starts the sign-in")
-
 	t.Run("an unbound Session after unbind", func(t *testing.T) {
 		_, err := client.FetchSecret(ctx, &credproviderpb.FetchSecretRequest{Uri: testGitURI, ActorSpiffeId: testActor})
 		require.NoError(t, err)
@@ -250,6 +247,42 @@ func TestFetchSecretRefusals(t *testing.T) {
 		_, err = client.FetchSecret(ctx, &credproviderpb.FetchSecretRequest{Uri: testGitURI, ActorSpiffeId: testActor})
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
+}
+
+func TestFetchSecretNoGrantNamesTheSignInOfAProviderAppOnly(t *testing.T) {
+	store := NewMemoryStore()
+	p, err := NewProvider(Options{
+		GatewayIdentity: testGateway,
+		Releasable:      map[string]string{"github": testIssuer, "gitlab": "https://gitlab.example.com"},
+		ProviderApps:    []string{"github"},
+		Store:           store,
+		Grants:          fakeGrants{"bob": {}}.source,
+	})
+	require.NoError(t, err)
+	pki := newTestPKI(t)
+	gateway, _ := pki.leaf(t, "gateway", "", testGateway)
+	client := serveTLS(t, p, pki, gateway)
+	require.NoError(t, store.Put(t.Context(), testActor, Binding{Subject: "bob", Providers: []string{"github", "gitlab"}}, time.Hour))
+
+	for uri, want := range map[string]string{
+		testGitURI: `the person holds no grant for github: call muster's core_auth_login tool with app "github", which asks the person to sign in, then retry`,
+		"ate-secret://muster.giantswarm.io/gitlab/git": "the person holds no grant for gitlab",
+	} {
+		_, err := client.FetchSecret(t.Context(), &credproviderpb.FetchSecretRequest{Uri: uri, ActorSpiffeId: testActor})
+		assert.Equal(t, codes.NotFound, status.Code(err), uri)
+		assert.Equal(t, want, status.Convert(err).Message(), uri)
+	}
+}
+
+func TestNewProviderRefusesAProviderAppThatIsNotReleasable(t *testing.T) {
+	_, err := NewProvider(Options{
+		GatewayIdentity: testGateway,
+		Releasable:      map[string]string{"github": testIssuer},
+		ProviderApps:    []string{"gitlab"},
+		Store:           NewMemoryStore(),
+		Grants:          fakeGrants{}.source,
+	})
+	require.ErrorContains(t, err, `provider App "gitlab" is not releasable`)
 }
 
 func TestFetchSecretRefusesCallersOtherThanTheGateway(t *testing.T) {
