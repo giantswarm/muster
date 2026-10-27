@@ -92,7 +92,11 @@ func TestURLElicitation(t *testing.T) {
 		require.NotNil(t, request.Elicitation)
 		require.Equal(t, mcp.ElicitationModeURL, request.Elicitation.Mode)
 		require.Equal(t, testAuthURL, request.Elicitation.URL)
-		require.Empty(t, request.Elicitation.ElicitationID, "2026-07-28 removed elicitationId")
+		require.NoError(t, request.Elicitation.Validate(), "rmcp refuses a URL elicitation without an elicitationId")
+		again, err := a.urlElicitation()(signInHandler(true))(ctx, mcp.CallToolRequest{})
+		require.NoError(t, err)
+		require.Equal(t, request.Elicitation.ElicitationID, again.InputRequests[signInInputKey].Elicitation.ElicitationID,
+			"one link, one elicitationId")
 		require.Equal(t, signInRequestState{Server: "github", Link: testAuthURL}, decodeSignInRequestState(result.RequestState),
 			"the retry names the sign-in to wait for")
 		require.Empty(t, result.Content, "the link must not reach the model as tool output")
@@ -368,6 +372,7 @@ func TestURLElicitationOnTheWire(t *testing.T) {
 		require.Equal(t, string(mcp.MethodElicitationCreate), request.Method, string(raw))
 		require.Equal(t, mcp.ElicitationModeURL, request.Params.Mode)
 		require.Equal(t, testAuthURL, request.Params.URL)
+		require.NotEmpty(t, request.Params.ElicitationID, string(raw))
 	})
 }
 
