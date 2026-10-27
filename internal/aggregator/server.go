@@ -1713,15 +1713,23 @@ func (a *AggregatorServer) logCapabilitiesSummary(servers map[string]*ServerInfo
 // wrapped with OAuth ValidateToken middleware, requiring valid access tokens for
 // all MCP requests.
 //
+// Every request carries a request ID (security.RequestIDMiddleware): a valid
+// inbound X-Request-ID is kept, otherwise one is generated. mcp-oauth's audit
+// events record it as request_id.
+//
 // Returns an error if OAuth is enabled but cannot be initialized (security requirement).
 func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) (http.Handler, error) {
 	// Check if OAuth server protection is enabled
 	if a.config.OAuthServer.Enabled && a.config.OAuthServer.Config != nil {
-		return a.createOAuthProtectedMux(mcpHandler)
+		mux, err := a.createOAuthProtectedMux(mcpHandler)
+		if err != nil {
+			return nil, err
+		}
+		return security.RequestIDMiddleware(mux), nil
 	}
 
 	// Standard mux without OAuth server protection
-	return a.createStandardMux(mcpHandler), nil
+	return security.RequestIDMiddleware(a.createStandardMux(mcpHandler)), nil
 }
 
 // createStandardMux creates a standard HTTP mux without OAuth server protection.
