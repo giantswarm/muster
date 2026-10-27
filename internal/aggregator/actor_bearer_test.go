@@ -44,8 +44,12 @@ func TestActorBearerHandler(t *testing.T) {
 	store := credprovider.NewMemoryStore()
 	ab := testActorBearer(t, store)
 
-	var served struct{ sub, session, bearer, idToken string }
+	var served struct {
+		sub, session, bearer, idToken string
+		signIn                        api.SignInIdentity
+	}
 	mcp := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		served.signIn = api.SignInIdentityFromContext(r.Context())
 		served.sub = api.GetSubjectFromContext(r.Context())
 		served.session = api.GetSessionIDFromContext(r.Context())
 		served.bearer = server.CallerTokensFromContext(r.Context()).Bearer
@@ -80,9 +84,12 @@ func TestActorBearerHandler(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, call(fakeActorJWT(testActorIssuer, "actor/kagent/forged")))
 
 	require.NoError(t, store.Put(ctx, "spiffe://substrate-actor.local/actor/kagent/session-a",
-		credprovider.Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{credprovider.MusterProvider}}, time.Hour))
+		credprovider.Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{credprovider.MusterProvider},
+			SignInIssuer: "https://dex.example.com", SignInSubject: "raw-alice"}, time.Hour))
 	require.Equal(t, http.StatusOK, call(token))
 	assert.Equal(t, "alice", served.sub)
+	assert.Equal(t, api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "raw-alice"}, served.signIn,
+		"a sign-in link the request is answered with completes for the person who bound the actor")
 	assert.NotEmpty(t, served.session)
 	assert.Equal(t, served.session, authenticated)
 	assert.Empty(t, served.bearer, "the actor JWT is never forwarded downstream")

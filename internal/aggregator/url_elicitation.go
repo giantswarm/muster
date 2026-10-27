@@ -3,6 +3,8 @@ package aggregator
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -52,6 +54,15 @@ type signInChallenge struct {
 type signInRequestState struct {
 	Server string `json:"server"`
 	Link   string `json:"link"`
+}
+
+// signInElicitationID is the elicitationId of a 2026-07-28 sign-in
+// elicitation, the same for every answer carrying one link. The 2026-07-28
+// schema defines no elicitationId and its clients ignore one, but rmcp, the
+// Rust SDK the Codex CLI is built on, refuses a URL elicitation without it.
+func signInElicitationID(link string) string {
+	sum := sha256.Sum256([]byte(link))
+	return hex.EncodeToString(sum[:16])
 }
 
 func (s signInRequestState) encode() string {
@@ -191,9 +202,10 @@ func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInCha
 	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
 		state := signInRequestState{Server: challenge.server, Link: challenge.authURL}
 		return mcpserver.NewInputRequestBuilder(state.encode()).Elicit(signInInputKey, mcp.ElicitationParams{
-			Mode:    mcp.ElicitationModeURL,
-			Message: message,
-			URL:     challenge.authURL,
+			Mode:          mcp.ElicitationModeURL,
+			Message:       message,
+			URL:           challenge.authURL,
+			ElicitationID: signInElicitationID(challenge.authURL),
 		}).ToolResult(), nil
 	}
 

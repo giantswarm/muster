@@ -28,6 +28,13 @@ type Binding struct {
 	// none (implicit full access); a binding stored before toolsets were bound
 	// reads as nil.
 	Toolset []string `json:"toolset,omitempty"`
+	// SignInIssuer and SignInSubject are the issuer and raw sub of the
+	// bind request's bearer: who the person signed in as, which a sign-in
+	// link the actor's requests are answered with must be completed by
+	// (api.SignInIdentity). Empty on a binding stored before they were
+	// recorded, whose sign-in links then complete for nobody.
+	SignInIssuer  string `json:"signInIss,omitempty"`
+	SignInSubject string `json:"signInSub,omitempty"`
 	// BoundAt is when the binding was last written.
 	BoundAt time.Time `json:"boundAt"`
 }

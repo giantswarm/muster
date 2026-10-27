@@ -16,6 +16,7 @@ import (
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -71,6 +72,9 @@ type ActorCaller struct {
 	// Toolset is the bound toolset, the selectors every request of the actor
 	// resolves within; nil when the binding carries none.
 	Toolset []string
+	// SignIn is who the person signed in as when they bound the actor; the
+	// zero value for a binding that recorded none.
+	SignIn api.SignInIdentity
 }
 
 // ActorBearer authenticates Substrate actor JWTs as the person the actor is
@@ -171,6 +175,7 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 		SessionID: actorSessionPrefix + hex.EncodeToString(sum[:16]),
 		Expiry:    exp,
 		Toolset:   binding.Toolset,
+		SignIn:    api.SignInIdentity{Issuer: binding.SignInIssuer, Subject: binding.SignInSubject},
 	}, nil
 }
 
