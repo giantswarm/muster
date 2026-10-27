@@ -215,19 +215,19 @@ tests:
           path: data["config.yaml"]
           pattern: "\nmcpServersInAllNamespaces: true\n"
 
-  - it: renders secretBinding mode warn by default
+  - it: names the admission policy binding muster requires
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "\nsecretBinding:\n  mode: \"warn\"\n"
+          pattern: "secretBinding:\n  admissionPolicyBinding: \"RELEASE-NAME-muster-mcpserver-secret-references\"\n"
 
-  - it: renders secretBinding mode enforce
+  - it: omits secretBinding without the admission policy and protected Secrets
     set:
-      muster.secretBinding.mode: enforce
+      mcpServerSecretReferences.enabled: false
     asserts:
-      - matchRegex:
+      - notMatchRegex:
           path: data["config.yaml"]
-          pattern: "\nsecretBinding:\n  mode: \"enforce\"\n"
+          pattern: "secretBinding:"
 
   - it: protects every Secret the chart mounts
     set:

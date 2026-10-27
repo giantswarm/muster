@@ -17,9 +17,9 @@ import (
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
-// errSecretNotBound is how the Secret reader refuses a Secret not bound to
-// the MCPServer that names it (secretBinding.mode enforce).
-var errSecretNotBound = fmt.Errorf("MCPServer org-a/github may not read Secret org-a/github-oauth-client: %w", api.ErrSecretNotBound)
+// errSecretProtected is how the Secret reader refuses a Secret muster keeps
+// for itself.
+var errSecretProtected = fmt.Errorf("MCPServer org-a/github may not read Secret org-a/github-oauth-client: %w", api.ErrSecretProtected)
 
 // tenantGithub is the MCPServer github of org-a, as the registry holds it.
 func tenantGithub(secretRef *api.ClientCredentialsSecretRef) *ServerInfo {
@@ -50,16 +50,16 @@ func TestPinReadsTheSecretForTheMCPServer(t *testing.T) {
 	assert.Zero(t, secrets.configCalls, "an MCPServer's Secret is never read as configuration")
 
 	handler.pins = map[string]api.IssuerPin{}
-	api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{err: errSecretNotBound})
+	api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{err: errSecretProtected})
 	err := bareAggregator().pinAuthorizationServer(context.Background(), tenantGithub(ref))
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	require.ErrorIs(t, err, api.ErrSecretProtected)
 	assert.Empty(t, handler.pins, "a refused Secret is never pinned")
 }
 
-// TestPinSecretReadableChecksTheBinding: the sign-in diagnosis reads the
+// TestPinSecretReadableReportsTheRefusal: the sign-in diagnosis reads the
 // Secret the way the pin does, so it reports the same refusal.
-func TestPinSecretReadableChecksTheBinding(t *testing.T) {
-	secrets := &mockSecretCredentialsHandler{err: errSecretNotBound}
+func TestPinSecretReadableReportsTheRefusal(t *testing.T) {
+	secrets := &mockSecretCredentialsHandler{err: errSecretProtected}
 	api.RegisterSecretCredentialsHandler(secrets)
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(nil) })
 
@@ -71,7 +71,7 @@ func TestPinSecretReadableChecksTheBinding(t *testing.T) {
 		},
 	}}
 	err := pinSecretReadable(context.Background(), "org-a/github", definition)
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	require.ErrorIs(t, err, api.ErrSecretProtected)
 	assert.Contains(t, err.Error(), "load client credentials for server org-a/github")
 	require.NotNil(t, secrets.lastOwner)
 	assert.Equal(t, tenantGithubOwner, *secrets.lastOwner)
@@ -93,7 +93,7 @@ func TestTokenExchangeSecretIsReadForTheMCPServer(t *testing.T) {
 		},
 	})
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
-	secrets := &mockSecretCredentialsHandler{err: errSecretNotBound}
+	secrets := &mockSecretCredentialsHandler{err: errSecretProtected}
 	api.RegisterSecretCredentialsHandler(secrets)
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(nil) })
 
@@ -109,7 +109,7 @@ func TestTokenExchangeSecretIsReadForTheMCPServer(t *testing.T) {
 	ctx := api.WithSessionID(api.WithSubject(context.Background(), "alice"), "sess-1")
 	_, err := EstablishConnectionWithTokenExchange(ctx, &AggregatorServer{}, serverInfo, "https://muster.example.com")
 
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	require.ErrorIs(t, err, api.ErrSecretProtected)
 	assert.Zero(t, exchanges, "a refused Secret's credentials never reach the token endpoint")
 	require.NotNil(t, secrets.lastOwner)
 	assert.Equal(t, api.SecretOwner{Name: "remote", Namespace: "org-a", UID: "uid-remote"}, *secrets.lastOwner)
@@ -148,7 +148,7 @@ func TestPinDeferredIsLoggedOncePerReason(t *testing.T) {
 	t.Cleanup(func() { forgetPinDeferral(info) })
 
 	for range 5 {
-		logPinDeferred(info, errSecretNotBound)
+		logPinDeferred(info, errSecretProtected)
 	}
 	assert.Equal(t, 1, strings.Count(logs.String(), "pin deferred"))
 
@@ -173,8 +173,8 @@ func TestPinDeferralsGoWithTheServer(t *testing.T) {
 	info := tenantGithub(nil)
 	other := &ServerInfo{Name: "org-a/github-two", UID: "u2"}
 	t.Cleanup(func() { forgetPinDeferral(other) })
-	logPinDeferred(info, errSecretNotBound)
-	logPinDeferred(other, errSecretNotBound)
+	logPinDeferred(info, errSecretProtected)
+	logPinDeferred(other, errSecretProtected)
 
 	_ = a.DeregisterServer(info.Name)
 

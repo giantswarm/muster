@@ -95,15 +95,15 @@ func TestResolveHeadersSendsNothingOfARefusedSecret(t *testing.T) {
 	registerSecretKeyReader(t, &refusingReader{})
 
 	got, err := ResolveHeaders(t.Context(), githubOwner, map[string]string{"X-MCP-Toolsets": "repos"}, []api.MCPServerHeaderFrom{bearerFrom("github-token")})
-	require.ErrorIs(t, err, api.ErrSecretNotBound)
+	require.ErrorIs(t, err, api.ErrSecretProtected)
 	assert.Nil(t, got)
 }
 
-// refusingReader refuses every Secret as not bound to the MCPServer.
+// refusingReader refuses every Secret as one muster keeps for itself.
 type refusingReader struct{ secretKeyReader }
 
 func (refusingReader) LoadMCPServerSecretKey(context.Context, api.SecretOwner, string, *api.ClientCredentialsSecretRef, string) ([]byte, error) {
-	return nil, fmt.Errorf("refused: %w", api.ErrSecretNotBound)
+	return nil, fmt.Errorf("refused: %w", api.ErrSecretProtected)
 }
 
 // TestResolveHeadersTrimsOneTrailingNewline: a Secret written with echo or
