@@ -151,31 +151,3 @@ func TestBoundToolset_FamilyMemberOutsideTheBinding(t *testing.T) {
 		assert.Empty(t, m.called, "%s on %s", tc.header, tc.member)
 	}
 }
-
-func TestBoundToolset_AdmitsTheSignInToABoundProvider(t *testing.T) {
-	m := toolsetFixture()
-	m.tools = append(m.tools, tagged("core_auth_login", toolset.ToolOrigin{Kind: toolset.OriginKindCore}))
-	defer registerMockHandler(m)()
-	p := NewProvider()
-	ctx := toolset.ContextWithBoundProviders(withBound([]string{"preset:read-only"}, "", false), []string{"github"})
-
-	result, err := p.ExecuteTool(ctx, "call_tool", map[string]any{"name": "core_auth_login", "arguments": map[string]any{"app": "github"}})
-	require.NoError(t, err)
-	assert.False(t, result.IsError, "the binding releases github, so its sign-in is never outside the toolset")
-	assert.Equal(t, []string{"core_auth_login"}, m.called)
-
-	for name, args := range map[string]map[string]any{
-		"an App the binding does not release": {"app": "gitlab"},
-		"a server sign-in":                    {"server": "gh"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			result, err := p.ExecuteTool(ctx, "call_tool", map[string]any{"name": "core_auth_login", "arguments": args})
-			require.NoError(t, err)
-			assert.Equal(t, `tool "core_auth_login" is outside the toolset [preset:read-only] bound to the session`, errorText(t, result))
-		})
-	}
-
-	result, err = p.ExecuteTool(withBound([]string{"preset:read-only"}, "", false), "call_tool", map[string]any{"name": "core_auth_login", "arguments": map[string]any{"app": "github"}})
-	require.NoError(t, err)
-	assert.Contains(t, errorText(t, result), "outside the toolset", "without a binding's providers the toolset decides")
-}

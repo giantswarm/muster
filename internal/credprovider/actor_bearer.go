@@ -75,8 +75,6 @@ type ActorCaller struct {
 	// SignIn is who the person signed in as when they bound the actor; the
 	// zero value for a binding that recorded none.
 	SignIn api.SignInIdentity
-	// Providers are the credential providers the binding releases.
-	Providers []string
 }
 
 // ActorBearer authenticates Substrate actor JWTs as the person the actor is
@@ -178,7 +176,6 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 		Expiry:    exp,
 		Toolset:   binding.Toolset,
 		SignIn:    api.SignInIdentity{Issuer: binding.SignInIssuer, Subject: binding.SignInSubject},
-		Providers: binding.Providers,
 	}, nil
 }
 

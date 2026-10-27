@@ -51,11 +51,6 @@ outside the toolset [preset:read-only] bound to the session`; `filter_tools` ech
 and the bound toolset differ, muster logs `toolset header resolved within the bound toolset`
 with both. A request that authenticates with a person's bearer is never bound.
 
-No toolset hides `core_auth_login` with `app` set to a provider the Session's binding releases
-(`providers` of `PUT /session-bindings`): the sign-in grants the actor nothing the binding does
-not release already, and the egress refusal of a provider without a grant names that call.
-`core_auth_login` for a server, or for an App outside the binding, stays inside the toolset.
-
 ### Inline selector grammar
 
 | Selector | Selects |

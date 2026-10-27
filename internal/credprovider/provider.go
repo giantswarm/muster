@@ -222,9 +222,8 @@ func (p *Provider) FetchSecret(ctx context.Context, req *credproviderpb.FetchSec
 
 // noGrantReason is the refusal of a provider the person holds no grant for.
 // The egress gateway hands it to the actor, so for a provider App it names the
-// call that starts the person's sign-in: muster answers it with a URL
-// elicitation, and the actor's bound toolset never hides it for a provider of
-// its binding.
+// call that starts the person's sign-in, which muster answers with a URL
+// elicitation.
 func (p *Provider) noGrantReason(provider string) string {
 	if !p.apps[provider] {
 		return fmt.Sprintf("the person holds no grant for %s", provider)
