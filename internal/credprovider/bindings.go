@@ -35,6 +35,12 @@ type Binding struct {
 	// recorded, whose sign-in links then complete for nobody.
 	SignInIssuer  string `json:"signInIss,omitempty"`
 	SignInSubject string `json:"signInSub,omitempty"`
+	// LoginSession is the muster session whose login ID token the actor's
+	// requests carry: the session the bind request's bearer came from, a
+	// muster login family or a session a client forwarded its own token in.
+	// Empty when none was found and on a binding stored before it was
+	// recorded: the actor then carries no login ID token of the person.
+	LoginSession string `json:"loginSession,omitempty"`
 	// BoundAt is when the binding was last written.
 	BoundAt time.Time `json:"boundAt"`
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"sync"
-	"time"
 
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -225,82 +224,6 @@ type SubjectGrantHandler interface {
 	IssuerSubjectScoped(issuer string) bool
 }
 
-// LoginTokenMirror is implemented by an OAuthHandler that keeps the ID token
-// of the person's login at muster -- the credential SSO token forwarding hands
-// to backends that trust muster's IdP -- apart from the per-server grants the
-// OAuth proxy obtains. Both can come from the same issuer: an MCPServer may
-// pin muster's own IdP as its authorization server. Filed under one key, the
-// mirror of the login token, written on every request that carries an
-// externally issued bearer, overwrote the grant and the server's tools failed
-// with "no valid token available" right after a successful sign-in
-// (giantswarm/muster#1174).
-type LoginTokenMirror interface {
-	// StoreLoginIDToken records the session's login ID token under the
-	// issuer without touching any grant from that issuer.
-	StoreLoginIDToken(sessionID, userID, issuer, idToken string, expiresAt time.Time)
-
-	// LoginIDToken returns the session's login ID token for the issuer, or
-	// nil when none is recorded or it expired.
-	LoginIDToken(sessionID, issuer string) *OAuthToken
-}
-
-// StoreLoginIDToken files the login ID token through the handler's mirror
-// when it keeps one, and as the session's plain token for the issuer
-// otherwise.
-func StoreLoginIDToken(h OAuthHandler, sessionID, userID, issuer, idToken string, expiresAt time.Time) {
-	if h == nil {
-		return
-	}
-	if mirror, ok := h.(LoginTokenMirror); ok {
-		mirror.StoreLoginIDToken(sessionID, userID, issuer, idToken, expiresAt)
-		return
-	}
-	h.StoreToken(sessionID, userID, issuer, &OAuthToken{IDToken: idToken, ExpiresAt: expiresAt})
-}
-
-// LoginIDToken reads the login ID token through the handler's mirror when it
-// keeps one, falling back to the session's token for the issuer: the entry an
-// earlier muster wrote, still in the store until the session's next request
-// or login rewrites it.
-func LoginIDToken(h OAuthHandler, sessionID, issuer string) *OAuthToken {
-	if h == nil {
-		return nil
-	}
-	if mirror, ok := h.(LoginTokenMirror); ok {
-		if token := mirror.LoginIDToken(sessionID, issuer); token != nil && token.IDToken != "" {
-			return token
-		}
-	}
-	return h.GetFullTokenByIssuer(sessionID, issuer)
-}
-
-// PersonLoginTokenMirror is implemented by a LoginTokenMirror that can read,
-// per person, the login ID token that lives longest among their live
-// sessions: the token muster forwards or exchanges for a caller with no login
-// of its own, a Session's sandbox actor bound to the person.
-type PersonLoginTokenMirror interface {
-	// PersonLoginIDToken returns the person's longest-lived live login ID
-	// token for the issuer that carries audience (any audience when empty),
-	// or nil when none of their sessions holds one.
-	PersonLoginIDToken(subject, issuer, audience string) *OAuthToken
-
-	// ClearLoginIDToken removes the session's login ID token for the issuer.
-	ClearLoginIDToken(sessionID, issuer string)
-}
-
-// PersonLoginIDToken reads the person's longest-lived login ID token through
-// the handler's mirror, or nil when the handler keeps none.
-func PersonLoginIDToken(h OAuthHandler, subject, issuer, audience string) *OAuthToken {
-	mirror, ok := h.(PersonLoginTokenMirror)
-	if !ok || subject == "" {
-		return nil
-	}
-	if token := mirror.PersonLoginIDToken(subject, issuer, audience); token != nil && token.IDToken != "" {
-		return token
-	}
-	return nil
-}
-
 // GrantReleaser is implemented by an OAuthHandler that can hand a person's
 // subject-scoped grant to a trusted relying party: the token broker's grant
 // targets (tokenExchangeBroker.targets.<audience>.grantIssuer) call it with
@@ -388,14 +311,6 @@ func GetOAuthHandler() OAuthHandler {
 	oauthMutex.RLock()
 	defer oauthMutex.RUnlock()
 	return oauthHandler
-}
-
-// ClearLoginIDToken removes the session's login ID token through the
-// handler's mirror, when it keeps one.
-func ClearLoginIDToken(h OAuthHandler, sessionID, issuer string) {
-	if mirror, ok := h.(PersonLoginTokenMirror); ok {
-		mirror.ClearLoginIDToken(sessionID, issuer)
-	}
 }
 
 // ProviderAppFlowPrefix marks a provider App's sign-in in an OAuth flow's

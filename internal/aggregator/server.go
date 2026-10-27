@@ -217,9 +217,9 @@ type AggregatorServer struct {
 	// Populated in sessionToolFilter, cleaned up via OnUnregisterSession hook.
 	subjectSessions *subjectSessionTracker
 
-	// personTokenRefreshes spaces the login refreshes actor requests make
-	// for a bound person without a live login ID token.
-	personTokenRefreshes personTokenRefreshes
+	// pinnedLoginRefreshes spaces the refreshes of a pinned login family
+	// actor requests make.
+	pinnedLoginRefreshes pinnedLoginRefreshes
 
 	// bearerSessions ends each session keyed by a forwarded bearer when that
 	// bearer expires (bearer_session.go).

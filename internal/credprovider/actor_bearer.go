@@ -34,9 +34,6 @@ const (
 	// actor/<atespace>/<actor>.
 	actorSubjectPrefix = "actor/"
 
-	// actorSessionPrefix marks the muster session of an actor-JWT caller.
-	actorSessionPrefix = "actor-"
-
 	// actorBearerAuditAction is the audit action of every actor-JWT
 	// authentication, accepted or refused.
 	actorBearerAuditAction = "actor_bearer"
@@ -75,6 +72,9 @@ type ActorCaller struct {
 	// SignIn is who the person signed in as when they bound the actor; the
 	// zero value for a binding that recorded none.
 	SignIn api.SignInIdentity
+	// LoginSession is the muster session whose login ID token the actor's
+	// requests carry (Binding.LoginSession).
+	LoginSession string
 }
 
 // ActorBearer authenticates Substrate actor JWTs as the person the actor is
@@ -166,16 +166,18 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 		Outcome: "success",
 		Subject: logging.TruncateIdentifier(binding.Subject),
 		Target:  MusterProvider,
-		Details: actorAuditDetails(actor, binding),
+		Details: actorAuditDetails(actor, binding) + " login=" + loginKind(binding.LoginSession),
 	})
 	return &ActorCaller{
 		Actor:     actor,
 		Subject:   binding.Subject,
 		Session:   binding.Session,
-		SessionID: actorSessionPrefix + hex.EncodeToString(sum[:16]),
+		SessionID: api.ActorSessionPrefix + hex.EncodeToString(sum[:16]),
 		Expiry:    exp,
 		Toolset:   binding.Toolset,
 		SignIn:    api.SignInIdentity{Issuer: binding.SignInIssuer, Subject: binding.SignInSubject},
+
+		LoginSession: binding.LoginSession,
 	}, nil
 }
 
@@ -205,12 +207,6 @@ func actorAuditDetails(actor string, binding *Binding) string {
 		details += " toolset=[" + strings.Join(binding.Toolset, ",") + "]"
 	}
 	return details
-}
-
-// IsActorSession reports whether a muster session ID is an actor-JWT
-// caller's (ActorCaller.SessionID), which has no login of its own.
-func IsActorSession(sessionID string) bool {
-	return strings.HasPrefix(sessionID, actorSessionPrefix)
 }
 
 // actorFromSubject maps an actor JWT's sub, actor/<atespace>/<actor>, to the

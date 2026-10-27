@@ -57,10 +57,11 @@ type TokenStorer interface {
 	// rotated token and nobody redeems the old refresh token again.
 	ReplaceByUserAndIssuer(userID, issuer string, token *pkgoauth.Token) int
 
-	// GetLongestLivedForUser returns the live token, among the user's
-	// sessions, filed under the issuer and scope that expires last, or nil.
-	// A non-nil accept passes over every token it returns false for.
-	GetLongestLivedForUser(userID, issuer, scope string, accept func(*pkgoauth.Token) bool) *pkgoauth.Token
+	// IndexLoginIDToken records that sessionID filed the login ID token with
+	// digest until expiresAt; with keep set, another session's record stays.
+	IndexLoginIDToken(digest, sessionID string, expiresAt time.Time, keep bool)
+	// LoginIDTokenSession returns the session recorded for the digest, or "".
+	LoginIDTokenSession(digest string) string
 
 	// DeleteBySession removes all tokens for a session.
 	DeleteBySession(sessionID string)
@@ -124,6 +125,8 @@ type tokenEntry struct {
 type TokenStore struct {
 	mu     sync.RWMutex
 	tokens map[TokenKey]*tokenEntry
+	// logins maps a login ID token's digest to the session that filed it.
+	logins map[string]loginIndexEntry
 
 	// Cleanup configuration
 	cleanupInterval time.Duration
@@ -376,6 +379,7 @@ func (ts *TokenStore) cleanup() {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
+	ts.cleanupLogins(time.Now())
 	count := 0
 	for key, entry := range ts.tokens {
 		if !entry.token.IsExpiredWithMargin(0) {

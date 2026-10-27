@@ -85,7 +85,8 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 	signIn := api.SignInIdentityFromContext(r.Context())
 	b := Binding{
 		Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
-		SignInIssuer: signIn.Issuer, SignInSubject: signIn.Subject, BoundAt: time.Now().UTC(),
+		SignInIssuer: signIn.Issuer, SignInSubject: signIn.Subject,
+		LoginSession: bindLoginSession(r), BoundAt: time.Now().UTC(),
 	}
 	err := p.store.Put(r.Context(), req.Actor, b, p.ttl)
 	if errors.Is(err, ErrBoundToAnother) {
@@ -103,8 +104,42 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 	logging.InfoWithAttrs(logSubsystem, "session_bound",
 		slog.String("sub", sub), slog.String("session", req.Session),
 		slog.String("actor", req.Actor), slog.Any("providers", req.Providers),
+		slog.String("login", loginKind(b.LoginSession)),
 		slog.Any("toolset", req.Toolset), slog.Duration("ttl", p.ttl))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// bindLoginSession returns the session the bind request came from, whose
+// login ID token the actor's requests carry. The component that starts a
+// Session binds with the ID token muster forwarded to it, so that token names
+// the session that filed it: the login family muster obtained it for, or the
+// session a client forwarded it in. A muster access token names its family.
+// A forwarded token muster never filed names no session: muster holds no
+// login of the person behind it.
+func bindLoginSession(r *http.Request) string {
+	scheme, bearer, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	if ok && strings.EqualFold(scheme, "Bearer") {
+		if session := api.LoginSessionForIDToken(api.GetOAuthHandler(), strings.TrimSpace(bearer)); session != "" {
+			return session
+		}
+	}
+	if session := api.GetSessionIDFromContext(r.Context()); !api.IsForwardedSession(session) && !api.IsActorSession(session) {
+		return session
+	}
+	return ""
+}
+
+// loginKind names, for the logs, the kind of session an actor's login ID
+// token comes from.
+func loginKind(loginSession string) string {
+	switch {
+	case loginSession == "":
+		return "none"
+	case api.IsForwardedSession(loginSession):
+		return "forwarded"
+	default:
+		return "family"
+	}
 }
 
 // HandleUnbind is DELETE /session-bindings?actor=<id>: removes the calling

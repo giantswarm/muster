@@ -10,102 +10,112 @@ import (
 	"github.com/giantswarm/muster/v5/internal/credprovider"
 	"github.com/giantswarm/muster/v5/internal/server"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
-// personTokenRefreshBackoff spaces the refreshes one person's expired login
-// token gets from actor requests, so a person whose logins cannot be
-// refreshed does not cost an upstream round trip per MCP call.
-const personTokenRefreshBackoff = 30 * time.Second
+// pinnedLoginRefreshBackoff spaces the refreshes one pinned login gets from
+// actor requests, so a login whose refresh token is rejected does not cost an
+// upstream round trip per MCP call.
+const pinnedLoginRefreshBackoff = 30 * time.Second
 
-// personTokenRefreshes records, per person, when an actor request last
-// refreshed their logins. The zero value is ready to use.
-type personTokenRefreshes struct {
+// pinnedLoginRefreshes records, per login family, when an actor request last
+// refreshed it. The zero value is ready to use.
+type pinnedLoginRefreshes struct {
 	mu   sync.Mutex
 	last map[string]time.Time
-	now  func() time.Time
 }
 
-// due reports whether the person's logins may be refreshed now, and if so
-// records the attempt.
-func (r *personTokenRefreshes) due(subject string) bool {
+// due reports whether the family may be refreshed now, and if so records the
+// attempt.
+func (r *pinnedLoginRefreshes) due(familyID string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	now := time.Now()
-	if r.now != nil {
-		now = r.now()
-	}
-	if last, ok := r.last[subject]; ok && now.Sub(last) < personTokenRefreshBackoff {
+	if last, ok := r.last[familyID]; ok && now.Sub(last) < pinnedLoginRefreshBackoff {
 		return false
 	}
 	if r.last == nil {
 		r.last = map[string]time.Time{}
 	}
-	for sub, last := range r.last {
-		if now.Sub(last) >= personTokenRefreshBackoff {
-			delete(r.last, sub)
+	for id, last := range r.last {
+		if now.Sub(last) >= pinnedLoginRefreshBackoff {
+			delete(r.last, id)
 		}
 	}
-	r.last[subject] = now
+	r.last[familyID] = now
 	return true
 }
 
-// withPersonIDToken puts the bound person's login ID token on an actor
-// request, so the servers that forward it (forwardToken, forwardIdentity) or
-// exchange it (tokenExchange) connect for the actor as the person, and files
-// it as the actor session's login token, where those servers' background
-// connections look it up. The token is the one that lives longest among the
-// person's own live muster logins that carry the audience the server
-// visibility check lists servers with, if muster checks it; an expired one is
-// renewed by refreshing those logins at their identity provider. Without one the request is served as
-// before and those servers stay unconnected for the actor.
+// withPersonIDToken puts the login ID token of the session the actor's
+// binding pins on an actor request, so the servers that forward it
+// (forwardToken, forwardIdentity) or exchange it (tokenExchange) connect for
+// the actor as the person, and files it as the actor session's login token,
+// where those servers' background connections look it up. Only the pinned
+// session's own token serves: a login family's, renewed by refreshing that
+// family when it expired (mcp-oauth refuses a revoked one), or the latest
+// token a client forwarded in a forwarded session, which muster cannot renew. Without one, and for a
+// binding that pins none, the request carries no person token and the
+// actor's copy is cleared.
 func (a *AggregatorServer) withPersonIDToken(ctx context.Context, caller *credprovider.ActorCaller) context.Context {
 	oh := api.GetOAuthHandler()
 	issuer := a.getMusterIssuer()
 	if oh == nil || !oh.IsEnabled() || issuer == "" {
 		return ctx
 	}
-	token := a.personLoginIDToken(ctx, oh, caller.Subject, issuer)
+	token := a.pinnedLoginIDToken(ctx, oh, caller.LoginSession, issuer)
+	if token != nil && api.IsForwardedSession(caller.LoginSession) && !issuedTo(token.IDToken, caller.SignIn) {
+		token = nil
+	}
 	if token == nil {
-		// A person who signed out takes the copy out of the actor session too.
 		api.ClearLoginIDToken(oh, caller.SessionID, issuer)
-		logging.DebugWithAttrs("Aggregator", "Actor bearer: no live login ID token of the bound person",
-			slog.String("sub", logging.TruncateIdentifier(caller.Subject)),
+		logging.DebugWithAttrs("Aggregator", "Actor bearer: no live login ID token of the pinned session",
+			slog.String("login_session", logging.TruncateIdentifier(caller.LoginSession)),
 			slog.String("session", caller.Session))
 		return ctx
 	}
 	// Filed without the person's user ID: the copy is no login of the person
-	// and never serves another actor request as one.
+	// and is never indexed as one.
 	api.StoreLoginIDToken(oh, caller.SessionID, "", issuer, token.IDToken, token.ExpiresAt)
 	return server.ContextWithIDToken(ctx, token.IDToken)
 }
 
-// personLoginIDToken returns the person's longest-lived live login ID token,
-// refreshing their logins this replica serves when none is live.
-func (a *AggregatorServer) personLoginIDToken(ctx context.Context, oh api.OAuthHandler, subject, issuer string) *api.OAuthToken {
-	var audience string
-	if visibility := api.GetMCPServerVisibility(); visibility != nil {
-		audience = visibility.LoginAudience()
-	}
-	if token := api.PersonLoginIDToken(oh, subject, issuer, audience); token != nil {
-		return token
-	}
-	refresh := a.sessionRefresher()
-	if refresh == nil || a.subjectSessions == nil || !a.personTokenRefreshes.due(subject) {
+// pinnedLoginIDToken returns the pinned session's live login ID token,
+// refreshing a login family's when none is live.
+func (a *AggregatorServer) pinnedLoginIDToken(ctx context.Context, oh api.OAuthHandler, loginSession, issuer string) *api.OAuthToken {
+	if loginSession == "" {
 		return nil
 	}
-	for _, sessionID := range a.subjectSessions.OAuthSessionIDsForSubject(subject) {
-		if credprovider.IsActorSession(sessionID) {
-			continue
-		}
-		if err := refresh(ctx, sessionID); err != nil {
-			logging.DebugWithAttrs("Aggregator", "Actor bearer: refreshing a login of the bound person failed",
-				slog.String("session", logging.TruncateIdentifier(sessionID)),
-				slog.String("error", err.Error()))
-			continue
-		}
-		if token := api.PersonLoginIDToken(oh, subject, issuer, audience); token != nil {
-			return token
-		}
+	if token := api.SessionLoginIDToken(oh, loginSession, issuer); token != nil {
+		return token
 	}
-	return nil
+	if api.IsForwardedSession(loginSession) {
+		return nil
+	}
+	refresh := a.sessionRefresher()
+	if refresh == nil || !a.pinnedLoginRefreshes.due(loginSession) {
+		return nil
+	}
+	if err := refresh(ctx, loginSession); err != nil {
+		logging.DebugWithAttrs("Aggregator", "Actor bearer: refreshing the pinned login failed",
+			slog.String("login_session", logging.TruncateIdentifier(loginSession)),
+			slog.String("error", err.Error()))
+		return nil
+	}
+	return api.SessionLoginIDToken(oh, loginSession, issuer)
+}
+
+// issuedTo reports whether a forwarded session's token was issued to the
+// identity the bind request signed in as. A forwarded session's ID is a
+// truncated hash, no authorization key, so the slot it names is checked
+// against the binding before its token serves the actor.
+func issuedTo(idToken string, signIn api.SignInIdentity) bool {
+	if signIn.Issuer == "" || signIn.Subject == "" {
+		return false
+	}
+	iss, err := pkgoauth.Issuer(idToken)
+	if err != nil || iss != signIn.Issuer {
+		return false
+	}
+	sub, err := pkgoauth.Subject(idToken)
+	return err == nil && sub == signIn.Subject
 }
