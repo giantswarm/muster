@@ -183,7 +183,7 @@ func (p *Provider) FetchSecret(ctx context.Context, req *credproviderpb.FetchSec
 
 	token := p.grants(ctx, binding.Subject, issuer)
 	if token == nil || token.AccessToken == "" {
-		return nil, refuse(codes.NotFound, "the person holds no grant for the provider", who...)
+		return nil, refuse(codes.NotFound, noGrantReason(provider), who...)
 	}
 	if err := p.store.Touch(ctx, actor, p.ttl); err != nil {
 		logging.WarnWithAttrs(logSubsystem, "binding_touch_failed", slog.String("actor", actor), slog.String("error", err.Error()))
@@ -202,6 +202,14 @@ func (p *Provider) FetchSecret(ctx context.Context, req *credproviderpb.FetchSec
 		slog.String("use", use),
 		slog.Time("expiresAt", token.ExpiresAt))...)
 	return &credproviderpb.FetchSecretResponse{OpaqueBytes: []byte(secret)}, nil
+}
+
+// noGrantReason is the refusal of a provider the person holds no grant for.
+// The egress gateway hands it to the actor, so it names the call that starts
+// the person's sign-in: muster answers it with a URL elicitation, and the
+// actor's bound toolset never hides it for a provider of its binding.
+func noGrantReason(provider string) string {
+	return fmt.Sprintf("the person holds no grant for %s: call muster's core_auth_login tool with app %q, which asks the person to sign in, then retry", provider, provider)
 }
 
 // parseURI splits ate-secret://<authority>/<provider>/<git|api>.

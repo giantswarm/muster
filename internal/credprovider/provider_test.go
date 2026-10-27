@@ -239,6 +239,10 @@ func TestFetchSecretRefusals(t *testing.T) {
 		})
 	}
 
+	_, err := client.FetchSecret(ctx, &credproviderpb.FetchSecretRequest{Uri: testGitURI, ActorSpiffeId: other})
+	assert.Equal(t, `the person holds no grant for github: call muster's core_auth_login tool with app "github", which asks the person to sign in, then retry`,
+		status.Convert(err).Message(), "the actor is told the call that starts the sign-in")
+
 	t.Run("an unbound Session after unbind", func(t *testing.T) {
 		_, err := client.FetchSecret(ctx, &credproviderpb.FetchSecretRequest{Uri: testGitURI, ActorSpiffeId: testActor})
 		require.NoError(t, err)

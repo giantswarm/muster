@@ -272,7 +272,7 @@ func (c *scopedCatalogue) outside(name string) *api.CallToolResult {
 // does not select it on, selected by the call's instance argument. The
 // refusal is logged with tool, member, toolset and session.
 func (c *scopedCatalogue) refuse(ctx context.Context, name string, args map[string]any) *api.CallToolResult {
-	if !c.isScoped() {
+	if !c.isScoped() || signsInToBoundProvider(ctx, name, args) {
 		return nil
 	}
 	// Every layer must hold the call: a family member a header selects is
@@ -306,6 +306,20 @@ func (c *scopedCatalogue) refuse(ctx context.Context, name string, args map[stri
 	}
 	logging.InfoWithAttrs("metatools", fmt.Sprintf("call_tool refused: tool %q is outside the toolset %s", name, outside), attrs...)
 	return errorResult(fmt.Sprintf("tool %q is outside the toolset %s", name, outside))
+}
+
+// authLoginTool is muster's sign-in tool.
+const authLoginTool = "core_auth_login"
+
+// signsInToBoundProvider reports whether the call is core_auth_login of a
+// provider App the request's Session binding releases, which no toolset
+// hides (toolset.ContextWithBoundProviders).
+func signsInToBoundProvider(ctx context.Context, name string, args map[string]any) bool {
+	if name != authLoginTool {
+		return false
+	}
+	app, _ := args["app"].(string)
+	return app != "" && slices.Contains(toolset.BoundProvidersFromContext(ctx), app)
 }
 
 // resources narrows the session's resources to the servers inside the

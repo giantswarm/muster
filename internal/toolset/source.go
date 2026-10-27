@@ -55,6 +55,26 @@ func BoundFromContext(ctx context.Context) (ts Toolset, present bool, err error)
 	return ts, true, err
 }
 
+type boundProvidersContextKey struct{}
+
+// ContextWithBoundProviders stores the credential providers of the caller's
+// Session binding. A bound toolset never hides the sign-in to one of them
+// (core_auth_login app=<provider>): signing in grants the actor nothing the
+// binding does not already release once the person holds the grant.
+func ContextWithBoundProviders(ctx context.Context, providers []string) context.Context {
+	if len(providers) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, boundProvidersContextKey{}, providers)
+}
+
+// BoundProvidersFromContext returns the providers ContextWithBoundProviders
+// stored, nil when the request has no Session binding.
+func BoundProvidersFromContext(ctx context.Context) []string {
+	providers, _ := ctx.Value(boundProvidersContextKey{}).([]string)
+	return providers
+}
+
 // Scoped reports whether the request is bounded by any toolset: one bound to
 // its Session or one it declares.
 func Scoped(ctx context.Context) bool {

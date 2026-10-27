@@ -102,7 +102,7 @@ func TestActorBearerHandler(t *testing.T) {
 func TestActorBearerHandlerBindsTheToolset(t *testing.T) {
 	ctx := context.Background()
 	store := credprovider.NewMemoryStore()
-	var bound, header []string
+	var bound, header, providers []string
 	var hasBound, hasHeader bool
 	mcp := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqCtx := httpRequestContext(r.Context(), r)
@@ -111,6 +111,7 @@ func TestActorBearerHandlerBindsTheToolset(t *testing.T) {
 		h, okH, err := toolset.FromContext(reqCtx)
 		require.NoError(t, err)
 		bound, hasBound, header, hasHeader = b.Raw, okB, h.Raw, okH
+		providers = toolset.BoundProvidersFromContext(reqCtx)
 		w.WriteHeader(http.StatusOK)
 	})
 	h := actorBearerHandler(testActorBearer(t, store), mcp, http.NotFoundHandler(), nil, nil)
@@ -131,6 +132,7 @@ func TestActorBearerHandlerBindsTheToolset(t *testing.T) {
 	call("")
 	assert.True(t, hasBound)
 	assert.Equal(t, []string{"preset:read-only"}, bound)
+	assert.Equal(t, []string{credprovider.MusterProvider}, providers, "the binding's providers, whose sign-in no toolset hides")
 	assert.False(t, hasHeader, "a request without the header is bound all the same")
 
 	call("preset:full")

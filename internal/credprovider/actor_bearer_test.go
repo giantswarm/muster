@@ -110,6 +110,7 @@ func TestActorBearerActsAsTheBoundPerson(t *testing.T) {
 	assert.Equal(t, "alice", caller.Subject)
 	assert.Equal(t, "kagent/s1", caller.Session)
 	assert.Equal(t, testActor, caller.Actor)
+	assert.Equal(t, []string{"github", MusterProvider}, caller.Providers)
 	assert.True(t, strings.HasPrefix(caller.SessionID, "actor-"))
 
 	again, err := ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
