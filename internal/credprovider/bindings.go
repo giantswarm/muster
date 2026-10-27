@@ -41,6 +41,12 @@ type Binding struct {
 	// Empty when none was found and on a binding stored before it was
 	// recorded: the actor then carries no login ID token of the person.
 	LoginSession string `json:"loginSession,omitempty"`
+	// LoginIssuer and LoginSubject are the iss and sub of the forwarded
+	// token that pinned a forwarded session, which a token of that session
+	// must carry to serve the actor: a forwarded session's ID is no
+	// authorization key. Empty for a login family.
+	LoginIssuer  string `json:"loginIss,omitempty"`
+	LoginSubject string `json:"loginSub,omitempty"`
 	// BoundAt is when the binding was last written.
 	BoundAt time.Time `json:"boundAt"`
 }

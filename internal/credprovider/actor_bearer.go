@@ -75,6 +75,9 @@ type ActorCaller struct {
 	// LoginSession is the muster session whose login ID token the actor's
 	// requests carry (Binding.LoginSession).
 	LoginSession string
+	// LoginIdentity is whom a forwarded LoginSession's token must be issued
+	// to (Binding.LoginIssuer, Binding.LoginSubject).
+	LoginIdentity api.SignInIdentity
 }
 
 // ActorBearer authenticates Substrate actor JWTs as the person the actor is
@@ -177,7 +180,8 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 		Toolset:   binding.Toolset,
 		SignIn:    api.SignInIdentity{Issuer: binding.SignInIssuer, Subject: binding.SignInSubject},
 
-		LoginSession: binding.LoginSession,
+		LoginSession:  binding.LoginSession,
+		LoginIdentity: api.SignInIdentity{Issuer: binding.LoginIssuer, Subject: binding.LoginSubject},
 	}, nil
 }
 

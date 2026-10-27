@@ -63,7 +63,7 @@ func (a *AggregatorServer) withPersonIDToken(ctx context.Context, caller *credpr
 		return ctx
 	}
 	token := a.pinnedLoginIDToken(ctx, oh, caller.LoginSession, issuer)
-	if token != nil && api.IsForwardedSession(caller.LoginSession) && !issuedTo(token.IDToken, caller.SignIn) {
+	if token != nil && api.IsForwardedSession(caller.LoginSession) && !issuedTo(token.IDToken, caller.LoginIdentity) {
 		token = nil
 	}
 	if token == nil {
@@ -105,17 +105,17 @@ func (a *AggregatorServer) pinnedLoginIDToken(ctx context.Context, oh api.OAuthH
 }
 
 // issuedTo reports whether a forwarded session's token was issued to the
-// identity the bind request signed in as. A forwarded session's ID is a
-// truncated hash, no authorization key, so the slot it names is checked
-// against the binding before its token serves the actor.
-func issuedTo(idToken string, signIn api.SignInIdentity) bool {
-	if signIn.Issuer == "" || signIn.Subject == "" {
+// issuer and subject of the token that pinned the session. A forwarded
+// session's ID is a truncated hash, no authorization key, so the slot it
+// names is checked against the binding before its token serves the actor.
+func issuedTo(idToken string, login api.SignInIdentity) bool {
+	if login.Issuer == "" || login.Subject == "" {
 		return false
 	}
 	iss, err := pkgoauth.Issuer(idToken)
-	if err != nil || iss != signIn.Issuer {
+	if err != nil || iss != login.Issuer {
 		return false
 	}
 	sub, err := pkgoauth.Subject(idToken)
-	return err == nil && sub == signIn.Subject
+	return err == nil && sub == login.Subject
 }

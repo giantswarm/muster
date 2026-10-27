@@ -3,6 +3,8 @@ package credprovider
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -45,14 +47,20 @@ func bindWithBearer(t *testing.T, p *Provider, authorization, contextSession str
 // came from: the session that filed the bearer as its login ID token, else
 // the session muster validated the bearer to.
 func TestBindPinsTheLoginSessionOfItsBearer(t *testing.T) {
-	api.RegisterOAuthHandler(loginIndexHandler{sessions: map[string]string{"family-token": "family-1", "portal-token": "ext-portal"}})
+	portalToken := testJWT(t, "https://accounts.example.com", "raw-alice")
+	api.RegisterOAuthHandler(loginIndexHandler{sessions: map[string]string{
+		"family-token": "family-1", portalToken: "ext-portal", "opaque-forwarded": "ext-opaque",
+	}})
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
 	cases := []struct {
 		name, bearer, scheme, contextSession, want string
+		wantIssuer, wantSubject                    string
 	}{
 		{name: "a token muster obtained at its sign-in", bearer: "family-token", contextSession: "ext-of-the-family-token", want: "family-1"},
-		{name: "a token a client forwarded", bearer: "portal-token", contextSession: "ext-portal", want: "ext-portal"},
+		{name: "a token a client forwarded", bearer: portalToken, contextSession: "ext-portal", want: "ext-portal",
+			wantIssuer: "https://accounts.example.com", wantSubject: "raw-alice"},
+		{name: "a forwarded token without iss and sub", bearer: "opaque-forwarded", contextSession: "ext-opaque", want: ""},
 		{name: "muster's own access token", bearer: "muster-access-token", contextSession: "family-2", want: "family-2"},
 		{name: "a lowercase scheme", bearer: "family-token", scheme: "bearer ", contextSession: "ext-of-the-family-token", want: "family-1"},
 		{name: "a forwarded token muster never filed", bearer: "unknown", contextSession: "ext-unknown", want: ""},
@@ -70,8 +78,17 @@ func TestBindPinsTheLoginSessionOfItsBearer(t *testing.T) {
 			b, err := store.Get(t.Context(), testActor)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, b.LoginSession)
+			require.Equal(t, tc.wantIssuer, b.LoginIssuer, "a forwarded pin records whom the bearer was issued to")
+			require.Equal(t, tc.wantSubject, b.LoginSubject)
 		})
 	}
+}
+
+func testJWT(t *testing.T, issuer, subject string) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"iss": issuer, "sub": subject, "exp": time.Now().Add(time.Hour).Unix()})
+	require.NoError(t, err)
+	return "eyJhbGciOiJSUzI1NiJ9." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
 }
 
 func TestActorBearerCarriesThePinnedLoginSession(t *testing.T) {
@@ -88,10 +105,12 @@ func TestActorBearerCarriesThePinnedLoginSession(t *testing.T) {
 		{"", " login=none"},
 	} {
 		buf.Reset()
-		require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider}, LoginSession: tc.loginSession}, time.Hour))
+		require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Session: "kagent/s1", Providers: []string{MusterProvider},
+			LoginSession: tc.loginSession, LoginIssuer: "https://accounts.example.com", LoginSubject: "raw-alice"}, time.Hour))
 		caller, err := ab.Authenticate(ctx, iss.mint(t, testActorSubject, nil))
 		require.NoError(t, err)
 		require.Equal(t, tc.loginSession, caller.LoginSession)
+		require.Equal(t, api.SignInIdentity{Issuer: "https://accounts.example.com", Subject: "raw-alice"}, caller.LoginIdentity)
 		require.Contains(t, buf.String(), "details=actor="+testActor+" session=kagent/s1"+tc.audit)
 		require.NotContains(t, buf.String(), "family-1", "the audit line names the kind of login, not the session")
 	}

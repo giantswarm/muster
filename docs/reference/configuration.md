@@ -235,7 +235,8 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   token of the person ever serves the actor: not another login, not a token another client or
   another issuer forwarded. A login family's expired token is renewed by refreshing that family
   at muster's identity provider (never a revoked one), at most once every 30 seconds per family. A forwarded session's token is the
-  latest one that client sent and muster cannot renew it. It is read on every request, so a
+  latest one that client sent, it serves only when it carries the `iss` and `sub` of the token
+  that bound the actor, and muster cannot renew it. It is read on every request, so a
   sign-out or revocation of the pinned session takes its token out at once and the actor gets
   the sign-in answer. A binding that pins no session (one stored before muster recorded it)
   serves no token until the Session is bound again, and so does a bind whose bearer is a

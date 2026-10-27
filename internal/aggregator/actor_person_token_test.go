@@ -86,7 +86,7 @@ func (f *pinnedLoginFixture) actorCopy() string {
 func pinnedCaller(loginSession string) *credprovider.ActorCaller {
 	return &credprovider.ActorCaller{
 		Subject: "alice", Session: "agents/s1", SessionID: "actor-0123", Actor: "spiffe://x/actor", LoginSession: loginSession,
-		SignIn: api.SignInIdentity{Issuer: identityTestIssuer, Subject: "alice"},
+		LoginIdentity: api.SignInIdentity{Issuer: identityTestIssuer, Subject: "alice"},
 	}
 }
 
@@ -221,7 +221,7 @@ func TestWithPersonIDToken_ForwardedSession(t *testing.T) {
 
 // A forwarded session's ID names no principal muster can trust (mcp-oauth
 // derives it from a truncated hash): its token serves only when it was
-// issued to the identity the bind request signed in as.
+// issued to the issuer and subject of the token that bound the actor.
 func TestWithPersonIDToken_ForwardedSessionServesOnlyTheBindersIdentity(t *testing.T) {
 	forEachStore(t, func(t *testing.T, backend string) {
 		f := newPinnedLoginFixture(t, backend)
@@ -232,10 +232,10 @@ func TestWithPersonIDToken_ForwardedSessionServesOnlyTheBindersIdentity(t *testi
 		require.Empty(t, f.actorToken("ext-portal"), "another issuer's token")
 
 		caller := pinnedCaller("ext-portal")
-		caller.SignIn = api.SignInIdentity{}
+		caller.LoginIdentity = api.SignInIdentity{}
 		f.login("ext-portal", "alice", idToken(t, "backstage"), time.Now().Add(time.Hour))
 		token, _ := server.GetIDTokenFromContext(f.a.withPersonIDToken(context.Background(), caller))
-		require.Empty(t, token, "a binding that recorded no sign-in identity")
+		require.Empty(t, token, "a binding that recorded no login identity")
 	})
 }
 
