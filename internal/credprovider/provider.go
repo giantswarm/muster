@@ -51,6 +51,8 @@ type Provider struct {
 	releasable map[string]string
 	// gitUsers is the git user name per releasable provider.
 	gitUsers map[string]string
+	// apps are the releasable providers core_auth_login app=<name> grants.
+	apps map[string]bool
 	// musterBearer lets a binding list MusterProvider.
 	musterBearer bool
 	ttl          time.Duration
@@ -70,6 +72,12 @@ type Options struct {
 	// with its token for git (DefaultGitUser without an entry). GitLab
 	// takes an OAuth access token only as oauth2.
 	GitUsers map[string]string
+	// ProviderApps names the releasable providers that are muster's provider
+	// Apps. The refusal for lack of the person's grant names the call that
+	// starts their sign-in only for these; another releasable provider is
+	// granted by signing in to the MCPServer that files grants under its
+	// issuer.
+	ProviderApps []string
 	// MusterBearer lets a binding list MusterProvider, for an actor that
 	// calls muster itself with its actor JWT (ActorBearer).
 	MusterBearer bool
@@ -110,6 +118,13 @@ func NewProvider(o Options) (*Provider, error) {
 		}
 		gitUsers[provider] = user
 	}
+	apps := make(map[string]bool, len(o.ProviderApps))
+	for _, app := range o.ProviderApps {
+		if _, ok := releasable[app]; !ok {
+			return nil, fmt.Errorf("credential provider: provider App %q is not releasable", app)
+		}
+		apps[app] = true
+	}
 	if o.Store == nil || o.Grants == nil {
 		return nil, fmt.Errorf("credential provider: a binding store and a grant source are required")
 	}
@@ -118,6 +133,7 @@ func NewProvider(o Options) (*Provider, error) {
 		gateway:      o.GatewayIdentity,
 		releasable:   releasable,
 		gitUsers:     gitUsers,
+		apps:         apps,
 		musterBearer: o.MusterBearer,
 		ttl:          o.BindingTTL,
 		store:        o.Store,
@@ -183,7 +199,7 @@ func (p *Provider) FetchSecret(ctx context.Context, req *credproviderpb.FetchSec
 
 	token := p.grants(ctx, binding.Subject, issuer)
 	if token == nil || token.AccessToken == "" {
-		return nil, refuse(codes.NotFound, "the person holds no grant for the provider", who...)
+		return nil, refuse(codes.NotFound, p.noGrantReason(provider), who...)
 	}
 	if err := p.store.Touch(ctx, actor, p.ttl); err != nil {
 		logging.WarnWithAttrs(logSubsystem, "binding_touch_failed", slog.String("actor", actor), slog.String("error", err.Error()))
@@ -202,6 +218,17 @@ func (p *Provider) FetchSecret(ctx context.Context, req *credproviderpb.FetchSec
 		slog.String("use", use),
 		slog.Time("expiresAt", token.ExpiresAt))...)
 	return &credproviderpb.FetchSecretResponse{OpaqueBytes: []byte(secret)}, nil
+}
+
+// noGrantReason is the refusal of a provider the person holds no grant for.
+// The egress gateway hands it to the actor, so for a provider App it names the
+// call that starts the person's sign-in, which muster answers with a URL
+// elicitation.
+func (p *Provider) noGrantReason(provider string) string {
+	if !p.apps[provider] {
+		return fmt.Sprintf("the person holds no grant for %s", provider)
+	}
+	return fmt.Sprintf("the person holds no grant for %s: call muster's core_auth_login tool with app %q, which asks the person to sign in, then retry", provider, provider)
 }
 
 // parseURI splits ate-secret://<authority>/<provider>/<git|api>.

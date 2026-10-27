@@ -94,7 +94,11 @@ func (p *AuthToolProvider) handleAuthLogin(ctx context.Context, args map[string]
 		if errResult != nil {
 			return errResult, nil
 		}
-		return p.grantProviderApp(ctx, sessionID, sub, appName, p.rateLimited), nil
+		result := p.grantProviderApp(ctx, sessionID, sub, appName, p.rateLimited)
+		if authURL := challengeURL(result); authURL != "" {
+			recordSignInChallenge(ctx, signInChallenge{sessionID: sessionID, server: api.ProviderAppFlowPrefix + appName, authURL: authURL})
+		}
+		return result, nil
 	}
 	serverName, ok := args["server"].(string)
 	if !ok || serverName == "" {

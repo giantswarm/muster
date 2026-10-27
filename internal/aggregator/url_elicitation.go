@@ -194,9 +194,13 @@ func (a *AggregatorServer) awaitSignIn(ctx context.Context, sessionID string, st
 // elicitSignIn answers a tool call with a URL elicitation of the challenge's
 // sign-in link, in the shape of the request's protocol version.
 func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInChallenge) (*mcp.CallToolResult, error) {
-	message := fmt.Sprintf("Sign in to %s to continue.", challenge.server)
+	name := challenge.server
+	if app, ok := providerAppOfFlow(name); ok {
+		name = app
+	}
+	message := fmt.Sprintf("Sign in to %s to continue.", name)
 	if challenge.reason != "" {
-		message = fmt.Sprintf("Sign in to %s to continue: %s.", challenge.server, challenge.reason)
+		message = fmt.Sprintf("Sign in to %s to continue: %s.", name, challenge.reason)
 	}
 
 	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {

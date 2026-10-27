@@ -45,6 +45,7 @@ func (a *AggregatorServer) newCredentialProvider() (*credprovider.Provider, erro
 		GatewayIdentity: cfg.GatewayIdentity,
 		Releasable:      releasable,
 		GitUsers:        gitUsers,
+		ProviderApps:    a.providerApps.names(),
 		MusterBearer:    cfg.ActorBearer.Enabled,
 		BindingTTL:      ttl,
 		Store:           store,
