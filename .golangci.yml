@@ -1,6 +1,9 @@
 version: "2"
 
 linters:
+  enable:
+    - gosec
+    - goconst
   settings:
     goconst:
       min-len: 5
