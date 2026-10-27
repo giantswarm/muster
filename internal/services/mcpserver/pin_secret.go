@@ -9,11 +9,11 @@ import (
 )
 
 // pinSecretError reports that muster refuses the client Secret of the
-// server's spec.auth.authorizationServer: it is not bound to the MCPServer
-// (secretBinding.mode enforce) or is one muster keeps for itself. The pin is
+// server's spec.auth.authorizationServer: it is one muster keeps for itself,
+// or the admission policy on Secret references is not in force. The pin is
 // never applied, so no sign-in can succeed: the server is Failed with the
-// refusal, retried with backoff, and reads Auth Required once the Secret is
-// bound.
+// refusal, retried with backoff, and reads Auth Required once the spec names
+// another Secret or the policy is in force.
 type pinSecretError struct {
 	err error
 }
@@ -39,7 +39,7 @@ func (s *Service) refusedPinSecret(ctx context.Context) error {
 	}
 	_, err := handler.LoadMCPServerClientCredentials(ctx, s.secretOwner(), api.SecretFieldAuthorizationServer,
 		auth.AuthorizationServer.ClientCredentialsSecretRef)
-	if errors.Is(err, api.ErrSecretNotBound) || errors.Is(err, api.ErrSecretProtected) {
+	if errors.Is(err, api.ErrSecretProtected) || errors.Is(err, api.ErrSecretReferencePolicyInactive) {
 		return &pinSecretError{err: err}
 	}
 	return nil

@@ -162,33 +162,23 @@ the MCP server as its own workload and register it with `streamable-http` or
 |-------|------|----------|-------------|-------------|
 | `name` | `string` | Yes | HTTP header name, for example `Authorization` | 1 to 256 characters; unique in the list |
 | `valueFrom.type` | `string` | Yes | Kind of object that holds the value | `Secret` |
-| `valueFrom.name` | `string` | Yes | Name of the Secret, in the MCPServer's own namespace | There is no namespace field; must be [bound](#secret-binding) to the MCPServer |
+| `valueFrom.name` | `string` | Yes | Name of the Secret, in the MCPServer's own namespace | There is no namespace field; its writer must be able to `get` it ([Secret references](#secret-references)) |
 | `valueFrom.key` | `string` | Yes | Key in the Secret's data that holds the value | |
 
 muster's ServiceAccount needs `get` on the Secret. The chart grants it in the release namespace and in each namespace listed in `rbac.additionalSecretNamespaces`; an MCPServer in another namespace needs that namespace listed there. A missing Secret or key fails the connect: the server is `Failed` and is retried on its reconnect backoff (`status.nextRetryAfter`) until the Secret exists. muster drops one trailing newline (`\n` or `\r\n`) of the value. A person's session connection sends its own `Authorization` and does not read the Secret of an `Authorization` entry.
 
-#### Secret binding
+#### Secret references
 
-muster reads a Secret that `headersFrom`, `auth.tokenExchange.clientCredentialsSecretRef` or `auth.authorizationServer.clientCredentialsSecretRef` names only when the Secret is bound to that MCPServer by one of:
+muster reads the Secrets that `headersFrom`, `auth.tokenExchange.clientCredentialsSecretRef` and `auth.authorizationServer.clientCredentialsSecretRef` name with its own ServiceAccount, and sends them to endpoints of the same spec. So the chart's ValidatingAdmissionPolicy `<fullname>-mcpserver-secret-references` admits an MCPServer only when its writer may `get` each of those Secrets, checked with the API server's authorizer:
 
-| Binding | Value | Secret's namespace |
-|---------|-------|--------------------|
-| annotation `muster.giantswarm.io/mcpserver` | comma-separated list of `<name>` (the Secret's namespace) or `<namespace>/<name>` (any) | any |
-| `ownerReference` | any version of `muster.giantswarm.io`, `kind: MCPServer`, its `name` and `uid`; one per server | the MCPServer's |
+- on every create, and on every update that changes `spec` (a new Secret, a new `url`, a new token endpoint). An update that leaves `spec` alone, such as a label, a finalizer or the status, is admitted. A `spec` change to an MCPServer being deleted is checked too, since a finalizer can hold it there and muster serves it until it is gone.
+- with the writer's own RBAC: a person writing through muster is checked as that person, a GitOps controller as its ServiceAccount.
 
-A Secret rendered by GitOps next to its MCPServers has no `uid` to reference yet: use the annotation. An annotation names servers, not objects: an MCPServer deleted and created again with the same name is bound again. An `ownerReference` binds only the object with its `uid`, and the Secret is deleted with it. One Secret shared by several servers lists them all:
+A refused write reads `the writer of an MCPServer may name only Secrets they may get; it names <namespace>/<name>, ...`. Helm: `mcpServerSecretReferences.enabled` (default `true`). The policy needs Kubernetes 1.30 or later.
 
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: gazelle-token-exchange-credentials
-  namespace: agent-platform
-  annotations:
-    muster.giantswarm.io/mcpserver: gazelle-kubernetes, gazelle-prometheus, gazelle-capi
-```
+muster does not rely on the policy being there. In Kubernetes mode it reads none of these Secrets unless the binding named in `secretBinding.admissionPolicyBinding` ([configuration](configuration.md#protected-secrets)) has `validationActions` with `Deny` and no `matchResources`, and its policy exists with `failurePolicy: Fail`. It checks again at most a minute after a check that passed. Otherwise the server reads `Failed` with `the MCPServer Secret reference policy is not in force` and the reason in `status.lastError`, and is retried. Disabling the chart's policy therefore turns these Secret references off.
 
-What happens to an unbound Secret depends on muster's `secretBinding.mode` ([configuration](configuration.md#secret-binding)): `warn` (default) reads it and logs a warning, `enforce` refuses it and the server reads `Failed` with the reason in `status.lastError`. Refused in both modes: muster's own Secrets (`secretBinding.protectedSecrets`) and Secrets of type `helm.sh/release.v1`, `kubernetes.io/tls`, `kubernetes.io/service-account-token`, `bootstrap.kubernetes.io/token`, `kubernetes.io/dockerconfigjson` and `kubernetes.io/dockercfg`. A Secret muster's configuration names (a provider App's client, a broker target's credentials) is an ordinary Secret here: an MCPServer may share it once bound.
+Whoever writes it, muster never reads for an MCPServer its own Secrets (`secretBinding.protectedSecrets`, [configuration](configuration.md#protected-secrets)) or Secrets of type `helm.sh/release.v1`, `kubernetes.io/tls`, `kubernetes.io/service-account-token`, `bootstrap.kubernetes.io/token`, `kubernetes.io/dockerconfigjson` and `kubernetes.io/dockercfg`: the server reads `Failed` with the reason in `status.lastError`. A Secret muster's configuration names (a provider App's client, a broker target's credentials) is an ordinary Secret here: an MCPServer may share it.
 
 #### Credentials in the definition
 
@@ -227,7 +217,7 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 | `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
 | `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
-| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below; must be [bound](#secret-binding) to the MCPServer |
+| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below; its writer must be able to `get` it ([Secret references](#secret-references)) |
 
 **Security Note**: muster validates that the exchanged token's `iss` claim matches `expectedIssuer` using constant-time comparison. This prevents token substitution attacks in proxied access scenarios. When `expectedIssuer` is not specified, the issuer is derived from `dexTokenEndpoint` by removing the `/token` suffix (backward compatible). Set `expectedIssuer` explicitly when accessing Dex through a proxy where the access URL differs from Dex's configured issuer.
 
@@ -240,7 +230,7 @@ Example: `requiredAudiences: ["dex-k8s-authenticator"]`.
 | `tokenEndpoint` | `string` | No | Token endpoint of such a server | Set together with `authorizationEndpoint`; HTTPS |
 | `expectedIssuer` | `string` | No | Issuer identifier the server puts in the RFC 9207 `iss` parameter of its authorization responses when that differs from `issuer`, which stays the grant key -- two GitHub Apps pinned under `https://github.com/apps/<slug>` each, both with `expectedIssuer: https://github.com/login/oauth` | Needs `authorizationEndpoint` and `tokenEndpoint`; HTTPS. Default: `issuer` |
 | `revocationEndpoint` | `string` | No | RFC 7009 revocation endpoint `core_auth_logout` revokes a `subject` grant at before dropping it, so the provider stops honouring the tokens (GitLab: `https://gitlab.example.com/oauth/revoke`) | HTTPS. Default: the metadata's `revocation_endpoint`; none: the grant is only dropped, logged |
-| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Secret holding a client registered with the server out of band (a GitHub App or OAuth App); used instead of muster's Client ID Metadata Document or a dynamic registration | See below; must be [bound](#secret-binding) to the MCPServer |
+| `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Secret holding a client registered with the server out of band (a GitHub App or OAuth App); used instead of muster's Client ID Metadata Document or a dynamic registration | See below; its writer must be able to `get` it ([Secret references](#secret-references)) |
 | `grantScope` | `string` | No | Whom a token belongs to: `session` (the muster session that obtained it; for a forwarded or trusted-issuer bearer that is the principal, see below) or `subject` (the person; every session of the same person reuses it until `core_auth_logout` on this server) | `session` or `subject`. Default: `session` |
 | `scopes` | `string` | No | OAuth `scope` parameter value (space-separated scope tokens); leave empty for a GitHub App | |
 

@@ -88,6 +88,17 @@ rbac:
         kind: Group
         name: system:authenticated
 
+# A ValidatingAdmissionPolicy that admits an MCPServer only when its writer
+# may get every Secret its spec names (spec.headersFrom and the
+# clientCredentialsSecretRef of spec.auth). muster reads those Secrets with
+# its own ServiceAccount and sends them to endpoints of the same spec;
+# without the policy, anyone who may write an MCPServer has muster send them
+# Secrets they may not read. Checked on create and on every spec change.
+# muster reads no Secret for an MCPServer while the policy is not in force,
+# so disabling it turns those Secret references off.
+mcpServerSecretReferences:
+  enabled: true
+
 podAnnotations: {}  # @schema additionalProperties: true
 podLabels: {}  # @schema additionalProperties: true
 
@@ -317,15 +328,10 @@ muster:
   # namespace to every person who must keep seeing the servers for everyone.
   mcpServersInAllNamespaces: false
 
-  # Which Secrets muster reads for an MCPServer (spec.headersFrom and the
-  # clientCredentialsSecretRef of spec.auth): only one bound to that MCPServer,
-  # by the annotation muster.giantswarm.io/mcpserver (comma-separated list of
-  # <name> or <namespace>/<name>) or an ownerReference.
+  # Secrets muster never reads for an MCPServer (spec.headersFrom and the
+  # clientCredentialsSecretRef of spec.auth), whoever writes it. Which
+  # Secrets an MCPServer may name at all is mcpServerSecretReferences.
   secretBinding:
-    # warn: read an unbound Secret and log a warning. enforce: refuse it.
-    # Bind the Secrets your MCPServers use, then set enforce. Takes effect at
-    # muster's restart.
-    mode: warn  # @schema enum: [warn, enforce]
     # Further Secrets of muster's namespace no MCPServer may read. The chart
     # adds every Secret it mounts and the ingress TLS Secrets.
     protectedSecrets: []  # @schema item: string

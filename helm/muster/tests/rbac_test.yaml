@@ -117,6 +117,35 @@ tests:
         documentIndex: 0
 
   # ==========================================
+  # Admission Policy Access Tests
+  # ==========================================
+
+  - it: may get only its own admission policy on MCPServer Secret references
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["admissionregistration.k8s.io"]
+            resources: ["validatingadmissionpolicies", "validatingadmissionpolicybindings"]
+            resourceNames: ["RELEASE-NAME-muster-mcpserver-secret-references"]
+            verbs: ["get"]
+        documentIndex: 0
+
+  - it: may not get admission policies without the policy
+    set:
+      serviceAccount.create: true
+      rbac.create: true
+      mcpServerSecretReferences.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: rules[*].apiGroups[0]
+          pattern: admissionregistration
+        documentIndex: 0
+
+  # ==========================================
   # Secrets Access Tests
   # ==========================================
 

@@ -18,6 +18,9 @@ type CredentialsAdapter struct {
 	client client.Client
 	// binding decides which Secrets an MCPServer may read (secret_binding.go).
 	binding *secretBinding
+	// policy, when set, refuses every read for an MCPServer while the
+	// admission policy is not in force (credentials_policy.go).
+	policy *secretReferencePolicy
 }
 
 // DefaultClientIDKey is the default key for client ID in the secret.
@@ -30,7 +33,7 @@ const DefaultClientSecretKey = "client-secret"
 //
 // Args:
 //   - k8sClient: The Kubernetes client for reading secrets
-//   - opts: secret binding options (WithSecretBindingMode, WithProtectedSecrets)
+//   - opts: secret binding options (WithProtectedSecrets, WithSecretReferencePolicy)
 //
 // Returns:
 //   - *CredentialsAdapter: The adapter instance
@@ -213,13 +216,18 @@ func (a *CredentialsAdapter) LoadMCPServerSecretKey(
 }
 
 // getSecret reads a Secret. A non-nil req is a read on behalf of an MCPServer:
-// a protected Secret is refused before it is read, one of a reserved type
-// after it in either mode, and an unbound one after (secretBinding.mode
-// enforce) or with a warning (warn).
+// a protected Secret, or any Secret while the admission policy is not in
+// force, is refused before it is read, one of a reserved type after it.
 func (a *CredentialsAdapter) getSecret(ctx context.Context, namespace, name string, req *secretRequest) (*corev1.Secret, error) {
 	if req != nil {
 		if err := a.binding.checkProtected(req, namespace, name); err != nil {
 			return nil, err
+		}
+		if a.policy != nil {
+			if err := a.policy.check(ctx, a.client); err != nil {
+				return nil, fmt.Errorf("MCPServer %s may not read Secret %s/%s named in %s: %w",
+					req.owner, namespace, name, req.field, err)
+			}
 		}
 	}
 	secret := &corev1.Secret{}
@@ -228,9 +236,6 @@ func (a *CredentialsAdapter) getSecret(ctx context.Context, namespace, name stri
 	}
 	if req != nil {
 		if err := a.binding.checkReserved(req, namespace, secret); err != nil {
-			return nil, err
-		}
-		if err := a.binding.checkBound(req, namespace, secret); err != nil {
 			return nil, err
 		}
 	}
