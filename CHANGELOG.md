@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
-- **`secretBinding.mode` and the Secret binding annotation `muster.giantswarm.io/mcpserver` are gone.** muster no longer looks for the annotation or an `ownerReference` on a Secret an MCPServer names; the chart's admission policy decides which Secrets an MCPServer may name. Drop `muster.secretBinding.mode` from your values: the chart's schema refuses it. The annotation can stay on a Secret and does nothing. ([giantswarm/giantswarm#38827](https://github.com/giantswarm/giantswarm/issues/38827))
+- **Breaking (Helm): `secretBinding.mode` and the Secret binding annotation `muster.giantswarm.io/mcpserver` are gone.** muster no longer looks for the annotation or an `ownerReference` on a Secret an MCPServer names; the chart's admission policy decides which Secrets an MCPServer may name. Drop `muster.secretBinding.mode` from your values: the chart's schema refuses it. The annotation can stay on a Secret and does nothing. ([giantswarm/giantswarm#38827](https://github.com/giantswarm/giantswarm/issues/38827))
 - **`pkg/oauth.Client` no longer pins metadata.** `PinMetadata`, `UnpinMetadata`, `PinnedMetadata` and `DiscoverPublishedMetadata` are gone; `DiscoverMetadata` answers with what the authorization server publishes. muster keeps pinned endpoints with the rest of the pin. ([#1703](https://github.com/giantswarm/muster/issues/1703))
 
 ### Fixed

@@ -171,7 +171,7 @@ muster's ServiceAccount needs `get` on the Secret. The chart grants it in the re
 
 muster reads the Secrets that `headersFrom`, `auth.tokenExchange.clientCredentialsSecretRef` and `auth.authorizationServer.clientCredentialsSecretRef` name with its own ServiceAccount, and sends them to endpoints of the same spec. So the chart's ValidatingAdmissionPolicy `<fullname>-mcpserver-secret-references` admits an MCPServer only when its writer may `get` each of those Secrets, checked with the API server's authorizer:
 
-- on every create, and on every update that changes `spec` (a new Secret, a new `url`, a new token endpoint). An update that leaves `spec` alone, such as a label, a finalizer or the status, and an MCPServer being deleted are admitted.
+- on every create, and on every update that changes `spec` (a new Secret, a new `url`, a new token endpoint). An update that leaves `spec` alone, such as a label, a finalizer or the status, is admitted. A `spec` change to an MCPServer being deleted is checked too, since a finalizer can hold it there and muster serves it until it is gone.
 - with the writer's own RBAC: a person writing through muster is checked as that person, a GitOps controller as its ServiceAccount.
 
 A refused write reads `the writer of an MCPServer may name only Secrets they may get; it names <namespace>/<name>, ...`. Helm: `mcpServerSecretReferences.enabled` (default `true`). The policy needs Kubernetes 1.30 or later.
