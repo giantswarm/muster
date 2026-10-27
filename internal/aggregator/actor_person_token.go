@@ -54,8 +54,9 @@ func (r *personTokenRefreshes) due(subject string) bool {
 // exchange it (tokenExchange) connect for the actor as the person, and files
 // it as the actor session's login token, where those servers' background
 // connections look it up. The token is the one that lives longest among the
-// person's own live muster logins; an expired one is renewed by refreshing those
-// logins at their identity provider. Without one the request is served as
+// person's own live muster logins that carry the audience the server
+// visibility check lists servers with, if muster checks it; an expired one is
+// renewed by refreshing those logins at their identity provider. Without one the request is served as
 // before and those servers stay unconnected for the actor.
 func (a *AggregatorServer) withPersonIDToken(ctx context.Context, caller *credprovider.ActorCaller) context.Context {
 	oh := api.GetOAuthHandler()
@@ -81,7 +82,11 @@ func (a *AggregatorServer) withPersonIDToken(ctx context.Context, caller *credpr
 // personLoginIDToken returns the person's longest-lived live login ID token,
 // refreshing their logins this replica serves when none is live.
 func (a *AggregatorServer) personLoginIDToken(ctx context.Context, oh api.OAuthHandler, subject, issuer string) *api.OAuthToken {
-	if token := api.PersonLoginIDToken(oh, subject, issuer); token != nil {
+	var audience string
+	if visibility := api.GetMCPServerVisibility(); visibility != nil {
+		audience = visibility.LoginAudience()
+	}
+	if token := api.PersonLoginIDToken(oh, subject, issuer, audience); token != nil {
 		return token
 	}
 	refresh := a.sessionRefresher()
@@ -98,7 +103,7 @@ func (a *AggregatorServer) personLoginIDToken(ctx context.Context, oh api.OAuthH
 				slog.String("error", err.Error()))
 			continue
 		}
-		if token := api.PersonLoginIDToken(oh, subject, issuer); token != nil {
+		if token := api.PersonLoginIDToken(oh, subject, issuer, audience); token != nil {
 			return token
 		}
 	}

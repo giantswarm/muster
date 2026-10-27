@@ -18,11 +18,16 @@ import (
 type personMirrorHandler struct {
 	*lockedOAuthHandler
 	person map[string]*api.OAuthToken
+	// audiences records the audience each lookup asked for.
+	audiences []string
 }
 
-func (h *personMirrorHandler) PersonLoginIDToken(subject, issuer string) *api.OAuthToken {
+var _ api.PersonLoginTokenMirror = (*personMirrorHandler)(nil)
+
+func (h *personMirrorHandler) PersonLoginIDToken(subject, issuer, audience string) *api.OAuthToken {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.audiences = append(h.audiences, audience)
 	if issuer != identityTestIssuer {
 		return nil
 	}
@@ -122,4 +127,26 @@ func TestWithPersonIDToken_OAuthOff(t *testing.T) {
 	api.RegisterOAuthHandler(nil)
 	ctx := context.Background()
 	assert.Equal(t, ctx, a.withPersonIDToken(ctx, testActorCaller()))
+}
+
+// visibilityWithAudience is a server visibility check whose listings need
+// audience on the caller's token.
+type visibilityWithAudience struct{ audience string }
+
+func (v visibilityWithAudience) CallerVisibility(context.Context) api.ServerVisibility {
+	return api.AllServersVisible()
+}
+
+func (v visibilityWithAudience) LoginAudience() string { return v.audience }
+
+func TestWithPersonIDToken_AsksForTheAudienceTheVisibilityCheckNeeds(t *testing.T) {
+	a, handler := newActorPersonTestAggregator(t)
+	handler.setPerson("alice", &api.OAuthToken{IDToken: identityTokenBefore, ExpiresAt: time.Now().Add(time.Hour)})
+
+	a.withPersonIDToken(context.Background(), testActorCaller())
+	api.RegisterMCPServerVisibility(visibilityWithAudience{audience: "dex-k8s-authenticator"})
+	t.Cleanup(func() { api.RegisterMCPServerVisibility(nil) })
+	a.withPersonIDToken(context.Background(), testActorCaller())
+
+	assert.Equal(t, []string{"", "dex-k8s-authenticator"}, handler.audiences)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"time"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -171,13 +172,21 @@ func (a *Adapter) StoreLoginIDToken(sessionID, userID, issuer, idToken string, e
 }
 
 // PersonLoginIDToken implements api.PersonLoginTokenMirror: the login ID
-// token that lives longest among the person's live sessions, read when asked,
-// so a session's sign-out or revocation takes its token out at once.
-func (a *Adapter) PersonLoginIDToken(subject, issuer string) *api.OAuthToken {
+// token that lives longest among the person's live sessions whose ID token
+// carries audience, read when asked, so a session's sign-out or revocation
+// takes its token out at once.
+func (a *Adapter) PersonLoginIDToken(subject, issuer, audience string) *api.OAuthToken {
 	if subject == "" || a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
 		return nil
 	}
-	return fullTokenToAPIToken(a.manager.client.tokenStore.GetLongestLivedForUser(subject, issuer, LoginIDTokenScope))
+	var accept func(*pkgoauth.Token) bool
+	if audience != "" {
+		accept = func(token *pkgoauth.Token) bool {
+			audiences, err := pkgoauth.Audience(token.IDToken)
+			return err == nil && slices.Contains(audiences, audience)
+		}
+	}
+	return fullTokenToAPIToken(a.manager.client.tokenStore.GetLongestLivedForUser(subject, issuer, LoginIDTokenScope, accept))
 }
 
 // ClearLoginIDToken implements api.PersonLoginTokenMirror.

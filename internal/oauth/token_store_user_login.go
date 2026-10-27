@@ -9,16 +9,17 @@ import (
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
-// laterToken returns the one of current and candidate that expires last.
-func laterToken(current, candidate *pkgoauth.Token) *pkgoauth.Token {
-	if candidate == nil || (current != nil && !candidate.ExpiresAt.After(current.ExpiresAt)) {
+// laterToken returns the one of current and candidate that expires last,
+// passing over a candidate accept refuses.
+func laterToken(current, candidate *pkgoauth.Token, accept func(*pkgoauth.Token) bool) *pkgoauth.Token {
+	if candidate == nil || (accept != nil && !accept(candidate)) || (current != nil && !candidate.ExpiresAt.After(current.ExpiresAt)) {
 		return current
 	}
 	return candidate
 }
 
 // GetLongestLivedForUser implements TokenStorer.
-func (ts *TokenStore) GetLongestLivedForUser(userID, issuer, scope string) *pkgoauth.Token {
+func (ts *TokenStore) GetLongestLivedForUser(userID, issuer, scope string, accept func(*pkgoauth.Token) bool) *pkgoauth.Token {
 	if userID == "" {
 		return nil
 	}
@@ -29,14 +30,14 @@ func (ts *TokenStore) GetLongestLivedForUser(userID, issuer, scope string) *pkgo
 		if entry.userID != userID || key.Issuer != issuer || key.Scope != scope || entry.token.IsExpiredWithMargin(tokenExpiryMargin) {
 			continue
 		}
-		best = laterToken(best, entry.token)
+		best = laterToken(best, entry.token, accept)
 	}
 	return best
 }
 
 // GetLongestLivedForUser implements TokenStorer: one read per session of the
 // user's index.
-func (s *ValkeyTokenStore) GetLongestLivedForUser(userID, issuer, scope string) *pkgoauth.Token {
+func (s *ValkeyTokenStore) GetLongestLivedForUser(userID, issuer, scope string, accept func(*pkgoauth.Token) bool) *pkgoauth.Token {
 	if userID == "" {
 		return nil
 	}
@@ -53,7 +54,7 @@ func (s *ValkeyTokenStore) GetLongestLivedForUser(userID, issuer, scope string) 
 	}
 	var best *pkgoauth.Token
 	for _, sessionID := range sessionIDs {
-		best = laterToken(best, s.userToken(userID, TokenKey{SessionID: sessionID, Issuer: issuer, Scope: scope}))
+		best = laterToken(best, s.userToken(userID, TokenKey{SessionID: sessionID, Issuer: issuer, Scope: scope}), accept)
 	}
 	return best
 }
