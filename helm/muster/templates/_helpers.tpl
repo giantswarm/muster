@@ -241,3 +241,12 @@ MCPServer may share one.
 {{- end -}}
 {{- $names | uniq | toJson -}}
 {{- end }}
+
+{{/*
+Name of the ValidatingAdmissionPolicy on MCPServer Secret references and of its
+binding. muster's configuration names the binding
+(secretBinding.admissionPolicyBinding) and muster may get both.
+*/}}
+{{- define "muster.mcpServerSecretReferencesName" -}}
+{{- printf "%s-mcpserver-secret-references" (include "muster.fullname" .) -}}
+{{- end }}

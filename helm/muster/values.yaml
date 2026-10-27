@@ -94,10 +94,10 @@ rbac:
 # its own ServiceAccount and sends them to endpoints of the same spec;
 # without the policy, anyone who may write an MCPServer has muster send them
 # Secrets they may not read. Checked on create and on every spec change.
+# muster reads no Secret for an MCPServer while the policy is not in force,
+# so disabling it turns those Secret references off.
 mcpServerSecretReferences:
   enabled: true
-  # Deny, or Warn and/or Audit to observe first.
-  validationActions: [Deny]  # @schema item: string ; itemEnum: [Deny, Warn, Audit]
 
 podAnnotations: {}  # @schema additionalProperties: true
 podLabels: {}  # @schema additionalProperties: true

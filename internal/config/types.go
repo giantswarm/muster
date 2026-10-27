@@ -40,6 +40,12 @@ type SecretBindingConfig struct {
 	// configuration names (provider Apps, broker targets and clients) are not
 	// protected: an MCPServer may share one.
 	ProtectedSecrets []string `yaml:"protectedSecrets,omitempty"`
+	// AdmissionPolicyBinding names the ValidatingAdmissionPolicyBinding of
+	// the chart's policy on Secret references. In Kubernetes mode muster
+	// reads no Secret for an MCPServer unless that binding denies for every
+	// MCPServer and its policy exists and fails closed; when empty, it reads
+	// none.
+	AdmissionPolicyBinding string `yaml:"admissionPolicyBinding,omitempty"`
 }
 
 // WritesAsCallerConfig configures caller-identity writes. In Kubernetes mode,

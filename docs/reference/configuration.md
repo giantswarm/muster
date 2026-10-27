@@ -67,7 +67,7 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
 | `toolsetPresets` | `map[string]Preset` | `{}` | Toolset presets an agent's `X-muster-Toolset` header can name as `preset:<name>`; `read-only`, `none` and `full` are built in and cannot be redefined. See [Toolsets](toolsets.md). |
-| `secretBinding` | `SecretBindingConfig` | `{}` | Secrets muster never reads for an MCPServer. See [Protected Secrets](#protected-secrets). |
+| `secretBinding` | `SecretBindingConfig` | `{}` | The admission policy muster requires before it reads a Secret for an MCPServer, and the Secrets it never reads for one. See [Protected Secrets](#protected-secrets). |
 
 ### Protected Secrets
 
@@ -75,12 +75,14 @@ muster never reads for an MCPServer (`headersFrom`, `auth.tokenExchange` and `au
 
 ```yaml
 secretBinding:
+  admissionPolicyBinding: muster-mcpserver-secret-references
   protectedSecrets: [muster-oauth]
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `protectedSecrets` | `[]string` | `[]` | Secrets of `namespace` no MCPServer may read. The chart lists every Secret it mounts and the ingress TLS Secrets. muster also refuses Secrets of the Helm release, TLS, ServiceAccount token, bootstrap token and image pull types. Secrets named here in `aggregator.providerApps` or `tokenExchangeBroker` are not protected: an MCPServer may share one. Helm: `muster.secretBinding.protectedSecrets` (added to the chart's list). |
+| `admissionPolicyBinding` | `string` | `""` | The ValidatingAdmissionPolicyBinding of the policy on MCPServer Secret references. In Kubernetes mode muster reads no Secret for an MCPServer unless this binding denies for every MCPServer and its policy exists and fails closed; empty, it reads none. The chart sets it while `mcpServerSecretReferences.enabled`. |
 
 A change takes effect when muster restarts: credentials already pinned stay for the process's lifetime.
 

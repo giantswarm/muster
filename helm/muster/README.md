@@ -42,7 +42,6 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | rbac.workflowEditor.subjects[0].kind | string | `"Group"` |  |
 | rbac.workflowEditor.subjects[0].name | string | `"system:authenticated"` |  |
 | mcpServerSecretReferences.enabled | bool | `true` |  |
-| mcpServerSecretReferences.validationActions[0] | string | `"Deny"` |  |
 | podAnnotations | object | `{}` |  |
 | podLabels | object | `{}` |  |
 | podSecurityContext.runAsUser | int | `1000` |  |

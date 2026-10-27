@@ -23,6 +23,12 @@ func TestLoadConfig_SecretBinding(t *testing.T) {
 		assert.Equal(t, []string{"muster-oauth"}, cfg.SecretBinding.ProtectedSecrets)
 	})
 
+	t.Run("admission policy binding", func(t *testing.T) {
+		cfg, err := load(t, "secretBinding:\n  admissionPolicyBinding: muster-mcpserver-secret-references\n")
+		require.NoError(t, err)
+		assert.Equal(t, "muster-mcpserver-secret-references", cfg.SecretBinding.AdmissionPolicyBinding)
+	})
+
 	t.Run("a config rendered with a mode still loads", func(t *testing.T) {
 		cfg, err := load(t, "secretBinding:\n  mode: enforce\n  protectedSecrets: [muster-oauth]\n")
 		require.NoError(t, err)

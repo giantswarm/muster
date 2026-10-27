@@ -17,6 +17,11 @@ const (
 // connector credential (Helm release, TLS, service-account token, ...).
 var ErrSecretProtected = errors.New("muster never reads this Secret for an MCPServer")
 
+// ErrSecretReferencePolicyInactive reports that muster reads no Secret for an
+// MCPServer: the admission policy that admits an MCPServer only when its
+// writer may get the Secrets it names is not in force.
+var ErrSecretReferencePolicyInactive = errors.New("the MCPServer Secret reference policy is not in force")
+
 // SecretOwner is the MCPServer whose spec names a Secret, for the refusals
 // and warnings of a read on its behalf.
 type SecretOwner struct {

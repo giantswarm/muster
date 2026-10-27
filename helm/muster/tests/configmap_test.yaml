@@ -215,7 +215,15 @@ tests:
           path: data["config.yaml"]
           pattern: "\nmcpServersInAllNamespaces: true\n"
 
-  - it: omits secretBinding when no Secret is protected
+  - it: names the admission policy binding muster requires
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "secretBinding:\n  admissionPolicyBinding: \"RELEASE-NAME-muster-mcpserver-secret-references\"\n"
+
+  - it: omits secretBinding without the admission policy and protected Secrets
+    set:
+      mcpServerSecretReferences.enabled: false
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]
