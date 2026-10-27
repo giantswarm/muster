@@ -148,8 +148,8 @@ github.com/giantswarm/go-selfupdate v1.6.7 h1:bpDO//KDxmKOQaCe7wV5icFjMIDrLY2pbU
 github.com/giantswarm/go-selfupdate v1.6.7/go.mod h1:ZRK84xA7SPPJ+y9c988e8UZ0MuV/QNbWT4mjwBj963I=
 github.com/giantswarm/mcp-go v1.1.2-0.20261026144956-a19544b98532 h1:jggB/2oVtT21HLl9KQ1+vJ1eyYC+01MWTU4cpS/xlmg=
 github.com/giantswarm/mcp-go v1.1.2-0.20261026144956-a19544b98532/go.mod h1:6L8eBboqlAMnYrvl8rpbUeV2qE/SJh52aVGrXIomVb0=
-github.com/giantswarm/mcp-oauth v1.8.0 h1:6WoCfLMytnyCj5fP1aiZO8Q+fiY/qLVmJKK152MpwNY=
-github.com/giantswarm/mcp-oauth v1.8.0/go.mod h1:OgfTIeWAOu+QZRgyamO3mA0CjbvmUksnctlbAnfkXpc=
+github.com/giantswarm/mcp-oauth v1.9.0 h1:8LfWT4cU5j/INMnU0xqk0x3qcS8GZ3nx8+OA7jc2eu0=
+github.com/giantswarm/mcp-oauth v1.9.0/go.mod h1:OgfTIeWAOu+QZRgyamO3mA0CjbvmUksnctlbAnfkXpc=
 github.com/giantswarm/mcp-toolkit v0.4.6 h1:+D20ZpMY4Jjs65f4oLAHJjk17LbjmkyK97krBJFbCNQ=
 github.com/giantswarm/mcp-toolkit v0.4.6/go.mod h1:9Mk1QilOoEd9uU4eyqxqlGPWlZhjukg+nbFUT23+Zns=
 github.com/giantswarm/pagekit v0.3.1 h1:m2KIW2FY4YEFoVm8TrC1rJiCdnrWHnzYo9i+XsGlIKA=
@@ -575,8 +575,8 @@ google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc h1:
 google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc/go.mod h1:K/n0XLazCJHjD73YuMyNJsN38BPPy1kfFnKxUXaThFU=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc h1:4bNTbnb44EqGVy9HaQxSY2jnafSUdgV3qHtedvNpDKg=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc/go.mod h1:OaIUM3+LpYcK2GXM4FTmhWoIq371Owdr+Cc7/BsYHHc=
-google.golang.org/grpc v1.84.0 h1:soMyaPJ8pAak5PIQ0DGBUir0XRo2fRoMqhNWMLlLxO0=
-google.golang.org/grpc v1.84.0/go.mod h1:ljCht0DrxQrXBDRTZp52Qxh3Ffk8CdYm2sj4O2QN2C0=
+google.golang.org/grpc v1.85.0 h1:BPBCfuVRQ1qvBhKDOq9uvQllMvO59rKsYhXpp7Dd8vw=
+google.golang.org/grpc v1.85.0/go.mod h1:0rQrOD58yjal/0EaVbGBANindixsCZNQPDV3VKtaKuQ=
 google.golang.org/protobuf v1.36.12 h1:pJOKDDOyeXErUroCihFAd5LQuwXBSpVnKGrj5o/fwxc=
 google.golang.org/protobuf v1.36.12/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=

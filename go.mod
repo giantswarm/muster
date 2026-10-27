@@ -15,7 +15,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/giantswarm/go-selfupdate v1.6.7
-	github.com/giantswarm/mcp-oauth v1.8.0
+	github.com/giantswarm/mcp-oauth v1.9.0
 	github.com/giantswarm/mcp-toolkit v0.4.6
 	github.com/giantswarm/pagekit v0.3.1
 	github.com/go-jose/go-jose/v4 v4.1.6
@@ -195,7 +195,7 @@ require (
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
-	google.golang.org/grpc v1.84.0
+	google.golang.org/grpc v1.85.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
