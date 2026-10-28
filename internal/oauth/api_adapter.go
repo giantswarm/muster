@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"slices"
 	"time"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -161,7 +160,11 @@ func (a *Adapter) PinIssuer(issuer string, pin api.IssuerPin) {
 // grant from the same issuer.
 const LoginIDTokenScope = "urn:muster:login-id-token" //nolint:gosec // G101: a scope token that names a slot, not a credential
 
-// StoreLoginIDToken implements api.LoginTokenMirror.
+// StoreLoginIDToken implements api.LoginTokenMirror. A login of a person
+// (userID set) is also indexed by its token, so a bind request bearing it
+// names the session; an actor session's copy of a login is not, whoever it
+// is filed for. A forwarded session never takes the record from a login
+// family that filed the same token.
 func (a *Adapter) StoreLoginIDToken(sessionID, userID, issuer, idToken string, expiresAt time.Time) {
 	a.manager.StoreToken(sessionID, userID, issuer, &pkgoauth.Token{
 		IDToken:   idToken,
@@ -169,27 +172,21 @@ func (a *Adapter) StoreLoginIDToken(sessionID, userID, issuer, idToken string, e
 		Scope:     LoginIDTokenScope,
 		Issuer:    issuer,
 	})
+	if userID == "" || idToken == "" || api.IsActorSession(sessionID) || a.manager.client == nil || a.manager.client.tokenStore == nil {
+		return
+	}
+	a.manager.client.tokenStore.IndexLoginIDToken(LoginIDTokenDigest(idToken), sessionID, expiresAt, api.IsForwardedSession(sessionID))
 }
 
-// PersonLoginIDToken implements api.PersonLoginTokenMirror: the login ID
-// token that lives longest among the person's live sessions whose ID token
-// carries audience, read when asked, so a session's sign-out or revocation
-// takes its token out at once.
-func (a *Adapter) PersonLoginIDToken(subject, issuer, audience string) *api.OAuthToken {
-	if subject == "" || a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
-		return nil
+// LoginSessionForIDToken implements api.PinnedLoginMirror.
+func (a *Adapter) LoginSessionForIDToken(idToken string) string {
+	if idToken == "" || a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
+		return ""
 	}
-	var accept func(*pkgoauth.Token) bool
-	if audience != "" {
-		accept = func(token *pkgoauth.Token) bool {
-			audiences, err := pkgoauth.Audience(token.IDToken)
-			return err == nil && slices.Contains(audiences, audience)
-		}
-	}
-	return fullTokenToAPIToken(a.manager.client.tokenStore.GetLongestLivedForUser(subject, issuer, LoginIDTokenScope, accept))
+	return a.manager.client.tokenStore.LoginIDTokenSession(LoginIDTokenDigest(idToken))
 }
 
-// ClearLoginIDToken implements api.PersonLoginTokenMirror.
+// ClearLoginIDToken implements api.PinnedLoginMirror.
 func (a *Adapter) ClearLoginIDToken(sessionID, issuer string) {
 	if a.manager == nil || a.manager.client == nil || a.manager.client.tokenStore == nil {
 		return
@@ -249,11 +246,11 @@ func (a *Adapter) SubjectGrantForRelease(ctx context.Context, userID, issuer str
 }
 
 var (
-	_ api.IssuerPinner           = (*Adapter)(nil)
-	_ api.SubjectGrantHandler    = (*Adapter)(nil)
-	_ api.GrantReleaser          = (*Adapter)(nil)
-	_ api.LoginTokenMirror       = (*Adapter)(nil)
-	_ api.PersonLoginTokenMirror = (*Adapter)(nil)
+	_ api.IssuerPinner        = (*Adapter)(nil)
+	_ api.SubjectGrantHandler = (*Adapter)(nil)
+	_ api.GrantReleaser       = (*Adapter)(nil)
+	_ api.LoginTokenMirror    = (*Adapter)(nil)
+	_ api.PinnedLoginMirror   = (*Adapter)(nil)
 )
 
 // DeleteTokensByUser removes all downstream tokens for a given user across all sessions.

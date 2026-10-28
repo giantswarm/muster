@@ -12,6 +12,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // BindingsPath is the HTTP path of the Session binding endpoints.
@@ -87,6 +88,7 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
 		SignInIssuer: signIn.Issuer, SignInSubject: signIn.Subject, BoundAt: time.Now().UTC(),
 	}
+	b.LoginSession, b.LoginIssuer, b.LoginSubject = bindLogin(r)
 	err := p.store.Put(r.Context(), req.Actor, b, p.ttl)
 	if errors.Is(err, ErrBoundToAnother) {
 		logging.WarnWithAttrs(logSubsystem, "bind_refused",
@@ -103,8 +105,52 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 	logging.InfoWithAttrs(logSubsystem, "session_bound",
 		slog.String("sub", sub), slog.String("session", req.Session),
 		slog.String("actor", req.Actor), slog.Any("providers", req.Providers),
+		slog.String("login", loginKind(b.LoginSession)),
 		slog.Any("toolset", req.Toolset), slog.Duration("ttl", p.ttl))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// bindLogin returns the session the bind request came from, whose login ID
+// token the actor's requests carry, and for a forwarded session the issuer and
+// subject its token must carry. The component that starts a Session binds
+// with the ID token muster forwarded to it, so that token names the session
+// that filed it: the login family muster obtained it for, or the session a
+// client forwarded it in. A muster access token names its family. A forwarded
+// token muster never filed, or one without iss and sub, pins nothing.
+func bindLogin(r *http.Request) (session, issuer, subject string) {
+	scheme, bearer, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+	bearer = strings.TrimSpace(bearer)
+	if ok && strings.EqualFold(scheme, "Bearer") {
+		session = api.LoginSessionForIDToken(api.GetOAuthHandler(), bearer)
+	}
+	if session == "" {
+		if session = api.GetSessionIDFromContext(r.Context()); api.IsForwardedSession(session) || api.IsActorSession(session) {
+			return "", "", ""
+		}
+		return session, "", ""
+	}
+	if !api.IsForwardedSession(session) {
+		return session, "", ""
+	}
+	issuer, issErr := pkgoauth.Issuer(bearer)
+	subject, subErr := pkgoauth.Subject(bearer)
+	if issErr != nil || subErr != nil || issuer == "" || subject == "" {
+		return "", "", ""
+	}
+	return session, issuer, subject
+}
+
+// loginKind names, for the logs, the kind of session an actor's login ID
+// token comes from.
+func loginKind(loginSession string) string {
+	switch {
+	case loginSession == "":
+		return "none"
+	case api.IsForwardedSession(loginSession):
+		return "forwarded"
+	default:
+		return "family"
+	}
 }
 
 // HandleUnbind is DELETE /session-bindings?actor=<id>: removes the calling

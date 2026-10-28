@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
+	"github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
@@ -112,80 +114,107 @@ func TestClient_ExchangeCode_ScopeFromRequestWhenOmitted(t *testing.T) {
 	}
 }
 
-// The person's login ID token is the one that lives longest among their live
-// sessions, read when asked: a session's revocation or a sign out everywhere
-// takes it out at once.
-func TestAdapter_PersonLoginIDToken_LongestLivedOfThePersonsSessions(t *testing.T) {
-	manager := NewManager(config.OAuthMCPClientConfig{
-		Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback",
-	})
-	defer manager.Stop()
-	adapter := NewAdapter(manager)
-	const issuer = "https://dex.example.com/dex"
-	now := time.Now()
+// newLoginTestAdapter returns an adapter on the backend's token store and a
+// restart that returns a new adapter on the same stored state.
+func newLoginTestAdapter(t *testing.T, backend string) (*Adapter, func() *Adapter) {
+	t.Helper()
+	newAdapter := func() *Adapter {
+		manager := NewManager(config.OAuthMCPClientConfig{
+			Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback",
+		})
+		t.Cleanup(manager.Stop)
+		return NewAdapter(manager)
+	}
+	if backend == "valkey" {
+		srv := miniredis.RunT(t)
+		newAdapter = func() *Adapter {
+			client, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{srv.Addr()}, DisableCache: true})
+			require.NoError(t, err)
+			t.Cleanup(client.Close)
+			manager := NewManager(config.OAuthMCPClientConfig{
+				Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback",
+			}, WithValkeyTokenStore(NewValkeyTokenStore(client, time.Hour, "muster:", nil)))
+			t.Cleanup(manager.Stop)
+			return NewAdapter(manager)
+		}
+	}
+	return newAdapter(), newAdapter
+}
 
-	if got := adapter.PersonLoginIDToken("alice", issuer, ""); got != nil {
-		t.Fatalf("person token before any login = %+v, want nil", got)
-	}
-	api.StoreLoginIDToken(adapter, "cli", "alice", issuer, "cli-token", now.Add(2*time.Hour))
-	api.StoreLoginIDToken(adapter, "portal", "alice", issuer, "portal-token", now.Add(time.Hour))
-	api.StoreLoginIDToken(adapter, "copy", "", issuer, "copy-token", now.Add(5*time.Hour))
-	api.StoreLoginIDToken(adapter, "bob-cli", "bob", issuer, "bob-token", now.Add(4*time.Hour))
-	manager.StoreToken("grant", "alice", issuer, &pkgoauth.Token{AccessToken: "at", IDToken: "grant-id", ExpiresAt: now.Add(6 * time.Hour), Issuer: issuer})
-	if got := api.PersonLoginIDToken(adapter, "alice", issuer, ""); got == nil || got.IDToken != "cli-token" {
-		t.Fatalf("person token = %+v, want the login that lives longest, no copy, grant or other person", got)
-	}
-	if got := api.PersonLoginIDToken(adapter, "alice", "https://other.example.com", ""); got != nil {
-		t.Fatalf("another issuer = %+v, want nil", got)
-	}
+// A bind request's bearer names the session that filed it as its login: the
+// login family muster signed in, never an actor's copy, and a family over a
+// forwarded session that filed the same token (muster's own connection to a
+// server it fronts forwards the family's token back into muster).
+func TestAdapter_LoginSessionForIDToken(t *testing.T) {
+	for _, backend := range []string{"memory", "valkey"} {
+		t.Run(backend, func(t *testing.T) {
+			adapter, restart := newLoginTestAdapter(t, backend)
+			const issuer = "https://dex.example.com/dex"
+			exp := time.Now().Add(time.Hour)
+			familyToken := audienceJWT(t, "muster", "dex-k8s-authenticator")
+			portalToken := audienceJWT(t, "backstage")
 
-	manager.DeleteTokensBySession("cli") // the CLI login is revoked
-	if got := api.PersonLoginIDToken(adapter, "alice", issuer, ""); got == nil || got.IDToken != "portal-token" {
-		t.Fatalf("person token after a revocation = %+v, want the remaining login's", got)
-	}
+			require.Empty(t, api.LoginSessionForIDToken(adapter, familyToken), "no session filed it yet")
 
-	api.ClearLoginIDToken(adapter, "copy", issuer)
-	if got := api.LoginIDToken(adapter, "copy", issuer); got != nil && got.IDToken == "copy-token" {
-		t.Fatalf("cleared login token = %+v, want gone", got)
-	}
-	if got := api.PersonLoginIDToken(adapter, "", issuer, ""); got != nil {
-		t.Fatalf("no subject = %+v, want nil", got)
-	}
-	if got := api.PersonLoginIDToken(&legacyHandler{}, "alice", issuer, ""); got != nil {
-		t.Fatalf("a handler without the mirror = %+v, want nil", got)
-	}
-	api.ClearLoginIDToken(&legacyHandler{}, "copy", issuer) // no mirror: nothing to do
+			api.StoreLoginIDToken(adapter, "family-1", "alice", issuer, familyToken, exp)
+			api.StoreLoginIDToken(adapter, "ext-reentered", "alice", issuer, familyToken, exp)
+			api.StoreLoginIDToken(adapter, "actor-0123", "", issuer, familyToken, exp)
+			api.StoreLoginIDToken(adapter, "actor-0123", "alice", issuer, familyToken, exp)
+			require.Equal(t, "family-1", api.LoginSessionForIDToken(adapter, familyToken), "an actor's copy is never indexed, whoever it is filed for")
 
-	manager.client.tokenStore.DeleteByUser("alice")
-	if got := api.PersonLoginIDToken(adapter, "alice", issuer, ""); got != nil {
-		t.Fatalf("person token after sign out everywhere = %+v, want nil", got)
+			api.StoreLoginIDToken(adapter, "ext-portal", "alice@example.com", issuer, portalToken, exp)
+			require.Equal(t, "ext-portal", api.LoginSessionForIDToken(adapter, portalToken))
+
+			refreshed := audienceJWT(t, "muster", "dex-k8s-authenticator", "refreshed")
+			api.StoreLoginIDToken(adapter, "ext-reentered", "alice", issuer, refreshed, exp)
+			api.StoreLoginIDToken(adapter, "family-1", "alice", issuer, refreshed, exp)
+			require.Equal(t, "family-1", api.LoginSessionForIDToken(adapter, refreshed), "a family takes the record from a forwarded session")
+
+			expired := audienceJWT(t, "kagent")
+			api.StoreLoginIDToken(adapter, "family-3", "alice", issuer, expired, time.Now().Add(-time.Minute))
+			require.Empty(t, api.LoginSessionForIDToken(adapter, expired), "an expired login names no session")
+
+			require.Empty(t, api.LoginSessionForIDToken(adapter, ""))
+			require.Empty(t, api.LoginSessionForIDToken(&legacyHandler{}, familyToken), "a handler without the mirror")
+
+			if backend == "valkey" {
+				require.Equal(t, "family-1", api.LoginSessionForIDToken(restart(), familyToken), "the record outlives a restart")
+			}
+		})
 	}
 }
 
-// A login without the audience the caller needs is never the person's token
-// for that caller, however long it lives: muster's own connection to a server
-// it fronts forwards a token minted for another client back into muster, and
-// it is filed as a login of the person.
-func TestAdapter_PersonLoginIDToken_OnlyALoginCarryingTheAudience(t *testing.T) {
-	manager := NewManager(config.OAuthMCPClientConfig{
-		Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback",
-	})
-	defer manager.Stop()
-	adapter := NewAdapter(manager)
-	const issuer = "https://dex.example.com/dex"
-	now := time.Now()
-	kube := audienceJWT(t, "muster", "dex-k8s-authenticator")
-	forwarded := audienceJWT(t, "agent-platform")
+// The pinned session's login ID token is that session's own, never a grant
+// another client obtained from the same issuer, and goes with the session.
+func TestAdapter_SessionLoginIDToken(t *testing.T) {
+	for _, backend := range []string{"memory", "valkey"} {
+		t.Run(backend, func(t *testing.T) {
+			adapter, restart := newLoginTestAdapter(t, backend)
+			const issuer = "https://dex.example.com/dex"
+			exp := time.Now().Add(time.Hour)
 
-	api.StoreLoginIDToken(adapter, "login", "alice", issuer, kube, now.Add(time.Hour))
-	api.StoreLoginIDToken(adapter, "forwarded", "alice", issuer, forwarded, now.Add(2*time.Hour))
+			adapter.manager.StoreToken("family-1", "alice", issuer, &pkgoauth.Token{AccessToken: "at", IDToken: "grant-id", ExpiresAt: exp, Issuer: issuer})
+			require.Nil(t, api.SessionLoginIDToken(adapter, "family-1", issuer), "a grant is no login")
 
-	require.Equal(t, kube, api.PersonLoginIDToken(adapter, "alice", issuer, "dex-k8s-authenticator").IDToken)
-	require.Equal(t, forwarded, api.PersonLoginIDToken(adapter, "alice", issuer, "").IDToken,
-		"without an audience to carry the longest-lived login serves")
+			api.StoreLoginIDToken(adapter, "family-1", "alice", issuer, "login-id", exp)
+			require.Equal(t, "login-id", api.SessionLoginIDToken(adapter, "family-1", issuer).IDToken)
+			require.Nil(t, api.SessionLoginIDToken(adapter, "family-1", "https://other.example.com"))
+			require.Nil(t, api.SessionLoginIDToken(adapter, "", issuer))
+			require.Nil(t, api.SessionLoginIDToken(&legacyHandler{}, "family-1", issuer))
+			if backend == "valkey" {
+				adapter = restart()
+				require.Equal(t, "login-id", api.SessionLoginIDToken(adapter, "family-1", issuer).IDToken, "the login outlives a restart")
+			}
 
-	manager.DeleteTokensBySession("login")
-	require.Nil(t, api.PersonLoginIDToken(adapter, "alice", issuer, "dex-k8s-authenticator"))
+			adapter.manager.DeleteTokensBySession("family-1")
+			require.Nil(t, api.SessionLoginIDToken(adapter, "family-1", issuer), "a revoked session's login is gone")
+
+			api.StoreLoginIDToken(adapter, "actor-0123", "", issuer, "copy", exp)
+			api.ClearLoginIDToken(adapter, "actor-0123", issuer)
+			require.Nil(t, api.SessionLoginIDToken(adapter, "actor-0123", issuer))
+			api.ClearLoginIDToken(&legacyHandler{}, "actor-0123", issuer)
+		})
+	}
 }
 
 func audienceJWT(t *testing.T, audiences ...string) string {

@@ -227,13 +227,23 @@ The data path stays the gateway's; muster only answers whose token, and only to 
   the actor, the bound Session and its bound toolset, and, on a refusal, the reason. All requests of one actor are
   one muster session, and every accepted request restarts the binding's TTL. The actor JWT is
   never forwarded downstream. Servers that forward (`forwardToken`, `forwardIdentity`) or
-  exchange (`tokenExchange`) the person's ID token get the person's own login ID token instead:
-  the one that lives longest among the person's live muster logins (the CLI's, the portal's
-  forwarded one) and, with `mcpServersInAllNamespaces`, carries `writesAsCaller.kubernetesAudience`,
-  so the actor sees the servers the person's RBAC lets them list. It is read on every request, so a login's sign-out or revocation takes its token
-  out at once. When none is live, muster refreshes the person's logins it serves at the
-  identity provider, at most once every 30 seconds per person; without any, those servers
-  stay unconnected for the actor.
+  exchange (`tokenExchange`) the person's ID token get the login ID token of the session the
+  binding pins instead. The bind request's bearer is the ID token muster forwarded to the
+  component that started the Session, and it names the session that filed it: the person's
+  muster login (a login family, whose token muster obtained at its own sign-in), or the
+  session a client forwarded its own token in (`trustedAudiences`, `trustedIssuers`). No other
+  token of the person ever serves the actor: not another login, not a token another client or
+  another issuer forwarded. A login family's expired token is renewed by refreshing that family
+  at muster's identity provider (never a revoked one), at most once every 30 seconds per family. A forwarded session's token is the
+  latest one that client sent, it serves only when it carries the `iss` and `sub` of the token
+  that bound the actor, and muster cannot renew it. It is read on every request, so a
+  sign-out or revocation of the pinned session takes its token out at once and the actor gets
+  the sign-in answer. A binding that pins no session (one stored before muster recorded it)
+  serves no token until the Session is bound again, and so does a bind whose bearer is a
+  forwarded token muster never filed. Every accepted request's audit line names
+  the kind of login it carries (`login=family|forwarded|none`). Pinning a forwarded session
+  hands the actor a token muster did not obtain itself; it stays until the component that
+  starts Sessions signs in to muster as its own OAuth client.
 
 ```yaml
 aggregator:
