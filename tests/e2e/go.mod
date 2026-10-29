@@ -8,7 +8,7 @@ replace github.com/imdario/mergo => github.com/imdario/mergo v0.3.16
 // Needed because module declares its path as: al.essio.dev/pkg/shellescape
 replace github.com/alessio/shellescape => al.essio.dev/pkg/shellescape v1.6.1
 
-require github.com/giantswarm/apptest-framework/v5 v5.4.2
+require github.com/giantswarm/apptest-framework/v5 v5.4.3
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -40,7 +40,7 @@ require (
 	github.com/extism/go-sdk v1.7.1 // indirect
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fluxcd/cli-utils v1.4.0 // indirect
-	github.com/fluxcd/helm-controller/api v1.7.0 // indirect
+	github.com/fluxcd/helm-controller/api v1.7.1 // indirect
 	github.com/fluxcd/pkg/apis/acl v0.12.0 // indirect
 	github.com/fluxcd/pkg/apis/kustomize v1.23.0 // indirect
 	github.com/fluxcd/pkg/apis/meta v1.38.0 // indirect
@@ -167,18 +167,18 @@ require (
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	helm.sh/helm/v4 v4.3.1 // indirect
-	k8s.io/api v0.37.1 // indirect
-	k8s.io/apiextensions-apiserver v0.37.1 // indirect
-	k8s.io/apimachinery v0.37.1 // indirect
-	k8s.io/apiserver v0.37.1 // indirect
+	k8s.io/api v0.37.2 // indirect
+	k8s.io/apiextensions-apiserver v0.37.2 // indirect
+	k8s.io/apimachinery v0.37.2 // indirect
+	k8s.io/apiserver v0.37.2 // indirect
 	k8s.io/cli-runtime v0.37.1 // indirect
-	k8s.io/client-go v0.37.1 // indirect
+	k8s.io/client-go v0.37.2 // indirect
 	k8s.io/cluster-bootstrap v0.37.1 // indirect
-	k8s.io/component-base v0.37.1 // indirect
+	k8s.io/component-base v0.37.2 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260821135717-be32def86098 // indirect
 	k8s.io/kubectl v0.37.1 // indirect
-	k8s.io/streaming v0.37.1 // indirect
+	k8s.io/streaming v0.37.2 // indirect
 	k8s.io/utils v0.0.0-20261023123148-ca04ba58ecab // indirect
 	oras.land/oras-go/v2 v2.7.0 // indirect
 	sigs.k8s.io/cluster-api v1.14.3 // indirect
