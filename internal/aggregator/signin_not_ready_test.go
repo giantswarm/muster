@@ -33,6 +33,7 @@ func TestHandleAuthLogin_SignInNotReady(t *testing.T) {
 		registered bool
 		defined    bool
 		sees       []string
+		readErr    error  // the Secret reader's answer; default forbidden
 		want       string // %[1]s is the server
 	}{
 		{name: "tenant, listed, not registered", server: "org-b/fixture", defined: true, sees: []string{"org-b"},
@@ -43,6 +44,9 @@ func TestHandleAuthLogin_SignInNotReady(t *testing.T) {
 		{name: "tenant that does not exist", server: "org-b/fixture", sees: []string{"org-b"}, want: notFound},
 		{name: "muster's namespace, registered", server: "fixture", registered: true, defined: true,
 			want: "Cannot authenticate to '%[1]s': load client credentials for server %[1]s: secrets \"fixture-client\" is forbidden"},
+		{name: "muster's namespace, generated client Secret not owned", server: "fixture", registered: true, defined: true,
+			readErr: fmt.Errorf("MCPServer muster/fixture may not read Secret muster/fixture-oauth-client-abcde: %w", api.ErrSecretNotOwned),
+			want:    "Cannot sign in to '%[1]s': the server's sign-in is not ready: load client credentials for server %[1]s: MCPServer muster/fixture may not read Secret muster/fixture-oauth-client-abcde: the Secret is not owned by the MCPServer"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,7 +57,11 @@ func TestHandleAuthLogin_SignInNotReady(t *testing.T) {
 				definitions.servers[tc.server] = api.MCPServerInfo{Name: name, Namespace: namespace, Key: tc.server, Auth: pinned, State: "auth_required"}
 			}
 			api.RegisterMCPServerManager(definitions)
-			api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{err: forbidden})
+			readErr := tc.readErr
+			if readErr == nil {
+				readErr = forbidden
+			}
+			api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{err: readErr})
 			manager := oauth.NewManager(config.OAuthMCPClientConfig{Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback"})
 			t.Cleanup(manager.Stop)
 			api.RegisterOAuthHandler(oauth.NewAdapter(manager))

@@ -29,8 +29,15 @@ func TestPinSecretWithTheRealAdapter(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: "agent-platform"},
 		Data:       map[string][]byte{"client-id": []byte("id"), "client-secret": []byte("shh")},
 	}
+	generated := clientSecret.DeepCopy()
+	generated.Name = "github-oauth-client-abcde"
+	ownedGenerated := generated.DeepCopy()
+	ownedGenerated.OwnerReferences = []metav1.OwnerReference{{
+		APIVersion: "muster.giantswarm.io/v1alpha1", Kind: "MCPServer", Name: "github", UID: "uid-github",
+	}}
 	tests := []struct {
 		name      string
+		ref       string // the Secret the server names; default secretName
 		objects   []*corev1.Secret
 		opts      []mcpserver.CredentialsOption
 		wantState services.ServiceState
@@ -44,6 +51,10 @@ func TestPinSecretWithTheRealAdapter(t *testing.T) {
 			opts:      []mcpserver.CredentialsOption{mcpserver.WithSecretReferencePolicy("")},
 			wantState: services.StateFailed, wantErr: api.ErrSecretReferencePolicyInactive},
 		{name: "missing", wantState: services.StateAuthRequired},
+		{name: "generated name, not owned", ref: "github-oauth-client-abcde", objects: []*corev1.Secret{generated},
+			wantState: services.StateFailed, wantErr: api.ErrSecretNotOwned},
+		{name: "generated name, owned", ref: "github-oauth-client-abcde", objects: []*corev1.Secret{ownedGenerated},
+			wantState: services.StateAuthRequired},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -57,13 +68,17 @@ func TestPinSecretWithTheRealAdapter(t *testing.T) {
 			api.RegisterSecretCredentialsHandler(mcpserver.NewCredentialsAdapter(builder.Build(), tc.opts...))
 			t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
 
+			ref := tc.ref
+			if ref == "" {
+				ref = secretName
+			}
 			backend := startHTTPStatusServer(t, http.StatusUnauthorized)
 			svc, err := NewService(&api.MCPServer{
 				Name: "github", Namespace: "agent-platform", UID: "uid-github",
 				Type: api.MCPServerTypeStreamableHTTP, URL: backend.URL + "/mcp",
 				Auth: &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{
 					Issuer:                     "https://github.com/login/oauth",
-					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{Name: secretName},
+					ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{Name: ref},
 				}},
 			})
 			require.NoError(t, err)

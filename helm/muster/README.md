@@ -235,7 +235,8 @@ Kubernetes API **as the calling user** (writes-as-caller), so Kubernetes RBAC is
 the authorization gate. The chart ships that gate as two namespaced Role +
 RoleBinding pairs in muster's install namespace:
 
-* `mcpserver-editor` — create/update/patch/delete on `mcpservers`
+* `mcpserver-editor` — create/update/patch/delete on `mcpservers`, and
+  create (only) on `secrets` for a connector's client entered in the portal
   (`rbac.mcpServerEditor`)
 * `workflow-editor` — create/update/patch/delete on `workflows`
   (`rbac.workflowEditor`)

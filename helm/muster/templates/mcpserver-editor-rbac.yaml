@@ -26,6 +26,13 @@ rules:
   - apiGroups: ["muster.giantswarm.io"]
     resources: ["mcpservers"]
     verbs: ["create", "update", "patch", "delete"]
+  # A connector's client entered in the portal is written as the editor to a
+  # Secret owned by the MCPServer (giantswarm/giantswarm#38849). create only:
+  # get, update or delete would reach every Secret of the namespace, muster's
+  # own included.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1

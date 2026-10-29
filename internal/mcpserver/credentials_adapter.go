@@ -217,7 +217,8 @@ func (a *CredentialsAdapter) LoadMCPServerSecretKey(
 
 // getSecret reads a Secret. A non-nil req is a read on behalf of an MCPServer:
 // a protected Secret, or any Secret while the admission policy is not in
-// force, is refused before it is read, one of a reserved type after it.
+// force, is refused before it is read, one of a reserved type, or one with a
+// generated client name the MCPServer does not own, after it.
 func (a *CredentialsAdapter) getSecret(ctx context.Context, namespace, name string, req *secretRequest) (*corev1.Secret, error) {
 	if req != nil {
 		if err := a.binding.checkProtected(req, namespace, name); err != nil {
@@ -236,6 +237,11 @@ func (a *CredentialsAdapter) getSecret(ctx context.Context, namespace, name stri
 	}
 	if req != nil {
 		if err := a.binding.checkReserved(req, namespace, secret); err != nil {
+			return nil, err
+		}
+		if err := checkGeneratedOwner(req, namespace, secret); err != nil {
+			a.binding.warnOnce(req, namespace, name, "not owned", "MCPServer %s names Secret %s/%s in %s, which it does not own; refused",
+				req.owner, namespace, name, req.field)
 			return nil, err
 		}
 	}

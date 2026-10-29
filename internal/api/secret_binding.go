@@ -22,6 +22,11 @@ var ErrSecretProtected = errors.New("muster never reads this Secret for an MCPSe
 // writer may get the Secrets it names is not in force.
 var ErrSecretReferencePolicyInactive = errors.New("the MCPServer Secret reference policy is not in force")
 
+// ErrSecretNotOwned reports a Secret with the name core_mcpserver_create
+// generates for a server's client that the server does not own: muster
+// reads such a Secret only with an ownerReference to the MCPServer's UID.
+var ErrSecretNotOwned = errors.New("the Secret is not owned by the MCPServer")
+
 // SecretOwner is the MCPServer whose spec names a Secret, for the refusals
 // and warnings of a read on its behalf.
 type SecretOwner struct {
