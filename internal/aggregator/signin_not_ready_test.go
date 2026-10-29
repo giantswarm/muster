@@ -47,6 +47,9 @@ func TestHandleAuthLogin_SignInNotReady(t *testing.T) {
 		{name: "muster's namespace, generated client Secret not owned", server: "fixture", registered: true, defined: true,
 			readErr: fmt.Errorf("MCPServer muster/fixture may not read Secret muster/fixture-oauth-client-abcde: %w", api.ErrSecretNotOwned),
 			want:    "Cannot sign in to '%[1]s': the server's sign-in is not ready: load client credentials for server %[1]s: MCPServer muster/fixture may not read Secret muster/fixture-oauth-client-abcde: the Secret is not owned by the MCPServer"},
+		{name: "muster's namespace, generated client Secret stored for another authorization server", server: "fixture", registered: true, defined: true,
+			readErr: fmt.Errorf("MCPServer muster/fixture may not read Secret muster/fixture-oauth-client-abcde: %w", api.ErrSecretOtherAuthorizationServer),
+			want:    "Cannot sign in to '%[1]s': the server's sign-in is not ready: load client credentials for server %[1]s: MCPServer muster/fixture may not read Secret muster/fixture-oauth-client-abcde: the Secret holds a client stored for another authorization server"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

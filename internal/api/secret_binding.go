@@ -1,6 +1,9 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -27,6 +30,34 @@ var ErrSecretReferencePolicyInactive = errors.New("the MCPServer Secret referenc
 // reads such a Secret only with an ownerReference to the MCPServer's UID.
 var ErrSecretNotOwned = errors.New("the Secret is not owned by the MCPServer")
 
+// ErrSecretOtherAuthorizationServer reports a Secret with a generated client
+// name that muster wrote for another authorization server than the one the
+// MCPServer's spec now names: its issuer or an endpoint changed after the
+// client was stored, so the client is not sent there.
+var ErrSecretOtherAuthorizationServer = errors.New("the Secret holds a client stored for another authorization server")
+
+// AuthorizationServerAnnotation records, on a Secret muster writes for an
+// MCPServer's client, the AuthorizationServerDigest of the authorization
+// server it was written for.
+const AuthorizationServerAnnotation = "muster.giantswarm.io/authorization-server"
+
+// AuthorizationServerDigest identifies where a client of an authorization
+// server is sent: its issuer (and so the endpoints discovered from it) and
+// its pinned authorization, token and revocation endpoints. "" for nil.
+func AuthorizationServerDigest(as *MCPServerAuthAuthorizationServer) string {
+	if as == nil {
+		return ""
+	}
+	destination, _ := json.Marshal(struct {
+		Issuer                string `json:"issuer"`
+		AuthorizationEndpoint string `json:"authorizationEndpoint"`
+		TokenEndpoint         string `json:"tokenEndpoint"`
+		RevocationEndpoint    string `json:"revocationEndpoint"`
+	}{as.Issuer, as.AuthorizationEndpoint, as.TokenEndpoint, as.RevocationEndpoint})
+	sum := sha256.Sum256(destination)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 // SecretOwner is the MCPServer whose spec names a Secret, for the refusals
 // and warnings of a read on its behalf.
 type SecretOwner struct {
@@ -37,6 +68,16 @@ type SecretOwner struct {
 	Namespace string
 	// UID is the MCPServer's UID, which tells a recreated MCPServer apart.
 	UID string
+	// AuthorizationServer is the AuthorizationServerDigest of the
+	// authorization server a client read for spec.auth.authorizationServer
+	// is sent to. Set by the readers of that field.
+	AuthorizationServer string
+}
+
+// ForAuthorizationServer returns the owner of a read of the client of as.
+func (o SecretOwner) ForAuthorizationServer(as *MCPServerAuthAuthorizationServer) SecretOwner {
+	o.AuthorizationServer = AuthorizationServerDigest(as)
+	return o
 }
 
 // MCPServerSecretOwner returns the owner of a server's Secret references from

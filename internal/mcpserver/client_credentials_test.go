@@ -33,36 +33,63 @@ const (
 )
 
 // credsHarness is a caller-identity adapter whose writes land in a fake API
-// server. Every write is recorded by verb and kind; secretErr, deleteErr and
-// updateErr fail the matching write.
+// server, which the SA-side reads see too. Every write is recorded by verb
+// and kind; secretErrs fail the next Secret creates in turn, then secretErr
+// every one; deleteErr and updateErr fail the matching write.
 type credsHarness struct {
-	adapter   *Adapter
-	sa        *stubMusterClient
-	store     ctrlclient.Client
-	writes    []string
-	secretErr error
-	deleteErr error
-	updateErr error
+	adapter    *Adapter
+	sa         *stubMusterClient
+	store      ctrlclient.Client
+	writes     []string
+	secretErrs []error
+	secretErr  error
+	deleteErr  error
+	updateErr  error
 }
 
-func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer) *credsHarness {
+// storeReader is the SA client of credsHarness: it reads MCPServers from the
+// fake API server the caller writes to.
+type storeReader struct {
+	*stubMusterClient
+	store ctrlclient.Client
+}
+
+func (r *storeReader) GetMCPServer(ctx context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error) {
+	obj := &musterv1alpha1.MCPServer{}
+	if err := r.store.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: name}, obj); err != nil {
+		return nil, err
+	}
+	return obj, nil
+}
+
+func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer, objects ...ctrlclient.Object) *credsHarness {
 	t.Helper()
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, musterv1alpha1.AddToScheme(scheme))
 
-	h := &credsHarness{sa: &stubMusterClient{existing: existing}}
+	h := &credsHarness{sa: &stubMusterClient{}}
 	kind := func(obj ctrlclient.Object) string {
 		if _, ok := obj.(*corev1.Secret); ok {
 			return "Secret"
 		}
 		return "MCPServer"
 	}
-	h.store = fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+	if existing != nil {
+		objects = append(objects, existing)
+	}
+	h.store = fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
 		Create: func(ctx context.Context, c ctrlclient.WithWatch, obj ctrlclient.Object, opts ...ctrlclient.CreateOption) error {
 			h.writes = append(h.writes, "create "+kind(obj))
-			if _, ok := obj.(*corev1.Secret); ok && h.secretErr != nil {
-				return h.secretErr
+			if _, ok := obj.(*corev1.Secret); ok {
+				if len(h.secretErrs) > 0 {
+					err := h.secretErrs[0]
+					h.secretErrs = h.secretErrs[1:]
+					return err
+				}
+				if h.secretErr != nil {
+					return h.secretErr
+				}
 			}
 			if server, ok := obj.(*musterv1alpha1.MCPServer); ok {
 				server.UID = testServerUID
@@ -74,17 +101,18 @@ func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer) *credsHar
 			if h.updateErr != nil {
 				return h.updateErr
 			}
-			// The existing server lives in the SA stub; the store keeps
-			// the updated one for the test to read.
-			return c.Create(ctx, obj.DeepCopyObject().(ctrlclient.Object))
+			return c.Update(ctx, obj, opts...)
 		},
-		Delete: func(_ context.Context, _ ctrlclient.WithWatch, obj ctrlclient.Object, _ ...ctrlclient.DeleteOption) error {
+		Delete: func(ctx context.Context, c ctrlclient.WithWatch, obj ctrlclient.Object, opts ...ctrlclient.DeleteOption) error {
 			h.writes = append(h.writes, "delete "+kind(obj))
-			return h.deleteErr
+			if h.deleteErr != nil {
+				return h.deleteErr
+			}
+			return c.Delete(ctx, obj, opts...)
 		},
 	}).Build()
 
-	h.adapter = NewAdapterWithClient(h.sa, "test-ns")
+	h.adapter = NewAdapterWithClient(&storeReader{stubMusterClient: h.sa, store: h.store}, "test-ns")
 	h.adapter.EnableWritesAsCaller(func(string) (ctrlclient.Client, error) { return h.store, nil }, "")
 	return h
 }
@@ -102,6 +130,13 @@ func (h *credsHarness) secrets(t *testing.T) []corev1.Secret {
 	list := &corev1.SecretList{}
 	require.NoError(t, h.store.List(context.Background(), list))
 	return list.Items
+}
+
+// noServer asserts that test-server is gone.
+func (h *credsHarness) noServer(t *testing.T) {
+	t.Helper()
+	err := h.store.Get(context.Background(), ctrlclient.ObjectKey{Namespace: "test-ns", Name: "test-server"}, &musterv1alpha1.MCPServer{})
+	assert.True(t, apierrors.IsNotFound(err), "the server stayed: %v", err)
 }
 
 func (h *credsHarness) server(t *testing.T) *musterv1alpha1.MCPServer {
@@ -152,6 +187,8 @@ func TestClientCredentials_Create(t *testing.T) {
 	assert.Equal(t, testClientID, string(secret.Data["client-id"]))
 	assert.Equal(t, testClientSecret, string(secret.Data["client-secret"]))
 	assert.Equal(t, "test-server", secret.Annotations[MCPServerSecretAnnotation])
+	assert.Equal(t, api.AuthorizationServerDigest(&api.MCPServerAuthAuthorizationServer{Issuer: "https://as.example.com"}),
+		secret.Annotations[api.AuthorizationServerAnnotation])
 	assert.Equal(t, "test-server", secret.Labels[MCPServerSecretAnnotation])
 	require.Len(t, secret.OwnerReferences, 1)
 	assert.Equal(t, metav1.OwnerReference{APIVersion: "muster.giantswarm.io/v1alpha1", Kind: "MCPServer", Name: "test-server", UID: testServerUID},
@@ -160,7 +197,8 @@ func TestClientCredentials_Create(t *testing.T) {
 	ref := h.server(t).Spec.Auth.AuthorizationServer.ClientCredentialsSecretRef
 	assert.Equal(t, &musterv1alpha1.ClientCredentialsSecretRef{Name: secret.Name}, ref)
 
-	assert.Equal(t, []string{"create MCPServer", "create Secret"}, h.writes)
+	assert.Equal(t, []string{"create MCPServer", "create Secret", "update MCPServer"}, h.writes,
+		"the server names its Secret only once it exists")
 	assert.Empty(t, h.sa.created, "the SA client wrote")
 	assert.Contains(t, text, "MCP server 'test-server' created successfully")
 	assert.Contains(t, text, secret.Name)
@@ -176,6 +214,7 @@ func TestClientCredentials_CreateSecretForbidden(t *testing.T) {
 	text, isErr := h.call(t, "mcpserver_create", credsArgs(nil))
 	require.True(t, isErr)
 	assert.Equal(t, []string{"create MCPServer", "create Secret", "delete MCPServer"}, h.writes)
+	h.noServer(t)
 	for _, want := range []string{"so it was not created", "Permission denied", "may not create Secret", "(secrets)", `"test-ns"`, "mcpserver-editor"} {
 		assert.Contains(t, text, want)
 	}
@@ -205,6 +244,45 @@ func TestClientCredentials_CreateOtherSecretError(t *testing.T) {
 	assert.Contains(t, text, "so it was not created")
 	assert.Contains(t, text, "connection refused")
 	assert.Equal(t, []string{"create MCPServer", "create Secret", "delete MCPServer"}, h.writes)
+	h.noServer(t)
+}
+
+func alreadyExists() error {
+	return apierrors.NewAlreadyExists(schema.GroupResource{Resource: "secrets"}, "taken")
+}
+
+func TestClientCredentials_CreateSecretNameTaken(t *testing.T) {
+	t.Run("once: another name", func(t *testing.T) {
+		h := newCredsHarness(t, nil)
+		h.secretErrs = []error{alreadyExists()}
+		text, isErr := h.call(t, "mcpserver_create", credsArgs(nil))
+		require.False(t, isErr, text)
+		assert.Equal(t, []string{"create MCPServer", "create Secret", "create Secret", "update MCPServer"}, h.writes)
+		secrets := h.secrets(t)
+		require.Len(t, secrets, 1)
+		assert.Equal(t, secrets[0].Name, h.server(t).Spec.Auth.AuthorizationServer.ClientCredentialsSecretRef.Name)
+	})
+	t.Run("twice: the server is removed", func(t *testing.T) {
+		h := newCredsHarness(t, nil)
+		h.secretErr = alreadyExists()
+		text, isErr := h.call(t, "mcpserver_create", credsArgs(nil))
+		require.True(t, isErr)
+		assert.Contains(t, text, "so it was not created")
+		assert.Contains(t, text, "already exists")
+		assert.Equal(t, []string{"create MCPServer", "create Secret", "create Secret", "delete MCPServer"}, h.writes)
+		h.noServer(t)
+	})
+}
+
+func TestClientCredentials_CreateNamingFails(t *testing.T) {
+	h := newCredsHarness(t, nil)
+	h.updateErr = apierrors.NewForbidden(schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"}, "test-server", errors.New("no update"))
+	text, isErr := h.call(t, "mcpserver_create", credsArgs(nil))
+	require.True(t, isErr)
+	assert.Equal(t, []string{"create MCPServer", "create Secret", "update MCPServer", "delete MCPServer"}, h.writes)
+	assert.Contains(t, text, "so it was not created")
+	assert.Contains(t, text, "may not update MCPServer")
+	h.noServer(t)
 }
 
 func TestClientCredentials_Refused(t *testing.T) {
@@ -260,121 +338,6 @@ func TestClientCredentials_FilesystemMode(t *testing.T) {
 	assert.Empty(t, sa.created)
 }
 
-// generatedServer is test-server in test-ns with a client stored under name.
-func generatedServer(name string) *musterv1alpha1.MCPServer {
-	obj := existingServer()
-	obj.UID = testServerUID
-	obj.Spec.URL = "https://mcp.example.com/mcp"
-	obj.Spec.Auth = &musterv1alpha1.MCPServerAuth{
-		Type: "oauth",
-		AuthorizationServer: &musterv1alpha1.MCPServerAuthAuthorizationServer{
-			Issuer:                     "https://as.example.com",
-			ClientCredentialsSecretRef: &musterv1alpha1.ClientCredentialsSecretRef{Name: name},
-		},
-	}
-	return obj
-}
-
-func TestClientCredentials_Replace(t *testing.T) {
-	logs := captureBindingLogs(t)
-	const old = "test-server-oauth-client-aaaaa"
-	h := newCredsHarness(t, generatedServer(old))
-
-	text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
-		"name":              "test-server",
-		"clientCredentials": map[string]interface{}{"clientId": testClientID, "clientSecret": testClientSecret},
-	})
-	require.False(t, isErr, text)
-
-	secrets := h.secrets(t)
-	require.Len(t, secrets, 1)
-	secret := secrets[0]
-	assert.NotEqual(t, old, secret.Name)
-	assert.True(t, isGeneratedClientSecretName("test-server", secret.Name))
-	require.Len(t, secret.OwnerReferences, 1)
-	assert.Equal(t, testServerUID, secret.OwnerReferences[0].UID)
-
-	assert.Equal(t, secret.Name, h.server(t).Spec.Auth.AuthorizationServer.ClientCredentialsSecretRef.Name)
-	assert.Equal(t, []string{"create Secret", "update MCPServer"}, h.writes, "no update or delete on Secrets")
-	assert.Contains(t, text, "updated successfully")
-	assert.NotContains(t, text, testClientSecret)
-	assert.NotContains(t, logs.String(), testClientSecret)
-}
-
-func TestClientCredentials_ReplaceSecretForbidden(t *testing.T) {
-	h := newCredsHarness(t, generatedServer("test-server-oauth-client-aaaaa"))
-	h.secretErr = forbiddenSecretCreate()
-
-	text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
-		"name":              "test-server",
-		"clientCredentials": map[string]interface{}{"clientId": testClientID, "clientSecret": testClientSecret},
-	})
-	require.True(t, isErr)
-	assert.Contains(t, text, "so it was not updated")
-	assert.Contains(t, text, "may not create Secret")
-	assert.Equal(t, []string{"create Secret"}, h.writes)
-}
-
-func TestClientCredentials_ReplaceUpdateFails(t *testing.T) {
-	h := newCredsHarness(t, generatedServer("test-server-oauth-client-aaaaa"))
-	h.updateErr = errors.New("conflict")
-
-	text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
-		"name":              "test-server",
-		"clientCredentials": map[string]interface{}{"clientId": testClientID, "clientSecret": testClientSecret},
-	})
-	require.True(t, isErr)
-	secrets := h.secrets(t)
-	require.Len(t, secrets, 1)
-	assert.Contains(t, text, "conflict")
-	assert.Contains(t, text, fmt.Sprintf("stored in Secret '%s'", secrets[0].Name))
-	assert.Contains(t, text, "deleted with the server")
-}
-
-func TestClientCredentials_UpdateAuthKeepsGeneratedRef(t *testing.T) {
-	const generated = "test-server-oauth-client-aaaaa"
-	auth := func(as map[string]interface{}) map[string]interface{} {
-		a := map[string]interface{}{"type": "oauth"}
-		if as != nil {
-			a["authorizationServer"] = as
-		}
-		return a
-	}
-	tests := []struct {
-		name     string
-		previous string
-		auth     map[string]interface{}
-		want     *musterv1alpha1.ClientCredentialsSecretRef
-	}{
-		{"auth re-sent without ref keeps it", generated,
-			auth(map[string]interface{}{"issuer": "https://as.example.com", "scopes": "crm"}),
-			&musterv1alpha1.ClientCredentialsSecretRef{Name: generated}},
-		{"explicit ref wins", generated,
-			auth(map[string]interface{}{"issuer": "https://as.example.com", "clientCredentialsSecretRef": map[string]interface{}{"name": "gitops"}}),
-			&musterv1alpha1.ClientCredentialsSecretRef{Name: "gitops"}},
-		{"auth without authorizationServer drops it", generated, auth(nil), nil},
-		{"a ref not generated is not kept", "gitops",
-			auth(map[string]interface{}{"issuer": "https://as.example.com"}), nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := newCredsHarness(t, generatedServer(tt.previous))
-			text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{"name": "test-server", "auth": tt.auth})
-			require.False(t, isErr, text)
-			as := h.server(t).Spec.Auth.AuthorizationServer
-			if tt.want == nil {
-				if as != nil {
-					assert.Nil(t, as.ClientCredentialsSecretRef)
-				}
-				return
-			}
-			require.NotNil(t, as)
-			assert.Equal(t, tt.want, as.ClientCredentialsSecretRef)
-			assert.Equal(t, []string{"update MCPServer"}, h.writes)
-		})
-	}
-}
-
 func TestGeneratedClientSecretName(t *testing.T) {
 	name, err := newGeneratedClientSecretName("hubspot")
 	require.NoError(t, err)
@@ -403,61 +366,4 @@ func TestClientCredentials_Redacted(t *testing.T) {
 		assert.NotContains(t, fmt.Sprintf(format, req.ClientCredentials), testClientSecret, format)
 		assert.NotContains(t, fmt.Sprintf(format, *req.ClientCredentials), testClientSecret, format)
 	}
-}
-
-// githubGenerated is a generated client Secret name for githubServer.
-const githubGenerated = "github-oauth-client-x1y2z"
-
-func ownedBy(uid, kind string) func(*corev1.Secret) {
-	return func(s *corev1.Secret) {
-		s.OwnerReferences = append(s.OwnerReferences, metav1.OwnerReference{
-			APIVersion: "muster.giantswarm.io/v1alpha1", Kind: kind, Name: "github", UID: types.UID(uid),
-		})
-	}
-}
-
-func TestReadCheck_GeneratedClientSecret(t *testing.T) {
-	tests := []struct {
-		name    string
-		secret  *corev1.Secret
-		owner   api.SecretOwner
-		field   string
-		refused bool
-	}{
-		{name: "owned", secret: bindingSecret(githubGenerated, ownedBy("uid-github", "MCPServer")), owner: githubServer},
-		{name: "unowned", secret: bindingSecret(githubGenerated), owner: githubServer, refused: true},
-		{name: "owned by another server", secret: bindingSecret(githubGenerated, ownedBy("uid-other", "MCPServer")), owner: githubServer, refused: true},
-		{name: "owned by another kind", secret: bindingSecret(githubGenerated, ownedBy("uid-github", "Workflow")), owner: githubServer, refused: true},
-		{name: "owner without UID", secret: bindingSecret(githubGenerated, ownedBy("", "MCPServer")),
-			owner: api.SecretOwner{Name: "github", Namespace: "agent-platform"}, refused: true},
-		{name: "a name not generated reads as before", secret: bindingSecret("github-app"), owner: githubServer},
-		{name: "token exchange reads as before", secret: bindingSecret(githubGenerated), owner: githubServer, field: api.SecretFieldTokenExchange},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			adapter := bindingAdapter(t, tt.secret)
-			field := tt.field
-			if field == "" {
-				field = api.SecretFieldAuthorizationServer
-			}
-			creds, err := adapter.LoadMCPServerClientCredentials(context.Background(), tt.owner, field, &api.ClientCredentialsSecretRef{Name: tt.secret.Name})
-			if tt.refused {
-				require.ErrorIs(t, err, api.ErrSecretNotOwned)
-				assert.Contains(t, err.Error(), "ownerReference to this MCPServer")
-				assert.Nil(t, creds)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, "id", creds.ClientID)
-		})
-	}
-
-	t.Run("in another namespace", func(t *testing.T) {
-		secret := bindingSecret(githubGenerated, ownedBy("uid-github", "MCPServer"))
-		secret.Namespace = "elsewhere"
-		adapter := bindingAdapter(t, secret)
-		_, err := adapter.LoadMCPServerClientCredentials(context.Background(), githubServer, api.SecretFieldAuthorizationServer,
-			&api.ClientCredentialsSecretRef{Name: githubGenerated, Namespace: "elsewhere"})
-		require.ErrorIs(t, err, api.ErrSecretNotOwned)
-	})
 }

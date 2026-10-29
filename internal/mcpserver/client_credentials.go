@@ -8,14 +8,12 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/v5/internal/api"
-	"github.com/giantswarm/muster/v5/internal/callerwrite"
 )
 
 // A connector's client (giantswarm/giantswarm#38849): core_mcpserver_create
@@ -85,28 +83,54 @@ func isGeneratedClientSecretName(server, name string) bool {
 }
 
 // checkGeneratedOwner refuses a Secret with a generated client Secret name
-// for the owner unless it lives in the owner's namespace and has an
-// ownerReference to the owner's MCPServer UID. The admission policy lets an
-// MCPServer name such a Secret without its writer's get, so ownership is
-// what ties the Secret to this server. Other names pass.
+// for the owner unless it lives in the owner's namespace, has an
+// ownerReference to the owner's MCPServer UID, and was written for the
+// authorization server the client is now sent to. The admission policy lets
+// an MCPServer name such a Secret without its writer's get, and any editor
+// may update the MCPServer: ownership ties the Secret to this server, the
+// AuthorizationServerAnnotation (which editors cannot change, having no
+// update on Secrets) to its destination. Other names pass.
 func checkGeneratedOwner(req *secretRequest, namespace string, secret *corev1.Secret) error {
 	if req.field != api.SecretFieldAuthorizationServer || !isGeneratedClientSecretName(req.owner.Name, secret.Name) {
 		return nil
 	}
-	ownNamespace := req.owner.Namespace
+	if !ownedBy(req.owner, namespace, secret) {
+		return fmt.Errorf("MCPServer %s may not read Secret %s/%s named in %s: %w: a Secret with a generated client name must have an ownerReference to this MCPServer; set the client with core_mcpserver_update clientCredentials",
+			req.owner, namespace, secret.Name, req.field, api.ErrSecretNotOwned)
+	}
+	if want := req.owner.AuthorizationServer; want == "" || secret.Annotations[api.AuthorizationServerAnnotation] != want {
+		return fmt.Errorf("MCPServer %s may not read Secret %s/%s named in %s: %w: the issuer or an endpoint of spec.auth.authorizationServer changed since the client was stored; re-enter the client with core_mcpserver_update clientCredentials",
+			req.owner, namespace, secret.Name, req.field, api.ErrSecretOtherAuthorizationServer)
+	}
+	return nil
+}
+
+// ownedBy reports whether a Secret in namespace has an ownerReference to the
+// owner's MCPServer, in the owner's namespace.
+func ownedBy(owner api.SecretOwner, namespace string, secret *corev1.Secret) bool {
+	ownNamespace := owner.Namespace
 	if ownNamespace == "" {
 		ownNamespace = metav1.NamespaceDefault
 	}
-	if namespace == ownNamespace && req.owner.UID != "" {
-		for _, ref := range secret.OwnerReferences {
-			if ref.Kind == "MCPServer" && string(ref.UID) == req.owner.UID &&
-				strings.HasPrefix(ref.APIVersion, musterv1alpha1.GroupVersion.Group+"/") {
-				return nil
-			}
+	if namespace != ownNamespace || owner.UID == "" {
+		return false
+	}
+	for _, ref := range secret.OwnerReferences {
+		if ref.Kind == "MCPServer" && string(ref.UID) == owner.UID &&
+			strings.HasPrefix(ref.APIVersion, musterv1alpha1.GroupVersion.Group+"/") {
+			return true
 		}
 	}
-	return fmt.Errorf("MCPServer %s may not read Secret %s/%s named in %s: %w: a Secret with a generated client name must have an ownerReference to this MCPServer; set the client with core_mcpserver_update clientCredentials",
-		req.owner, namespace, secret.Name, req.field, api.ErrSecretNotOwned)
+	return false
+}
+
+// destinationDigest is api.AuthorizationServerDigest of a spec's
+// authorizationServer, converted (normalized) as muster's readers see it.
+func destinationDigest(as *musterv1alpha1.MCPServerAuthAuthorizationServer) string {
+	if as == nil {
+		return ""
+	}
+	return api.AuthorizationServerDigest(convertCRDAuthToAPI(&musterv1alpha1.MCPServerAuth{AuthorizationServer: as}).AuthorizationServer)
 }
 
 // secretWriter is the caller-identity write surface for Secrets. Only the
@@ -148,13 +172,16 @@ func requestNamesClientSecretRef(auth *api.MCPServerAuth) bool {
 }
 
 // clientCredentialsSecret builds the Secret holding a server's client, owned
-// by the server.
+// by the server and annotated with the authorization server it is for.
 func clientCredentialsSecret(name string, server *musterv1alpha1.MCPServer, creds *api.MCPServerClientCredentials) *corev1.Secret {
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   server.Namespace,
-			Annotations: map[string]string{MCPServerSecretAnnotation: server.Name},
+			Name:      name,
+			Namespace: server.Namespace,
+			Annotations: map[string]string{
+				MCPServerSecretAnnotation:         server.Name,
+				api.AuthorizationServerAnnotation: destinationDigest(authorizationServerOf(&server.Spec)),
+			},
 			OwnerReferences: []metav1.OwnerReference{{
 				APIVersion: musterv1alpha1.GroupVersion.String(),
 				Kind:       "MCPServer",
@@ -172,64 +199,6 @@ func clientCredentialsSecret(name string, server *musterv1alpha1.MCPServer, cred
 		secret.Labels = map[string]string{MCPServerSecretAnnotation: server.Name}
 	}
 	return secret
-}
-
-// describeSecretWriteError explains a failed Secret write as the caller,
-// naming the missing permission where the API server refused it.
-func (a *Adapter) describeSecretWriteError(err error, name string) string {
-	if msg := callerwrite.DescribeWriteAuthError(err, "create", "Secret", "secrets", name, a.namespace, "mcpserver-editor"); msg != "" {
-		return msg
-	}
-	if errors.IsAlreadyExists(err) {
-		return fmt.Sprintf("Secret %q already exists in namespace %q; retry to generate another name", name, a.namespace)
-	}
-	return fmt.Sprintf("failed to create Secret %q in namespace %q: %v", name, a.namespace, err)
-}
-
-// storeClientCredentialsOnCreate writes a new server's client to the Secret
-// its spec names, after the server was created. When the Secret write fails
-// it deletes the server again, so no connector is left without its client
-// and without a message; the answer says when that delete fails too.
-func (a *Adapter) storeClientCredentialsOnCreate(ctx context.Context, writer mcpServerWriter, secrets secretWriter,
-	server *musterv1alpha1.MCPServer, secretName string, creds *api.MCPServerClientCredentials) string {
-	var cause string
-	if server.UID == "" {
-		cause = "the API server returned no UID for the new MCP server"
-	} else if err := secrets.CreateSecret(ctx, clientCredentialsSecret(secretName, server, creds)); err != nil {
-		cause = a.describeSecretWriteError(err, secretName)
-	} else {
-		return ""
-	}
-	if err := writer.DeleteMCPServer(ctx, server.Name, server.Namespace); err != nil && !errors.IsNotFound(err) {
-		return fmt.Sprintf("Cannot store the client credentials of MCP server '%s': %s. Removing the server failed too, so it is left behind without its client: delete MCP server '%s' (%v)",
-			server.Name, cause, server.Name, err)
-	}
-	return fmt.Sprintf("Cannot store the client credentials of MCP server '%s', so it was not created: %s", server.Name, cause)
-}
-
-// prepareClientCredentials checks clientCredentials against the spec the
-// request results in and points its authorizationServer at a newly generated
-// Secret name. It returns the caller's Secret writer and that name, or a tool
-// error.
-func (a *Adapter) prepareClientCredentials(writer mcpServerWriter, creds *api.MCPServerClientCredentials,
-	server *musterv1alpha1.MCPServer, explicitRef bool) (secretWriter, string, *api.CallToolResult) {
-	as := authorizationServerOf(&server.Spec)
-	if err := validateClientCredentials(creds, as, explicitRef); err != nil {
-		result, _ := simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
-		return nil, "", result
-	}
-	secrets, ok := writer.(secretWriter)
-	if !ok {
-		result, _ := simpleError("clientCredentials need muster in Kubernetes mode: muster stores them in a Secret")
-		return nil, "", result
-	}
-	name, err := newGeneratedClientSecretName(server.Name)
-	if err != nil {
-		result, _ := simpleError(fmt.Sprintf("Cannot store the client credentials of MCP server '%s': %v", server.Name, err))
-		return nil, "", result
-	}
-	as.ClientCredentialsSecretRef = &musterv1alpha1.ClientCredentialsSecretRef{Name: name}
-	return secrets, name, nil
 }
 
 // keepGeneratedClientSecretRef keeps, on an update whose auth names no

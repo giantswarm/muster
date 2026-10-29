@@ -300,7 +300,8 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "authorization_server_pin_failed")
 		}
 		message := fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)
-		if api.IsTenantMCPServerKey(serverName) || errors.Is(err, api.ErrSecretNotOwned) {
+		if api.IsTenantMCPServerKey(serverName) || errors.Is(err, api.ErrSecretNotOwned) ||
+			errors.Is(err, api.ErrSecretOtherAuthorizationServer) {
 			message = signInNotReadyMessage(serverName, err)
 		}
 		return &api.CallToolResult{

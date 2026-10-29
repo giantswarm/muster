@@ -132,7 +132,8 @@ func TestRefusedPinSecretIsTheServersStatus(t *testing.T) {
 	assert.NotNil(t, svc.GetNextRetryAfter(), "fixing the reference needs no restart")
 	secrets.mu.Lock()
 	assert.Equal(t, []string{api.SecretFieldAuthorizationServer}, secrets.fields)
-	assert.Equal(t, api.SecretOwner{Name: "github", Namespace: "agent-platform", UID: "uid-github"}, secrets.owners[0])
+	assert.Equal(t, api.SecretOwner{Name: "github", Namespace: "agent-platform", UID: "uid-github"}.
+		ForAuthorizationServer(&api.MCPServerAuthAuthorizationServer{Issuer: "https://github.com/login/oauth"}), secrets.owners[0])
 	secrets.mu.Unlock()
 
 	secrets.fail(nil)

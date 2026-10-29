@@ -904,7 +904,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_update",
 			Annotations: api.WriteAnnotations(true, true),
-			Description: "Update an existing MCP server definition.\n\nauth replaces the server's auth, but an authorizationServer without clientCredentialsSecretRef keeps a client stored with clientCredentials; omit authorizationServer to drop it.",
+			Description: "Update an existing MCP server definition.\n\nauth replaces the server's auth, but an authorizationServer without clientCredentialsSecretRef keeps a client stored with clientCredentials; omit authorizationServer to drop it. Changing its issuer or an endpoint while keeping that client is refused: send clientCredentials again.",
 			// type is optional for update; suspended/restartRequestedAt are the
 			// CR-driven lifecycle fields (issue #1055) and only settable here.
 			Args: append(mcpServerArgs(false),
@@ -1150,15 +1150,13 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		}
 	}
 
-	// clientCredentials name a Secret muster generates and writes as the
-	// caller once the server exists (client_credentials.go).
+	// clientCredentials go to a Secret muster writes as the caller once the
+	// server exists, and then names in it (client_credentials_store.go).
 	var secrets secretWriter
-	var secretName string
 	if req.ClientCredentials != nil {
 		var errResult *api.CallToolResult
-		secrets, secretName, errResult = a.prepareClientCredentials(writer, req.ClientCredentials,
-			serverCRD, requestNamesClientSecretRef(req.Auth))
-		if errResult != nil {
+		if secrets, errResult = checkClientCredentials(writer, req.ClientCredentials,
+			serverCRD, requestNamesClientSecretRef(req.Auth)); errResult != nil {
 			return errResult, nil
 		}
 	}
@@ -1184,8 +1182,10 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		return simpleError(fmt.Sprintf("Failed to create MCP server: %v", err))
 	}
 
+	var secretName string
 	if secrets != nil {
-		if msg := a.storeClientCredentialsOnCreate(ctx, writer, secrets, serverCRD, secretName, req.ClientCredentials); msg != "" {
+		var msg string
+		if secretName, msg = a.storeClientCredentialsOnCreate(ctx, writer, secrets, serverCRD, req.ClientCredentials); msg != "" {
 			return simpleError(msg)
 		}
 	}
@@ -1285,17 +1285,20 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		previous := authorizationServerOf(&existing.Spec)
 		existing.Spec.Auth = convertAPIAuthToCRD(req.Auth)
 		keepGeneratedClientSecretRef(existing, previous)
+		if req.ClientCredentials == nil {
+			if refused := refuseMovedClient(existing, previous); refused != nil {
+				return refused, nil
+			}
+		}
 	}
 
 	// clientCredentials replace the client with a new Secret, written as the
 	// caller and owned by the server before the spec names it.
 	var secrets secretWriter
-	var secretName string
 	if req.ClientCredentials != nil {
 		var errResult *api.CallToolResult
-		secrets, secretName, errResult = a.prepareClientCredentials(writer, req.ClientCredentials,
-			existing, requestNamesClientSecretRef(req.Auth))
-		if errResult != nil {
+		if secrets, errResult = checkClientCredentials(writer, req.ClientCredentials,
+			existing, requestNamesClientSecretRef(req.Auth)); errResult != nil {
 			return errResult, nil
 		}
 	}
@@ -1305,13 +1308,11 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
 
+	var secretName string
 	if secrets != nil {
-		if existing.UID == "" {
-			return simpleError(fmt.Sprintf("Cannot store the client credentials of MCP server '%s': it has no UID to own the Secret", req.Name))
-		}
-		if err := secrets.CreateSecret(ctx, clientCredentialsSecret(secretName, existing, req.ClientCredentials)); err != nil {
-			return simpleError(fmt.Sprintf("Cannot store the client credentials of MCP server '%s', so it was not updated: %s",
-				req.Name, a.describeSecretWriteError(err, secretName)))
+		var errResult *api.CallToolResult
+		if secretName, errResult = a.replaceClientCredentials(ctx, secrets, existing, req.ClientCredentials); errResult != nil {
+			return errResult, nil
 		}
 	}
 

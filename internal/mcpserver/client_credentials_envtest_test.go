@@ -166,7 +166,8 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 		assert.Equal(t, obj.UID, secret.OwnerReferences[0].UID)
 
 		reader := NewCredentialsAdapter(saClient)
-		owner := api.SecretOwner{Name: "hubspot", Namespace: ns, UID: string(obj.UID)}
+		owner := api.SecretOwner{Name: "hubspot", Namespace: ns, UID: string(obj.UID)}.
+			ForAuthorizationServer(&api.MCPServerAuthAuthorizationServer{Issuer: "https://as.example.com"})
 		creds, err := reader.LoadMCPServerClientCredentials(ctx, owner, api.SecretFieldAuthorizationServer,
 			&api.ClientCredentialsSecretRef{Name: first})
 		require.NoError(t, err)
@@ -190,6 +191,34 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 		})
 		require.False(t, isErr, text)
 		assert.Equal(t, second, refOf("hubspot"))
+	})
+
+	t.Run("another editor cannot send the client elsewhere", func(t *testing.T) {
+		before, err := saClient.GetMCPServer(ctx, "hubspot", ns)
+		require.NoError(t, err)
+		stored := before.Spec.Auth.AuthorizationServer.ClientCredentialsSecretRef.Name
+		evil := map[string]interface{}{"type": "oauth", "authorizationServer": map[string]interface{}{"issuer": "https://evil.example.com"}}
+
+		// Through muster: refused before any write.
+		text, isErr := call(noSecretsCtx, "mcpserver_update", map[string]interface{}{"name": "hubspot", "auth": evil})
+		require.True(t, isErr, text)
+		assert.Contains(t, text, "re-enter it with clientCredentials")
+		after, err := saClient.GetMCPServer(ctx, "hubspot", ns)
+		require.NoError(t, err)
+		assert.Equal(t, before.ResourceVersion, after.ResourceVersion)
+
+		// Straight to the API server: admitted, but muster does not send the
+		// client there.
+		direct, err := callerwrite.NewKubernetesClientFactory(adminCfg)(noSecretsToken)
+		require.NoError(t, err)
+		after.Spec.Auth.AuthorizationServer.Issuer = "https://evil.example.com"
+		require.NoError(t, direct.Update(ctx, after))
+		reader := NewCredentialsAdapter(saClient)
+		owner := api.SecretOwner{Name: "hubspot", Namespace: ns, UID: string(after.UID)}.
+			ForAuthorizationServer(&api.MCPServerAuthAuthorizationServer{Issuer: "https://evil.example.com"})
+		_, err = reader.LoadMCPServerClientCredentials(ctx, owner, api.SecretFieldAuthorizationServer,
+			&api.ClientCredentialsSecretRef{Name: stored})
+		require.ErrorIs(t, err, api.ErrSecretOtherAuthorizationServer)
 	})
 
 	t.Run("policy admits only the server's own generated name", func(t *testing.T) {

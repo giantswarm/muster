@@ -162,7 +162,7 @@ func pinDescription(ctx context.Context, serverInfo *ServerInfo) error {
 		if secrets == nil {
 			return fmt.Errorf("server %s references client credentials but no secret handler is registered", serverInfo.Name)
 		}
-		creds, err := secrets.LoadMCPServerClientCredentials(ctx, serverInfo.SecretOwner(), api.SecretFieldAuthorizationServer, as.ClientCredentialsSecretRef)
+		creds, err := secrets.LoadMCPServerClientCredentials(ctx, serverInfo.SecretOwner().ForAuthorizationServer(as), api.SecretFieldAuthorizationServer, as.ClientCredentialsSecretRef)
 		if err != nil {
 			return fmt.Errorf("load client credentials for server %s: %w", serverInfo.Name,
 				tenantSecretReadError(serverInfo.Name, serverInfo.GetNamespace(), as.ClientCredentialsSecretRef.Name, err))

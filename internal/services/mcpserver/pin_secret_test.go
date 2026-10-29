@@ -35,6 +35,11 @@ func TestPinSecretWithTheRealAdapter(t *testing.T) {
 	ownedGenerated.OwnerReferences = []metav1.OwnerReference{{
 		APIVersion: "muster.giantswarm.io/v1alpha1", Kind: "MCPServer", Name: "github", UID: "uid-github",
 	}}
+	ownedGenerated.Annotations = map[string]string{api.AuthorizationServerAnnotation: api.AuthorizationServerDigest(
+		&api.MCPServerAuthAuthorizationServer{Issuer: "https://github.com/login/oauth"})}
+	movedGenerated := ownedGenerated.DeepCopy()
+	movedGenerated.Annotations[api.AuthorizationServerAnnotation] = api.AuthorizationServerDigest(
+		&api.MCPServerAuthAuthorizationServer{Issuer: "https://evil.example.com"})
 	tests := []struct {
 		name      string
 		ref       string // the Secret the server names; default secretName
@@ -55,6 +60,8 @@ func TestPinSecretWithTheRealAdapter(t *testing.T) {
 			wantState: services.StateFailed, wantErr: api.ErrSecretNotOwned},
 		{name: "generated name, owned", ref: "github-oauth-client-abcde", objects: []*corev1.Secret{ownedGenerated},
 			wantState: services.StateAuthRequired},
+		{name: "generated name, stored for another authorization server", ref: "github-oauth-client-abcde",
+			objects: []*corev1.Secret{movedGenerated}, wantState: services.StateFailed, wantErr: api.ErrSecretOtherAuthorizationServer},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
