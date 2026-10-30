@@ -501,6 +501,8 @@ Create a new MCP server definition that can be started as a service.
 - `timeout` (integer, optional) - Connection timeout in seconds
 - `progress` (object, optional) - `maxDuration` (integer): seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it (at least `timeout`, at most 3600, default 3600)
 - `autoStart` (boolean, optional) - Whether to start automatically on system startup
+- `auth` (object, optional) - Authentication for remote servers. An `authorizationServer` that another MCPServer describes differently under the same issuer (another client or endpoints) is refused, naming that server: one issuer, one client
+- `clientCredentials` (object, optional, write-only) - `{"clientId": "...", "clientSecret": "..."}`, the client of `auth.authorizationServer` (required with it). Not with `auth.authorizationServer.clientCredentialsSecretRef`. muster creates the server, then, as the caller, the Secret `<name>-oauth-client-<5 random>` (`client-id`, `client-secret`) owned by the server, then names it in the reference. The caller needs `create` on `secrets`; when that fails, the server is removed again and the error names the permission. Values are never returned or logged
 
 **Returns:** Created MCP server definition
 
@@ -575,6 +577,8 @@ Update an existing MCP server definition. Only provided fields are updated.
 - `autoStart` (boolean, optional) - Auto-start setting; omitting it keeps the current one
 - `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` (or omitted) resumes it
 - `restartRequestedAt` (string, optional) - RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler
+- `auth` (object, optional) - Replaces the server's auth. An `authorizationServer` without `clientCredentialsSecretRef` keeps a client stored with `clientCredentials`; one without `authorizationServer` drops it. Changing its `issuer`, `authorizationEndpoint`, `tokenEndpoint` or `revocationEndpoint` while keeping that client is refused: send `clientCredentials` again. A changed `authorizationServer` that another MCPServer describes differently under the same issuer is refused, as on create
+- `clientCredentials` (object, optional, write-only) - Replaces the client: a new Secret owned by the server, then the reference switches to it. The previous Secret stays until the server is deleted. Same rules as on create
 
 **Returns:** Updated MCP server definition
 

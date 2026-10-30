@@ -978,3 +978,18 @@ const ServiceDataUID = "uid"
 // ServiceDataCreatedAt is the service data key of an MCPServer service's
 // creation time (MCPServer.CreatedAt), absent in filesystem mode.
 const ServiceDataCreatedAt = "createdAt"
+
+// MCPServerClientCredentials is an OAuth client a caller hands
+// core_mcpserver_create or core_mcpserver_update for
+// spec.auth.authorizationServer. muster writes it to a Secret and never
+// returns, logs or formats it: String and GoString redact it.
+type MCPServerClientCredentials struct {
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+}
+
+// String redacts the credentials.
+func (MCPServerClientCredentials) String() string { return "[redacted]" }
+
+// GoString redacts the credentials.
+func (MCPServerClientCredentials) GoString() string { return "[redacted]" }

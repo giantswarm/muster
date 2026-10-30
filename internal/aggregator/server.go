@@ -1415,7 +1415,22 @@ func (a *AggregatorServer) wirePoolNotificationCallback(serverName string) {
 //
 // Returns an error if the server is not found or deregistration fails.
 func (a *AggregatorServer) DeregisterServer(name string) error {
-	_, err := a.deregisterServer(name, false, false)
+	_, err := a.deregisterServer(name, false, false, true)
+	return err
+}
+
+// DeregisterRefusedServer removes a server whose sign-in muster refuses
+// (api.IsSignInRefused), pending-auth entry or not, and releases the
+// authorization server it was registered with. Unlike DeregisterServer it
+// keeps what people hold for a tenant server: the definition stays, and the
+// refusal may be lifted.
+func (a *AggregatorServer) DeregisterRefusedServer(name string) error {
+	var previous *api.MCPServerAuth
+	if info, registered := a.registry.GetServerInfo(name); registered {
+		previous = info.AuthConfig
+	}
+	_, err := a.deregisterServer(name, false, false, false)
+	a.unpinRefused(name, previous)
 	return err
 }
 
@@ -1430,10 +1445,12 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 // again wait for it or are answered as retryable (awaitServer). Returns
 // whether an entry was removed.
 func (a *AggregatorServer) DeregisterServerOnStateChange(name string, reconnecting bool) (bool, error) {
-	return a.deregisterServer(name, true, reconnecting)
+	return a.deregisterServer(name, true, reconnecting, false)
 }
 
-func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconnecting bool) (bool, error) {
+// deregisterServer removes a server's entry. forget also forgets what a
+// tenant server's sign-ins stored (forgetTenantServer): its service is gone.
+func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconnecting, forget bool) (bool, error) {
 	logging.InfoWithAttrs("Aggregator", "DeregisterServer called",
 		slog.String("server", name))
 
@@ -1483,8 +1500,8 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		a.releaseAuthorizationServerPin(releaseCtx, name, previousAuth)
 		cancel()
 	}
-	if !keepSessionAuth {
-		// The service is gone: the definition was deleted (or refused). Also
+	if forget {
+		// The service is gone: the definition was deleted. Also
 		// when it never reached the registry: a session may hold sign-ins of
 		// an earlier registration.
 		forgetCtx, cancel := context.WithTimeout(context.Background(), tenantForgetTimeout)

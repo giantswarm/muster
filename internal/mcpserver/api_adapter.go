@@ -899,15 +899,16 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Name:        "mcpserver_create",
 			Annotations: api.WriteAnnotations(false, false),
 			Description: "Create a new MCP server definition",
-			Args:        mcpServerArgs(true), // type is required for creation
+			Args:        append(mcpServerArgs(true), clientCredentialsArg("Write-only OAuth client for auth.authorizationServer; muster stores it in a Secret owned by the server, as you")), // type is required for creation
 		},
 		{
 			Name:        "mcpserver_update",
 			Annotations: api.WriteAnnotations(true, true),
-			Description: "Update an existing MCP server definition",
+			Description: "Update an existing MCP server definition.\n\nauth replaces the server's auth, but an authorizationServer without clientCredentialsSecretRef keeps a client stored with clientCredentials; omit authorizationServer to drop it. Changing its issuer or an endpoint while keeping that client is refused: send clientCredentials again.",
 			// type is optional for update; suspended/restartRequestedAt are the
 			// CR-driven lifecycle fields (issue #1055) and only settable here.
 			Args: append(mcpServerArgs(false),
+				clientCredentialsArg("Write-only: replaces the client of auth.authorizationServer with a new Secret owned by the server, written as you"),
 				api.ArgMetadata{Name: "suspended", Type: api.ArgTypeBoolean, Required: false, Description: "Desired lifecycle state: true stops the server's service and keeps it stopped; false resumes it; omitted keeps the current value"},
 				api.ArgMetadata{Name: "restartRequestedAt", Type: api.ArgTypeString, Required: false, Description: "RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler"},
 			),
@@ -1149,9 +1150,23 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		}
 	}
 
+	// clientCredentials go to a Secret muster writes as the caller once the
+	// server exists, and then names in it (client_credentials_store.go).
+	var secrets secretWriter
+	if req.ClientCredentials != nil {
+		var errResult *api.CallToolResult
+		if secrets, errResult = checkClientCredentials(writer, req.ClientCredentials,
+			serverCRD, requestNamesClientSecretRef(req.Auth)); errResult != nil {
+			return errResult, nil
+		}
+	}
+
 	// Validate the definition
 	if err := a.validateMCPServer(serverCRD); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
+	}
+	if refused := a.refuseDescriptionConflict(serverCRD, nil, "create", req.ClientCredentials != nil); refused != nil {
+		return refused, nil
 	}
 
 	// Create the new MCP server with the resolved write identity
@@ -1170,12 +1185,20 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		return simpleError(fmt.Sprintf("Failed to create MCP server: %v", err))
 	}
 
+	var secretName string
+	if secrets != nil {
+		var msg string
+		if secretName, msg = a.storeClientCredentialsOnCreate(ctx, writer, secrets, serverCRD, req.ClientCredentials); msg != "" {
+			return simpleError(msg)
+		}
+	}
+
 	// Generate success event for CRD creation
 	a.generateCRDEvent(req.Name, events.ReasonMCPServerCreated, events.EventData{
 		Operation: "create",
 	})
 
-	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name))
+	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name) + storedInSecret(secretName))
 }
 
 func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
@@ -1259,27 +1282,66 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	if req.Progress != nil {
 		existing.Spec.Progress = convertAPIProgressToCRD(req.Progress)
 	}
-	// Update auth configuration if provided
+	// Update auth configuration if provided. A generated client Secret
+	// reference survives an auth that names none (keepGeneratedClientSecretRef).
+	previousAuth := existing.Spec.Auth.DeepCopy()
 	if req.Auth != nil {
+		previous := authorizationServerOf(&existing.Spec)
 		existing.Spec.Auth = convertAPIAuthToCRD(req.Auth)
+		keepGeneratedClientSecretRef(existing, previous)
+		if req.ClientCredentials == nil {
+			if refused := refuseMovedClient(existing, previous); refused != nil {
+				return refused, nil
+			}
+		}
+	}
+
+	// clientCredentials replace the client with a new Secret, written as the
+	// caller and owned by the server before the spec names it.
+	var secrets secretWriter
+	if req.ClientCredentials != nil {
+		var errResult *api.CallToolResult
+		if secrets, errResult = checkClientCredentials(writer, req.ClientCredentials,
+			existing, requestNamesClientSecretRef(req.Auth)); errResult != nil {
+			return errResult, nil
+		}
 	}
 
 	// Validate the updated definition (reuse existing CRD object)
 	if err := a.validateMCPServer(existing); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
+	// Only an update that changes the pinned description, or stores a new
+	// client, is checked: a conflict it did not make does not block it.
+	if req.Auth != nil || req.ClientCredentials != nil {
+		if refused := a.refuseDescriptionConflict(existing, previousAuth, "update", req.ClientCredentials != nil); refused != nil {
+			return refused, nil
+		}
+	}
+
+	var secretName string
+	if secrets != nil {
+		var errResult *api.CallToolResult
+		if secretName, errResult = a.replaceClientCredentials(ctx, secrets, existing, req.ClientCredentials); errResult != nil {
+			return errResult, nil
+		}
+	}
 
 	// Update the MCP server with the resolved write identity
 	if err := writer.UpdateMCPServer(ctx, existing); err != nil {
 		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
-			return simpleError(msg)
+			return simpleError(msg + unusedSecret(secretName))
 		}
 		// Generate failure event
 		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
 			Error:     err.Error(),
 			Operation: "update",
 		})
-		return api.HandleErrorWithPrefix(err, "Failed to update MCP server"), nil
+		result := api.HandleErrorWithPrefix(err, "Failed to update MCP server")
+		if secretName != "" && len(result.Content) > 0 {
+			result.Content[0] = fmt.Sprintf("%v", result.Content[0]) + unusedSecret(secretName)
+		}
+		return result, nil
 	}
 
 	// Generate success event for CRD update
@@ -1287,7 +1349,7 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		Operation: "update",
 	})
 
-	return simpleOK(fmt.Sprintf("MCP server '%s' updated successfully", req.Name))
+	return simpleOK(fmt.Sprintf("MCP server '%s' updated successfully", req.Name) + storedInSecret(secretName))
 }
 
 func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {

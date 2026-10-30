@@ -193,6 +193,20 @@ type AuthorizationServerConflictChecker interface {
 	AuthorizationServerConflict(serverName string) error
 }
 
+// AuthorizationServerDescriptionChecker is implemented by an
+// AggregatorHandler that can tell, before an MCPServer is written, whether
+// its description of its authorization server would conflict with another
+// MCPServer's under the same issuer key (the comparison the pin makes).
+type AuthorizationServerDescriptionChecker interface {
+	// DescriptionConflict returns an error wrapping
+	// ErrAuthorizationServerConflict, naming the other MCPServer, when an
+	// MCPServer with this key (MCPServerKey) and auth would describe its
+	// issuer key differently from another MCPServer that pins under it; nil
+	// otherwise, and nil when previous (the server's auth before an update,
+	// nil on create) already pins the same description.
+	DescriptionConflict(key string, previous, auth *MCPServerAuth) error
+}
+
 // TenantIssuerForgetter is implemented by an OAuthHandler whose stored state
 // can be forgotten per organization namespace: the people's tokens and
 // subject grants, the client registrations and the flows in progress filed
