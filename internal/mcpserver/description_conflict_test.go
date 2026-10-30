@@ -18,10 +18,17 @@ type describingAggregator struct {
 	conflict error
 	keys     []string
 	refs     []string
+	// previous lists the client Secret of each previous auth, "-" for none.
+	previous []string
 }
 
-func (a *describingAggregator) DescriptionConflict(key string, auth *api.MCPServerAuth) error {
+func (a *describingAggregator) DescriptionConflict(key string, previous, auth *api.MCPServerAuth) error {
 	a.keys = append(a.keys, key)
+	was := "-"
+	if previous != nil && previous.AuthorizationServer != nil && previous.AuthorizationServer.ClientCredentialsSecretRef != nil {
+		was = previous.AuthorizationServer.ClientCredentialsSecretRef.Name
+	}
+	a.previous = append(a.previous, was)
 	ref := ""
 	if r := auth.AuthorizationServer.ClientCredentialsSecretRef; r != nil {
 		ref = r.Name
@@ -70,6 +77,27 @@ func TestDescriptionConflict_RefusedBeforeAnyWrite(t *testing.T) {
 		text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{"name": "test-server", "description": "x"})
 		require.False(t, isErr, text)
 		assert.Empty(t, aggregator.keys)
+	})
+	t.Run("an update is checked against the description it had", func(t *testing.T) {
+		aggregator := useDescribingAggregator(t, nil)
+		h := newCredsHarness(t, generatedServer("gitops-client"))
+		text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
+			"name": "test-server", "auth": map[string]interface{}{"type": "oauth", "authorizationServer": map[string]interface{}{
+				"issuer": "https://as.example.com", "clientCredentialsSecretRef": map[string]interface{}{"name": "gitops-client"},
+			}},
+		})
+		require.False(t, isErr, text)
+		assert.Equal(t, []string{"gitops-client"}, aggregator.previous)
+	})
+	t.Run("a new client is checked as a new description", func(t *testing.T) {
+		aggregator := useDescribingAggregator(t, nil)
+		h := newCredsHarness(t, generatedServer("gitops-client"))
+		text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
+			"name":              "test-server",
+			"clientCredentials": map[string]interface{}{"clientId": testClientID, "clientSecret": testClientSecret},
+		})
+		require.False(t, isErr, text)
+		assert.Equal(t, []string{"-"}, aggregator.previous)
 	})
 	t.Run("no conflict", func(t *testing.T) {
 		useDescribingAggregator(t, nil)

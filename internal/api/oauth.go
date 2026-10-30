@@ -202,8 +202,9 @@ type AuthorizationServerDescriptionChecker interface {
 	// ErrAuthorizationServerConflict, naming the other MCPServer, when an
 	// MCPServer with this key (MCPServerKey) and auth would describe its
 	// issuer key differently from another MCPServer that pins under it; nil
-	// otherwise.
-	DescriptionConflict(key string, auth *MCPServerAuth) error
+	// otherwise, and nil when previous (the server's auth before an update,
+	// nil on create) already pins the same description.
+	DescriptionConflict(key string, previous, auth *MCPServerAuth) error
 }
 
 // TenantIssuerForgetter is implemented by an OAuthHandler whose stored state

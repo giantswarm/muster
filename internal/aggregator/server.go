@@ -1501,7 +1501,7 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		cancel()
 	}
 	if forget {
-		// The service is gone: the definition was deleted (or refused). Also
+		// The service is gone: the definition was deleted. Also
 		// when it never reached the registry: a session may hold sign-ins of
 		// an earlier registration.
 		forgetCtx, cancel := context.WithTimeout(context.Background(), tenantForgetTimeout)

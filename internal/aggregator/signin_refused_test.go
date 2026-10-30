@@ -63,6 +63,8 @@ func TestSignInRefused_DropsRegistrationAndPin(t *testing.T) {
 		{name: "refused, same description", state: api.StateFailed, err: refused, definition: fixtureAuth},
 		{name: "refused, unreachable", state: api.StateUnreachable, err: fmt.Errorf("x: %w", api.ErrSecretNotOwned), definition: fixtureAuth},
 		{name: "another failure", state: api.StateFailed, err: errors.New("connection refused"), definition: fixtureAuth, wantKept: true},
+		{name: "the reference policy not in force", state: api.StateFailed, definition: fixtureAuth, wantKept: true,
+			err: fmt.Errorf("x: %w", api.ErrSecretReferencePolicyInactive)},
 		{name: "refused error, but auth required again", state: api.StateAuthRequired, err: refused, definition: fixtureAuth, wantKept: true},
 	}
 	for _, tt := range tests {
@@ -114,14 +116,31 @@ func TestDescriptionConflict(t *testing.T) {
 		return &api.MCPServerAuth{Type: "oauth", AuthorizationServer: as}
 	}
 
-	err := a.DescriptionConflict("hubspot-2", auth("https://as.example.com", "hubspot-2-oauth-client-new"))
+	err := a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "hubspot-2-oauth-client-new"))
 	require.ErrorIs(t, err, api.ErrAuthorizationServerConflict)
 	assert.Contains(t, err.Error(), "MCP server 'hubspot' signs in to https://as.example.com with another client or endpoints")
 
-	assert.NoError(t, a.DescriptionConflict("hubspot-2", auth("https://as.example.com", "fixture-oauth-client-abcde")), "the same client")
-	assert.NoError(t, a.DescriptionConflict("hubspot-2", auth("https://other.example.com", "hubspot-2-oauth-client-new")), "another issuer")
-	assert.NoError(t, a.DescriptionConflict("hubspot", auth("https://as.example.com", "hubspot-oauth-client-new")), "itself")
-	assert.NoError(t, a.DescriptionConflict("plain", auth("https://as.example.com", "")), "a plain issuer override pins nothing")
+	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "fixture-oauth-client-abcde")), "the same client")
+	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://other.example.com", "hubspot-2-oauth-client-new")), "another issuer")
+	assert.NoError(t, a.DescriptionConflict("hubspot", nil, auth("https://as.example.com", "hubspot-oauth-client-new")), "itself")
+	assert.NoError(t, a.DescriptionConflict("plain", nil, auth("https://as.example.com", "")), "a plain issuer override pins nothing")
+
+	// Unchanged auth on the owner is not blocked by a newer server that
+	// conflicts with it; changing its client is.
+	require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "hubspot-2"},
+		URL:                "https://hubspot-2.example.com/mcp",
+		AuthConfig:         auth("https://as.example.com", "hubspot-2-oauth-client-xyzab"),
+	}))
+	owner := auth("https://as.example.com", "fixture-oauth-client-abcde")
+	assert.NoError(t, a.DescriptionConflict("hubspot", owner, owner), "unchanged auth on the owner is not blocked")
+	rescoped := auth("https://as.example.com", "fixture-oauth-client-abcde")
+	rescoped.AuthorizationServer.Scopes = "crm"
+	assert.NoError(t, a.DescriptionConflict("hubspot", owner, rescoped), "scopes are not part of the pinned description")
+	require.ErrorIs(t, a.DescriptionConflict("hubspot", owner, auth("https://as.example.com", "hubspot-oauth-client-new")),
+		api.ErrAuthorizationServerConflict, "a new client is checked")
+	require.ErrorIs(t, a.DescriptionConflict("hubspot", auth("https://old.example.com", "fixture-oauth-client-abcde"), owner),
+		api.ErrAuthorizationServerConflict, "moving to the issuer is checked")
 
 	// The comparison is the pin's: the older server's description is
 	// refused for the newer one there too.

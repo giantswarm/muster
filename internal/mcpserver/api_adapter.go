@@ -1165,7 +1165,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	if err := a.validateMCPServer(serverCRD); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
-	if refused := a.refuseDescriptionConflict(serverCRD, "create", req.ClientCredentials != nil); refused != nil {
+	if refused := a.refuseDescriptionConflict(serverCRD, nil, "create", req.ClientCredentials != nil); refused != nil {
 		return refused, nil
 	}
 
@@ -1284,6 +1284,7 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	}
 	// Update auth configuration if provided. A generated client Secret
 	// reference survives an auth that names none (keepGeneratedClientSecretRef).
+	previousAuth := existing.Spec.Auth.DeepCopy()
 	if req.Auth != nil {
 		previous := authorizationServerOf(&existing.Spec)
 		existing.Spec.Auth = convertAPIAuthToCRD(req.Auth)
@@ -1310,10 +1311,10 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	if err := a.validateMCPServer(existing); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
-	// Only an update that writes the auth is checked: a conflict it did not
-	// make does not block an unrelated change.
+	// Only an update that changes the pinned description, or stores a new
+	// client, is checked: a conflict it did not make does not block it.
 	if req.Auth != nil || req.ClientCredentials != nil {
-		if refused := a.refuseDescriptionConflict(existing, "update", req.ClientCredentials != nil); refused != nil {
+		if refused := a.refuseDescriptionConflict(existing, previousAuth, "update", req.ClientCredentials != nil); refused != nil {
 			return refused, nil
 		}
 	}

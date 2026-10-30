@@ -114,10 +114,15 @@ func (a *AggregatorServer) AuthorizationServerConflict(serverName string) error 
 // to be written with auth conflicts when another MCPServer pins a different
 // description under the same issuer key. Unlike the pin, which lets the
 // oldest MCPServer's description stand, it refuses either way: whichever is
-// older, one of the two could not sign in.
-func (a *AggregatorServer) DescriptionConflict(key string, auth *api.MCPServerAuth) error {
+// older, one of the two could not sign in. An update that keeps the
+// description it had (previous) is not checked: a conflict it did not make,
+// such as a newer server's, does not block editing the owner.
+func (a *AggregatorServer) DescriptionConflict(key string, previous, auth *api.MCPServerAuth) error {
 	as, issuer := pinnedDescription(&ServerInfo{Name: key, AuthConfig: auth})
 	if as == nil || appOwnsIssuer(issuer) {
+		return nil
+	}
+	if was, wasIssuer := pinnedDescription(&ServerInfo{Name: key, AuthConfig: previous}); was != nil && wasIssuer == issuer && samePin(was, as) {
 		return nil
 	}
 	described := a.describedServers()

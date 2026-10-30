@@ -11,10 +11,10 @@ import (
 // server's spec.auth.authorizationServer: it is one muster keeps for itself,
 // the admission policy on Secret references is not in force, or it has a
 // generated client name and the server does not own it or it was stored for
-// another authorization server. The pin is
-// never applied, so no sign-in can succeed: the server is Failed with the
-// refusal, retried with backoff, and reads Auth Required once the spec names
-// another Secret or the policy is in force.
+// another authorization server. The pin is never applied, so no sign-in can
+// succeed: the server is Failed with the refusal, retried with backoff, and
+// reads Auth Required once the spec names another Secret or the policy is in
+// force.
 type pinSecretError struct {
 	err error
 }

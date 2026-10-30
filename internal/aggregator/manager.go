@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -540,7 +541,11 @@ func (am *AggregatorManager) signInRefused(serverName string) bool {
 	}
 	switch service.GetState() {
 	case api.StateFailed, api.StateUnreachable:
-		return api.IsSignInRefused(service.GetLastError())
+		// A policy not in force refuses every Secret read, often only
+		// while a chart upgrade replaces it: the server is Failed and
+		// answers with the reason, but keeps its entry and pins.
+		err := service.GetLastError()
+		return api.IsSignInRefused(err) && !errors.Is(err, api.ErrSecretReferencePolicyInactive)
 	}
 	return false
 }

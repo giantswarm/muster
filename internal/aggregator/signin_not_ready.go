@@ -13,10 +13,11 @@ import (
 // as such by core_auth_login: the listings (core_mcpserver_list, list_tools)
 // show it, so "not found" would contradict them. Such a server has no
 // registry entry: a tenant server before it registers, or any server whose
-// sign-in muster refuses (its entry is removed, api.IsSignInRefused). The commonest reason is a pin whose client Secret muster
-// may not read: a tenant pin's Secret stays in the tenant's namespace, and
-// muster reads it only through a Role there that gives its ServiceAccount
-// get on that one Secret (D9).
+// sign-in muster refuses (its entry is removed, api.IsSignInRefused). The
+// commonest reason is a pin whose client Secret muster may not read: a
+// tenant pin's Secret stays in the tenant's namespace, and muster reads it
+// only through a Role there that gives its ServiceAccount get on that one
+// Secret (D9).
 
 // signInNotReadyMessage is core_auth_login's answer for a server whose
 // sign-in cannot start yet.
