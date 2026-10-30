@@ -772,6 +772,10 @@ type MCPServerInfo struct {
 	// DisplayNameAnnotation. Empty when the annotation is not set.
 	DisplayName string `json:"displayName,omitempty"`
 
+	// Tags are the server's free-form tags, read from the TagsAnnotation with
+	// ParseTags (malformed entries dropped). Empty when none are set.
+	Tags []string `json:"tags,omitempty"`
+
 	// Description provides a human-readable description of the server's purpose and capabilities.
 	Description string `json:"description,omitempty"`
 

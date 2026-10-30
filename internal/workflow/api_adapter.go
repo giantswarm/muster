@@ -467,6 +467,10 @@ func (a *Adapter) updateWorkflow(ctx context.Context, writer workflowWriter, nam
 			return err
 		}
 		existing.Spec = desired.Spec
+		// Tri-state: an omitted tags argument keeps the current tags.
+		if args[fieldTags] != nil {
+			existing.Annotations = api.ApplyTagsAnnotation(existing.Annotations, &wf.Tags)
+		}
 		return writer.UpdateWorkflow(ctx, existing)
 	}
 	err = apply()
@@ -754,6 +758,7 @@ func (a *Adapter) convertCRDToWorkflow(workflowCRD *musterv1alpha1.Workflow) *ap
 		Name:         workflowCRD.Name,
 		Description:  workflowCRD.Spec.Description,
 		Labels:       workflowCRD.Labels,
+		Tags:         api.ParseTags(workflowCRD.Annotations[api.TagsAnnotation]),
 		Args:         a.convertArgDefinitions(workflowCRD.Spec.Args),
 		Steps:        a.convertWorkflowSteps(workflowCRD.Spec.Steps),
 		OnFailure:    a.convertSubSteps(workflowCRD.Spec.OnFailure),
@@ -781,8 +786,9 @@ func (a *Adapter) convertCRDToWorkflow(workflowCRD *musterv1alpha1.Workflow) *ap
 func (a *Adapter) convertWorkflowToCRD(workflow *api.Workflow) *musterv1alpha1.Workflow {
 	return &musterv1alpha1.Workflow{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      workflow.Name,
-			Namespace: a.namespace,
+			Name:        workflow.Name,
+			Namespace:   a.namespace,
+			Annotations: api.ApplyTagsAnnotation(nil, &workflow.Tags),
 		},
 		Spec: musterv1alpha1.WorkflowSpec{
 			Description: workflow.Description,
@@ -1371,6 +1377,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
+				tagsArg,
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1418,6 +1425,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
+				tagsArg,
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1478,6 +1486,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
+				tagsArg,
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1665,6 +1674,9 @@ func (a *Adapter) handleList(ctx context.Context, args map[string]interface{}) (
 		// Only include description if it's not empty
 		if wf.Description != "" {
 			workflowInfo["description"] = wf.Description
+		}
+		if len(wf.Tags) > 0 {
+			workflowInfo[fieldTags] = wf.Tags
 		}
 
 		result = append(result, workflowInfo)
@@ -2140,6 +2152,12 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	if desc, ok := args["description"].(string); ok {
 		wf.Description = desc
 	}
+
+	tags, err := convertTags(args[fieldTags])
+	if err != nil {
+		return wf, fmt.Errorf("validation failed: tags: %w", err)
+	}
+	wf.Tags = tags
 
 	// Convert args
 	if argsParam, ok := args["args"].(map[string]interface{}); ok {

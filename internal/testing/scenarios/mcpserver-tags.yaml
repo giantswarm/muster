@@ -1,0 +1,111 @@
+name: "mcpserver-tags"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Verify that tags on core_mcpserver_create set the ui.giantswarm.io/tags
+  annotation, exposed as tags on core_mcpserver_get and core_mcpserver_list,
+  that invalid tags are refused, and that core_mcpserver_update keeps the tags
+  when tags is omitted, replaces them with a list and removes them with [].
+tags: ["mcpserver", "create", "update", "annotations", "core-api"]
+timeout: "2m"
+
+steps:
+  - id: "create-mcpserver"
+    description: "Create an MCP server with tags"
+    tool: "core_mcpserver_create"
+    args:
+      name: "tagged-server"
+      type: "stdio"
+      command: "echo"
+      tags: ["triage", "kubernetes"]
+    expected:
+      success: true
+
+  - id: "verify-tags-on-get"
+    description: "core_mcpserver_get carries the tags"
+    tool: "core_mcpserver_get"
+    args:
+      name: "tagged-server"
+    expected:
+      success: true
+      contains: ["\"tags\":[\"triage\",\"kubernetes\"]"]
+
+  - id: "verify-tags-on-list"
+    description: "core_mcpserver_list carries the tags"
+    tool: "core_mcpserver_list"
+    expected:
+      success: true
+      contains: ["\"tags\":[\"triage\",\"kubernetes\"]"]
+
+  - id: "refuse-invalid-tags"
+    description: "An update with an uppercase tag is refused"
+    tool: "core_mcpserver_update"
+    args:
+      name: "tagged-server"
+      tags: ["Triage"]
+    expected:
+      success: false
+      error_contains: ["invalid tags"]
+
+  - id: "update-without-tags"
+    description: "An update that omits tags"
+    tool: "core_mcpserver_update"
+    args:
+      name: "tagged-server"
+      description: "tagged"
+    expected:
+      success: true
+
+  - id: "verify-tags-kept"
+    description: "The tags survive an update that omits them"
+    tool: "core_mcpserver_get"
+    args:
+      name: "tagged-server"
+    expected:
+      success: true
+      contains: ["\"tags\":[\"triage\",\"kubernetes\"]"]
+
+  - id: "replace-tags"
+    description: "An update with a new list"
+    tool: "core_mcpserver_update"
+    args:
+      name: "tagged-server"
+      tags: ["alerts"]
+    expected:
+      success: true
+
+  - id: "verify-tags-replaced"
+    description: "The list replaces the tags"
+    tool: "core_mcpserver_get"
+    args:
+      name: "tagged-server"
+    expected:
+      success: true
+      contains: ["\"tags\":[\"alerts\"]"]
+
+  - id: "clear-tags"
+    description: "An update with an empty list"
+    tool: "core_mcpserver_update"
+    args:
+      name: "tagged-server"
+      tags: []
+    expected:
+      success: true
+
+  - id: "verify-tags-removed"
+    description: "An empty list removes the tags"
+    tool: "core_mcpserver_get"
+    args:
+      name: "tagged-server"
+    expected:
+      success: true
+      not_contains: ["\"tags\""]
+
+cleanup:
+  - id: "delete-mcpserver"
+    description: "Delete the test MCP server"
+    tool: "core_mcpserver_delete"
+    args:
+      name: "tagged-server"
+    expected:
+      success: true

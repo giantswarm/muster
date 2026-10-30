@@ -404,6 +404,13 @@
               },
               "type": "object"
             },
+            "tags": {
+              "description": "Tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars, unique. On update: omitted keeps, [] clears, a list replaces",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "timeout": {
               "description": "Connection timeout in seconds",
               "type": "integer"
@@ -783,6 +790,13 @@
               "description": "Desired lifecycle state: true stops the server's service and keeps it stopped; false resumes it; omitted keeps the current value",
               "type": "boolean"
             },
+            "tags": {
+              "description": "Tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars, unique. On update: omitted keeps, [] clears, a list replaces",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "timeout": {
               "description": "Connection timeout in seconds",
               "type": "integer"
@@ -1088,6 +1102,13 @@
                 }
               },
               "type": "object"
+            },
+            "tags": {
+              "description": "Tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars, unique. On update: omitted keeps, [] clears, a list replaces",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "timeout": {
               "description": "Connection timeout in seconds",
@@ -1863,6 +1884,13 @@
               },
               "minItems": 1,
               "type": "array"
+            },
+            "tags": {
+              "description": "Tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars, unique. On update: omitted keeps, [] clears, a list replaces",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -2635,6 +2663,13 @@
               },
               "minItems": 1,
               "type": "array"
+            },
+            "tags": {
+              "description": "Tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars, unique. On update: omitted keeps, [] clears, a list replaces",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -3323,6 +3358,13 @@
                 "type": "object"
               },
               "minItems": 1,
+              "type": "array"
+            },
+            "tags": {
+              "description": "Tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars, unique. On update: omitted keeps, [] clears, a list replaces",
+              "items": {
+                "type": "string"
+              },
               "type": "array"
             }
           },

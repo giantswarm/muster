@@ -29,6 +29,10 @@ type Workflow struct {
 	// whole catalogue.
 	Labels map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
 
+	// Tags are the workflow's free-form tags, kept in the Workflow CR's
+	// TagsAnnotation. Read with ParseTags, so malformed entries are dropped.
+	Tags []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+
 	// Args defines the validation rules and metadata for workflow execution arguments.
 	// These definitions are used to validate arguments when executing workflows
 	// and to provide documentation for the workflow execution API.

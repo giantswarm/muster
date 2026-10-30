@@ -128,10 +128,11 @@ the MCP server as its own workload and register it with `streamable-http` or
 | Annotation | Set by | Description |
 |------------|--------|-------------|
 | `ui.giantswarm.io/display-name` | The author, or `displayName` on `core_mcpserver_create` / `_update` | Human-friendly name UIs show in place of `metadata.name` (e.g. `Kagi Search` for `kagi-search`). Returned as `displayName` by `core_mcpserver_get` and `_list` |
+| `ui.giantswarm.io/tags` | The author, or `tags` on `core_mcpserver_create` / `_update` | Comma-joined tags (e.g. `triage,kubernetes`), each lowercase letters and digits joined by single hyphens, at most 63 characters. Returned as `tags` (array) by `core_mcpserver_get` and `_list`, which drop malformed entries |
 | `ui.giantswarm.io/registered-by` | muster, on `core_mcpserver_create` | Subject of the authenticated caller that created the server. Returned as `registeredBy` |
 | `ui.giantswarm.io/registered-by-email` | muster, on `core_mcpserver_create` | Email claim of that caller, when the token carried one. Returned as `registeredByEmail` |
 
-`core_mcpserver_update` changes no annotation but the display name, and that only when `displayName` is given, so an annotation set with `kubectl` or GitOps survives an update.
+`core_mcpserver_update` changes no annotation but the display name and the tags, and those only when `displayName` or `tags` is given, so an annotation set with `kubectl` or GitOps survives an update.
 
 #### Spec Fields
 
@@ -820,6 +821,12 @@ status:
 ```
 
 ### Field Reference
+
+#### Annotations
+
+| Annotation | Set by | Description |
+|------------|--------|-------------|
+| `ui.giantswarm.io/tags` | The author, or `tags` on `core_workflow_create` / `_update` | Comma-joined tags (e.g. `triage,kubernetes`), each lowercase letters and digits joined by single hyphens, at most 63 characters. Returned as `tags` (array) by `core_workflow_get` and `_list`, which drop malformed entries. `core_workflow_update` changes it only when `tags` is given |
 
 #### Spec Fields
 
