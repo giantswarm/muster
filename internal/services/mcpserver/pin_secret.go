@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -41,8 +40,7 @@ func (s *Service) refusedPinSecret(ctx context.Context) error {
 	}
 	_, err := handler.LoadMCPServerClientCredentials(ctx, s.secretOwner().ForAuthorizationServer(auth.AuthorizationServer), api.SecretFieldAuthorizationServer,
 		auth.AuthorizationServer.ClientCredentialsSecretRef)
-	if errors.Is(err, api.ErrSecretProtected) || errors.Is(err, api.ErrSecretReferencePolicyInactive) ||
-		errors.Is(err, api.ErrSecretNotOwned) || errors.Is(err, api.ErrSecretOtherAuthorizationServer) {
+	if api.IsSignInRefused(err) {
 		return &pinSecretError{err: err}
 	}
 	return nil

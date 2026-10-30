@@ -240,8 +240,7 @@ func (a *CredentialsAdapter) getSecret(ctx context.Context, namespace, name stri
 			return nil, err
 		}
 		if err := checkGeneratedOwner(req, namespace, secret); err != nil {
-			a.binding.warnOnce(req, namespace, name, "not owned", "MCPServer %s names Secret %s/%s in %s, which it does not own; refused",
-				req.owner, namespace, name, req.field)
+			a.binding.warnOnce(req, namespace, name, err.Error(), "%v", err)
 			return nil, err
 		}
 	}

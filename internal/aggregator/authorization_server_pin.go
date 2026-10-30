@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -106,6 +107,32 @@ func (a *AggregatorServer) pinAuthorizationServer(ctx context.Context, serverInf
 func (a *AggregatorServer) AuthorizationServerConflict(serverName string) error {
 	_, err := a.issuerPinOwner(a.describedServers()[serverName])
 	return err
+}
+
+// DescriptionConflict implements api.AuthorizationServerDescriptionChecker
+// with the pin's comparison (pinnedDescription, samePin): an MCPServer about
+// to be written with auth conflicts when another MCPServer pins a different
+// description under the same issuer key. Unlike the pin, which lets the
+// oldest MCPServer's description stand, it refuses either way: whichever is
+// older, one of the two could not sign in.
+func (a *AggregatorServer) DescriptionConflict(key string, auth *api.MCPServerAuth) error {
+	as, issuer := pinnedDescription(&ServerInfo{Name: key, AuthConfig: auth})
+	if as == nil || appOwnsIssuer(issuer) {
+		return nil
+	}
+	described := a.describedServers()
+	names := slices.Sorted(maps.Keys(described))
+	for _, name := range names {
+		if name == key {
+			continue
+		}
+		other, otherIssuer := pinnedDescription(described[name])
+		if otherIssuer == issuer && !samePin(as, other) {
+			return fmt.Errorf("MCP server '%s' signs in to %s with another client or endpoints: %w",
+				name, api.IssuerURL(issuer), api.ErrAuthorizationServerConflict)
+		}
+	}
+	return nil
 }
 
 // connectionConflict returns the error issuerPinOwner returns for a server
@@ -292,4 +319,44 @@ func (a *AggregatorServer) describedServers() map[string]*ServerInfo {
 	}
 	maps.Copy(described, a.registry.GetAllServers())
 	return described
+}
+
+// unpinRefused drops the pins a server whose sign-in muster refuses
+// (api.IsSignInRefused) owns: of the description it was registered with and
+// of the one its definition holds now. Its client may not be used, and a pin
+// read before the refusal would still sign in with it. A key another
+// MCPServer or a provider App owns keeps its pin.
+func (a *AggregatorServer) unpinRefused(name string, previous *api.MCPServerAuth) {
+	pinner, err := issuerPinner()
+	if err != nil {
+		return
+	}
+	described := a.describedServers()
+	keys := map[string]struct{}{}
+	for _, auth := range []*api.MCPServerAuth{previous, describedAuth(described, name)} {
+		if as, key := pinnedDescription(&ServerInfo{Name: name, AuthConfig: auth}); as != nil {
+			keys[key] = struct{}{}
+		}
+	}
+	for key := range keys {
+		if appOwnsIssuer(key) {
+			continue
+		}
+		if owner := issuerOwner(described, key); owner != nil && owner.Name != name {
+			continue
+		}
+		if _, pinned := pinner.PinnedDescriptionKey(key); pinned {
+			pinner.UnpinIssuer(key)
+			logging.InfoWithAttrs("Aggregator", "oauth_authorization_server_unpinned",
+				slog.String("server", name), slog.String("issuer", key), slog.String("reason", "sign-in refused"))
+		}
+	}
+}
+
+// describedAuth returns the auth config of a described server, or nil.
+func describedAuth(described map[string]*ServerInfo, name string) *api.MCPServerAuth {
+	if info, ok := described[name]; ok {
+		return info.AuthConfig
+	}
+	return nil
 }

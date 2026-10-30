@@ -98,3 +98,19 @@ func (o SecretOwner) String() string {
 	}
 	return fmt.Sprintf("%s/%s", ns, o.Name)
 }
+
+// IsSignInRefused reports whether err is muster's refusal of a server's
+// sign-in, which no retry or login fixes until its spec or its Secret
+// changes: its client Secret is refused (ErrSecretProtected,
+// ErrSecretNotOwned, ErrSecretOtherAuthorizationServer), the Secret reference
+// policy is not in force, or another MCPServer describes its authorization
+// server differently (ErrAuthorizationServerConflict).
+func IsSignInRefused(err error) bool {
+	for _, refusal := range []error{ErrSecretProtected, ErrSecretReferencePolicyInactive, ErrSecretNotOwned,
+		ErrSecretOtherAuthorizationServer, ErrAuthorizationServerConflict} {
+		if errors.Is(err, refusal) {
+			return true
+		}
+	}
+	return false
+}

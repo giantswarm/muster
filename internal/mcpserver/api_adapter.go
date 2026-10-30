@@ -1165,6 +1165,9 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	if err := a.validateMCPServer(serverCRD); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
 	}
+	if refused := a.refuseDescriptionConflict(serverCRD, "create", req.ClientCredentials != nil); refused != nil {
+		return refused, nil
+	}
 
 	// Create the new MCP server with the resolved write identity
 	if err := writer.CreateMCPServer(ctx, serverCRD); err != nil {
@@ -1306,6 +1309,13 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	// Validate the updated definition (reuse existing CRD object)
 	if err := a.validateMCPServer(existing); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
+	}
+	// Only an update that writes the auth is checked: a conflict it did not
+	// make does not block an unrelated change.
+	if req.Auth != nil || req.ClientCredentials != nil {
+		if refused := a.refuseDescriptionConflict(existing, "update", req.ClientCredentials != nil); refused != nil {
+			return refused, nil
+		}
 	}
 
 	var secretName string

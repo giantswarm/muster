@@ -9,10 +9,11 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// A server outside muster's namespace that the caller sees, and whose
-// sign-in cannot start yet, is answered as such by core_auth_login: the
-// listings (core_mcpserver_list, list_tools) show it, so "not found" would
-// contradict them. The commonest reason is a pin whose client Secret muster
+// A server that the caller sees, and whose sign-in cannot start, is answered
+// as such by core_auth_login: the listings (core_mcpserver_list, list_tools)
+// show it, so "not found" would contradict them. Such a server has no
+// registry entry: a tenant server before it registers, or any server whose
+// sign-in muster refuses (its entry is removed, api.IsSignInRefused). The commonest reason is a pin whose client Secret muster
 // may not read: a tenant pin's Secret stays in the tenant's namespace, and
 // muster reads it only through a Role there that gives its ServiceAccount
 // get on that one Secret (D9).
@@ -23,11 +24,11 @@ func signInNotReadyMessage(serverName string, reason error) string {
 	return fmt.Sprintf("Cannot sign in to '%s': the server's sign-in is not ready: %v", serverName, reason)
 }
 
-// tenantSignInNotReady returns why the sign-in of a tenant server that has
-// no registry entry yet cannot start, or nil when there is no definition of
-// it (the server does not exist). The reason is the pin Secret muster cannot read,
+// definedSignInNotReady returns why the sign-in of a server that has no
+// registry entry cannot start, or nil when there is no definition of it (the
+// server does not exist). The reason is the pin Secret muster cannot read,
 // else the definition's last error, else its state.
-func tenantSignInNotReady(ctx context.Context, serverName string) error {
+func definedSignInNotReady(ctx context.Context, serverName string) error {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
 		return nil

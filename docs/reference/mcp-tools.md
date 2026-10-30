@@ -501,7 +501,7 @@ Create a new MCP server definition that can be started as a service.
 - `timeout` (integer, optional) - Connection timeout in seconds
 - `progress` (object, optional) - `maxDuration` (integer): seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it (at least `timeout`, at most 3600, default 3600)
 - `autoStart` (boolean, optional) - Whether to start automatically on system startup
-- `clientCredentials` (object, optional, write-only) - `{"clientId": "...", "clientSecret": "..."}`, the client of `auth.authorizationServer` (required with it). Not with `auth.authorizationServer.clientCredentialsSecretRef`. muster creates the server, then, as the caller, the Secret `<name>-oauth-client-<5 random>` (`client-id`, `client-secret`) owned by the server, then names it in the reference. The caller needs `create` on `secrets`; when that fails, the server is removed again and the error names the permission. Values are never returned or logged
+- `clientCredentials` (object, optional, write-only) - `{"clientId": "...", "clientSecret": "..."}`, the client of `auth.authorizationServer` (required with it). Not with `auth.authorizationServer.clientCredentialsSecretRef`. muster creates the server, then, as the caller, the Secret `<name>-oauth-client-<5 random>` (`client-id`, `client-secret`) owned by the server, then names it in the reference. The caller needs `create` on `secrets`; when that fails, the server is removed again and the error names the permission. Values are never returned or logged. Refused when another MCPServer signs in to the same issuer with another client or endpoints: one issuer, one client
 
 **Returns:** Created MCP server definition
 
