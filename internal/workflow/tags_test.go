@@ -85,12 +85,9 @@ func TestMutationsRejectInvalidTags(t *testing.T) {
 
 				result, err := adapter.ExecuteTool(t.Context(), tool, triageArgs(map[string]interface{}{"tags": tags}))
 
-				if err == nil {
-					require.True(t, result.IsError)
-					assert.Contains(t, result.Content[0], "tags")
-				} else {
-					assert.Contains(t, err.Error(), "tags")
-				}
+				require.NoError(t, err, "bad tags are a refused call, not a protocol error")
+				require.True(t, result.IsError)
+				assert.Contains(t, result.Content[0], "tags")
 				if tool == "workflow_update" {
 					assert.Equal(t, map[string]string{api.TagsAnnotation: "old"}, readWorkflowAnnotations(t, dir, "triage"))
 				} else {

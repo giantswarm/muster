@@ -443,7 +443,7 @@ func (a *Adapter) createWorkflow(ctx context.Context, writer workflowWriter, arg
 // — and carries the resourceVersion the apiserver requires for CR updates (a
 // fresh object without one is rejected). Conflicts with muster's own status
 // reconciler bumping the resourceVersion are retried on a fresh read.
-func (a *Adapter) updateWorkflow(ctx context.Context, writer workflowWriter, name string, args map[string]interface{}) error {
+func (a *Adapter) updateWorkflow(ctx context.Context, writer workflowWriter, name string, args map[string]interface{}, tags *[]string) error {
 	// Validate the workflow before updating it
 	if err := a.ValidateWorkflowFromStructured(args); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -467,10 +467,8 @@ func (a *Adapter) updateWorkflow(ctx context.Context, writer workflowWriter, nam
 			return err
 		}
 		existing.Spec = desired.Spec
-		// Tri-state: an omitted tags argument keeps the current tags.
-		if args[fieldTags] != nil {
-			existing.Annotations = api.ApplyTagsAnnotation(existing.Annotations, &wf.Tags)
-		}
+		// Tri-state: omitted tags (nil) keep the current tags.
+		existing.Annotations = api.ApplyTagsAnnotation(existing.Annotations, tags)
 		return writer.UpdateWorkflow(ctx, existing)
 	}
 	err = apply()
@@ -1377,7 +1375,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
-				tagsArg,
+				tagsArg(),
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1425,7 +1423,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
-				tagsArg,
+				tagsArg(),
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1486,7 +1484,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
-				tagsArg,
+				tagsArg(),
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1740,6 +1738,9 @@ func (a *Adapter) handleCreate(ctx context.Context, args map[string]interface{})
 			IsError: true,
 		}, nil
 	}
+	if result := invalidTagsResult(req.Tags); result != nil {
+		return result, nil
+	}
 
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
@@ -1799,13 +1800,18 @@ func (a *Adapter) handleUpdate(ctx context.Context, args map[string]interface{})
 			IsError: true,
 		}, nil
 	}
+	if req.Tags != nil {
+		if result := invalidTagsResult(*req.Tags); result != nil {
+			return result, nil
+		}
+	}
 
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
 		return errResult, nil
 	}
 
-	if err := a.updateWorkflow(ctx, writer, req.Name, args); err != nil {
+	if err := a.updateWorkflow(ctx, writer, req.Name, args, req.Tags); err != nil {
 		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
 			return &api.CallToolResult{Content: []interface{}{msg}, IsError: true}, nil
 		}
@@ -1859,6 +1865,9 @@ func (a *Adapter) handleValidate(args map[string]interface{}) (*api.CallToolResu
 			Content: []interface{}{err.Error()},
 			IsError: true,
 		}, nil
+	}
+	if result := invalidTagsResult(req.Tags); result != nil {
+		return result, nil
 	}
 
 	if err := a.ValidateWorkflowFromStructured(args); err != nil {
@@ -2155,7 +2164,7 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 
 	tags, err := convertTags(args[fieldTags])
 	if err != nil {
-		return wf, fmt.Errorf("validation failed: tags: %w", err)
+		return wf, fmt.Errorf("invalid tags: %w", err)
 	}
 	wf.Tags = tags
 

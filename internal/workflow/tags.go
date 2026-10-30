@@ -10,16 +10,30 @@ import (
 const fieldTags = "tags"
 
 // tagsArg declares the tags argument of workflow_create, _update and
-// _validate.
-var tagsArg = api.ArgMetadata{
-	Name:        fieldTags,
-	Type:        api.ArgTypeArray,
-	Required:    false,
-	Description: api.TagsArgDescription,
-	Schema: map[string]interface{}{
-		api.SchemaKeyType:  string(api.ArgTypeArray),
-		api.SchemaKeyItems: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
-	},
+// _validate. A fresh value per call, so the tools share no schema map.
+func tagsArg() api.ArgMetadata {
+	return api.ArgMetadata{
+		Name:        fieldTags,
+		Type:        api.ArgTypeArray,
+		Required:    false,
+		Description: api.TagsArgDescription,
+		Schema: map[string]interface{}{
+			api.SchemaKeyType:  string(api.ArgTypeArray),
+			api.SchemaKeyItems: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+		},
+	}
+}
+
+// invalidTagsResult refuses tags that fail api.ValidateTags with a tool
+// error worded as core_mcpserver_*'s. It returns nil for valid tags.
+func invalidTagsResult(tags []string) *api.CallToolResult {
+	if err := api.ValidateTags(tags); err != nil {
+		return &api.CallToolResult{
+			Content: []interface{}{fmt.Sprintf("invalid tags: %v", err)},
+			IsError: true,
+		}
+	}
+	return nil
 }
 
 // convertTags reads and validates a tags argument. nil (omitted) yields no
