@@ -23,6 +23,7 @@ import (
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 	"github.com/giantswarm/muster/v5/internal/server"
+	"github.com/giantswarm/muster/v5/internal/servericon"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 	"github.com/giantswarm/muster/v5/pkg/observability"
@@ -3622,6 +3623,7 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName string) 
 			slog.String("error", err.Error()))
 		return
 	}
+	servericon.RecordClient(serverName, client)
 
 	if a.connPool != nil {
 		a.connPool.PutWithDeferredClose(sessionID, serverName, client, tokenExpiry, deferredCloseDelay)

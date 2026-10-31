@@ -14,6 +14,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/servericon"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	"github.com/giantswarm/muster/v5/pkg/observability"
 )
@@ -357,6 +358,12 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 	} else if reconcileErr != nil {
 		// Sanitize error message to remove sensitive data before CRD exposure
 		server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
+	}
+
+	// Only an icon muster has learned is written: before the first
+	// handshake after a restart, the stored one stays.
+	if icon, known := servericon.Lookup(name); known {
+		server.Status.Icon = icon
 	}
 
 	applyReadyCondition(server, service, exists)
@@ -909,6 +916,7 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 	// Done before the early returns below: every path out of here means the
 	// definition is gone.
 	r.stateMetrics.forget(r.metricKey(req))
+	servericon.Forget(key)
 
 	// Check if service exists
 	_, exists := r.serviceRegistry.Get(key)

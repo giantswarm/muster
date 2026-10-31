@@ -22,6 +22,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/internal/events"
 	"github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/servericon"
 	"github.com/giantswarm/muster/v5/internal/services"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -1115,6 +1116,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	}
 
 	s.client = client
+	servericon.RecordClient(s.GetName(), client)
 	s.LogDebug("%s MCP client initialized successfully for %s", s.definition.Type, s.GetName())
 	return nil
 }

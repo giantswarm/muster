@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/servericon"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -92,6 +93,14 @@ func (b *StateChangeBridge) Start(ctx context.Context) error {
 	// Subscribe to state changes from the orchestrator
 	eventChan := b.orchestratorAPI.SubscribeToStateChanges()
 
+	// A server's icon is learned at a handshake, which need not change its
+	// state: a per-user connection, for one.
+	servericon.SetOnChange(func(key string) {
+		if b.reconcileManager.IsResourceTypeEnabled(ResourceTypeMCPServer) {
+			b.triggerReconcile(ResourceTypeMCPServer, key)
+		}
+	})
+
 	b.wg.Add(1)
 	go b.processEvents(eventChan)
 
@@ -115,6 +124,7 @@ func (b *StateChangeBridge) Stop() error {
 	b.running = false
 	cancelFunc := b.cancelFunc
 	b.mu.Unlock()
+	servericon.SetOnChange(nil)
 
 	if cancelFunc != nil {
 		cancelFunc()

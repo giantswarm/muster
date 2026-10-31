@@ -763,6 +763,13 @@ type MCPServerStatus struct {
 	// differ (spec-is-desired / status-is-observed idiom, issue #1055).
 	LastRestartedAt *metav1.Time `json:"lastRestartedAt,omitempty" yaml:"lastRestartedAt,omitempty"`
 
+	// Icon is the icon the server declares in its initialize result, as a
+	// data: URI (data:<mime>;base64,...) of type image/svg+xml, image/png,
+	// image/jpeg or image/webp, at most 64 KiB. Absent when the server sent
+	// no usable icon.
+	// +optional
+	Icon string `json:"icon,omitempty" yaml:"icon,omitempty"`
+
 	// Conditions represent the latest available observations of the MCPServer's current state.
 	// Standard condition types:
 	//   - Ready: True while the server is reachable (Running, Connected, Auth
