@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -27,6 +28,8 @@ func TestValidateTags(t *testing.T) {
 		{name: "trailing hyphen", tags: []string{"triage-"}, wantErr: `tag "triage-"`},
 		{name: "double hyphen", tags: []string{"tri--age"}, wantErr: `tag "tri--age"`},
 		{name: "underscore", tags: []string{"tri_age"}, wantErr: `tag "tri_age"`},
+		{name: "50 tags", tags: numberedTags(MaxTags)},
+		{name: "51 tags", tags: numberedTags(MaxTags + 1), wantErr: "at most 50 tags"},
 		{name: "duplicate", tags: []string{"triage", "kubernetes", "triage"}, wantErr: `duplicate tag "triage"`},
 	}
 
@@ -43,6 +46,15 @@ func TestValidateTags(t *testing.T) {
 	}
 }
 
+// numberedTags returns n distinct valid tags.
+func numberedTags(n int) []string {
+	tags := make([]string, n)
+	for i := range tags {
+		tags[i] = fmt.Sprintf("tag-%d", i)
+	}
+	return tags
+}
+
 func TestParseTags(t *testing.T) {
 	tests := []struct {
 		name string
@@ -56,6 +68,7 @@ func TestParseTags(t *testing.T) {
 		{name: "trims and lowercases", raw: " Triage , KUBERNETES ", want: []string{"triage", "kubernetes"}},
 		{name: "drops malformed entries", raw: "triage,bad_tag,-x,ok-1," + strings.Repeat("a", 64), want: []string{"triage", "ok-1"}},
 		{name: "dedupes after normalising", raw: "triage,Triage, triage", want: []string{"triage"}},
+		{name: "keeps more than MaxTags", raw: strings.Join(numberedTags(MaxTags+1), ","), want: numberedTags(MaxTags + 1)},
 	}
 
 	for _, tt := range tests {

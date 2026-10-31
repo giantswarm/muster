@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -52,7 +53,7 @@ func TestCreateStoresTags(t *testing.T) {
 
 func TestMutationsRejectInvalidTags(t *testing.T) {
 	for _, tool := range []string{"mcpserver_create", "mcpserver_update", "mcpserver_validate"} {
-		for _, tags := range [][]interface{}{{"Triage"}, {"triage", "triage"}, {"bad_tag"}} {
+		for _, tags := range [][]interface{}{{"Triage"}, {"triage", "triage"}, {"bad_tag"}, tooManyTags()} {
 			t.Run(tool, func(t *testing.T) {
 				c := &recordingClient{stubMusterClient: stubMusterClient{existing: existingServer()}}
 				adapter := NewAdapterWithClient(c, "test-ns")
@@ -172,4 +173,13 @@ func TestMutationToolsDeclareTags(t *testing.T) {
 		}
 	}
 	assert.Equal(t, map[string]bool{"mcpserver_create": true, "mcpserver_update": true, "mcpserver_validate": true}, declared)
+}
+
+// tooManyTags returns api.MaxTags+1 distinct valid tags as a tool argument.
+func tooManyTags() []interface{} {
+	tags := make([]interface{}, api.MaxTags+1)
+	for i := range tags {
+		tags[i] = fmt.Sprintf("tag-%d", i)
+	}
+	return tags
 }

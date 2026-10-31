@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -74,6 +75,7 @@ func TestMutationsRejectInvalidTags(t *testing.T) {
 			[]interface{}{"Triage"},
 			[]interface{}{"triage", "triage"},
 			[]interface{}{"bad_tag"},
+			tooManyTags(),
 			[]interface{}{42},
 			"triage",
 		} {
@@ -173,4 +175,13 @@ func TestMutationToolsDeclareTags(t *testing.T) {
 		}
 	}
 	assert.Equal(t, map[string]bool{"workflow_create": true, "workflow_update": true, "workflow_validate": true}, declared)
+}
+
+// tooManyTags returns api.MaxTags+1 distinct valid tags as a tool argument.
+func tooManyTags() []interface{} {
+	tags := make([]interface{}, api.MaxTags+1)
+	for i := range tags {
+		tags[i] = fmt.Sprintf("tag-%d", i)
+	}
+	return tags
 }

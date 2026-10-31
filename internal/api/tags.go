@@ -14,10 +14,14 @@ const TagsAnnotation = "ui.giantswarm.io/tags"
 
 // TagsArgDescription describes the tags argument of the MCPServer and
 // Workflow mutation tools.
-const TagsArgDescription = "Tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars, unique. On update: omitted keeps, [] clears, a list replaces"
+const TagsArgDescription = "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars. Update: omitted keeps, [] clears, a list replaces"
 
 // MaxTagLength is the longest tag accepted, in characters.
 const MaxTagLength = 63
+
+// MaxTags is the most tags a write accepts, as for agents and skills in the
+// developer portal.
+const MaxTags = 50
 
 var tagPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 
@@ -33,8 +37,12 @@ func checkTag(tag string) error {
 
 // ValidateTags checks tags as a writer receives them: each matches
 // ^[a-z0-9]+(-[a-z0-9]+)*$, is at most MaxTagLength characters, and appears
-// once. It does not normalise; the caller sends tags in their stored form.
+// once, and there are at most MaxTags of them. It does not normalise; the
+// caller sends tags in their stored form.
 func ValidateTags(tags []string) error {
+	if len(tags) > MaxTags {
+		return fmt.Errorf("at most %d tags", MaxTags)
+	}
 	seen := make(map[string]struct{}, len(tags))
 	for _, tag := range tags {
 		if err := checkTag(tag); err != nil {
@@ -50,7 +58,7 @@ func ValidateTags(tags []string) error {
 
 // ParseTags reads a TagsAnnotation value: it splits on commas, trims and
 // lowercases each entry, and drops entries that are not valid tags and
-// repeats. It never fails, so a malformed annotation set by hand does not
+// repeats. It does not enforce MaxTags. It never fails, so a malformed annotation set by hand does not
 // break a read. It returns nil when no valid tag remains.
 func ParseTags(raw string) []string {
 	var tags []string
