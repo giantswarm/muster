@@ -150,8 +150,8 @@ github.com/giantswarm/mcp-oauth v1.9.5 h1:B8Ax7lS9BKyjApzVrbtUQAwz+vx0TiZaYVpQy7
 github.com/giantswarm/mcp-oauth v1.9.5/go.mod h1:zySf65rDkXwTZ2aegIpLk1PadcWDXMxbY5oiVCY+FR4=
 github.com/giantswarm/mcp-toolkit v0.4.8 h1:nQwgGJA6tvRj0OOoFmB927e2NrqKgLrEg/ORIsXm+5c=
 github.com/giantswarm/mcp-toolkit v0.4.8/go.mod h1:9Mk1QilOoEd9uU4eyqxqlGPWlZhjukg+nbFUT23+Zns=
-github.com/giantswarm/pagekit v0.3.2 h1:YDnxBOzBcrBrc1J8XArl3J83JrD/CdtWQ0GuDkDprBo=
-github.com/giantswarm/pagekit v0.3.2/go.mod h1:bXMRzjARa/TewLywz4naTh8YsGzbfSLUoGlEfM92oPQ=
+github.com/giantswarm/pagekit v0.3.3 h1:gYPKvEAF2yxHhRWnsIoQWlp6B0B8hosOCRB50HthRD0=
+github.com/giantswarm/pagekit v0.3.3/go.mod h1:bXMRzjARa/TewLywz4naTh8YsGzbfSLUoGlEfM92oPQ=
 github.com/giantswarm/selfupdate-cosign v0.3.18 h1:RtewsitI37oBeRmVCBeJh4VZcehwlHiSiU7hHlida54=
 github.com/giantswarm/selfupdate-cosign v0.3.18/go.mod h1:i0CI7tutWiFzXE48NkxmAWqvDyQT5fs9FZH/8Nmtzac=
 github.com/go-chi/chi/v5 v5.5.0 h1:xdKQ1dJmVJsmgahrXSKhUx8NyVPzpwdlyrrQFpMPJgg=
