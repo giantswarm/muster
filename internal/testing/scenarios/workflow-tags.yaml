@@ -1,0 +1,138 @@
+name: "workflow-tags"
+category: "behavioral"
+concept: "workflow"
+description: |
+  Verify that tags on core_workflow_create set the ui.giantswarm.io/tags
+  annotation, exposed as tags on core_workflow_get and core_workflow_list,
+  that invalid tags are refused as a tool error, and that core_workflow_update
+  keeps the tags when tags is omitted, replaces them with a list and removes
+  them with [].
+tags: ["workflow", "create", "update", "annotations", "core-api"]
+timeout: "2m"
+
+steps:
+  - id: "refuse-invalid-tags-on-create"
+    description: "A create with an uppercase tag is refused"
+    tool: "core_workflow_create"
+    args:
+      name: "tagged-workflow"
+      steps:
+        - id: "list"
+          tool: "core_service_list"
+      tags: ["Triage"]
+    expected:
+      success: false
+      error_contains: ["invalid tags"]
+
+  - id: "create-workflow"
+    description: "Create a workflow with tags"
+    tool: "core_workflow_create"
+    args:
+      name: "tagged-workflow"
+      steps:
+        - id: "list"
+          tool: "core_service_list"
+      tags: ["triage", "kubernetes"]
+    expected:
+      success: true
+
+  - id: "verify-tags-on-get"
+    description: "core_workflow_get carries the tags"
+    tool: "core_workflow_get"
+    args:
+      name: "tagged-workflow"
+    expected:
+      success: true
+      contains: ["\"tags\":[\"triage\",\"kubernetes\"]"]
+
+  - id: "verify-tags-on-list"
+    description: "core_workflow_list carries the tags"
+    tool: "core_workflow_list"
+    expected:
+      success: true
+      contains: ["\"tags\":[\"triage\",\"kubernetes\"]"]
+
+  - id: "refuse-invalid-tags-on-update"
+    description: "An update with a duplicate tag is refused"
+    tool: "core_workflow_update"
+    args:
+      name: "tagged-workflow"
+      steps:
+        - id: "list"
+          tool: "core_service_list"
+      tags: ["triage", "triage"]
+    expected:
+      success: false
+      error_contains: ["invalid tags"]
+
+  - id: "update-without-tags"
+    description: "An update that omits tags"
+    tool: "core_workflow_update"
+    args:
+      name: "tagged-workflow"
+      description: "tagged"
+      steps:
+        - id: "list"
+          tool: "core_service_list"
+    expected:
+      success: true
+
+  - id: "verify-tags-kept"
+    description: "The tags survive an update that omits them"
+    tool: "core_workflow_get"
+    args:
+      name: "tagged-workflow"
+    expected:
+      success: true
+      contains: ["\"tags\":[\"triage\",\"kubernetes\"]"]
+
+  - id: "replace-tags"
+    description: "An update with a new list"
+    tool: "core_workflow_update"
+    args:
+      name: "tagged-workflow"
+      steps:
+        - id: "list"
+          tool: "core_service_list"
+      tags: ["alerts"]
+    expected:
+      success: true
+
+  - id: "verify-tags-replaced"
+    description: "The list replaces the tags"
+    tool: "core_workflow_get"
+    args:
+      name: "tagged-workflow"
+    expected:
+      success: true
+      contains: ["\"tags\":[\"alerts\"]"]
+
+  - id: "clear-tags"
+    description: "An update with an empty list"
+    tool: "core_workflow_update"
+    args:
+      name: "tagged-workflow"
+      steps:
+        - id: "list"
+          tool: "core_service_list"
+      tags: []
+    expected:
+      success: true
+
+  - id: "verify-tags-removed"
+    description: "An empty list removes the tags"
+    tool: "core_workflow_get"
+    args:
+      name: "tagged-workflow"
+    expected:
+      success: true
+      not_contains: ["\"tags\""]
+
+cleanup:
+  - id: "delete-workflow"
+    description: "Delete the test workflow"
+    tool: "core_workflow_delete"
+    args:
+      name: "tagged-workflow"
+    expected:
+      success: true

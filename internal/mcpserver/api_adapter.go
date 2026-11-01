@@ -477,6 +477,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name, info.Auth)
 
 	info.DisplayName = server.Annotations[api.DisplayNameAnnotation]
+	info.Tags = api.ParseTags(server.Annotations[api.TagsAnnotation])
 	info.RegisteredBy = server.Annotations[api.RegisteredByAnnotation]
 	info.RegisteredByEmail = server.Annotations[api.RegisteredByEmailAnnotation]
 
@@ -621,6 +622,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		},
 	}
 	setDisplayName(crd, req.DisplayName)
+	crd.Annotations = api.ApplyTagsAnnotation(crd.Annotations, &req.Tags)
 
 	return crd
 }
@@ -650,6 +652,10 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
 		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it"},
+		{Name: "tags", Type: api.ArgTypeArray, Required: false, Description: api.TagsArgDescription, Schema: map[string]interface{}{
+			api.SchemaKeyType:  string(api.ArgTypeArray),
+			api.SchemaKeyItems: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+		}},
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start; on update, omitted keeps the current value"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
@@ -1058,6 +1064,9 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 			IsError: true,
 		}, nil
 	}
+	if err := api.ValidateTags(req.Tags); err != nil {
+		return simpleError(fmt.Sprintf("invalid tags: %v", err))
+	}
 
 	// Create MCPServer CRD for validation
 	server := a.convertRequestToCRD(&api.MCPServerCreateRequest{
@@ -1066,6 +1075,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		ToolPrefix:  req.ToolPrefix,
 		Family:      req.Family,
 		DisplayName: req.DisplayName,
+		Tags:        req.Tags,
 		Description: req.Description,
 		AutoStart:   req.AutoStart,
 		Command:     req.Command,
@@ -1128,6 +1138,9 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 			IsError: true,
 		}, nil
 	}
+	if err := api.ValidateTags(req.Tags); err != nil {
+		return simpleError(fmt.Sprintf("invalid tags: %v", err))
+	}
 
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
@@ -1186,6 +1199,11 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 			IsError: true,
 		}, nil
 	}
+	if req.Tags != nil {
+		if err := api.ValidateTags(*req.Tags); err != nil {
+			return simpleError(fmt.Sprintf("invalid tags: %v", err))
+		}
+	}
 
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
@@ -1220,6 +1238,7 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		existing.Spec.Description = req.Description
 	}
 	updateDisplayName(existing, req.DisplayName)
+	existing.Annotations = api.ApplyTagsAnnotation(existing.Annotations, req.Tags)
 	// Tri-state: an omitted autoStart keeps the current value.
 	if req.AutoStart != nil {
 		existing.Spec.AutoStart = *req.AutoStart

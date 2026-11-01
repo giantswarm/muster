@@ -491,6 +491,7 @@ Create a new MCP server definition that can be started as a service.
 - `name` (string, required) - Unique server name (used as service identifier)
 - `type` (string, required) - Server type (`stdio`, `streamable-http`, or `sse`)
 - `displayName` (string, optional) - Human-friendly name UIs show for the server, stored in the `ui.giantswarm.io/display-name` annotation next to the `registered-by` annotations muster stamps. Surrounding whitespace is trimmed; a blank value sets no annotation
+- `tags` (array of strings, optional) - Stored comma-joined in the `ui.giantswarm.io/tags` annotation. Each tag: lowercase letters and digits joined by single hyphens (`^[a-z0-9]+(-[a-z0-9]+)*$`), at most 63 characters, no duplicates; at most 50 tags
 - `description` (string, optional) - Human-readable description of server purpose
 - `command` (array of strings, optional) - Command executable and arguments (for stdio servers)
 - `args` (array of strings, optional) - Command line arguments (for stdio servers)
@@ -534,7 +535,7 @@ Get detailed information about a specific MCP server definition.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to retrieve
 
-**Returns:** Complete MCP server definition object. `displayName`, `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server
+**Returns:** Complete MCP server definition object. `displayName`, `tags` (array), `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server
 
 **Example Request:**
 ```json
@@ -551,6 +552,7 @@ Get detailed information about a specific MCP server definition.
 {
   "name": "my-tools",
   "displayName": "My Tools",
+  "tags": ["project-management"],
   "type": "stdio",
   "autoStart": true,
   "description": "Custom tool server for project management",
@@ -569,6 +571,7 @@ Update an existing MCP server definition. Only provided fields are updated.
 - `name` (string, required) - Name of the MCP server to update
 - `type` (string, optional) - Server type
 - `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation, trimmed; an empty or blank string removes it, and omitting it keeps the current one
+- `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones
 - `description` (string, optional) - Updated description
 - `command` (array of strings, optional) - New command and arguments
 - `env` (object, optional) - Updated environment variables (replaces existing)
@@ -631,6 +634,7 @@ Validate MCP server configuration without creating or modifying the server.
 - `name` (string, required) - Server name to validate
 - `type` (string, required) - Server type to validate
 - `displayName` (string, optional) - Display name to validate, as on create
+- `tags` (array of strings, optional) - Tags to validate, as on create
 - `description` (string, optional) - Description to validate
 - `command` (array of strings, optional) - Command to validate
 - `env` (object, optional) - Environment variables to validate
@@ -899,7 +903,7 @@ List all workflow definitions with their availability status.
 
 **Arguments:** None
 
-**Returns:** Object containing array of workflow definitions
+**Returns:** Object containing array of workflow definitions; each carries `tags` (array) when it has any
 
 **Example Request:**
 ```json
@@ -916,7 +920,8 @@ List all workflow definitions with their availability status.
     {
       "name": "deploy-application",
       "description": "Deploy application with monitoring setup",
-      "available": true
+      "available": true,
+      "tags": ["deploy", "monitoring"]
     },
     {
       "name": "backup-database",
@@ -949,6 +954,7 @@ Create a new workflow definition with advanced step configuration.
   - Each argument has: `type`, `required`, `default`, `description`
   - Supported types: `string`, `integer`, `boolean`, `number`, `object`, `array`
 - `description` (string, optional) - Workflow description
+- `tags` (array of strings, optional) - Stored comma-joined in the Workflow's `ui.giantswarm.io/tags` annotation. Each tag: lowercase letters and digits joined by single hyphens (`^[a-z0-9]+(-[a-z0-9]+)*$`), at most 63 characters, no duplicates; at most 50 tags
 
 The field names are the `Workflow` CRD's, so a step copied from a manifest works unchanged. The snake_case spellings `allow_failure`, `from_step`, `expect_not` and `json_path` are deprecated aliases: still accepted, with a warning in the server log.
 
@@ -1024,7 +1030,7 @@ Get detailed information about a specific workflow definition.
 **Arguments:**
 - `name` (string, required) - Name of the workflow to retrieve
 
-**Returns:** Complete workflow definition with all steps and configuration
+**Returns:** Complete workflow definition with all steps and configuration; `tags` (array) is omitted when unset
 
 **Example Request:**
 ```json
@@ -1072,6 +1078,7 @@ Update an existing workflow definition. Only provided fields are updated.
 - `steps` (array, optional) - Updated workflow steps (replaces all existing steps)
 - `args` (object, optional) - Updated argument schema
 - `description` (string, optional) - Updated description
+- `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones
 
 **Returns:** Updated workflow definition
 
@@ -1134,6 +1141,7 @@ Validate a workflow definition without creating it.
 - `steps` (array, required) - Workflow steps to validate
 - `args` (object, optional) - Argument schema to validate
 - `description` (string, optional) - Description to validate
+- `tags` (array of strings, optional) - Tags to validate, as on create
 
 **Returns:** Validation result with errors, warnings, and tool availability check
 
