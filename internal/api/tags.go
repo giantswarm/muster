@@ -16,6 +16,9 @@ const TagsAnnotation = "ui.giantswarm.io/tags"
 // Workflow mutation tools.
 const TagsArgDescription = "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars. Update: omitted keeps, [] clears, a list replaces"
 
+// TagPattern is the form of a single tag.
+const TagPattern = `^[a-z0-9]+(-[a-z0-9]+)*$`
+
 // MaxTagLength is the longest tag accepted, in characters.
 const MaxTagLength = 63
 
@@ -23,7 +26,7 @@ const MaxTagLength = 63
 // developer portal.
 const MaxTags = 50
 
-var tagPattern = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+var tagPattern = regexp.MustCompile(TagPattern)
 
 func checkTag(tag string) error {
 	if len(tag) > MaxTagLength {
@@ -56,10 +59,43 @@ func ValidateTags(tags []string) error {
 	return nil
 }
 
+// TagsArg declares the tags argument of the MCPServer and Workflow mutation
+// tools, with ValidateTags' rules in its JSON Schema. A fresh value per call,
+// so tools share no schema map.
+func TagsArg() ArgMetadata {
+	return ArgMetadata{
+		Name:        "tags",
+		Type:        ArgTypeArray,
+		Description: TagsArgDescription,
+		Schema: map[string]interface{}{
+			SchemaKeyType:        string(ArgTypeArray),
+			SchemaKeyMaxItems:    MaxTags,
+			SchemaKeyUniqueItems: true,
+			SchemaKeyItems: map[string]interface{}{
+				SchemaKeyType:      string(ArgTypeString),
+				SchemaKeyPattern:   TagPattern,
+				SchemaKeyMaxLength: MaxTagLength,
+			},
+		},
+	}
+}
+
+// InvalidTagsResult refuses a write's tags that fail ValidateTags with a tool
+// error. It returns nil when tags is nil (omitted) or valid.
+func InvalidTagsResult(tags *[]string) *CallToolResult {
+	if tags == nil {
+		return nil
+	}
+	if err := ValidateTags(*tags); err != nil {
+		return &CallToolResult{Content: []interface{}{fmt.Sprintf("invalid tags: %v", err)}, IsError: true}
+	}
+	return nil
+}
+
 // ParseTags reads a TagsAnnotation value: it splits on commas, trims and
 // lowercases each entry, and drops entries that are not valid tags and
-// repeats. It does not enforce MaxTags. It never fails, so a malformed annotation set by hand does not
-// break a read. It returns nil when no valid tag remains.
+// repeats. It does not enforce MaxTags. It never fails, so a malformed
+// annotation set by hand does not break a read. It returns nil when no valid tag remains.
 func ParseTags(raw string) []string {
 	var tags []string
 	seen := map[string]struct{}{}

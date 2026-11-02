@@ -652,10 +652,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
 		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it"},
-		{Name: "tags", Type: api.ArgTypeArray, Required: false, Description: api.TagsArgDescription, Schema: map[string]interface{}{
-			api.SchemaKeyType:  string(api.ArgTypeArray),
-			api.SchemaKeyItems: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
-		}},
+		api.TagsArg(),
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start; on update, omitted keeps the current value"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
@@ -1064,8 +1061,8 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 			IsError: true,
 		}, nil
 	}
-	if err := api.ValidateTags(req.Tags); err != nil {
-		return simpleError(fmt.Sprintf("invalid tags: %v", err))
+	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
+		return refused, nil
 	}
 
 	// Create MCPServer CRD for validation
@@ -1138,8 +1135,8 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 			IsError: true,
 		}, nil
 	}
-	if err := api.ValidateTags(req.Tags); err != nil {
-		return simpleError(fmt.Sprintf("invalid tags: %v", err))
+	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
+		return refused, nil
 	}
 
 	writer, errResult := a.mutationWriter(ctx)
@@ -1199,10 +1196,8 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 			IsError: true,
 		}, nil
 	}
-	if req.Tags != nil {
-		if err := api.ValidateTags(*req.Tags); err != nil {
-			return simpleError(fmt.Sprintf("invalid tags: %v", err))
-		}
+	if refused := api.InvalidTagsResult(req.Tags); refused != nil {
+		return refused, nil
 	}
 
 	writer, errResult := a.mutationWriter(ctx)

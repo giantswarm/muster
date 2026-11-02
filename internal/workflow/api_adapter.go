@@ -397,7 +397,7 @@ func (a *Adapter) getWorkflow(ctx context.Context, name string) (*api.Workflow, 
 // session-initiated mutations in Kubernetes mode, the shared local client in
 // filesystem mode. Write errors are returned unwrapped enough for the caller
 // to map apiserver authn/authz failures (describeWriteAuthError).
-func (a *Adapter) createWorkflow(ctx context.Context, writer workflowWriter, args map[string]interface{}) error {
+func (a *Adapter) createWorkflow(ctx context.Context, writer workflowWriter, args map[string]interface{}, tags []string) error {
 	// Validate the workflow before creating it
 	if err := a.ValidateWorkflowFromStructured(args); err != nil {
 		return fmt.Errorf("validation failed: %w", err)
@@ -408,6 +408,7 @@ func (a *Adapter) createWorkflow(ctx context.Context, writer workflowWriter, arg
 	if err != nil {
 		return err
 	}
+	wf.Tags = tags
 
 	// Build the CRD from the internal workflow representation.
 	workflowCRD := a.convertWorkflowToCRD(&wf)
@@ -458,7 +459,8 @@ func (a *Adapter) updateWorkflow(ctx context.Context, writer workflowWriter, nam
 	// Ensure the name matches
 	wf.Name = name
 
-	// Convert to CRD; only its spec is applied onto the live object.
+	// Convert to CRD; only its spec is applied onto the live object, and
+	// tags (nil keeps them) onto its annotations.
 	desired := a.convertWorkflowToCRD(&wf)
 
 	apply := func() error {
@@ -467,7 +469,6 @@ func (a *Adapter) updateWorkflow(ctx context.Context, writer workflowWriter, nam
 			return err
 		}
 		existing.Spec = desired.Spec
-		// Tri-state: omitted tags (nil) keep the current tags.
 		existing.Annotations = api.ApplyTagsAnnotation(existing.Annotations, tags)
 		return writer.UpdateWorkflow(ctx, existing)
 	}
@@ -1375,7 +1376,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
-				tagsArg(),
+				api.TagsArg(),
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1423,7 +1424,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
-				tagsArg(),
+				api.TagsArg(),
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1484,7 +1485,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
-				tagsArg(),
+				api.TagsArg(),
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1674,7 +1675,7 @@ func (a *Adapter) handleList(ctx context.Context, args map[string]interface{}) (
 			workflowInfo["description"] = wf.Description
 		}
 		if len(wf.Tags) > 0 {
-			workflowInfo[fieldTags] = wf.Tags
+			workflowInfo["tags"] = wf.Tags
 		}
 
 		result = append(result, workflowInfo)
@@ -1738,7 +1739,7 @@ func (a *Adapter) handleCreate(ctx context.Context, args map[string]interface{})
 			IsError: true,
 		}, nil
 	}
-	if result := invalidTagsResult(req.Tags); result != nil {
+	if result := api.InvalidTagsResult(&req.Tags); result != nil {
 		return result, nil
 	}
 
@@ -1754,7 +1755,7 @@ func (a *Adapter) handleCreate(ctx context.Context, args map[string]interface{})
 	}
 
 	// Create the workflow with the resolved write identity
-	if err := a.createWorkflow(ctx, writer, args); err != nil {
+	if err := a.createWorkflow(ctx, writer, args, req.Tags); err != nil {
 		if msg := a.describeWriteAuthError(err, "create", req.Name); msg != "" {
 			return &api.CallToolResult{Content: []interface{}{msg}, IsError: true}, nil
 		}
@@ -1800,10 +1801,8 @@ func (a *Adapter) handleUpdate(ctx context.Context, args map[string]interface{})
 			IsError: true,
 		}, nil
 	}
-	if req.Tags != nil {
-		if result := invalidTagsResult(*req.Tags); result != nil {
-			return result, nil
-		}
+	if result := api.InvalidTagsResult(req.Tags); result != nil {
+		return result, nil
 	}
 
 	writer, errResult := a.mutationWriter(ctx)
@@ -1866,7 +1865,7 @@ func (a *Adapter) handleValidate(args map[string]interface{}) (*api.CallToolResu
 			IsError: true,
 		}, nil
 	}
-	if result := invalidTagsResult(req.Tags); result != nil {
+	if result := api.InvalidTagsResult(&req.Tags); result != nil {
 		return result, nil
 	}
 
@@ -2161,12 +2160,6 @@ func convertToWorkflow(args map[string]interface{}) (api.Workflow, error) {
 	if desc, ok := args["description"].(string); ok {
 		wf.Description = desc
 	}
-
-	tags, err := convertTags(args[fieldTags])
-	if err != nil {
-		return wf, fmt.Errorf("invalid tags: %w", err)
-	}
-	wf.Tags = tags
 
 	// Convert args
 	if argsParam, ok := args["args"].(map[string]interface{}); ok {

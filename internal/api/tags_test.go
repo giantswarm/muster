@@ -126,3 +126,58 @@ func TestApplyTagsAnnotation(t *testing.T) {
 		})
 	}
 }
+
+func TestTagsArgSchemaCarriesValidateTagsRules(t *testing.T) {
+	schema := InputSchemaFromArgs([]ArgMetadata{TagsArg()})
+
+	require.Equal(t, map[string]any{
+		"type":        "array",
+		"description": TagsArgDescription,
+		"maxItems":    MaxTags,
+		"uniqueItems": true,
+		"items": map[string]any{
+			"type":      "string",
+			"pattern":   TagPattern,
+			"maxLength": MaxTagLength,
+		},
+	}, schema.Properties["tags"])
+	assert.Empty(t, schema.Required)
+}
+
+func TestInvalidTagsResult(t *testing.T) {
+	ptr := func(tags ...string) *[]string { return &tags }
+
+	assert.Nil(t, InvalidTagsResult(nil))
+	assert.Nil(t, InvalidTagsResult(ptr()))
+	assert.Nil(t, InvalidTagsResult(ptr("triage")))
+
+	refused := InvalidTagsResult(ptr("Triage"))
+	require.NotNil(t, refused)
+	assert.True(t, refused.IsError)
+	assert.Equal(t, []interface{}{`invalid tags: tag "Triage" must be lowercase letters and digits, optionally joined by single hyphens`}, refused.Content)
+}
+
+func TestUpdateRequestTagsTriState(t *testing.T) {
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want *[]string
+	}{
+		{name: "omitted", args: map[string]interface{}{"name": "triage"}, want: nil},
+		{name: "null", args: map[string]interface{}{"name": "triage", "tags": nil}, want: nil},
+		{name: "empty list", args: map[string]interface{}{"name": "triage", "tags": []interface{}{}}, want: &[]string{}},
+		{name: "list", args: map[string]interface{}{"name": "triage", "tags": []interface{}{"a", "b"}}, want: &[]string{"a", "b"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var mcpServer MCPServerUpdateRequest
+			require.NoError(t, ParseRequest(tt.args, &mcpServer))
+			assert.Equal(t, tt.want, mcpServer.Tags)
+
+			var workflow WorkflowUpdateRequest
+			require.NoError(t, ParseRequest(tt.args, &workflow))
+			assert.Equal(t, tt.want, workflow.Tags)
+		})
+	}
+}
