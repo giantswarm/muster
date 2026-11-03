@@ -210,6 +210,11 @@ type AggregatorServer struct {
 	// sessionID/serverName.
 	subjectGrantGroup singleflight.Group
 
+	// discovered remembers the issuer muster learned for each server that
+	// discovers a subject-scoped issuer, and its failed lookups
+	// (subject_grant_discovered.go).
+	discovered discoveredIssuers
+
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
 
@@ -1491,6 +1496,7 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		a.forgetTenantServer(forgetCtx, name)
 		cancel()
 		forgetServerPinDeferrals(name)
+		a.discovered.forget(name)
 	}
 	if !reconnecting || (tracked && (err != nil || !removed)) {
 		a.reconnects.settled(name)

@@ -299,8 +299,11 @@ spec:
 muster decides grant scope per authorization server: the setting makes the
 issuer muster discovers for the server subject-scoped, for every server of the
 namespace that uses that issuer, as `auth.authorizationServer.grantScope:
-subject` does for a pinned issuer. `core_auth_status` reports the server with
-`grant_scope: subject`. Use it for accounts the person owns, never for tokens
+subject` does for a pinned issuer. An issuer that an MCPServer of the namespace
+names in `auth.authorizationServer` keeps that server's description: the
+discovered server then signs in under it, session-scoped unless it is
+`grantScope: subject`. `core_auth_status` reports the scope muster applies:
+`grant_scope: subject` once the discovered issuer is known and subject-scoped. Use it for accounts the person owns, never for tokens
 that carry the authority of one session. See
 [MCPServerAuth fields](../reference/crds.md#mcpserverauth-fields).
 

@@ -57,6 +57,14 @@ func TestValidateGrantScope(t *testing.T) {
 			subject:   true,
 		},
 		{
+			name: "session next to forwardToken is the default and accepted",
+			auth: &MCPServerAuth{Type: MCPServerAuthTypeOAuth, GrantScope: GrantScopeSession, ForwardToken: true},
+		},
+		{
+			name: "session on type none is accepted",
+			auth: &MCPServerAuth{Type: "none", GrantScope: GrantScopeSession},
+		},
+		{
 			name:      "an unknown value",
 			auth:      &MCPServerAuth{Type: MCPServerAuthTypeOAuth, GrantScope: "person"},
 			wantError: `must be "session" or "subject"`,

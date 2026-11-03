@@ -417,15 +417,14 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 // AuthConfig inside registration may be nil; in either case the server is
 // flagged as requiring per-session authentication.
 func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthRegistration) error {
-	// A server that discovers a subject-scoped issuer learns it now, before
-	// the lock and before the tenant adoption records the issuer keys it
-	// names, so the first session finds the person's grant under it.
-	registration = withDiscoveredIssuer(context.Background(), registration)
-
 	// A tenant server is adopted before the lock: the first adoption in a
 	// namespace may sweep the stores, and other registrations need not wait
 	// for it. The entry is written only after it.
 	if aggregatorServer := am.GetAggregatorServer(); aggregatorServer != nil {
+		// A server that discovers a subject-scoped issuer keeps the issuer
+		// muster learned for it at the same URL when the 401 names none, so a
+		// re-registration neither releases its pin nor looks it up again.
+		registration = aggregatorServer.withRememberedIssuer(registration)
 		adoptCtx, cancelAdopt := context.WithTimeout(context.Background(), tenantForgetTimeout)
 		err := aggregatorServer.adoptTenantServer(adoptCtx, registration.ServerRegistration, pendingIssuerKeys(registration))
 		cancelAdopt()
@@ -473,6 +472,9 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 			logPinDeferred(info, err)
 		}
 		cancel()
+		// Learned in the background when neither the 401 nor an earlier
+		// lookup named it; the registration does not wait.
+		am.aggregatorServer.lookupDiscoveredIssuer(registration.Name)
 	}
 
 	// A changed auth configuration (forwardToken replaced by a pinned

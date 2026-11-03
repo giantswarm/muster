@@ -744,10 +744,12 @@ func (p *AuthToolProvider) resolveServerIssuer(ctx context.Context, info *Server
 	// A server with subject-scoped grants for a discovered issuer records the
 	// issuer on its entry, so its description can be pinned and the
 	// person's grant found under it.
+	// It is the one lookup: a failed one is not repeated below.
 	if info.AuthConfig.DiscoversSubjectScopedIssuer() {
 		if authInfo, err := p.aggregator.resolveServerAuthInfo(ctx, info); err == nil && authInfo.Issuer != "" {
 			return api.ServerIssuerKey(info.Name, authInfo.Issuer)
 		}
+		return knownServerIssuer(info)
 	}
 	metadata, err := discoverProtectedResourceMetadata(ctx, info.URL, nil)
 	if err != nil {

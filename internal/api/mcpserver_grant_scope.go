@@ -30,9 +30,10 @@ func (a *MCPServerAuth) DiscoversSubjectScopedIssuer() bool {
 
 // ValidateGrantScope checks spec.auth.grantScope as the CRD's CEL rules do, for
 // the paths that do not go through the API server (filesystem mode,
-// core_mcpserver_validate): one of "session" and "subject", only with auth type
-// oauth, never next to forwardToken or tokenExchange (which obtain no grant of
-// their own), and not disagreeing with spec.auth.authorizationServer.grantScope.
+// core_mcpserver_validate): one of "session" and "subject"; "subject" only with
+// auth type oauth and never next to forwardToken or tokenExchange (which obtain
+// no grant of their own; "session", the default, is accepted on any server);
+// and not disagreeing with spec.auth.authorizationServer.grantScope.
 func ValidateGrantScope(auth *MCPServerAuth) error {
 	if auth == nil || auth.GrantScope == "" {
 		return nil
@@ -40,8 +41,8 @@ func ValidateGrantScope(auth *MCPServerAuth) error {
 	if auth.GrantScope != GrantScopeSession && auth.GrantScope != GrantScopeSubject {
 		return fmt.Errorf("auth.grantScope must be %q or %q, not %q", GrantScopeSession, GrantScopeSubject, auth.GrantScope)
 	}
-	if auth.Type != MCPServerAuthTypeOAuth || auth.UsesSessionAuth() {
-		return fmt.Errorf("auth.grantScope decides whom the grant of a per-server OAuth sign-in belongs to, so it needs auth.type %q and neither auth.forwardToken nor auth.tokenExchange", MCPServerAuthTypeOAuth)
+	if auth.GrantScope == GrantScopeSubject && (auth.Type != MCPServerAuthTypeOAuth || auth.UsesSessionAuth()) {
+		return fmt.Errorf("auth.grantScope subject files the grant of a per-server OAuth sign-in under the person, so it needs auth.type %q and neither auth.forwardToken nor auth.tokenExchange", MCPServerAuthTypeOAuth)
 	}
 	if as := auth.AuthorizationServer; as != nil && as.GrantScope != "" && as.GrantScope != auth.GrantScope {
 		return fmt.Errorf("auth.grantScope %q and auth.authorizationServer.grantScope %q disagree: set one of them, or both to the same value", auth.GrantScope, as.GrantScope)

@@ -165,11 +165,12 @@ steps:
 
   - id: status-before-any-grant
     as_user: "alice-agent"
-    description: "core_auth_status reports the server subject-scoped before anyone signed in"
+    description: "core_auth_status reports the server subject-scoped before anyone signed in, once the issuer is learned in the background"
     tool: "core_auth_status"
     args: {}
     expected:
       success: true
+      wait_for_state: "20s"
       contains:
         - '"name":"connector","status":"auth_required"'
         - '"kind":"grant","grant_scope":"subject"'

@@ -18,8 +18,9 @@ import (
 // TestGrantScopeCELEnvtest applies MCPServers to a real kube-apiserver with
 // the generated CRD: spec.auth.grantScope is admitted on an OAuth server that
 // discovers its authorization server (no authorizationServer block) and next
-// to a pin that agrees with it, and refused without type oauth, next to
-// forwardToken or tokenExchange, and against a pin that says otherwise.
+// to a pin that agrees with it; subject is refused without type oauth and next
+// to forwardToken or tokenExchange, where session, the default, is accepted;
+// and a value against a pin that says otherwise is refused.
 // api.ValidateGrantScope is the same rule for filesystem mode
 // (TestValidateGrantScope).
 //
@@ -47,7 +48,7 @@ func TestGrantScopeCELEnvtest(t *testing.T) {
 	pin := func(grantScope string) *musterv1alpha1.MCPServerAuthAuthorizationServer {
 		return &musterv1alpha1.MCPServerAuthAuthorizationServer{Issuer: "https://github.com/login/oauth", GrantScope: grantScope}
 	}
-	const needsOAuth = "grantScope decides whom the grant of a per-server OAuth sign-in belongs to"
+	const needsOAuth = "grantScope subject files the grant of a per-server OAuth sign-in under the person"
 	const disagree = "grantScope and authorizationServer.grantScope disagree"
 
 	tests := []struct {
@@ -94,6 +95,15 @@ func TestGrantScopeCELEnvtest(t *testing.T) {
 				ConnectorID:      "local",
 			}},
 			rejected: needsOAuth,
+		},
+		{
+			// session is the default: a writer may set it on every server.
+			name: "session-next-to-forward-token",
+			auth: &musterv1alpha1.MCPServerAuth{Type: "oauth", GrantScope: "session", ForwardToken: true},
+		},
+		{
+			name: "session-on-type-none",
+			auth: &musterv1alpha1.MCPServerAuth{Type: "none", GrantScope: "session"},
 		},
 		{
 			name:     "unknown-value",

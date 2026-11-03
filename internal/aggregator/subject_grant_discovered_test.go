@@ -3,10 +3,10 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,16 +77,26 @@ func TestDiscoveredDescription(t *testing.T) {
 }
 
 // TestPinDiscoveredIssuer: the discovered issuer of a subject-scoped server
-// is pinned with subject-scoped grants and nothing else, once; a server of
-// the same namespace that pins the issuer differently and is older keeps it,
-// and the discovered server is refused like any other conflicting description.
+// is pinned with subject-scoped grants and nothing else, once. An operator's
+// MCPServer that names the same issuer keeps it, whatever the order the two
+// were created or registered in: the discovered server goes along with the
+// operator's description and is never refused for it.
 func TestPinDiscoveredIssuer(t *testing.T) {
 	ctx := context.Background()
 	handler := &pinCaptureHandler{mockOAuthHandler: newMockOAuthHandler(true), pins: map[string]api.IssuerPin{}}
 	api.RegisterOAuthHandler(handler)
 	defer api.RegisterOAuthHandler(nil)
+	reset := func() {
+		for k := range handler.pins {
+			delete(handler.pins, k)
+		}
+	}
+	operatorAuth := func() *api.MCPServerAuth {
+		return pinnedAuth(discoveredIssuer, discoveredIssuer+"/authorize", discoveredIssuer+"/token")
+	}
 
 	t.Run("pins the discovered issuer subject-scoped", func(t *testing.T) {
+		defer reset()
 		a := bareAggregator()
 		info := registerDiscovered(t, a.registry, "connector", discoveredIssuer, discoveredSubjectAuth())
 
@@ -102,10 +112,10 @@ func TestPinDiscoveredIssuer(t *testing.T) {
 		handler.pins[discoveredIssuer] = api.IssuerPin{DescriptionKey: pin.DescriptionKey, SubjectScoped: true, ClientID: "marker"}
 		require.NoError(t, a.pinDiscoveredIssuer(ctx, info))
 		assert.Equal(t, "marker", handler.pins[discoveredIssuer].ClientID)
-		delete(handler.pins, discoveredIssuer)
 	})
 
 	t.Run("nothing to pin before the issuer is known", func(t *testing.T) {
+		defer reset()
 		a := bareAggregator()
 		info := registerDiscovered(t, a.registry, "bare-401", "", discoveredSubjectAuth())
 		require.NoError(t, a.pinDiscoveredIssuer(ctx, info))
@@ -113,6 +123,7 @@ func TestPinDiscoveredIssuer(t *testing.T) {
 	})
 
 	t.Run("a pinned server is left to pinAuthorizationServer", func(t *testing.T) {
+		defer reset()
 		a := bareAggregator()
 		info := registerDiscovered(t, a.registry, "github", "", &api.MCPServerAuth{
 			Type:                api.MCPServerAuthTypeOAuth,
@@ -122,30 +133,103 @@ func TestPinDiscoveredIssuer(t *testing.T) {
 		assert.Empty(t, handler.pins)
 	})
 
-	t.Run("an older server describing the issuer differently keeps it", func(t *testing.T) {
-		a := bareAggregator()
-		older := registerDiscovered(t, a.registry, "hand-configured", "", pinnedAuth(discoveredIssuer, "https://as.connector.example.com/authorize", "https://as.connector.example.com/token"))
-		older.CreatedAt = time.Now().Add(-time.Hour)
-		info := registerDiscovered(t, a.registry, "connector", discoveredIssuer, discoveredSubjectAuth())
-		info.CreatedAt = time.Now()
+	for _, discoveredOlder := range []bool{true, false} {
+		name := "an operator's pin wins over an older discovered server"
+		if !discoveredOlder {
+			name = "an operator's pin wins over a newer discovered server"
+		}
+		t.Run(name, func(t *testing.T) {
+			defer reset()
+			a := bareAggregator()
+			// The discovered server registers first and pins its description.
+			connector := registerDiscovered(t, a.registry, "connector", discoveredIssuer, discoveredSubjectAuth())
+			require.NoError(t, a.pinDiscoveredIssuer(ctx, connector))
+			require.True(t, handler.pins[discoveredIssuer].SubjectScoped)
 
-		err := a.pinDiscoveredIssuer(ctx, info)
-		require.Error(t, err)
-		assert.True(t, errors.Is(err, api.ErrAuthorizationServerConflict), "got %v", err)
-		assert.Empty(t, handler.pins, "the refused description pins nothing")
+			operator := registerDiscovered(t, a.registry, "hand-configured", "", operatorAuth())
+			if discoveredOlder {
+				connector.CreatedAt, operator.CreatedAt = time.Now().Add(-time.Hour), time.Now()
+			} else {
+				connector.CreatedAt, operator.CreatedAt = time.Now(), time.Now().Add(-time.Hour)
+			}
+
+			require.NoError(t, a.pinAuthorizationServer(ctx, operator))
+			pin := handler.pins[discoveredIssuer]
+			assert.Equal(t, discoveredIssuer+"/authorize", pin.AuthorizationEndpoint, "the operator's description is pinned")
+			assert.False(t, pin.SubjectScoped)
+
+			// The discovered server goes along: no conflict, the pin stays.
+			require.NoError(t, a.pinDiscoveredIssuer(ctx, connector))
+			require.NoError(t, a.connectionConflict(connector))
+			require.NoError(t, a.AuthorizationServerConflict("connector"))
+			require.NoError(t, a.AuthorizationServerConflict("hand-configured"))
+			assert.Equal(t, discoveredIssuer+"/authorize", handler.pins[discoveredIssuer].AuthorizationEndpoint)
+		})
+	}
+
+	t.Run("an operator naming the issuer without a pin withdraws the discovered one", func(t *testing.T) {
+		defer reset()
+		a := bareAggregator()
+		connector := registerDiscovered(t, a.registry, "connector", discoveredIssuer, discoveredSubjectAuth())
+		require.NoError(t, a.pinDiscoveredIssuer(ctx, connector))
+		require.True(t, handler.pins[discoveredIssuer].SubjectScoped)
+
+		plain := registerDiscovered(t, a.registry, "plain", "", &api.MCPServerAuth{
+			Type:                api.MCPServerAuthTypeOAuth,
+			AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: discoveredIssuer},
+		})
+		require.NoError(t, a.pinAuthorizationServer(ctx, plain))
+		_, still := handler.pins[discoveredIssuer]
+		assert.False(t, still, "the issuer an operator named is not subject-scoped by a backend's choice")
+
+		require.NoError(t, a.pinDiscoveredIssuer(ctx, connector))
+		_, still = handler.pins[discoveredIssuer]
+		assert.False(t, still, "the discovered server does not pin it again")
+	})
+
+	t.Run("an operator's subject-only pin and a discovered server agree", func(t *testing.T) {
+		defer reset()
+		a := bareAggregator()
+		operator := registerDiscovered(t, a.registry, "hand-configured", "", &api.MCPServerAuth{
+			Type:                api.MCPServerAuthTypeOAuth,
+			AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: discoveredIssuer, GrantScope: api.GrantScopeSubject},
+		})
+		connector := registerDiscovered(t, a.registry, "connector", discoveredIssuer, discoveredSubjectAuth())
+		require.NoError(t, a.pinAuthorizationServer(ctx, operator))
+		require.NoError(t, a.pinDiscoveredIssuer(ctx, connector))
+		assert.True(t, handler.pins[discoveredIssuer].SubjectScoped)
 	})
 
 	t.Run("two servers discovering the issuer with subject scope share it", func(t *testing.T) {
+		defer reset()
 		a := bareAggregator()
 		first := registerDiscovered(t, a.registry, "connector-a", discoveredIssuer, discoveredSubjectAuth())
 		second := registerDiscovered(t, a.registry, "connector-b", discoveredIssuer, discoveredSubjectAuth())
 		require.NoError(t, a.pinDiscoveredIssuer(ctx, first))
 		require.NoError(t, a.pinDiscoveredIssuer(ctx, second))
 		assert.True(t, handler.pins[discoveredIssuer].SubjectScoped)
-		delete(handler.pins, discoveredIssuer)
 	})
 
-	t.Run("a server that goes releases the discovered issuer", func(t *testing.T) {
+	t.Run("a deregistered server whose definition remains keeps the pin", func(t *testing.T) {
+		defer reset()
+		a := bareAggregator()
+		info := registerDiscovered(t, a.registry, "connector", discoveredIssuer, discoveredSubjectAuth())
+		a.discovered.remember("connector", info.URL, info.GetAuthInfo())
+		a.definedServers = func() map[string]*ServerInfo {
+			definition := &ServerInfo{Name: "connector", URL: info.URL, AuthConfig: discoveredSubjectAuth()}
+			a.rememberedDefinition(definition)
+			return map[string]*ServerInfo{"connector": definition}
+		}
+		require.NoError(t, a.pinDiscoveredIssuer(ctx, info))
+		previous := serverDescription(info)
+		require.NoError(t, a.registry.Deregister("connector"))
+
+		a.releaseAuthorizationServerDescription(ctx, "connector", previous)
+		assert.True(t, handler.pins[discoveredIssuer].SubjectScoped, "the definition still describes the issuer")
+	})
+
+	t.Run("a server whose definition went releases the discovered issuer", func(t *testing.T) {
+		defer reset()
 		a := bareAggregator()
 		info := registerDiscovered(t, a.registry, "connector", discoveredIssuer, discoveredSubjectAuth())
 		require.NoError(t, a.pinDiscoveredIssuer(ctx, info))
@@ -160,16 +244,21 @@ func TestPinDiscoveredIssuer(t *testing.T) {
 
 // newPRMBackend is a backend that answers every request but its RFC 9728
 // resource metadata with a bare 401, and names issuer as its authorization
-// server in that metadata. It counts the metadata requests.
-func newPRMBackend(t *testing.T, issuer string) (*httptest.Server, *int) {
+// server in that metadata ("" answers 404 there). It counts the metadata
+// requests.
+func newPRMBackend(t *testing.T, issuer string) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
-	requests := 0
+	var requests atomic.Int32
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/.well-known/oauth-protected-resource") {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		requests++
+		requests.Add(1)
+		if issuer == "" {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"resource":              "https://" + r.Host + "/mcp",
@@ -181,46 +270,111 @@ func newPRMBackend(t *testing.T, issuer string) (*httptest.Server, *int) {
 	return backend, &requests
 }
 
-// TestWithDiscoveredIssuer: the registration of a server that discovers a
-// subject-scoped issuer learns the issuer from the server's resource metadata
-// when the 401 did not name it; no other registration makes the request.
-func TestWithDiscoveredIssuer(t *testing.T) {
-	ctx := context.Background()
-	backend, requests := newPRMBackend(t, discoveredIssuer)
-	registration := func(auth *api.MCPServerAuth, authInfo *AuthInfo) PendingAuthRegistration {
+// TestWithRememberedIssuer: a re-registration whose 401 names no issuer gets
+// the one muster learned for the server at the same URL, without a request;
+// an issuer the 401 names is remembered; another URL is another server.
+func TestWithRememberedIssuer(t *testing.T) {
+	a := bareAggregator()
+	registration := func(url string, auth *api.MCPServerAuth, authInfo *AuthInfo) PendingAuthRegistration {
 		return PendingAuthRegistration{
 			ServerRegistration: ServerRegistration{Name: "connector"},
-			URL:                backend.URL + "/mcp",
+			URL:                url,
 			AuthInfo:           authInfo,
 			AuthConfig:         auth,
 		}
 	}
+	const url = "https://connector.example.com/mcp"
 
-	got := withDiscoveredIssuer(ctx, registration(discoveredSubjectAuth(), &AuthInfo{ResourceMetadataURL: "kept"}))
+	assert.Nil(t, a.withRememberedIssuer(registration(url, discoveredSubjectAuth(), nil)).AuthInfo, "nothing learned yet")
+
+	named := &AuthInfo{Issuer: discoveredIssuer, Scope: "read"}
+	assert.Same(t, named, a.withRememberedIssuer(registration(url, discoveredSubjectAuth(), named)).AuthInfo, "an issuer the 401 named is kept")
+
+	got := a.withRememberedIssuer(registration(url, discoveredSubjectAuth(), &AuthInfo{ResourceMetadataURL: "kept"}))
 	require.NotNil(t, got.AuthInfo)
 	assert.Equal(t, discoveredIssuer, got.AuthInfo.Issuer)
 	assert.Equal(t, "read", got.AuthInfo.Scope)
-	assert.NotEmpty(t, got.AuthInfo.Resource)
 	assert.Equal(t, "kept", got.AuthInfo.ResourceMetadataURL)
-	assert.Equal(t, 1, *requests)
 
-	got = withDiscoveredIssuer(ctx, registration(discoveredSubjectAuth(), nil))
-	require.NotNil(t, got.AuthInfo, "a registration without AuthInfo gets one")
-	assert.Equal(t, discoveredIssuer, got.AuthInfo.Issuer)
-	assert.Equal(t, 2, *requests)
+	assert.Nil(t, a.withRememberedIssuer(registration("https://elsewhere.example.com/mcp", discoveredSubjectAuth(), nil)).AuthInfo, "another URL learns its own issuer")
+	assert.Nil(t, a.withRememberedIssuer(registration(url, &api.MCPServerAuth{Type: api.MCPServerAuthTypeOAuth}, nil)).AuthInfo, "a session-scoped server is registered as before")
 
-	*requests = 0
-	named := &AuthInfo{Issuer: "https://named.example.com"}
-	assert.Same(t, named, withDiscoveredIssuer(ctx, registration(discoveredSubjectAuth(), named)).AuthInfo, "an issuer the 401 named is kept")
-	assert.Nil(t, withDiscoveredIssuer(ctx, registration(&api.MCPServerAuth{Type: api.MCPServerAuthTypeOAuth}, nil)).AuthInfo, "a session-scoped server is registered as before")
-	pinned := discoveredSubjectAuth()
-	pinned.AuthorizationServer = &api.MCPServerAuthAuthorizationServer{Issuer: "https://github.com/login/oauth"}
-	assert.Nil(t, withDiscoveredIssuer(ctx, registration(pinned, nil)).AuthInfo, "a pinned server needs no discovery")
-	assert.Zero(t, *requests)
+	a.discovered.forget("connector")
+	assert.Nil(t, a.withRememberedIssuer(registration(url, discoveredSubjectAuth(), nil)).AuthInfo, "a deleted definition is forgotten")
+}
 
-	unreachable := registration(discoveredSubjectAuth(), nil)
-	unreachable.URL = "http://127.0.0.1:1/mcp"
-	assert.Nil(t, withDiscoveredIssuer(ctx, unreachable).AuthInfo, "a failed lookup leaves the registration as it was")
+// TestLookupDiscoveredIssuer: the background lookup of a registered server
+// whose 401 named no issuer records the issuer on the entry and pins it
+// subject-scoped; a failed lookup is not repeated within the retry interval.
+func TestLookupDiscoveredIssuer(t *testing.T) {
+	handler := &pinCaptureHandler{mockOAuthHandler: newMockOAuthHandler(true), pins: map[string]api.IssuerPin{}}
+	api.RegisterOAuthHandler(handler)
+	defer api.RegisterOAuthHandler(nil)
+
+	t.Run("learns and pins the issuer", func(t *testing.T) {
+		backend, requests := newPRMBackend(t, discoveredIssuer)
+		a := bareAggregator()
+		require.NoError(t, a.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "connector"},
+			URL:                backend.URL + "/mcp",
+			AuthInfo:           &AuthInfo{},
+			AuthConfig:         discoveredSubjectAuth(),
+		}))
+
+		a.lookupDiscoveredIssuer("connector")
+		a.wg.Wait()
+
+		info, _ := a.registry.GetServerInfo("connector")
+		assert.Equal(t, discoveredIssuer, info.GetAuthInfo().Issuer)
+		assert.True(t, handler.pins[discoveredIssuer].SubjectScoped)
+		assert.Equal(t, discoveredIssuer, a.discovered.remembered("connector", backend.URL+"/mcp").Issuer)
+
+		a.lookupDiscoveredIssuer("connector")
+		a.wg.Wait()
+		assert.Equal(t, int32(1), requests.Load(), "a known issuer is not looked up again")
+		delete(handler.pins, discoveredIssuer)
+	})
+
+	t.Run("a failed lookup is remembered", func(t *testing.T) {
+		backend, requests := newPRMBackend(t, "")
+		a := bareAggregator()
+		require.NoError(t, a.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: "broken"},
+			URL:                backend.URL + "/mcp",
+			AuthInfo:           &AuthInfo{},
+			AuthConfig:         discoveredSubjectAuth(),
+		}))
+
+		a.lookupDiscoveredIssuer("broken")
+		a.wg.Wait()
+		first := requests.Load()
+		require.NotZero(t, first)
+
+		a.lookupDiscoveredIssuer("broken")
+		a.wg.Wait()
+		assert.Equal(t, first, requests.Load(), "not repeated within the retry interval")
+		assert.Empty(t, handler.pins)
+	})
+
+	t.Run("a session-scoped or pinned server is not looked up", func(t *testing.T) {
+		backend, requests := newPRMBackend(t, discoveredIssuer)
+		a := bareAggregator()
+		registerAt := func(name string, auth *api.MCPServerAuth) {
+			require.NoError(t, a.registry.RegisterPendingAuth(PendingAuthRegistration{
+				ServerRegistration: ServerRegistration{Name: name},
+				URL:                backend.URL + "/mcp",
+				AuthInfo:           &AuthInfo{},
+				AuthConfig:         auth,
+			}))
+			a.lookupDiscoveredIssuer(name)
+		}
+		registerAt("session", &api.MCPServerAuth{Type: api.MCPServerAuthTypeOAuth})
+		pinned := discoveredSubjectAuth()
+		pinned.AuthorizationServer = &api.MCPServerAuthAuthorizationServer{Issuer: "https://github.com/login/oauth"}
+		registerAt("pinned", pinned)
+		a.wg.Wait()
+		assert.Zero(t, requests.Load())
+	})
 }
 
 // discoveredGrantHandler is the subject-grant mock with the pins of the real
@@ -268,9 +422,10 @@ func (h *discoveredGrantHandler) GetFullTokenByIssuerForUser(sessionID, userID, 
 
 // TestAdoptSubjectGrantResolvesTheDiscoveredIssuer: a session of a person
 // who holds a grant for a server whose registry entry knows no issuer -- the
-// 401 named none and its metadata could not be read when it registered --
-// resolves the issuer from the server's RFC 9728 metadata, pins it
-// subject-scoped and connects with the person's grant.
+// 401 named none and nothing looked it up yet -- is not held up by the
+// lookup: the adoption starts it in the background and reports no grant; once
+// it ran, the next adoption pins the issuer subject-scoped and connects with
+// the person's grant.
 func TestAdoptSubjectGrantResolvesTheDiscoveredIssuer(t *testing.T) {
 	mcpBackend, initializes := newGrantBackend(t, subjectGrantToken)
 	prm, _ := newPRMBackend(t, discoveredIssuer)
@@ -305,10 +460,15 @@ func TestAdoptSubjectGrantResolvesTheDiscoveredIssuer(t *testing.T) {
 
 	adopted, err := a.adoptSubjectGrant(sessionContext("alice-2", "alice"), info, "alice-2", "alice")
 	require.NoError(t, err)
+	assert.False(t, adopted, "the adoption does not wait for the lookup")
+	a.wg.Wait()
+	assert.Equal(t, discoveredIssuer, info.GetAuthInfo().Issuer, "the lookup recorded the issuer on the entry")
+
+	adopted, err = a.adoptSubjectGrant(sessionContext("alice-2", "alice"), info, "alice-2", "alice")
+	require.NoError(t, err)
 	assert.True(t, adopted, "the session connects with alice's grant")
 	assert.Equal(t, int32(1), initializes.Load())
 	assert.True(t, handler.IssuerSubjectScoped(discoveredIssuer), "the discovered issuer is pinned subject-scoped")
-	assert.Equal(t, discoveredIssuer, info.GetAuthInfo().Issuer, "the entry records the issuer for later callers")
 
 	// Another person without a grant is left unauthenticated.
 	adopted, err = a.adoptSubjectGrant(sessionContext("bob-1", "bob"), info, "bob-1", "bob")
@@ -353,26 +513,38 @@ func proxy(t *testing.T, w http.ResponseWriter, r *http.Request, target string) 
 
 // TestSessionAuthStatus_DiscoveredSubjectScope: core_auth_status reports a
 // server that discovers its authorization server with spec.auth.grantScope:
-// subject as subject-scoped, with the issuer it discovered, so a client can
-// tell the person their sign-in reaches their other sessions.
+// subject as subject-scoped, with the issuer it discovered, once muster
+// applies it -- the issuer is known and pinned subject-scoped -- and as
+// session-scoped while it does not: the issuer is unknown, or an operator's
+// pin of it is session-scoped.
 func TestSessionAuthStatus_DiscoveredSubjectScope(t *testing.T) {
+	const operatorIssuer = "https://operator.example.com"
+	handler := &discoveredGrantHandler{subjectGrantMockHandler: newSubjectGrantMockHandler(), pins: map[string]api.IssuerPin{
+		discoveredIssuer: {SubjectScoped: true},
+		operatorIssuer:   {ClientID: "operator-client"},
+	}}
+	api.RegisterOAuthHandler(handler)
+	defer api.RegisterOAuthHandler(nil)
+
 	agg := &AggregatorServer{registry: NewServerRegistry("x")}
-	require.NoError(t, agg.registry.RegisterPendingAuth(PendingAuthRegistration{
-		ServerRegistration: ServerRegistration{Name: "connector", ToolPrefix: "connector"},
-		URL:                "http://127.0.0.1:1/mcp",
-		AuthInfo:           &AuthInfo{Issuer: discoveredIssuer, Scope: "read", Resource: "http://127.0.0.1:1/mcp"},
-		AuthConfig:         discoveredSubjectAuth(),
-	}))
-	require.NoError(t, agg.registry.RegisterPendingAuth(PendingAuthRegistration{
-		ServerRegistration: ServerRegistration{Name: "session-connector", ToolPrefix: "session-connector"},
-		URL:                "http://127.0.0.1:1/other",
-		AuthInfo:           &AuthInfo{Issuer: discoveredIssuer, Scope: "read", Resource: "http://127.0.0.1:1/other"},
-		AuthConfig:         &api.MCPServerAuth{Type: api.MCPServerAuthTypeOAuth, GrantScope: api.GrantScopeSession},
-	}))
+	register := func(name, issuer string, auth *api.MCPServerAuth) {
+		require.NoError(t, agg.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: name, ToolPrefix: name},
+			URL:                "http://127.0.0.1:1/" + name,
+			AuthInfo:           &AuthInfo{Issuer: issuer, Scope: "read", Resource: "http://127.0.0.1:1/" + name},
+			AuthConfig:         auth,
+		}))
+	}
+	register("connector", discoveredIssuer, discoveredSubjectAuth())
+	register("unknown-issuer", "", discoveredSubjectAuth())
+	register("under-an-operator-pin", operatorIssuer, discoveredSubjectAuth())
+	register("session-connector", discoveredIssuer, &api.MCPServerAuth{Type: api.MCPServerAuthTypeOAuth, GrantScope: api.GrantScopeSession})
 
 	servers := statusByName(agg.sessionAuthStatus(testSessionCtx()).Servers)
 
 	assert.Equal(t, api.GrantScopeSubject, servers["connector"].GrantScope)
 	assert.Equal(t, discoveredIssuer, servers["connector"].Issuer)
+	assert.Equal(t, api.GrantScopeSession, servers["unknown-issuer"].GrantScope)
+	assert.Equal(t, api.GrantScopeSession, servers["under-an-operator-pin"].GrantScope)
 	assert.Equal(t, api.GrantScopeSession, servers["session-connector"].GrantScope)
 }

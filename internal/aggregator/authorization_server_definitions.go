@@ -13,7 +13,9 @@ const definitionPinTimeout = 10 * time.Second
 
 // definedServers returns the servers the MCPServer definitions describe, in
 // whatever state their connection is, shaped as the registry would hold them
-// (name, namespace, UID, creation time, auth config). Nil without a service registry.
+// (name, namespace, UID, creation time, URL, auth config, and the issuer
+// learned for a server that discovers a subject-scoped one). Nil without a
+// service registry.
 func (am *AggregatorManager) definedServers() map[string]*ServerInfo {
 	if am.serviceRegistry == nil {
 		return nil
@@ -26,15 +28,21 @@ func (am *AggregatorManager) definedServers() map[string]*ServerInfo {
 		}
 		auth, _ := data["auth"].(*api.MCPServerAuth)
 		namespace, _ := data["namespace"].(string)
+		url, _ := data["url"].(string)
 		uid, _ := data[api.ServiceDataUID].(string)
 		createdAt, _ := data[api.ServiceDataCreatedAt].(time.Time)
-		defined[service.GetName()] = &ServerInfo{
+		info := &ServerInfo{
 			Name:       service.GetName(),
 			Namespace:  namespace,
 			UID:        uid,
 			CreatedAt:  createdAt,
+			URL:        url,
 			AuthConfig: auth,
 		}
+		if am.aggregatorServer != nil {
+			am.aggregatorServer.rememberedDefinition(info)
+		}
+		defined[service.GetName()] = info
 	}
 	return defined
 }

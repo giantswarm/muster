@@ -284,9 +284,11 @@ spec:
                       muster decides grant scope per authorization server: a server with
                       `subject` and no pin makes the issuer it discovers subject-scoped, as a
                       pin with `grantScope: subject` does for its issuer, and the
-                      one-description-per-issuer rule of the pins applies to it. Only valid
-                      with Type "oauth" and neither ForwardToken nor TokenExchange, which
-                      obtain no grant of their own.
+                      one-description-per-issuer rule of the pins applies to it, except that
+                      an issuer an operator names in an AuthorizationServer pin keeps that
+                      pin's description. `subject` is only valid with Type "oauth" and
+                      neither ForwardToken nor TokenExchange, which obtain no grant of their
+                      own; `session` is accepted everywhere.
                     enum:
                     - session
                     - subject
@@ -491,11 +493,12 @@ spec:
                   rule: '!has(self.providerApps) || size(self.providerApps) == 0 ||
                     (has(self.forwardToken) && self.forwardToken) || (has(self.forwardIdentity)
                     && self.forwardIdentity)'
-                - message: grantScope decides whom the grant of a per-server OAuth
-                    sign-in belongs to, so it needs type oauth and neither forwardToken
+                - message: grantScope subject files the grant of a per-server OAuth
+                    sign-in under the person, so it needs type oauth and neither forwardToken
                     nor tokenExchange
-                  rule: '!has(self.grantScope) || (self.type == ''oauth'' && !(has(self.forwardToken)
-                    && self.forwardToken) && !(has(self.tokenExchange) && has(self.tokenExchange.enabled)
+                  rule: '!has(self.grantScope) || self.grantScope != ''subject'' ||
+                    (self.type == ''oauth'' && !(has(self.forwardToken) && self.forwardToken)
+                    && !(has(self.tokenExchange) && has(self.tokenExchange.enabled)
                     && self.tokenExchange.enabled))'
                 - message: 'grantScope and authorizationServer.grantScope disagree:
                     set one of them, or both to the same value'

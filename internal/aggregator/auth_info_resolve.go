@@ -87,22 +87,21 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 		return authInfo, nil
 	}
 
-	if authInfo.Issuer == "" && metadata.Issuer != "" {
-		authInfo.Issuer = metadata.Issuer
+	hadIssuer, hadScope := authInfo.Issuer != "", authInfo.Scope != ""
+	if fillFromResourceMetadata(authInfo, metadata) {
 		changed = true
-		logging.Info("AuthTools", "Discovered authorization server for %s: %s", serverInfo.Name, metadata.Issuer)
 	}
-	if authInfo.Scope == "" && metadata.Scope != "" {
-		authInfo.Scope = metadata.Scope
-		changed = true
-		logging.Info("AuthTools", "Discovered required scope for %s: %s", serverInfo.Name, metadata.Scope)
+	if !hadIssuer && authInfo.Issuer != "" {
+		logging.Info("AuthTools", "Discovered authorization server for %s: %s", serverInfo.Name, authInfo.Issuer)
 	}
-	if authInfo.Resource == "" && metadata.Resource != "" {
-		authInfo.Resource = metadata.Resource
-		changed = true
+	if !hadScope && authInfo.Scope != "" {
+		logging.Info("AuthTools", "Discovered required scope for %s: %s", serverInfo.Name, authInfo.Scope)
 	}
 	if changed {
 		serverInfo.SetAuthInfo(authInfo)
+	}
+	if serverInfo.AuthConfig.DiscoversSubjectScopedIssuer() {
+		a.discovered.remember(serverInfo.Name, serverInfo.URL, authInfo)
 	}
 	// A server with subject-scoped grants that discovers its authorization
 	// server has its issuer now: its description is pinned under it before
@@ -137,4 +136,31 @@ func applyAuthorizationServerPin(authInfo *AuthInfo, auth *api.MCPServerAuth) bo
 		changed = true
 	}
 	return changed
+}
+
+// fillAuthInfo fills in the issuer, scope and resource authInfo lacks and
+// reports whether it changed; what authInfo already holds is kept.
+func fillAuthInfo(authInfo *AuthInfo, issuer, scope, resource string) bool {
+	changed := false
+	if authInfo.Issuer == "" && issuer != "" {
+		authInfo.Issuer = issuer
+		changed = true
+	}
+	if authInfo.Scope == "" && scope != "" {
+		authInfo.Scope = scope
+		changed = true
+	}
+	if authInfo.Resource == "" && resource != "" {
+		authInfo.Resource = resource
+		changed = true
+	}
+	return changed
+}
+
+// fillFromResourceMetadata is fillAuthInfo from a server's RFC 9728 metadata.
+func fillFromResourceMetadata(authInfo *AuthInfo, metadata *ProtectedResourceMetadata) bool {
+	if metadata == nil {
+		return false
+	}
+	return fillAuthInfo(authInfo, metadata.Issuer, metadata.Scope, metadata.Resource)
 }
