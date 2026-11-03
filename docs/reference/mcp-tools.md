@@ -241,7 +241,8 @@ sign-in) reads the person's state on every server in one call. The answer is the
 - `kind`: `grant` (a grant of the person's own, started with `core_auth_login`), `sso` (the muster
   sign-in, forwarded or exchanged; never a link) or `none`;
 - `grant_scope`: for a `grant` server, `subject` (the grant is the person's, every later session
-  reuses it) or `session` (the session that completed it);
+  reuses it: `spec.auth.grantScope` or `spec.auth.authorizationServer.grantScope` is `subject`,
+  for a discovered or a pinned issuer) or `session` (the session that completed it);
 - `auth_url`, with `auth_urls: true`, for every `grant` server in `auth_required` or
   `reauth_required` that is not suspended: the link `core_auth_login` would issue for it, with the
   same expiry and the same `redirect` parameter on `/oauth/proxy/start`. A server whose grant the

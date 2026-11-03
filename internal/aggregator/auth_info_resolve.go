@@ -46,7 +46,8 @@ func oauthProtected(s *ServerInfo) bool {
 // authenticated"), so its tool calls could not choose an auth method.
 //
 // A server whose description of its authorization server conflicts with the
-// one pinned under its issuer key (issuerPinOwner) is an error, and so is a
+// one pinned under its issuer key (issuerPinOwner, pinDiscoveredIssuer for a
+// discovered subject-scoped issuer) is an error, and so is a
 // pin that cannot be applied (the login must not proceed with a client the
 // operator did not intend); a discovery failure is logged and
 // leaves the caller with whatever the entry already knew.
@@ -64,6 +65,9 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 	if !needsResourceMetadata(authInfo, serverInfo.URL) {
 		if changed {
 			serverInfo.SetAuthInfo(authInfo)
+		}
+		if err := a.pinDiscoveredIssuer(ctx, serverInfo); err != nil {
+			return nil, err
 		}
 		return authInfo, nil
 	}
@@ -99,6 +103,12 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 	}
 	if changed {
 		serverInfo.SetAuthInfo(authInfo)
+	}
+	// A server with subject-scoped grants that discovers its authorization
+	// server has its issuer now: its description is pinned under it before
+	// any flow starts or any grant is looked up there.
+	if err := a.pinDiscoveredIssuer(ctx, serverInfo); err != nil {
+		return nil, err
 	}
 	return authInfo, nil
 }

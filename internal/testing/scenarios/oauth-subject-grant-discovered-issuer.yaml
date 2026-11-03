@@ -1,0 +1,303 @@
+name: "oauth-subject-grant-discovered-issuer"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  An OAuth MCPServer that discovers its authorization server through RFC 9728
+  -- no spec.auth.authorizationServer, as the connectors the developer portal
+  registers -- is subject-scoped with spec.auth.grantScope: subject, applied
+  to the issuer muster discovers for it:
+
+  1. Before any grant exists, a session of the person is not connected.
+  2. The person signs in once, in one muster session (the portal's
+     Connectors page). Every other session of theirs (an agent
+     conversation) then calls the server's tools without core_auth_login and
+     without a second consent, and core_auth_status reports the server
+     grant_scope subject with the discovered issuer.
+  3. Another person's session stays signed out.
+  4. After muster serve restarts on the same Valkey, a session the person
+     opens in the new process is connected with the persisted grant on its
+     first call: the issuer is learned again from the backend's resource
+     metadata and made subject-scoped before anyone signs in.
+  5. A logout in the new process revokes the person's grant for every
+     session of theirs, and the next login asks for a sign-in.
+
+  Regression: a server registered from the portal could not be subject-scoped
+  at all (grantScope existed only on a pinned authorization server), so every
+  agent conversation asked the person to sign in again
+  (giantswarm/muster#1755).
+tags: ["oauth", "subject-grant", "rfc9728", "discovered-issuer", "multi-user", "restart", "valkey", "regression", "issue-1755"]
+timeout: "4m"
+
+pre_configuration:
+  storage:
+    type: "valkey"
+
+  mock_oauth_servers:
+    # muster's own IdP, so test_muster_auth_login can mint sessions with a
+    # chosen subject.
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+    # The connector's authorization server. The backend names it in its RFC
+    # 9728 resource metadata; nothing in the MCPServer names it.
+    - name: "connector-as"
+      scopes: ["mcp:read"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "connector-client"
+
+  mcp_servers:
+    - name: "connector"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "connector-as"
+          scope: "mcp:read"
+          # spec.auth: {type: oauth, grantScope: subject}, no
+          # authorizationServer: the issuer is discovered.
+          auth_grant_scope: "subject"
+        tools:
+          - name: "whoami"
+            description: "Who the connector sees"
+            responses:
+              - response:
+                  login: "alice"
+                  source: "connector"
+
+steps:
+  - id: verify-server-registered
+    description: "The protected server is registered and waits for authentication"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "connector"
+
+  - id: validate-accepts-the-setting
+    description: "core_mcpserver_validate accepts grantScope subject without a pinned issuer"
+    tool: "core_mcpserver_validate"
+    args:
+      name: "portal-connector"
+      type: "streamable-http"
+      url: "https://connector.example.com/mcp"
+      auth:
+        type: "oauth"
+        grantScope: "subject"
+    expected:
+      success: true
+      not_contains:
+        - "Validation failed"
+
+  - id: validate-refuses-it-next-to-forward-token
+    description: "core_mcpserver_validate refuses grantScope next to forwardToken"
+    tool: "core_mcpserver_validate"
+    args:
+      name: "portal-connector"
+      type: "streamable-http"
+      url: "https://connector.example.com/mcp"
+      auth:
+        type: "oauth"
+        forwardToken: true
+        grantScope: "subject"
+    expected:
+      success: false
+      error_contains:
+        - "auth.grantScope"
+
+  # Two sessions of alice (the portal's and an agent conversation's) and one
+  # of bob. Each test_muster_auth_login is a separate muster session;
+  # test_create_user opens a client on the most recent one.
+  - id: login-alice-portal
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-portal
+    tool: "test_create_user"
+    args:
+      name: "alice-portal"
+    expected:
+      success: true
+
+  - id: login-alice-agent
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-agent
+    tool: "test_create_user"
+    args:
+      name: "alice-agent"
+    expected:
+      success: true
+
+  - id: login-bob
+    tool: "test_muster_auth_login"
+    args:
+      subject: "bob"
+    expected:
+      success: true
+  - id: create-bob
+    tool: "test_create_user"
+    args:
+      name: "bob"
+    expected:
+      success: true
+
+  - id: agent-before-any-grant
+    as_user: "alice-agent"
+    description: "Without a grant for alice her agent session is not connected"
+    tool: "x_connector_whoami"
+    args: {}
+    expected:
+      success: false
+
+  - id: status-before-any-grant
+    as_user: "alice-agent"
+    description: "core_auth_status reports the server subject-scoped before anyone signed in"
+    tool: "core_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - '"name":"connector","status":"auth_required"'
+        - '"kind":"grant","grant_scope":"subject"'
+
+  - id: portal-signs-in
+    as_user: "alice-portal"
+    description: "alice signs in once, from the portal's session; the flow runs against the discovered authorization server"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "connector"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: agent-calls-without-login
+    as_user: "alice-agent"
+    description: "alice's agent session calls the tool without core_auth_login or a second consent"
+    tool: "x_connector_whoami"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "connector"
+
+  - id: agent-status-connected
+    as_user: "alice-agent"
+    description: "core_auth_status reports the server connected and subject-scoped, with the discovered issuer"
+    tool: "core_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - '"name":"connector","status":"connected"'
+        - '"kind":"grant","grant_scope":"subject"'
+      not_contains:
+        - '"name":"connector","status":"auth_required"'
+
+  - id: bob-stays-signed-out
+    as_user: "bob"
+    description: "Another person's session without a grant is answered the sign-in"
+    tool: "x_connector_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains:
+        - "auth_required"
+
+  - id: restart-muster
+    description: "muster serve restarts on the same Valkey"
+    tool: "test_restart_instance"
+    args: {}
+    expected:
+      success: true
+
+  # A session alice opens in the new process: it never signed in, nothing in
+  # the new process has signed in to the server, and the MCPServer names no
+  # issuer. The login runs on the default client, so the clients of the other
+  # users keep their own sessions.
+  - id: login-alice-after-restart
+    as_user: "default"
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice-after-restart
+    tool: "test_create_user"
+    args:
+      name: "alice-after-restart"
+    expected:
+      success: true
+
+  - id: new-session-after-restart-is-connected
+    as_user: "alice-after-restart"
+    description: "A new session of alice after the restart calls the tool with her persisted grant"
+    tool: "x_connector_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "connector"
+      not_contains:
+        - "unable to determine auth method"
+        - "tool not found"
+
+  - id: agent-session-after-restart
+    as_user: "alice-agent"
+    description: "The agent session from before the restart is connected as well"
+    tool: "x_connector_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains:
+        - "connector"
+
+  - id: bob-still-signed-out
+    as_user: "bob"
+    tool: "x_connector_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains:
+        - "auth_required"
+
+  - id: logout-revokes-the-grant
+    as_user: "alice-after-restart"
+    description: "A logout in the new process revokes alice's grant for all her sessions"
+    tool: "core_auth_logout"
+    args:
+      server: "connector"
+    expected:
+      success: true
+      contains:
+        - "Successfully logged out from 'connector'"
+        - "revoked for all your sessions"
+
+  - id: agent-login-needs-sign-in
+    as_user: "alice-agent"
+    description: "The grant is gone: alice's agent session is asked to sign in again"
+    tool: "core_auth_login"
+    args:
+      server: "connector"
+    expected:
+      success: true
+      contains:
+        - "Please sign in"
+      not_contains:
+        - "Successfully connected"

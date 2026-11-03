@@ -1454,12 +1454,12 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		}
 	}
 
-	// The entry's auth config, read before the delete: a removed server
-	// releases the authorization server it described.
-	var previousAuth *api.MCPServerAuth
+	// The entry's description of its authorization server, read before the
+	// delete: a removed server releases the authorization server it described.
+	var previousDescription *api.MCPServerAuthAuthorizationServer
 	info, registered := a.registry.GetServerInfo(name)
 	if registered {
-		previousAuth = info.AuthConfig
+		previousDescription = serverDescription(info)
 	}
 
 	// A reconnecting server is tracked before its entry goes, so no call
@@ -1480,7 +1480,7 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 	}
 	if err == nil && removed {
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		a.releaseAuthorizationServerPin(releaseCtx, name, previousAuth)
+		a.releaseAuthorizationServerDescription(releaseCtx, name, previousDescription)
 		cancel()
 	}
 	if !keepSessionAuth {

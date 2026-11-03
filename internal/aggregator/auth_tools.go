@@ -586,6 +586,14 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		oauthHandler := api.GetOAuthHandler()
 		oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
 		musterIssuer := p.getMusterIssuer(sessionID)
+		if oauthEnabled {
+			// A discovered issuer with subject-scoped grants is pinned, so
+			// the logout below revokes the person's grant and not only this
+			// session's copy, also when nothing in this process pinned it yet.
+			if err := p.aggregator.pinDiscoveredIssuer(ctx, serverInfo); err != nil {
+				logging.Warn("AuthTools", "Cannot pin the discovered authorization server of %s for logout: %v", serverName, err)
+			}
+		}
 
 		switch {
 		case oauthEnabled && (musterIssuer == "" || !sameIssuer(musterIssuer, issuer)) && api.IssuerSubjectScoped(oauthHandler, issuer):
@@ -716,8 +724,8 @@ func knownServerIssuer(info *ServerInfo) string {
 	if as := authorizationServerOf(info.AuthConfig); as != nil {
 		return api.ServerIssuerKey(info.Name, strings.TrimSuffix(as.Issuer, "/"))
 	}
-	if info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
-		return api.ServerIssuerKey(info.Name, info.AuthInfo.Issuer)
+	if authInfo := info.GetAuthInfo(); authInfo != nil && authInfo.Issuer != "" {
+		return api.ServerIssuerKey(info.Name, authInfo.Issuer)
 	}
 	return ""
 }
@@ -732,6 +740,14 @@ func (p *AuthToolProvider) resolveServerIssuer(ctx context.Context, info *Server
 	}
 	if info == nil || info.URL == "" {
 		return ""
+	}
+	// A server with subject-scoped grants for a discovered issuer records the
+	// issuer on its entry, so its description can be pinned and the
+	// person's grant found under it.
+	if info.AuthConfig.DiscoversSubjectScopedIssuer() {
+		if authInfo, err := p.aggregator.resolveServerAuthInfo(ctx, info); err == nil && authInfo.Issuer != "" {
+			return api.ServerIssuerKey(info.Name, authInfo.Issuer)
+		}
 	}
 	metadata, err := discoverProtectedResourceMetadata(ctx, info.URL, nil)
 	if err != nil {

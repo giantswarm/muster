@@ -182,6 +182,9 @@ func TestHoldsSubjectGrants(t *testing.T) {
 		"token forwarding (SSO)":   {&ServerInfo{AuthConfig: &api.MCPServerAuth{ForwardToken: true, AuthorizationServer: subjectAS}}, false},
 		"token exchange (SSO)":     {&ServerInfo{AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{Enabled: true, DexTokenEndpoint: "https://dex/token", ConnectorID: "x"}, AuthorizationServer: subjectAS}}, false},
 		"subject-scoped connector": {&ServerInfo{AuthConfig: &api.MCPServerAuth{Type: "oauth", AuthorizationServer: subjectAS}}, true},
+		"subject-scoped connector that discovers its issuer": {&ServerInfo{AuthConfig: &api.MCPServerAuth{Type: "oauth", GrantScope: api.GrantScopeSubject}}, true},
+		"spec.auth.grantScope over a plain pin":              {&ServerInfo{AuthConfig: &api.MCPServerAuth{Type: "oauth", GrantScope: api.GrantScopeSubject, AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: subjectGrantIssuerURL}}}, true},
+		"session-scoped connector that discovers its issuer": {&ServerInfo{AuthConfig: &api.MCPServerAuth{Type: "oauth", GrantScope: api.GrantScopeSession}}, false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

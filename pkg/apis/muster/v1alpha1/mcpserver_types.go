@@ -271,6 +271,8 @@ type MCPServerFamily struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.sigv4) || (self.forwardToken == false && !has(self.tokenExchange))",message="sigv4 signs as muster's own machine identity, so forwardToken and tokenExchange do not apply"
 // +kubebuilder:validation:XValidation:rule="!has(self.forwardIdentity) || !self.forwardIdentity || (self.type == 'oauth' && has(self.authorizationServer))",message="forwardIdentity sends the session's ID token next to a pinned grant, so it needs type oauth and authorizationServer"
 // +kubebuilder:validation:XValidation:rule="!has(self.providerApps) || size(self.providerApps) == 0 || (has(self.forwardToken) && self.forwardToken) || (has(self.forwardIdentity) && self.forwardIdentity)",message="providerApps attaches the person's App tokens to a connection made as the person, so it needs forwardToken or forwardIdentity"
+// +kubebuilder:validation:XValidation:rule="!has(self.grantScope) || (self.type == 'oauth' && !(has(self.forwardToken) && self.forwardToken) && !(has(self.tokenExchange) && has(self.tokenExchange.enabled) && self.tokenExchange.enabled))",message="grantScope decides whom the grant of a per-server OAuth sign-in belongs to, so it needs type oauth and neither forwardToken nor tokenExchange"
+// +kubebuilder:validation:XValidation:rule="!has(self.grantScope) || !has(self.authorizationServer) || !has(self.authorizationServer.grantScope) || self.grantScope == self.authorizationServer.grantScope",message="grantScope and authorizationServer.grantScope disagree: set one of them, or both to the same value"
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
@@ -281,6 +283,28 @@ type MCPServerAuth struct {
 	// +kubebuilder:validation:Enum=oauth;none;sigv4
 	// +kubebuilder:default=none
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+
+	// GrantScope decides whom the grant of this server's OAuth sign-in
+	// belongs to, whichever authorization server the server uses: the one
+	// muster discovers through the server's RFC 9728 Protected Resource
+	// Metadata, or the one pinned in AuthorizationServer. `session` (the
+	// default) binds the grant to the login session that completed the
+	// browser flow. `subject` files it under the person as well, so every
+	// later session of the same person -- another client, an agent
+	// conversation, a session after a muster restart -- connects with it
+	// without a new consent, until the person signs out of the server
+	// (`core_auth_logout`). The semantics are those of
+	// AuthorizationServer.GrantScope, which a pinned server may set instead;
+	// set both only to the same value.
+	//
+	// muster decides grant scope per authorization server: a server with
+	// `subject` and no pin makes the issuer it discovers subject-scoped, as a
+	// pin with `grantScope: subject` does for its issuer, and the
+	// one-description-per-issuer rule of the pins applies to it. Only valid
+	// with Type "oauth" and neither ForwardToken nor TokenExchange, which
+	// obtain no grant of their own.
+	// +kubebuilder:validation:Enum=session;subject
+	GrantScope string `json:"grantScope,omitempty" yaml:"grantScope,omitempty"`
 
 	// ForwardToken enables ID token forwarding for SSO.
 	// When true, muster forwards the session's upstream dex ID token (or, for
@@ -505,7 +529,8 @@ type MCPServerAuthAuthorizationServer struct {
 	// without a new consent, until the person signs out of this server
 	// (`core_auth_logout`) or everywhere. Use `subject` for external accounts
 	// the person owns (GitHub), never for tokens that carry session-specific
-	// authority.
+	// authority. MCPServerAuth.GrantScope says the same for a server that
+	// discovers its authorization server instead of pinning it.
 	// +kubebuilder:validation:Enum=session;subject
 	GrantScope string `json:"grantScope,omitempty" yaml:"grantScope,omitempty"`
 

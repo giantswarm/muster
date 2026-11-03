@@ -39,6 +39,11 @@ func TestSessionAuthInvalidated(t *testing.T) {
 		{"pinned authorization server to forwardToken", pin("https://as.example.com", "subject", nil), forward, true, "forwardToken"},
 		{"another issuer", pin("https://as.example.com", "subject", nil), pin("https://other.example.com", "subject", nil), true, "authorizationServer"},
 		{"another grant scope", pin("https://as.example.com", "", nil), pin("https://as.example.com", "subject", nil), true, "authorizationServer"},
+		{"spec.auth.grantScope subject on a discovered issuer", &api.MCPServerAuth{Type: "oauth"}, &api.MCPServerAuth{Type: "oauth", GrantScope: "subject"}, true, "grantScope"},
+		{"spec.auth.grantScope back to session", &api.MCPServerAuth{Type: "oauth", GrantScope: "subject"}, &api.MCPServerAuth{Type: "oauth", GrantScope: "session"}, true, "grantScope"},
+		{"unchanged spec.auth.grantScope", &api.MCPServerAuth{Type: "oauth", GrantScope: "subject"}, &api.MCPServerAuth{Type: "oauth", GrantScope: "subject"}, false, ""},
+		{"subject scope moved from the pin to spec.auth.grantScope", pin("https://as.example.com", "subject", nil), &api.MCPServerAuth{Type: "oauth", GrantScope: "subject", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: "https://as.example.com"}}, false, ""},
+		{"spec.auth.grantScope subject added to a plain pin", pin("https://as.example.com", "", nil), &api.MCPServerAuth{Type: "oauth", GrantScope: "subject", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: "https://as.example.com"}}, true, "authorizationServer"},
 		{"another client Secret", pin("https://as.example.com", "subject", &api.ClientCredentialsSecretRef{Name: "a"}), pin("https://as.example.com", "subject", &api.ClientCredentialsSecretRef{Name: "b"}), true, "authorizationServer"},
 		{"expectedIssuer added", pin("https://as.example.com", "subject", nil), &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{
 			Issuer: "https://as.example.com", GrantScope: "subject", ExpectedIssuer: "https://login.example.com",

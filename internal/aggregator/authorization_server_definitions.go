@@ -71,7 +71,7 @@ func (am *AggregatorManager) pinDefinedAuthorizationServers(ctx context.Context)
 		}
 		delete(am.definitionPins, name)
 		releaseCtx, cancel := context.WithTimeout(ctx, definitionPinTimeout)
-		am.aggregatorServer.releaseAuthorizationServerPin(releaseCtx, name, &api.MCPServerAuth{AuthorizationServer: pinned})
+		am.aggregatorServer.releaseAuthorizationServerDescription(releaseCtx, name, pinned)
 		cancel()
 	}
 

@@ -372,6 +372,18 @@ grant), and remember that the first resolution of a cached tool records its
 name in the aggregator's registry -- a step meant to exercise the "tool not
 found" path has to run before any session calls that tool.
 
+`oauth.auth_grant_scope` sets `spec.auth.grantScope` (and `type: oauth`)
+without pinning anything: the aggregator discovers the authorization server
+from the mock backend's RFC 9728 metadata, and `"subject"` makes that
+discovered issuer subject-scoped -- the connector the developer portal
+registers by its URL. `oauth-subject-grant-discovered-issuer.yaml` covers it:
+one sign-in from one session of a person reaches their other sessions, and,
+on Valkey storage, a session they open after `test_restart_instance`. `as_user`
+switches the current user for the rest of the scenario, not only for its
+step, so a `test_muster_auth_login` after such a step replaces that user's
+client: give it `as_user: "default"` when the other users' clients have to
+keep their sessions.
+
 `oauth.omit_resource_metadata: true` makes the mock backend publish no RFC 9728
 metadata: a bare `WWW-Authenticate: Bearer` on 401 and a 404 for
 `/.well-known/oauth-protected-resource`. The aggregator then registers the

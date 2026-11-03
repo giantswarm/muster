@@ -271,6 +271,39 @@ before this rule reconciles to `Failed` and names the field; move the value to
 a Secret. In filesystem mode muster has no Secret reader: there `headersFrom`
 fails the connect, and `headers` may still carry a credential.
 
+#### One sign-in for all of a person's sessions
+
+A remote server with its own OAuth sign-in (`auth.type: oauth`) that publishes
+RFC 9728 Protected Resource Metadata needs no authorization server in its
+definition: muster discovers it from the server's metadata, and the person
+signs in with `core_auth_login`. By default the grant belongs to the muster
+session that signed in, so every other session of the person -- another
+client, each agent conversation -- asks for the sign-in again. With
+`auth.grantScope: subject` the grant belongs to the person, and every later
+session of theirs connects with it on its first call, also after a muster
+restart, until they sign out of the server with `core_auth_logout`:
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: connector
+spec:
+  type: streamable-http
+  url: "https://mcp.example.com/mcp"
+  auth:
+    type: oauth
+    grantScope: subject
+```
+
+muster decides grant scope per authorization server: the setting makes the
+issuer muster discovers for the server subject-scoped, for every server of the
+namespace that uses that issuer, as `auth.authorizationServer.grantScope:
+subject` does for a pinned issuer. `core_auth_status` reports the server with
+`grant_scope: subject`. Use it for accounts the person owns, never for tokens
+that carry the authority of one session. See
+[MCPServerAuth fields](../reference/crds.md#mcpserverauth-fields).
+
 ## SSO Authentication
 
 muster supports Single Sign-On (SSO) for MCP servers, allowing users to authenticate once and access multiple servers without separate authentication flows.

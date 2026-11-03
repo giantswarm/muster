@@ -565,6 +565,14 @@ type MCPServerOAuthConfig struct {
 	// of them -- the GitHub-style connector configuration.
 	GrantScope string `yaml:"grant_scope,omitempty"`
 
+	// AuthGrantScope sets spec.auth.grantScope (with spec.auth.type oauth)
+	// and pins nothing: the aggregator discovers the authorization server
+	// from the backend's RFC 9728 metadata, and "subject" files the grant of
+	// that discovered issuer under the person -- the connector the developer
+	// portal registers. Combined with GrantScope it applies to the pinned
+	// issuer as well.
+	AuthGrantScope string `yaml:"auth_grant_scope,omitempty"`
+
 	// OmitResourceMetadata makes the mock backend publish no RFC 9728
 	// resource metadata (bare 401 challenge, no well-known document), so the
 	// aggregator learns the issuer only from the pin -- see

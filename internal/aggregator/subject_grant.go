@@ -19,8 +19,9 @@ const subjectGrantConnectTimeout = 30 * time.Second
 // holdsSubjectGrants reports whether a session may connect to this server
 // with a grant another session of the same person completed: the server
 // authenticates per session through a browser-consent login (not SSO, which
-// connects on its own), and its authorization server files grants under the
-// person (spec.auth.authorizationServer.grantScope: subject).
+// connects on its own), and its grants are filed under the person
+// (spec.auth.grantScope or spec.auth.authorizationServer.grantScope:
+// subject), for the authorization server it pins or the one it discovers.
 func holdsSubjectGrants(info *ServerInfo) bool {
 	if info == nil || !info.RequiresSessionAuth() {
 		return false
@@ -28,7 +29,7 @@ func holdsSubjectGrants(info *ServerInfo) bool {
 	if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
 		return false
 	}
-	return info.AuthConfig.AuthorizationServer.SubjectScoped()
+	return info.AuthConfig.SubjectScoped()
 }
 
 // sessionOAuthIssuer returns the issuer and scope a session's tokens for the
@@ -46,8 +47,8 @@ func sessionOAuthIssuer(info *ServerInfo) (issuer, scope string) {
 	if info == nil {
 		return "", ""
 	}
-	if info.AuthInfo != nil {
-		issuer, scope = info.AuthInfo.Issuer, info.AuthInfo.Scope
+	if authInfo := info.GetAuthInfo(); authInfo != nil {
+		issuer, scope = authInfo.Issuer, authInfo.Scope
 	}
 	if info.AuthConfig != nil && info.AuthConfig.AuthorizationServer != nil {
 		as := info.AuthConfig.AuthorizationServer
@@ -91,7 +92,10 @@ func (a *AggregatorServer) adoptSubjectGrant(ctx context.Context, info *ServerIn
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return false, nil
 	}
-	issuer, scope := sessionOAuthIssuer(info)
+	issuer, scope, err := a.subjectGrantIssuer(ctx, info)
+	if err != nil {
+		return false, err
+	}
 	if issuer == "" {
 		return false, nil
 	}

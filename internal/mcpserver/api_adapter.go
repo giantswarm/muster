@@ -124,6 +124,7 @@ func convertCRDAuthToAPI(src *musterv1alpha1.MCPServerAuth) *api.MCPServerAuth {
 	}
 	auth := &api.MCPServerAuth{
 		Type:              src.Type,
+		GrantScope:        src.GrantScope,
 		ForwardToken:      src.ForwardToken,
 		ForwardIdentity:   src.ForwardIdentity,
 		ProviderApps:      src.ProviderApps,
@@ -166,6 +167,7 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 	}
 	auth := &musterv1alpha1.MCPServerAuth{
 		Type:              src.Type,
+		GrantScope:        src.GrantScope,
 		ForwardToken:      src.ForwardToken,
 		ForwardIdentity:   src.ForwardIdentity,
 		ProviderApps:      src.ProviderApps,
@@ -732,6 +734,11 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						},
 					},
 					api.SchemaKeyRequired: []string{"region"},
+				},
+				"grantScope": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Whose grant, for a discovered or pinned issuer (oauth): session (default) or subject (the person's; later sessions reuse it until core_auth_logout)",
+					api.SchemaKeyEnum:        []string{api.GrantScopeSession, api.GrantScopeSubject},
 				},
 				"forwardToken": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
@@ -1404,6 +1411,9 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		return err
 	}
 	if err := api.ValidateForwardIdentity(auth); err != nil {
+		return err
+	}
+	if err := api.ValidateGrantScope(auth); err != nil {
 		return err
 	}
 	if err := api.ValidateProviderApps(auth); err != nil {

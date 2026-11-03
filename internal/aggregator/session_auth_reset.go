@@ -39,8 +39,12 @@ func sessionAuthInvalidated(previous, current *api.MCPServerAuth) (bool, string)
 		return true, "requiredAudiences"
 	case !sameTokenExchange(prev.TokenExchange, cur.TokenExchange):
 		return true, "tokenExchange"
-	case !sameAuthorizationServer(prev.AuthorizationServer, cur.AuthorizationServer):
+	case !sameAuthorizationServer(authorizationServerOf(prev), authorizationServerOf(cur)):
+		// The pins as muster applies them: spec.auth.grantScope moved onto
+		// or off a pin that keeps its scope is no change.
 		return true, "authorizationServer"
+	case prev.SubjectScoped() != cur.SubjectScoped():
+		return true, "grantScope"
 	}
 	return false, ""
 }

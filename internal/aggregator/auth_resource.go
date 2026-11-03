@@ -193,16 +193,18 @@ func needsGrant(info *ServerInfo) bool {
 }
 
 // serverGrantScope is whom a grant for the server belongs to: "subject" when
-// it is filed under the person (spec.auth.authorizationServer.grantScope:
-// subject), "session" for any other grant, empty for a server without one.
+// it is filed under the person (spec.auth.grantScope or
+// spec.auth.authorizationServer.grantScope: subject, for a pinned or a
+// discovered authorization server), "session" for any other grant, empty for
+// a server without one.
 func serverGrantScope(info *ServerInfo) string {
 	if !needsGrant(info) {
 		return ""
 	}
-	if info.AuthConfig.AuthorizationServer.SubjectScoped() {
+	if info.AuthConfig.SubjectScoped() {
 		return api.GrantScopeSubject
 	}
-	return "session"
+	return api.GrantScopeSession
 }
 
 // awaitGrantAdoptions waits for the session's fan-out to finish with the

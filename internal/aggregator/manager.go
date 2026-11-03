@@ -417,6 +417,11 @@ func (am *AggregatorManager) registerSingleServer(ctx context.Context, serverNam
 // AuthConfig inside registration may be nil; in either case the server is
 // flagged as requiring per-session authentication.
 func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthRegistration) error {
+	// A server that discovers a subject-scoped issuer learns it now, before
+	// the lock and before the tenant adoption records the issuer keys it
+	// names, so the first session finds the person's grant under it.
+	registration = withDiscoveredIssuer(context.Background(), registration)
+
 	// A tenant server is adopted before the lock: the first adoption in a
 	// namespace may sweep the stores, and other registrations need not wait
 	// for it. The entry is written only after it.
@@ -440,11 +445,13 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	// or removed authorization-server description is released below, before
 	// the new one is applied.
 	var previousAuth *api.MCPServerAuth
+	var previousDescription *api.MCPServerAuthAuthorizationServer
 	var previousHeaders map[string]string
 	var previousHeadersFrom []api.MCPServerHeaderFrom
 	previouslyRegistered := false
 	if previous, ok := am.aggregatorServer.GetRegistry().GetServerInfo(registration.Name); ok {
 		previousAuth = previous.AuthConfig
+		previousDescription = serverDescription(previous)
 		previousHeaders = previous.Headers
 		previousHeadersFrom = previous.HeadersFrom
 		previouslyRegistered = true
@@ -455,12 +462,13 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	}
 
 	// Hand an operator-described authorization server (pre-registered client,
-	// pinned endpoints, subject-scoped grants) to the OAuth handler now, so
-	// the very first session finds an existing subject grant without a login
+	// pinned endpoints, subject-scoped grants) -- or the discovered issuer of
+	// a server with subject-scoped grants -- to the OAuth handler now, so the
+	// very first session finds an existing subject grant without a login
 	// round trip. Logins retry the pin, so a failure here only delays.
 	if info, ok := am.aggregatorServer.GetRegistry().GetServerInfo(registration.Name); ok {
 		pinCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		am.aggregatorServer.releaseAuthorizationServerPin(pinCtx, registration.Name, previousAuth)
+		am.aggregatorServer.releaseAuthorizationServerDescription(pinCtx, registration.Name, previousDescription)
 		if err := am.aggregatorServer.pinAuthorizationServer(pinCtx, info); err != nil {
 			logPinDeferred(info, err)
 		}

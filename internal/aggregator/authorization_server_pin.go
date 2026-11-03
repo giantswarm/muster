@@ -21,19 +21,79 @@ import (
 // description. A server that describes the key differently is refused: it pins
 // nothing, and neither signs in nor connects with the owner's grants.
 
+// A server that discovers its authorization server (no
+// spec.auth.authorizationServer.issuer) and files its grants under the person
+// (spec.auth.grantScope: subject) describes the issuer it discovered as a pin
+// with grantScope: subject and nothing else (discoveredDescription), from the
+// moment muster knows that issuer. From there it is a description like any
+// other: it is pinned under the issuer key, owns it or shares it by the rule
+// above, and is released when the server goes or changes.
+
 // pinnedDescription returns the description a server pins and the issuer key
 // it is pinned under; nil when the server pins nothing. A plain issuer
 // override, without a client, endpoints or subject-scoped grants, pins
-// nothing.
+// nothing; nor does a server that discovers its authorization server, unless
+// its grants are subject-scoped and muster knows the issuer it discovered.
 func pinnedDescription(info *ServerInfo) (*api.MCPServerAuthAuthorizationServer, string) {
-	if info == nil {
-		return nil, ""
-	}
-	as := authorizationServerOf(info.AuthConfig)
+	as := serverDescription(info)
 	if as == nil || (as.ClientCredentialsSecretRef == nil && !as.HasPinnedEndpoints() && !as.SubjectScoped()) {
 		return nil, ""
 	}
 	return as, api.ServerIssuerKey(info.Name, strings.TrimSuffix(as.Issuer, "/"))
+}
+
+// serverDescription returns how a server describes its authorization server:
+// its pin (authorizationServerOf), else the description of the issuer it
+// discovered (discoveredDescription); nil for neither.
+func serverDescription(info *ServerInfo) *api.MCPServerAuthAuthorizationServer {
+	if info == nil {
+		return nil
+	}
+	if as := authorizationServerOf(info.AuthConfig); as != nil {
+		return as
+	}
+	return discoveredDescription(info)
+}
+
+// discoveredDescription returns the description a server with
+// spec.auth.grantScope: subject and no pinned issuer gives the issuer muster
+// discovered for it (the registry entry's AuthInfo): that issuer, its grants
+// filed under the person, discovery and client identification as without a
+// pin. Nil for any other server, and while the issuer is not known yet.
+func discoveredDescription(info *ServerInfo) *api.MCPServerAuthAuthorizationServer {
+	if info == nil || !info.AuthConfig.DiscoversSubjectScopedIssuer() {
+		return nil
+	}
+	authInfo := info.GetAuthInfo()
+	if authInfo == nil || authInfo.Issuer == "" {
+		return nil
+	}
+	return &api.MCPServerAuthAuthorizationServer{
+		Issuer:     strings.TrimSuffix(authInfo.Issuer, "/"),
+		GrantScope: api.GrantScopeSubject,
+	}
+}
+
+// pinDiscoveredIssuer pins the description of the issuer a server discovered
+// (discoveredDescription) when it is not the one pinned under the issuer key
+// already, so a subject-scoped grant is found under it. It runs where muster
+// learns or uses that issuer: the registration, a resolution of the server's
+// auth info, a connection, an adoption of the person's grant and a logout.
+// It returns api.ErrAuthorizationServerConflict for a server whose
+// description is not the owner's, like pinAuthorizationServer; nil for a
+// server that pins its issuer or discovers none.
+func (a *AggregatorServer) pinDiscoveredIssuer(ctx context.Context, info *ServerInfo) error {
+	as := discoveredDescription(info)
+	if as == nil {
+		return nil
+	}
+	issuer := api.ServerIssuerKey(info.Name, as.Issuer)
+	if pinner, err := issuerPinner(); err == nil {
+		if pinned, ok := pinner.PinnedDescriptionKey(issuer); ok && pinned == descriptionKey(as) {
+			return nil
+		}
+	}
+	return a.pinAuthorizationServer(ctx, info)
 }
 
 // issuerOwner returns the server whose description is pinned under an issuer
@@ -185,9 +245,16 @@ func pinDescription(ctx context.Context, serverInfo *ServerInfo) error {
 
 // authorizationServerOf returns the authorization server an MCPServer's auth
 // config describes (spec.auth.authorizationServer with an issuer), or nil.
+// spec.auth.grantScope: subject applies to the pinned issuer as well, so the
+// description returned carries it.
 func authorizationServerOf(auth *api.MCPServerAuth) *api.MCPServerAuthAuthorizationServer {
 	if auth == nil || auth.AuthorizationServer == nil || auth.AuthorizationServer.Issuer == "" {
 		return nil
+	}
+	if auth.SubjectScoped() && !auth.AuthorizationServer.SubjectScoped() {
+		as := *auth.AuthorizationServer
+		as.GrantScope = api.GrantScopeSubject
+		return &as
 	}
 	return auth.AuthorizationServer
 }
@@ -224,11 +291,12 @@ func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
 		samePin(a, b)
 }
 
-// releaseAuthorizationServerPin runs when a server's registration is replaced
-// or removed, or its MCPServer definition changes or goes; previous is the
-// auth config the server was pinned with before. When that configuration
-// described an authorization server and the server's current registration or
-// definition (if any) describes it differently or not at all, the issuer key
+// releaseAuthorizationServerDescription runs when a server's registration is
+// replaced or removed, or its MCPServer definition changes or goes; prev is how
+// the server described its authorization server before (serverDescription):
+// its pin, or the issuer it discovered with subject-scoped grants. When it
+// described one and the server's current registration or definition (if any)
+// describes it differently or not at all, the issuer key
 // gets the description of its owner now (issuerOwner) in one replacement, or
 // is unpinned when no server pins under it any more. The caller applies the
 // server's current description afterwards (pinAuthorizationServer).
@@ -237,15 +305,14 @@ func sameAuthorizationServer(a, b *api.MCPServerAuthAuthorizationServer) bool {
 // handler keeps identifying with the old client, and metadata pinned with
 // explicit endpoints keeps standing in for discovery -- until the process
 // restarts (giantswarm/muster#1175).
-func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, name string, previous *api.MCPServerAuth) {
-	prev := authorizationServerOf(previous)
+func (a *AggregatorServer) releaseAuthorizationServerDescription(ctx context.Context, name string, prev *api.MCPServerAuthAuthorizationServer) {
 	if prev == nil {
 		return
 	}
 	described := a.describedServers()
 	var current *api.MCPServerAuthAuthorizationServer
 	if info, ok := described[name]; ok {
-		current = authorizationServerOf(info.AuthConfig)
+		current = serverDescription(info)
 	}
 	if sameAuthorizationServer(prev, current) {
 		return
@@ -278,6 +345,12 @@ func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, na
 	logging.InfoWithAttrs("Aggregator", "oauth_authorization_server_unpinned",
 		slog.String("server", name),
 		slog.String("issuer", issuer))
+}
+
+// releaseAuthorizationServerPin is releaseAuthorizationServerDescription for
+// the authorization server a previous auth config pinned.
+func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, name string, previous *api.MCPServerAuth) {
+	a.releaseAuthorizationServerDescription(ctx, name, authorizationServerOf(previous))
 }
 
 // describedServers returns every server that describes its authorization
