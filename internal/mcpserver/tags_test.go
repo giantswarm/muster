@@ -1,13 +1,18 @@
 package mcpserver
 
 import (
+	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api/tagstest"
 	"github.com/giantswarm/muster/v5/internal/client/filesystem"
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 )
@@ -53,9 +58,11 @@ func TestCreateStoresTags(t *testing.T) {
 
 func TestMutationsRejectInvalidTags(t *testing.T) {
 	for _, tool := range []string{"mcpserver_create", "mcpserver_update", "mcpserver_validate"} {
-		for _, tags := range [][]interface{}{{"Triage"}, {"triage", "triage"}, {"bad_tag"}, tooManyTags()} {
+		for _, tags := range [][]interface{}{{"Triage"}, {"triage", "triage"}, {"bad_tag"}, {strings.Repeat("a", api.MaxTagLength+1)}, tagstest.Arg(tagstest.Numbered(api.MaxTags + 1))} {
 			t.Run(tool, func(t *testing.T) {
-				c := &recordingClient{stubMusterClient: stubMusterClient{existing: existingServer()}}
+				existing := existingServer()
+				existing.Name = "kagi-search"
+				c := &recordingClient{stubMusterClient: stubMusterClient{existing: existing}}
 				adapter := NewAdapterWithClient(c, "test-ns")
 
 				result, err := adapter.ExecuteTool(t.Context(), tool, remoteServerArgs(map[string]interface{}{"tags": tags}))
@@ -175,11 +182,73 @@ func TestMutationToolsDeclareTags(t *testing.T) {
 	assert.Equal(t, map[string]bool{"mcpserver_create": true, "mcpserver_update": true, "mcpserver_validate": true}, declared)
 }
 
-// tooManyTags returns api.MaxTags+1 distinct valid tags as a tool argument.
-func tooManyTags() []interface{} {
-	tags := make([]interface{}, api.MaxTags+1)
-	for i := range tags {
-		tags[i] = fmt.Sprintf("tag-%d", i)
+func TestUpdateTagsPastTheLimit(t *testing.T) {
+	stored := tagstest.Numbered(api.MaxTags + 10)
+	existing := func() *musterv1alpha1.MCPServer {
+		obj := existingServer()
+		obj.Name = "kagi-search"
+		obj.Annotations = map[string]string{api.TagsAnnotation: strings.Join(stored, ",")}
+		return obj
 	}
-	return tags
+
+	for name, tags := range map[string][]string{
+		"unchanged": stored,
+		"shortened": stored[1:],
+	} {
+		t.Run(name+" goes through", func(t *testing.T) {
+			c := &recordingClient{stubMusterClient: stubMusterClient{existing: existing()}}
+			adapter := NewAdapterWithClient(c, "test-ns")
+
+			executeOK(t, adapter, t.Context(), "mcpserver_update", map[string]interface{}{"name": "kagi-search", "tags": tagstest.Arg(tags)})
+
+			require.Len(t, c.updatedObjs, 1)
+			assert.Equal(t, strings.Join(tags, ","), c.updatedObjs[0].Annotations[api.TagsAnnotation])
+		})
+	}
+
+	t.Run("adding a tag is refused", func(t *testing.T) {
+		c := &recordingClient{stubMusterClient: stubMusterClient{existing: existing()}}
+		adapter := NewAdapterWithClient(c, "test-ns")
+
+		result, err := adapter.ExecuteTool(t.Context(), "mcpserver_update", map[string]interface{}{"name": "kagi-search", "tags": tagstest.Arg(append(stored, "new"))})
+
+		require.NoError(t, err)
+		require.True(t, result.IsError)
+		assert.Equal(t, "invalid tags: at most 50 tags", resultText(t, result))
+		assert.Empty(t, c.updatedObjs)
+	})
+}
+
+// conflictingClient answers the first conflicts updates with 409 Conflict, as
+// when the status reconciler bumps the resourceVersion between read and write.
+type conflictingClient struct {
+	recordingClient
+	conflicts int
+	reads     int
+}
+
+func (c *conflictingClient) GetMCPServer(ctx context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error) {
+	c.reads++
+	return c.recordingClient.GetMCPServer(ctx, name, namespace)
+}
+
+func (c *conflictingClient) UpdateMCPServer(ctx context.Context, obj *musterv1alpha1.MCPServer) error {
+	if c.conflicts > 0 {
+		c.conflicts--
+		return apierrors.NewConflict(schema.GroupResource{Group: "muster.giantswarm.io", Resource: "mcpservers"}, obj.Name, fmt.Errorf("the object has been modified"))
+	}
+	return c.recordingClient.UpdateMCPServer(ctx, obj)
+}
+
+func TestUpdateRetriesConflicts(t *testing.T) {
+	existing := existingServer()
+	existing.Name = "kagi-search"
+	c := &conflictingClient{recordingClient: recordingClient{stubMusterClient: stubMusterClient{existing: existing}}, conflicts: 2}
+	adapter := NewAdapterWithClient(c, "test-ns")
+
+	executeOK(t, adapter, t.Context(), "mcpserver_update", map[string]interface{}{"name": "kagi-search", "tags": []interface{}{"triage"}})
+
+	assert.Equal(t, 3, c.reads, "each attempt reads the server afresh")
+	require.Len(t, c.updatedObjs, 1)
+	assert.Equal(t, "triage", c.updatedObjs[0].Annotations[api.TagsAnnotation])
 }

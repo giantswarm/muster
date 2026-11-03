@@ -10,6 +10,7 @@ import (
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
@@ -632,6 +633,10 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 // mcpServerArgs returns the common argument metadata for MCP server tools.
 // typeRequired controls whether the "type" field is required (true for create/validate, false for update).
 func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
+	tags := api.TagsUpdateArg()
+	if typeRequired {
+		tags = api.TagsArg()
+	}
 	return []api.ArgMetadata{
 		{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server name"},
 		{Name: "type", Type: api.ArgTypeString, Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
@@ -652,7 +657,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
 		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it"},
-		api.TagsArg(),
+		tags,
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start; on update, omitted keeps the current value"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
@@ -1196,7 +1201,7 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 			IsError: true,
 		}, nil
 	}
-	if refused := api.InvalidTagsResult(req.Tags); refused != nil {
+	if refused := api.InvalidTagsUpdateResult(req.Tags); refused != nil {
 		return refused, nil
 	}
 
@@ -1209,16 +1214,56 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		return refused, nil
 	}
 
-	// Get existing server first. The read stays on the SA client — only the
-	// spec mutation itself switches to the caller's identity.
-	existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(req.Name), "Failed to update MCP server"), nil
+	// Get-modify-update on a fresh read per attempt. The read stays on the SA
+	// client — only the write switches to the caller's identity — and a
+	// conflict with the status reconciler bumping the resourceVersion is
+	// retried.
+	var refused *api.CallToolResult
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				refused = api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(req.Name), "Failed to update MCP server")
+			} else {
+				refused, _ = simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
+			}
+			return err
 		}
-		return simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
+		if refused = a.applyMCPServerUpdate(existing, &req); refused != nil {
+			return errUpdateRefused
+		}
+		return writer.UpdateMCPServer(ctx, existing)
+	})
+	if refused != nil {
+		return refused, nil
+	}
+	if err != nil {
+		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
+			return simpleError(msg)
+		}
+		// Generate failure event
+		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
+			Error:     err.Error(),
+			Operation: "update",
+		})
+		return api.HandleErrorWithPrefix(err, "Failed to update MCP server"), nil
 	}
 
+	// Generate success event for CRD update
+	a.generateCRDEvent(req.Name, events.ReasonMCPServerUpdated, events.EventData{
+		Operation: "update",
+	})
+
+	return simpleOK(fmt.Sprintf("MCP server '%s' updated successfully", req.Name))
+}
+
+// errUpdateRefused ends handleMCPServerUpdate's retry when
+// applyMCPServerUpdate refuses the request.
+var errUpdateRefused = fmt.Errorf("update refused")
+
+// applyMCPServerUpdate applies an update request onto the live server and
+// validates the result. It returns the tool error refusing the update, or nil.
+func (a *Adapter) applyMCPServerUpdate(existing *musterv1alpha1.MCPServer, req *api.MCPServerUpdateRequest) *api.CallToolResult {
 	// Update common fields from request
 	if req.Type != "" {
 		existing.Spec.Type = req.Type
@@ -1233,7 +1278,11 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		existing.Spec.Description = req.Description
 	}
 	updateDisplayName(existing, req.DisplayName)
-	existing.Annotations = api.ApplyTagsAnnotation(existing.Annotations, req.Tags)
+	annotations, err := api.ApplyTagsUpdate(existing.Annotations, req.Tags)
+	if err != nil {
+		return api.InvalidTagsErrorResult(err)
+	}
+	existing.Annotations = annotations
 	// Tri-state: an omitted autoStart keeps the current value.
 	if req.AutoStart != nil {
 		existing.Spec.AutoStart = *req.AutoStart
@@ -1280,28 +1329,10 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 
 	// Validate the updated definition (reuse existing CRD object)
 	if err := a.validateMCPServer(existing); err != nil {
-		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
+		refused, _ := simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
+		return refused
 	}
-
-	// Update the MCP server with the resolved write identity
-	if err := writer.UpdateMCPServer(ctx, existing); err != nil {
-		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
-			return simpleError(msg)
-		}
-		// Generate failure event
-		a.generateCRDEvent(req.Name, events.ReasonMCPServerFailed, events.EventData{
-			Error:     err.Error(),
-			Operation: "update",
-		})
-		return api.HandleErrorWithPrefix(err, "Failed to update MCP server"), nil
-	}
-
-	// Generate success event for CRD update
-	a.generateCRDEvent(req.Name, events.ReasonMCPServerUpdated, events.EventData{
-		Operation: "update",
-	})
-
-	return simpleOK(fmt.Sprintf("MCP server '%s' updated successfully", req.Name))
+	return nil
 }
 
 func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {

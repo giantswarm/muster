@@ -1,9 +1,9 @@
 package workflow
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +11,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/api/tagstest"
 	"github.com/giantswarm/muster/v5/internal/client/filesystem"
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 )
@@ -75,7 +76,8 @@ func TestMutationsRejectInvalidTags(t *testing.T) {
 			[]interface{}{"Triage"},
 			[]interface{}{"triage", "triage"},
 			[]interface{}{"bad_tag"},
-			tooManyTags(),
+			[]interface{}{strings.Repeat("a", api.MaxTagLength+1)},
+			tagstest.Arg(tagstest.Numbered(api.MaxTags + 1)),
 			[]interface{}{42},
 			"triage",
 		} {
@@ -177,11 +179,39 @@ func TestMutationToolsDeclareTags(t *testing.T) {
 	assert.Equal(t, map[string]bool{"workflow_create": true, "workflow_update": true, "workflow_validate": true}, declared)
 }
 
-// tooManyTags returns api.MaxTags+1 distinct valid tags as a tool argument.
-func tooManyTags() []interface{} {
-	tags := make([]interface{}, api.MaxTags+1)
-	for i := range tags {
-		tags[i] = fmt.Sprintf("tag-%d", i)
+func TestUpdateTagsPastTheLimit(t *testing.T) {
+	stored := tagstest.Numbered(api.MaxTags + 10)
+	setup := func(t *testing.T) (*Adapter, string) {
+		adapter, dir := newFilesystemAdapter(t)
+		wf := &musterv1alpha1.Workflow{}
+		wf.Name = "triage"
+		wf.Annotations = map[string]string{api.TagsAnnotation: strings.Join(stored, ",")}
+		wf.Spec.Steps = []musterv1alpha1.WorkflowStep{{ID: "pods", Tool: "x_kubernetes_list"}}
+		require.NoError(t, filesystem.New(dir).CreateWorkflow(t.Context(), wf))
+		return adapter, dir
 	}
-	return tags
+
+	for name, tags := range map[string][]string{
+		"unchanged": stored,
+		"shortened": stored[1:],
+	} {
+		t.Run(name+" goes through", func(t *testing.T) {
+			adapter, dir := setup(t)
+
+			executeOK(t, adapter, "workflow_update", triageArgs(map[string]interface{}{"tags": tagstest.Arg(tags)}))
+
+			assert.Equal(t, strings.Join(tags, ","), readWorkflowAnnotations(t, dir, "triage")[api.TagsAnnotation])
+		})
+	}
+
+	t.Run("adding a tag is refused", func(t *testing.T) {
+		adapter, dir := setup(t)
+
+		result, err := adapter.ExecuteTool(t.Context(), "workflow_update", triageArgs(map[string]interface{}{"tags": tagstest.Arg(append(stored, "new"))}))
+
+		require.NoError(t, err)
+		require.True(t, result.IsError)
+		assert.Equal(t, []interface{}{"invalid tags: at most 50 tags"}, result.Content)
+		assert.Equal(t, strings.Join(stored, ","), readWorkflowAnnotations(t, dir, "triage")[api.TagsAnnotation])
+	})
 }

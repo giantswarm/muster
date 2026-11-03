@@ -2,11 +2,14 @@ package api
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/v5/internal/api/tagstest"
 )
 
 func TestValidateTags(t *testing.T) {
@@ -28,8 +31,8 @@ func TestValidateTags(t *testing.T) {
 		{name: "trailing hyphen", tags: []string{"triage-"}, wantErr: `tag "triage-"`},
 		{name: "double hyphen", tags: []string{"tri--age"}, wantErr: `tag "tri--age"`},
 		{name: "underscore", tags: []string{"tri_age"}, wantErr: `tag "tri_age"`},
-		{name: "50 tags", tags: numberedTags(MaxTags)},
-		{name: "51 tags", tags: numberedTags(MaxTags + 1), wantErr: "at most 50 tags"},
+		{name: "50 tags", tags: tagstest.Numbered(MaxTags)},
+		{name: "51 tags", tags: tagstest.Numbered(MaxTags + 1), wantErr: "at most 50 tags"},
 		{name: "duplicate", tags: []string{"triage", "kubernetes", "triage"}, wantErr: `duplicate tag "triage"`},
 	}
 
@@ -46,13 +49,64 @@ func TestValidateTags(t *testing.T) {
 	}
 }
 
-// numberedTags returns n distinct valid tags.
-func numberedTags(n int) []string {
-	tags := make([]string, n)
-	for i := range tags {
-		tags[i] = fmt.Sprintf("tag-%d", i)
+func TestValidateTagsUpdate(t *testing.T) {
+	stored := tagstest.Numbered(MaxTags + 10)
+	tests := []struct {
+		name    string
+		tags    []string
+		stored  []string
+		wantErr string
+	}{
+		{name: "unchanged list past the limit", tags: stored, stored: stored},
+		{name: "reordered list past the limit", tags: append([]string{stored[len(stored)-1]}, stored[:len(stored)-1]...), stored: stored},
+		{name: "shortened list still past the limit", tags: stored[1:], stored: stored},
+		{name: "a new tag on a list past the limit", tags: append(stored[1:], "new"), stored: stored, wantErr: "at most 50 tags"},
+		{name: "51 new tags", tags: tagstest.Numbered(MaxTags + 1), wantErr: "at most 50 tags"},
+		{name: "50 new tags", tags: tagstest.Numbered(MaxTags)},
+		{name: "format still checked past the limit", tags: append(stored[1:], "Bad"), stored: append(stored, "Bad"), wantErr: `tag "Bad"`},
+		{name: "duplicate still refused past the limit", tags: append(stored, stored[0]), stored: stored, wantErr: "duplicate tag"},
 	}
-	return tags
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTagsUpdate(tt.tags, tt.stored)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
+func TestApplyTagsUpdate(t *testing.T) {
+	stored := map[string]string{TagsAnnotation: strings.Join(tagstest.Numbered(MaxTags+1), ","), "other": "kept"}
+	ptr := func(tags []string) *[]string { return &tags }
+
+	got, err := ApplyTagsUpdate(stored, nil)
+	require.NoError(t, err)
+	assert.Equal(t, stored, got, "omitted keeps")
+
+	got, err = ApplyTagsUpdate(map[string]string{"other": "kept"}, ptr(tagstest.Numbered(MaxTags)))
+	require.NoError(t, err)
+	assert.Equal(t, strings.Join(tagstest.Numbered(MaxTags), ","), got[TagsAnnotation])
+
+	echo := tagstest.Numbered(MaxTags + 1)[1:]
+	got, err = ApplyTagsUpdate(maps.Clone(stored), ptr(echo))
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{TagsAnnotation: strings.Join(echo, ","), "other": "kept"}, got)
+
+	_, err = ApplyTagsUpdate(maps.Clone(stored), ptr(append(echo, "new", "newer")))
+	var invalid *InvalidTagsError
+	require.ErrorAs(t, err, &invalid)
+	assert.Equal(t, "invalid tags: at most 50 tags", err.Error())
+
+	refused := InvalidTagsErrorResult(fmt.Errorf("failed to update workflow: %w", err))
+	require.NotNil(t, refused)
+	assert.True(t, refused.IsError)
+	assert.Equal(t, []interface{}{"invalid tags: at most 50 tags"}, refused.Content)
+	assert.Nil(t, InvalidTagsErrorResult(fmt.Errorf("conflict")))
 }
 
 func TestParseTags(t *testing.T) {
@@ -68,7 +122,7 @@ func TestParseTags(t *testing.T) {
 		{name: "trims and lowercases", raw: " Triage , KUBERNETES ", want: []string{"triage", "kubernetes"}},
 		{name: "drops malformed entries", raw: "triage,bad_tag,-x,ok-1," + strings.Repeat("a", 64), want: []string{"triage", "ok-1"}},
 		{name: "dedupes after normalising", raw: "triage,Triage, triage", want: []string{"triage"}},
-		{name: "keeps more than MaxTags", raw: strings.Join(numberedTags(MaxTags+1), ","), want: numberedTags(MaxTags + 1)},
+		{name: "keeps more than MaxTags", raw: strings.Join(tagstest.Numbered(MaxTags+1), ","), want: tagstest.Numbered(MaxTags + 1)},
 	}
 
 	for _, tt := range tests {
@@ -144,6 +198,22 @@ func TestTagsArgSchemaCarriesValidateTagsRules(t *testing.T) {
 	assert.Empty(t, schema.Required)
 }
 
+func TestTagsUpdateArgSchemaLeavesOutMaxItems(t *testing.T) {
+	schema := InputSchemaFromArgs([]ArgMetadata{TagsUpdateArg()})
+
+	require.Equal(t, map[string]any{
+		"type":        "array",
+		"description": TagsUpdateArgDescription,
+		"uniqueItems": true,
+		"items": map[string]any{
+			"type":      "string",
+			"pattern":   TagPattern,
+			"maxLength": MaxTagLength,
+		},
+	}, schema.Properties["tags"], "an update may send back more than MaxTags stored tags")
+	assert.NotContains(t, TagsArgDescription, "omitted", "create and validate have no update semantics")
+}
+
 func TestInvalidTagsResult(t *testing.T) {
 	ptr := func(tags ...string) *[]string { return &tags }
 
@@ -155,6 +225,20 @@ func TestInvalidTagsResult(t *testing.T) {
 	require.NotNil(t, refused)
 	assert.True(t, refused.IsError)
 	assert.Equal(t, []interface{}{`invalid tags: tag "Triage" must be lowercase letters and digits, optionally joined by single hyphens`}, refused.Content)
+}
+
+func TestInvalidTagsUpdateResult(t *testing.T) {
+	ptr := func(tags []string) *[]string { return &tags }
+
+	assert.Nil(t, InvalidTagsUpdateResult(nil))
+	assert.Nil(t, InvalidTagsUpdateResult(ptr(tagstest.Numbered(MaxTags+1))), "the limit needs the stored tags")
+
+	for _, tags := range [][]string{{"Triage"}, {"triage", "triage"}} {
+		refused := InvalidTagsUpdateResult(ptr(tags))
+		require.NotNil(t, refused, "%v", tags)
+		assert.True(t, refused.IsError)
+		assert.Contains(t, refused.Content[0], "invalid tags: ")
+	}
 }
 
 func TestUpdateRequestTagsTriState(t *testing.T) {

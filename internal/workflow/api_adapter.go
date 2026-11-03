@@ -21,9 +21,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"gopkg.in/yaml.v3"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/util/retry"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -430,64 +428,6 @@ func (a *Adapter) createWorkflow(ctx context.Context, writer workflowWriter, arg
 	// Generate success event for CRD creation
 	a.generateCRDEvent(wf.Name, events.ReasonWorkflowCreated, events.EventData{
 		Operation: "create",
-		StepCount: len(wf.Steps),
-	})
-
-	return nil
-}
-
-// updateWorkflow validates the structured arguments and updates the named
-// Workflow CR through writer (see createWorkflow for the identity contract).
-//
-// The update is a get-modify-write: the read of the current CR stays on the
-// SA client — only the spec mutation itself switches to the caller's identity
-// — and carries the resourceVersion the apiserver requires for CR updates (a
-// fresh object without one is rejected). Conflicts with muster's own status
-// reconciler bumping the resourceVersion are retried on a fresh read.
-func (a *Adapter) updateWorkflow(ctx context.Context, writer workflowWriter, name string, args map[string]interface{}, tags *[]string) error {
-	// Validate the workflow before updating it
-	if err := a.ValidateWorkflowFromStructured(args); err != nil {
-		return fmt.Errorf("validation failed: %w", err)
-	}
-
-	// Convert structured arguments to api.Workflow
-	wf, err := convertToWorkflow(args)
-	if err != nil {
-		return err
-	}
-
-	// Ensure the name matches
-	wf.Name = name
-
-	// Convert to CRD; only its spec is applied onto the live object, and
-	// tags (nil keeps them) onto its annotations.
-	desired := a.convertWorkflowToCRD(&wf)
-
-	apply := func() error {
-		existing, err := a.client.GetWorkflow(ctx, name, a.namespace)
-		if err != nil {
-			return err
-		}
-		existing.Spec = desired.Spec
-		existing.Annotations = api.ApplyTagsAnnotation(existing.Annotations, tags)
-		return writer.UpdateWorkflow(ctx, existing)
-	}
-	err = apply()
-	if apierrors.IsConflict(err) {
-		err = retry.RetryOnConflict(retry.DefaultRetry, apply)
-	}
-	if err != nil {
-		// Generate failure event
-		a.generateCRDEvent(wf.Name, events.ReasonWorkflowValidationFailed, events.EventData{
-			Error:     err.Error(),
-			Operation: "update",
-		})
-		return fmt.Errorf("failed to update workflow: %w", err)
-	}
-
-	// Generate success event for CRD update
-	a.generateCRDEvent(wf.Name, events.ReasonWorkflowUpdated, events.EventData{
-		Operation: "update",
 		StepCount: len(wf.Steps),
 	})
 
@@ -1424,7 +1364,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 					Required:    false,
 					Description: "Description of the workflow",
 				},
-				api.TagsArg(),
+				api.TagsUpdateArg(),
 				{
 					Name:        "args",
 					Type:        api.ArgTypeObject,
@@ -1801,7 +1741,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, args map[string]interface{})
 			IsError: true,
 		}, nil
 	}
-	if result := api.InvalidTagsResult(req.Tags); result != nil {
+	if result := api.InvalidTagsUpdateResult(req.Tags); result != nil {
 		return result, nil
 	}
 
@@ -1811,6 +1751,9 @@ func (a *Adapter) handleUpdate(ctx context.Context, args map[string]interface{})
 	}
 
 	if err := a.updateWorkflow(ctx, writer, req.Name, args, req.Tags); err != nil {
+		if refused := api.InvalidTagsErrorResult(err); refused != nil {
+			return refused, nil
+		}
 		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
 			return &api.CallToolResult{Content: []interface{}{msg}, IsError: true}, nil
 		}

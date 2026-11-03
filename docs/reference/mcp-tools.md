@@ -571,7 +571,7 @@ Update an existing MCP server definition. Only provided fields are updated.
 - `name` (string, required) - Name of the MCP server to update
 - `type` (string, optional) - Server type
 - `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation, trimmed; an empty or blank string removes it, and omitting it keeps the current one
-- `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones
+- `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones. More than 50 only when none of them is new, so a longer hand-set list can be sent back
 - `description` (string, optional) - Updated description
 - `command` (array of strings, optional) - New command and arguments
 - `env` (object, optional) - Updated environment variables (replaces existing)
@@ -1078,7 +1078,7 @@ Update an existing workflow definition. Only provided fields are updated.
 - `steps` (array, optional) - Updated workflow steps (replaces all existing steps)
 - `args` (object, optional) - Updated argument schema
 - `description` (string, optional) - Updated description
-- `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones
+- `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones. More than 50 only when none of them is new, so a longer hand-set list can be sent back
 
 **Returns:** Updated workflow definition
 

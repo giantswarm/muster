@@ -405,7 +405,7 @@
               "type": "object"
             },
             "tags": {
-              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars. Update: omitted keeps, [] clears, a list replaces",
+              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars",
               "items": {
                 "maxLength": 63,
                 "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
@@ -795,13 +795,12 @@
               "type": "boolean"
             },
             "tags": {
-              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars. Update: omitted keeps, [] clears, a list replaces",
+              "description": "Replaces the tags; omitted keeps, [] clears. Unique a-z0-9 words joined by single hyphens, max 63 chars; at most 50, unless none is new",
               "items": {
                 "maxLength": 63,
                 "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
                 "type": "string"
               },
-              "maxItems": 50,
               "type": "array",
               "uniqueItems": true
             },
@@ -1112,7 +1111,7 @@
               "type": "object"
             },
             "tags": {
-              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars. Update: omitted keeps, [] clears, a list replaces",
+              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars",
               "items": {
                 "maxLength": 63,
                 "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
@@ -1898,7 +1897,7 @@
               "type": "array"
             },
             "tags": {
-              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars. Update: omitted keeps, [] clears, a list replaces",
+              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars",
               "items": {
                 "maxLength": 63,
                 "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
@@ -2681,13 +2680,12 @@
               "type": "array"
             },
             "tags": {
-              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars. Update: omitted keeps, [] clears, a list replaces",
+              "description": "Replaces the tags; omitted keeps, [] clears. Unique a-z0-9 words joined by single hyphens, max 63 chars; at most 50, unless none is new",
               "items": {
                 "maxLength": 63,
                 "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
                 "type": "string"
               },
-              "maxItems": 50,
               "type": "array",
               "uniqueItems": true
             }
@@ -3381,7 +3379,7 @@
               "type": "array"
             },
             "tags": {
-              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars. Update: omitted keeps, [] clears, a list replaces",
+              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars",
               "items": {
                 "maxLength": 63,
                 "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
