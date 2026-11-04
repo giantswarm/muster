@@ -1385,7 +1385,7 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 		}
 	})
 	a.observeSharedRecovery(registration.Name, client)
-	a.observeRelayedCompletions(registration.Name, client)
+	a.observeRelayedCompletions(registration.Name, "", client)
 
 	if err := a.registry.Register(ctx, registration, client); err != nil {
 		return err

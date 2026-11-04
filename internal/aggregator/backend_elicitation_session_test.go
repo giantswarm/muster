@@ -225,6 +225,10 @@ func TestBackendElicitation_SessionPathsPassOnTheCompletion(t *testing.T) {
 				result, err := a.urlElicitation()(call)(ctx, acceptedRelayedRetry(first.RequestState))
 				answered <- answer{result, err}
 			}()
+			// A retry that does not wait answers at once with the backend's
+			// second elicitation. The window can only let a broken wait pass
+			// on a slow runner, never fail a working one; the synctest
+			// subtests of TestBackendElicitation_Relayed pin the wait exactly.
 			select {
 			case got := <-answered:
 				t.Fatalf("the retry ran before the backend completed the page: %+v, %v", got.result, got.err)

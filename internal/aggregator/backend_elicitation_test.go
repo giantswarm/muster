@@ -275,6 +275,33 @@ func TestBackendElicitation_CompletionReachesTheAskedSession(t *testing.T) {
 	require.Empty(t, other.ch, "only the session that was asked is told")
 }
 
+// A server may give the elicitations of several sessions the same id. Its
+// completion on one session's own connection completes that session's only:
+// another person who has not completed the page is not told it is done.
+func TestBackendElicitation_SessionConnectionCompletesItsSessionOnly(t *testing.T) {
+	a, backend, call := newElicitingBackend(t, testCredentialFormURL, api.MCPServerURLElicitationRelay)
+	backend.elicitTimes = 2
+	a.mcpServer = mcpserver.NewMCPServer("muster", "test")
+	alice := newLegacySession("transport-alice", urlElicitationCapabilities())
+	bob := newLegacySession("transport-bob", urlElicitationCapabilities())
+	require.NoError(t, a.mcpServer.RegisterSession(t.Context(), alice))
+	require.NoError(t, a.mcpServer.RegisterSession(t.Context(), bob))
+	aliceCtx := a.mcpServer.WithContext(api.WithSessionID(t.Context(), "session-alice"), alice)
+	bobCtx := a.mcpServer.WithContext(api.WithSessionID(t.Context(), "session-bob"), bob)
+	for _, ctx := range []context.Context{aliceCtx, bobCtx} {
+		_, err := a.urlElicitation()(call)(ctx, mcp.CallToolRequest{})
+		require.True(t, errors.As(err, new(mcp.URLElicitationRequiredError)), "err: %v", err)
+	}
+	alicesConnection := &declaringClient{}
+	a.declareURLElicitation(aliceCtx, testElicitingServer, alicesConnection)
+	require.NotNil(t, alicesConnection.completed, "a session's own connection passes on its server's completions")
+
+	alicesConnection.completed(testElicitationID)
+
+	require.Len(t, alice.ch, 1)
+	require.Empty(t, bob.ch, "bob's elicitation is not completed by alice's connection")
+}
+
 // droppedLine returns the parsed log line of a dropped backend elicitation.
 func droppedLine(t *testing.T, logged string) map[string]any {
 	t.Helper()
@@ -389,13 +416,16 @@ func TestBackendElicitation_OnTheWire(t *testing.T) {
 	})
 }
 
-// declaringClient records whether URL mode elicitation was declared on it.
+// declaringClient records whether URL mode elicitation was declared on it,
+// and keeps the handler of the server's elicitation completions.
 type declaringClient struct {
 	mockMCPClient
-	declared bool
+	declared  bool
+	completed func(elicitationID string)
 }
 
-func (c *declaringClient) DeclareURLElicitation() { c.declared = true }
+func (c *declaringClient) DeclareURLElicitation()                     { c.declared = true }
+func (c *declaringClient) OnElicitationComplete(handler func(string)) { c.completed = handler }
 
 func TestDeclareURLElicitation(t *testing.T) {
 	for value, want := range map[string]bool{api.MCPServerURLElicitationRelay: true, "Drop": false, "": false} {
