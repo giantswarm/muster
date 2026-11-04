@@ -446,6 +446,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Meta:                  server.Spec.Meta,
 		Timeout:               server.Spec.Timeout,
 		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
+		URLElicitation:        server.Spec.URLElicitation,
 		Error:                 server.Status.LastError,
 		State:                 string(server.Status.State),
 		ConsecutiveFailures:   server.Status.ConsecutiveFailures,

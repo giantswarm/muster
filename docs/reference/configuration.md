@@ -157,6 +157,7 @@ The aggregator manages the unified MCP interface and tool aggregation.
 | `port` | `int` | `8090` | Port for the aggregator HTTP/WebSocket server |
 | `host` | `string` | `"localhost"` | Host address to bind the server to |
 | `transport` | `string` | `"streamable-http"` | MCP transport protocol |
+| `devPortalUrl` | `string` | `""` | The installation's Dev Portal. Its origin is the only one to which muster relays the URL elicitation of an MCPServer with `spec.urlElicitation: Relay` (see [A call a server answers with a URL elicitation](mcp-tools.md#a-call-a-server-answers-with-a-url-elicitation)). Empty, muster relays none. muster does not start with a value that is not an absolute `http` or `https` URL without a user name or password. Helm: `muster.aggregator.devPortalUrl`. |
 | `enabled` | `bool` | `true` | Whether to enable the aggregator service |
 
 #### Transport Options

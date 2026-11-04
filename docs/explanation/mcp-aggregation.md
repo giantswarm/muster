@@ -234,8 +234,11 @@ downstream tools the call reaches, under its own token:
 - A call without a `progressToken` sends none downstream.
 
 The counter is `muster.downstream_progress_notifications` (see
-[Observability](observability.md)). Sampling and elicitation requests from a
-downstream server are not relayed.
+[Observability](observability.md)). Sampling and form elicitation requests
+from a downstream server are not relayed. A downstream URL elicitation is
+relayed only from a server with `spec.urlElicitation: Relay` and to the Dev
+Portal's origin (see
+[A call a server answers with a URL elicitation](../reference/mcp-tools.md#a-call-a-server-answers-with-a-url-elicitation)).
 
 ### Tool Calls Across a Replica Stop
 

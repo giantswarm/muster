@@ -78,7 +78,7 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 				Name:    "muster",
 				Version: clientVersion,
 			},
-			Capabilities: mcp.ClientCapabilities{},
+			Capabilities: c.clientCapabilities(),
 		},
 	})
 	if err != nil {

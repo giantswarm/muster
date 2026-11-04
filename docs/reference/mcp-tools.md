@@ -159,6 +159,25 @@ A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked 
 
 Only the sign-in answers muster issues are elicited: a backend result that has the same shape is returned unchanged. A server muster connects with the person's muster sign-in (token forwarding, token exchange) has no link to open, and keeps the `auth_required` answer.
 
+#### A call a server answers with a URL elicitation
+
+An MCP server can answer a tool call with a URL elicitation: a request that the person open a page, such as the Dev Portal's form for a missing credential. muster relays it to the client only when both are true:
+
+- the server's MCPServer sets `spec.urlElicitation: Relay` ([MCPServer spec fields](crds.md#spec-fields)), and
+- the page is on the origin (scheme, host and port) of muster's `aggregator.devPortalUrl` ([configuration](configuration.md#aggregator-configuration)).
+
+muster declares URL mode elicitation (`elicitation: {url: {}}`) only to a server with `Relay`. A server without it is asked for its ordinary text answer.
+
+A relayed elicitation reaches the client in the shape of the client's protocol version, as a sign-in does:
+
+| Client's protocol version | Answer |
+|---|---|
+| 2026-07-28 or later, `elicitation.url` in the request's client capabilities | `resultType: "input_required"` with one `elicitation/create` input request per page (`mode: "url"`, the server's `url`, `message` and `elicitationId`) under the keys `muster_relayed_elicitation_0`, `muster_relayed_elicitation_1`, and so on. A retry whose `inputResponses` accept them runs the call again. A retry that declines or cancels one runs nothing and gets a tool error. |
+| 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the server's elicitations. Retry the call after the person completed the page. |
+| Any other | A tool error with the server's message and the link, to open by hand. |
+
+muster drops every other URL elicitation: from a server without `Relay`, to a page on another origin, or when `aggregator.devPortalUrl` is not set. It logs `Dropped a backend's URL elicitation` with the server, the page's origin and the reason, and answers the call with a tool error that names the server and does not hold the URL. Thus no server, an organization's own included, can send a person to a page of its choice.
+
 ### Resource Access
 
 | Meta-Tool | Description | Arguments |

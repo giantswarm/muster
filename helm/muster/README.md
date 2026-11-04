@@ -98,6 +98,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | affinity | object | `{}` |  |
 | muster.aggregator.port | int | `8090` |  |
 | muster.aggregator.transport | string | `"streamable-http"` |  |
+| muster.aggregator.devPortalUrl | string | `""` |  |
 | muster.namespace | string | `""` |  |
 | muster.debug | bool | `false` |  |
 | muster.writesAsCaller.kubernetesAudience | string | `""` |  |
