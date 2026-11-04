@@ -127,10 +127,12 @@ func (s *InMemoryTenantOwnerStore) Namespaces(context.Context) ([]string, error)
 // one after the other, never in one script or transaction. A write adds
 // the namespace after its fields (AddOwner); a removal that leaves the record
 // empty takes the namespace out and then puts it back if the record exists
-// again (unindexIfEmpty). Every interleaving of the two leaves the namespace
-// of a record in the set; one whose record is gone may stay a member only if
-// muster dies between the two writes, and an empty record has nothing to
-// sweep.
+// again (unindexIfEmpty). Every interleaving of two such writers that both
+// complete leaves the namespace of a record in the set. A writer that fails
+// or dies between its two commands can leave a record unindexed (the
+// aggregator writes a server's record again on each of its registrations,
+// which indexes it) or a member whose record is gone (an empty record has
+// nothing to sweep).
 //
 // Records written before the index existed are indexed once, by one SCAN of
 // the record keys, on the first Namespaces call that finds no

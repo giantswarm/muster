@@ -3,6 +3,8 @@ package aggregator
 import (
 	"context"
 	"errors"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -359,4 +361,58 @@ func TestTenantSignIns_FailedSweepAtStartIsRetried(t *testing.T) {
 	grant, mark := f.signedIn("bob", deleted, tenantTestIssuer)
 	assert.False(t, grant, "the retry forgets the deleted namespace's grant")
 	assert.False(t, mark)
+}
+
+// A namespace that keeps some of its servers loses at start only what the
+// servers that went while muster was down alone used: their issuer keys and
+// records. The servers left keep their sign-ins.
+func TestTenantSignIns_SweepAtStartKeepsTheServersLeft(t *testing.T) {
+	const (
+		github = "org-a/github"
+		miro   = "org-a/miro"
+		other  = "https://other.example.com"
+	)
+	f := newTenantFixture(t, "valkey")
+	f.define(github, "uid-g")
+	f.define(miro, "uid-m")
+	require.NoError(t, f.register(github, "uid-g", tenantTestIssuer))
+	require.NoError(t, f.register(miro, "uid-m", other))
+	f.signIn("alice", github, tenantTestIssuer)
+	f.signIn("alice", miro, other)
+
+	delete(f.definitions.servers, miro)
+	f.restart()
+	f.sweepAtStart(listedAlready())
+	f.settled()
+
+	grant, mark := f.signedIn("alice", github, tenantTestIssuer)
+	assert.True(t, grant, "the server left keeps its sign-in")
+	assert.True(t, mark)
+	grant, mark = f.signedIn("alice", miro, other)
+	assert.False(t, grant, "the issuer only the gone server named is forgotten")
+	assert.False(t, mark)
+	owners, err := f.owners.Owners(context.Background(), "org-a")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"uid-g"}, slices.Collect(maps.Keys(owners)))
+}
+
+// A record the namespace index lost (its write failed between the record and
+// the index, or a muster without the index wrote it) is indexed again by the
+// server's next registration, so the sweep at start finds it.
+func TestTenantSignIns_RegistrationIndexesTheRecord(t *testing.T) {
+	const key = "org-a/github"
+	f := newTenantFixture(t, "valkey")
+	f.define(key, "uid-g")
+	require.NoError(t, f.register(key, "uid-g", tenantTestIssuer))
+	_, err := f.owners.Namespaces(context.Background()) // the earlier records are indexed
+	require.NoError(t, err)
+	_, err = f.valkey.SRem("muster:tenant_owner_namespaces", "org-a")
+	require.NoError(t, err)
+
+	f.restart()
+	require.NoError(t, f.register(key, "uid-g", tenantTestIssuer))
+
+	namespaces, err := f.owners.Namespaces(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"org-a"}, namespaces)
 }

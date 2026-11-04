@@ -35,8 +35,9 @@ import (
 // The second makes it safe: no new server can reach the old state, even
 // when muster never saw the deletion (it was down, or the delete and the
 // create reached it as one update). A restart registers recorded UIDs and
-// forgets nothing. Servers of muster's namespace have no namespace in their
-// key and are never touched.
+// forgets nothing of them; the sweep at start (tenant_sweep_start.go)
+// forgets the recorded servers that went while muster was down. Servers of
+// muster's namespace have no namespace in their key and are never touched.
 //
 // Replicas share the record. Each one removes only the UIDs it read, so a
 // server another replica recorded meanwhile stays recorded; a replica that
@@ -73,7 +74,11 @@ func (a *AggregatorServer) adoptTenantServer(ctx context.Context, reg ServerRegi
 		return fmt.Errorf("read the owners of namespace %s: %w", namespace, err)
 	}
 	if owner, ok := owners[reg.UID]; ok {
-		return a.recordIssuerKeys(ctx, namespace, reg.UID, owner, issuerKeys)
+		// Written again even with no new key: the write indexes the
+		// namespace for the sweep at start, also when an earlier write
+		// recorded it and failed before indexing it, or a muster without
+		// the index recorded it.
+		return a.recordIssuerKeys(ctx, namespace, reg.UID, owner, issuerKeys, true)
 	}
 	live, err := tenantDefinitionUIDs(ctx, namespace)
 	if err != nil {
@@ -87,7 +92,7 @@ func (a *AggregatorServer) adoptTenantServer(ctx context.Context, reg ServerRegi
 	if err := a.sweepTenantNamespace(ctx, namespace, owners, live, reg.Name); err != nil {
 		return err
 	}
-	return a.recordIssuerKeys(ctx, namespace, reg.UID, oauthstore.TenantOwner{Server: reg.Name}, issuerKeys)
+	return a.recordIssuerKeys(ctx, namespace, reg.UID, oauthstore.TenantOwner{Server: reg.Name}, issuerKeys, true)
 }
 
 // recordTenantIssuer records that a tenant server's sign-ins are filed under
@@ -108,19 +113,20 @@ func (a *AggregatorServer) recordTenantIssuer(ctx context.Context, info *ServerI
 		// before this one existed): adopt the server again.
 		return a.adoptTenantServer(ctx, ServerRegistration{Name: info.Name, UID: info.UID}, []string{issuerKey})
 	}
-	return a.recordIssuerKeys(ctx, namespace, info.UID, owner, []string{issuerKey})
+	return a.recordIssuerKeys(ctx, namespace, info.UID, owner, []string{issuerKey}, false)
 }
 
 // recordIssuerKeys adds the keys the record does not hold yet (all of a new
-// record's) to a server's record.
-func (a *AggregatorServer) recordIssuerKeys(ctx context.Context, namespace, uid string, owner oauthstore.TenantOwner, keys []string) error {
+// record's) to a server's record. Without a key to add it writes nothing,
+// unless always is set.
+func (a *AggregatorServer) recordIssuerKeys(ctx context.Context, namespace, uid string, owner oauthstore.TenantOwner, keys []string, always bool) error {
 	add := oauthstore.TenantOwner{Server: owner.Server}
 	for _, key := range keys {
 		if key != "" && !slices.Contains(owner.IssuerKeys, key) && !slices.Contains(add.IssuerKeys, key) {
 			add.IssuerKeys = append(add.IssuerKeys, key)
 		}
 	}
-	if owner.IssuerKeys != nil && len(add.IssuerKeys) == 0 {
+	if !always && owner.IssuerKeys != nil && len(add.IssuerKeys) == 0 {
 		return nil
 	}
 	if err := a.tenantOwners.AddOwner(ctx, namespace, uid, add); err != nil {

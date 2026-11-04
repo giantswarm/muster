@@ -16,9 +16,12 @@ import (
 // answer. A deleted namespace is never adopted again, so without this its
 // people's tokens and grants would stay in the store for good.
 //
-// The sweep waits until the MCPServer objects of every namespace are listed
-// (the reconciler's informer has synced): a sweep that saw no live server
-// would erase the sign-ins of every tenant. Without that listing (filesystem
+// The sweep waits until the reconciler's informer has synced the MCPServer
+// objects of every namespace, so muster has seen the existing servers before
+// it compares the records with them; it never sweeps on a view of the
+// servers that is not complete yet, which would erase the sign-ins of every
+// tenant. The comparison itself lists the objects from the API server
+// (tenantDefinitionUIDs), as at run time. Without that informer (filesystem
 // mode, or MCPServers of muster's namespace only) there is nothing to sweep
 // at start. With the in-memory stores the record starts empty, so the sweep
 // finds nothing.
