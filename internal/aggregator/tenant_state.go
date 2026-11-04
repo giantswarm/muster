@@ -29,13 +29,15 @@ import (
 //     of the namespace goes;
 //   - some are gone: the issuer keys only gone servers used go.
 //
-// It runs when a tenant server's service is removed (forgetTenantServer)
-// and before a server with an unrecorded UID registers (adoptTenantServer).
+// It runs when a tenant server's service is removed (forgetTenantServer,
+// retried until it succeeds) and before a server with an unrecorded UID
+// registers (adoptTenantServer).
 // The second makes it safe: no new server can reach the old state, even
 // when muster never saw the deletion (it was down, or the delete and the
 // create reached it as one update). A restart registers recorded UIDs and
-// forgets nothing. Servers of muster's namespace have no namespace in their
-// key and are never touched.
+// forgets nothing of them; the sweep at start (tenant_sweep_start.go)
+// forgets the recorded servers that went while muster was down. Servers of
+// muster's namespace have no namespace in their key and are never touched.
 //
 // Replicas share the record. Each one removes only the UIDs it read, so a
 // server another replica recorded meanwhile stays recorded; a replica that
@@ -72,7 +74,11 @@ func (a *AggregatorServer) adoptTenantServer(ctx context.Context, reg ServerRegi
 		return fmt.Errorf("read the owners of namespace %s: %w", namespace, err)
 	}
 	if owner, ok := owners[reg.UID]; ok {
-		return a.recordIssuerKeys(ctx, namespace, reg.UID, owner, issuerKeys)
+		// Written again even with no new key: the write indexes the
+		// namespace for the sweep at start, also when an earlier write
+		// recorded it and failed before indexing it, or a muster without
+		// the index recorded it.
+		return a.recordIssuerKeys(ctx, namespace, reg.UID, owner, issuerKeys, true)
 	}
 	live, err := tenantDefinitionUIDs(ctx, namespace)
 	if err != nil {
@@ -86,7 +92,7 @@ func (a *AggregatorServer) adoptTenantServer(ctx context.Context, reg ServerRegi
 	if err := a.sweepTenantNamespace(ctx, namespace, owners, live, reg.Name); err != nil {
 		return err
 	}
-	return a.recordIssuerKeys(ctx, namespace, reg.UID, oauthstore.TenantOwner{Server: reg.Name}, issuerKeys)
+	return a.recordIssuerKeys(ctx, namespace, reg.UID, oauthstore.TenantOwner{Server: reg.Name}, issuerKeys, true)
 }
 
 // recordTenantIssuer records that a tenant server's sign-ins are filed under
@@ -107,19 +113,20 @@ func (a *AggregatorServer) recordTenantIssuer(ctx context.Context, info *ServerI
 		// before this one existed): adopt the server again.
 		return a.adoptTenantServer(ctx, ServerRegistration{Name: info.Name, UID: info.UID}, []string{issuerKey})
 	}
-	return a.recordIssuerKeys(ctx, namespace, info.UID, owner, []string{issuerKey})
+	return a.recordIssuerKeys(ctx, namespace, info.UID, owner, []string{issuerKey}, false)
 }
 
 // recordIssuerKeys adds the keys the record does not hold yet (all of a new
-// record's) to a server's record.
-func (a *AggregatorServer) recordIssuerKeys(ctx context.Context, namespace, uid string, owner oauthstore.TenantOwner, keys []string) error {
+// record's) to a server's record. Without a key to add it writes nothing,
+// unless always is set.
+func (a *AggregatorServer) recordIssuerKeys(ctx context.Context, namespace, uid string, owner oauthstore.TenantOwner, keys []string, always bool) error {
 	add := oauthstore.TenantOwner{Server: owner.Server}
 	for _, key := range keys {
 		if key != "" && !slices.Contains(owner.IssuerKeys, key) && !slices.Contains(add.IssuerKeys, key) {
 			add.IssuerKeys = append(add.IssuerKeys, key)
 		}
 	}
-	if owner.IssuerKeys != nil && len(add.IssuerKeys) == 0 {
+	if !always && owner.IssuerKeys != nil && len(add.IssuerKeys) == 0 {
 		return nil
 	}
 	if err := a.tenantOwners.AddOwner(ctx, namespace, uid, add); err != nil {
@@ -129,28 +136,34 @@ func (a *AggregatorServer) recordIssuerKeys(ctx context.Context, namespace, uid 
 }
 
 // forgetTenantServer runs when the service of a server outside muster's
-// namespace was removed (its definition deleted or refused). A failure is
-// logged only: the next adoption in the namespace sweeps it again.
+// namespace was removed (its definition deleted or refused). A sweep that
+// fails is retried with backoff until it succeeds (tenantSweepRetries): the
+// namespace may never be adopted again.
 func (a *AggregatorServer) forgetTenantServer(ctx context.Context, name string) {
 	namespace, _ := api.SplitMCPServerKey(name)
 	if namespace == "" || a.tenantOwners == nil {
 		return
 	}
-	err := func() error {
-		live, err := tenantDefinitionUIDs(ctx, namespace)
-		if err != nil {
-			return fmt.Errorf("list the MCPServers of namespace %s: %w", namespace, err)
-		}
-		owners, err := a.tenantOwners.Owners(ctx, namespace)
-		if err != nil {
-			return fmt.Errorf("read the owners of namespace %s: %w", namespace, err)
-		}
-		return a.sweepTenantNamespace(ctx, namespace, owners, live, name)
-	}()
-	if err != nil {
-		logging.WarnWithAttrs("Aggregator", "Cannot forget the sign-ins of a removed server; the next registration in its namespace does",
-			slog.String("server", name), slog.String("error", err.Error()))
+	if err := a.sweepGoneTenantServers(ctx, namespace, name); err != nil {
+		a.tenantSweeps.schedule(namespace, name, err, func(ctx context.Context) error {
+			return a.sweepGoneTenantServers(ctx, namespace, "")
+		})
 	}
+}
+
+// sweepGoneTenantServers sweeps a namespace against the MCPServer objects
+// that exist now; server is the removed one ("" for a retry, which names
+// none: the key may be live again).
+func (a *AggregatorServer) sweepGoneTenantServers(ctx context.Context, namespace, server string) error {
+	live, err := tenantDefinitionUIDs(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("list the MCPServers of namespace %s: %w", namespace, err)
+	}
+	owners, err := a.tenantOwners.Owners(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("read the owners of namespace %s: %w", namespace, err)
+	}
+	return a.sweepTenantNamespace(ctx, namespace, owners, live, server)
 }
 
 // sweepTenantNamespace forgets the state of the recorded servers that no
@@ -158,7 +171,7 @@ func (a *AggregatorServer) forgetTenantServer(ctx context.Context, name string) 
 // the namespace goes, also under keys no record names; otherwise the issuer
 // keys only gone servers used. The sessions' marks, capabilities and pooled
 // clients of the gone servers go too, and of server, the one being
-// registered or removed. Then the gone servers are no owners any more.
+// registered or removed (if any). Then the gone servers are no owners any more.
 func (a *AggregatorServer) sweepTenantNamespace(ctx context.Context, namespace string, owners map[string]oauthstore.TenantOwner, live map[string]bool, server string) error {
 	var gone []string
 	kept := make(map[string]bool)
@@ -196,7 +209,10 @@ func (a *AggregatorServer) sweepTenantNamespace(ctx context.Context, namespace s
 		}
 	}
 
-	servers := []string{server}
+	var servers []string
+	if server != "" {
+		servers = append(servers, server)
+	}
 	for _, uid := range gone {
 		if s := owners[uid].Server; s != "" && !liveServers[s] && !slices.Contains(servers, s) {
 			servers = append(servers, s)

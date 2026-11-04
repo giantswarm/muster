@@ -669,6 +669,10 @@ type OAuthToken struct {
 	// Issuer is the token issuer (Identity Provider URL).
 	// Used for SSO detection and token forwarding.
 	Issuer string `json:"issuer,omitempty"`
+
+	// Resource is the RFC 8707 resource the grant was requested for (the
+	// MCP server it is bound to); empty when none was recorded.
+	Resource string `json:"resource,omitempty"`
 }
 
 // AuthInfo contains OAuth authentication information extracted from

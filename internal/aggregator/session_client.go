@@ -122,6 +122,11 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 		if issuer == "" {
 			return nil, fmt.Errorf("unable to determine auth method for server %s: its OAuth issuer is unknown (no RFC 9728 metadata, no spec.auth.authorizationServer pin)", serverName)
 		}
+		// A discovered issuer with subject-scoped grants is pinned before the
+		// connection reads or refreshes the person's grant under it.
+		if err := a.pinDiscoveredIssuer(ctx, serverInfo); err != nil {
+			return nil, err
+		}
 		headers, err := sessionHeaders(ctx, serverInfo)
 		if err != nil {
 			return nil, err
@@ -141,6 +146,7 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 			WithTimeout(serverInfo.Timeout).
 			WithMaxCallDuration(serverInfo.MaxCallDuration).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
+		a.declareURLElicitation(ctx, serverName, client)
 
 	} else {
 		return nil, fmt.Errorf("unable to determine auth method for server %s", serverName)

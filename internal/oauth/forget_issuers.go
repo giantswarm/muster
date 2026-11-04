@@ -18,7 +18,7 @@ import (
 // namespace's issuer keys (api.IssuerKey). A later server in a namespace of
 // the same name then starts with nothing. Pins are not stored: they are
 // derived from the live MCPServer definitions and released with them
-// (releaseAuthorizationServerPin).
+// (releaseAuthorizationServerDescription).
 
 // forgetScanCount is the SCAN page size of a forget over Valkey.
 const forgetScanCount = 100

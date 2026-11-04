@@ -43,9 +43,14 @@ func newSubjectGrantMockHandler() *subjectGrantMockHandler {
 }
 
 func (m *subjectGrantMockHandler) grant(userID, issuer, accessToken string) {
+	m.grantFor(userID, issuer, accessToken, "")
+}
+
+// grantFor files a grant bound to an RFC 8707 resource, as a sign-in does.
+func (m *subjectGrantMockHandler) grantFor(userID, issuer, accessToken, resource string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.grants[userID+"|"+issuer] = &api.OAuthToken{AccessToken: accessToken, Issuer: issuer}
+	m.grants[userID+"|"+issuer] = &api.OAuthToken{AccessToken: accessToken, Issuer: issuer, Resource: resource}
 }
 
 func (m *subjectGrantMockHandler) GetFullTokenByIssuerForUser(sessionID, userID, issuer string) *api.OAuthToken {
@@ -182,6 +187,9 @@ func TestHoldsSubjectGrants(t *testing.T) {
 		"token forwarding (SSO)":   {&ServerInfo{AuthConfig: &api.MCPServerAuth{ForwardToken: true, AuthorizationServer: subjectAS}}, false},
 		"token exchange (SSO)":     {&ServerInfo{AuthConfig: &api.MCPServerAuth{TokenExchange: &api.TokenExchangeConfig{Enabled: true, DexTokenEndpoint: "https://dex/token", ConnectorID: "x"}, AuthorizationServer: subjectAS}}, false},
 		"subject-scoped connector": {&ServerInfo{AuthConfig: &api.MCPServerAuth{Type: "oauth", AuthorizationServer: subjectAS}}, true},
+		"subject-scoped connector that discovers its issuer": {&ServerInfo{AuthConfig: &api.MCPServerAuth{Type: "oauth", GrantScope: api.GrantScopeSubject}}, true},
+		"spec.auth.grantScope over a plain pin":              {&ServerInfo{AuthConfig: &api.MCPServerAuth{Type: "oauth", GrantScope: api.GrantScopeSubject, AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: subjectGrantIssuerURL}}}, true},
+		"session-scoped connector that discovers its issuer": {&ServerInfo{AuthConfig: &api.MCPServerAuth{Type: "oauth", GrantScope: api.GrantScopeSession}}, false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

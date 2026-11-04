@@ -178,7 +178,7 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 				Name:    clientName,
 				Version: clientVersion,
 			},
-			Capabilities: mcp.ClientCapabilities{},
+			Capabilities: c.clientCapabilities(),
 		},
 	})
 	if err != nil {

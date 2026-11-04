@@ -84,9 +84,12 @@ type challengeRecorderKey struct{}
 // one tool call: a gated call's auth_required answer or core_auth_login's
 // challenge. It lives in the call's context, so only muster's own answer is
 // ever turned into an elicitation: a backend that returns a result of the
-// same shape records nothing.
+// same shape records nothing. It holds the backend URL elicitation muster
+// relays as well, which only muster's dispatch records, once it allowed it
+// (backend_elicitation.go).
 type challengeRecorder struct {
 	challenge atomic.Pointer[signInChallenge]
+	relayed   atomic.Pointer[relayedElicitation]
 }
 
 func withChallengeRecorder(ctx context.Context) (context.Context, *challengeRecorder) {
@@ -120,6 +123,13 @@ func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
 // notifications/elicitation/complete when the sign-in completes
 // (signInElicitations). A client that does not declare elicitation.url keeps
 // the auth_required answer.
+//
+// A backend's URL elicitation muster relays (backend_elicitation.go) is
+// asked in the same two shapes. A 2026-07-28 retry that accepted it first
+// waits for the backend's completion of it (awaitRelayedCompletion), then
+// runs the call again; one that declined or cancelled it runs nothing. On
+// 2025-11-25 the session is sent notifications/elicitation/complete when the
+// backend completes it (completeRelayedElicitation).
 func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 	return func(next mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -134,17 +144,27 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 				a.awaitSignIn(ctx, getSessionIDFromContext(ctx), state)
 				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
 			}
+			relayedWaitExpired := false
+			if action, answered := relayedElicitationAnswer(req.Params.InputResponses); answered {
+				if action != mcp.ElicitationResponseActionAccept {
+					return declinedRelayedResult(action, req.Params.RequestState), nil
+				}
+				relayedWaitExpired = a.awaitRelayedCompletion(ctx, getSessionIDFromContext(ctx), decodeRelayedRequestState(req.Params.RequestState))
+				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
+			}
 
 			callCtx, recorder := withChallengeRecorder(ctx)
 			result, err := next(callCtx, req)
 			if err != nil {
 				return result, err
 			}
-			challenge := recorder.challenge.Load()
-			if challenge == nil || signInLink(result) != challenge.authURL {
-				return result, err
+			if challenge := recorder.challenge.Load(); challenge != nil && signInLink(result) == challenge.authURL {
+				return a.elicitSignIn(callCtx, *challenge)
 			}
-			return a.elicitSignIn(callCtx, *challenge)
+			if relayed := recorder.relayed.Load(); relayed != nil && relayedElicitationLink(result) == relayed.link() {
+				return a.elicitRelayed(callCtx, *relayed, relayedWaitExpired)
+			}
+			return result, err
 		}
 	}
 }

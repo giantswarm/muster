@@ -203,6 +203,14 @@
                   "description": "Enable SSO token forwarding (oauth only)",
                   "type": "boolean"
                 },
+                "grantScope": {
+                  "description": "Whose grant, for a discovered or pinned issuer (oauth): session (default) or subject (the person's; later sessions reuse it until core_auth_logout)",
+                  "enum": [
+                    "session",
+                    "subject"
+                  ],
+                  "type": "string"
+                },
                 "requiredAudiences": {
                   "description": "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
                   "items": {
@@ -585,6 +593,14 @@
                   "description": "Enable SSO token forwarding (oauth only)",
                   "type": "boolean"
                 },
+                "grantScope": {
+                  "description": "Whose grant, for a discovered or pinned issuer (oauth): session (default) or subject (the person's; later sessions reuse it until core_auth_logout)",
+                  "enum": [
+                    "session",
+                    "subject"
+                  ],
+                  "type": "string"
+                },
                 "requiredAudiences": {
                   "description": "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
                   "items": {
@@ -908,6 +924,14 @@
                 "forwardToken": {
                   "description": "Enable SSO token forwarding (oauth only)",
                   "type": "boolean"
+                },
+                "grantScope": {
+                  "description": "Whose grant, for a discovered or pinned issuer (oauth): session (default) or subject (the person's; later sessions reuse it until core_auth_logout)",
+                  "enum": [
+                    "session",
+                    "subject"
+                  ],
+                  "type": "string"
                 },
                 "requiredAudiences": {
                   "description": "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",

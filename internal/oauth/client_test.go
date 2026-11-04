@@ -424,6 +424,9 @@ func TestClient_ExchangeCode(t *testing.T) {
 	if token.AccessToken != "new-access-token" {
 		t.Errorf("Expected access token %q, got %q", "new-access-token", token.AccessToken)
 	}
+	if token.Resource != testResource {
+		t.Errorf("Expected the token to record resource %q, got %q", testResource, token.Resource)
+	}
 	if token.TokenType != "Bearer" {
 		t.Errorf("Expected token type %q, got %q", "Bearer", token.TokenType)
 	}

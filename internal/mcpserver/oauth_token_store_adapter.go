@@ -14,8 +14,9 @@ import (
 // context to the single backing store exposed through api.OAuthHandler.
 //
 // It has no storage of its own -- all reads and writes go through
-// api.OAuthHandler. The only local state is a cached copy of the ID token,
-// because mcp-go's transport.Token doesn't track ID tokens.
+// api.OAuthHandler. The only local state is a cached copy of the ID token
+// and of the RFC 8707 resource the grant is bound to, because mcp-go's
+// transport.Token tracks neither.
 //
 // mcp-go owns token refresh and 401 handling. This store simply returns
 // the current token as-is and persists whatever mcp-go writes back after
@@ -26,8 +27,9 @@ type MusterTokenStore struct {
 	issuer       string
 	oauthHandler api.OAuthHandler
 
-	mu      sync.RWMutex
-	idToken string
+	mu       sync.RWMutex
+	idToken  string
+	resource string
 }
 
 // NewMusterTokenStore creates a new token store that binds the given
@@ -64,11 +66,12 @@ func (s *MusterTokenStore) GetToken(ctx context.Context) (*transport.Token, erro
 		return nil, transport.ErrNoToken
 	}
 
+	s.mu.Lock()
 	if fullToken.IDToken != "" {
-		s.mu.Lock()
 		s.idToken = fullToken.IDToken
-		s.mu.Unlock()
 	}
+	s.resource = fullToken.Resource
+	s.mu.Unlock()
 
 	return &transport.Token{
 		Issuer:       api.IssuerURL(s.issuer),
@@ -84,7 +87,7 @@ func (s *MusterTokenStore) GetToken(ctx context.Context) (*transport.Token, erro
 // token refresh.
 //
 // The cached IDToken is preserved because refresh responses typically
-// don't include ID tokens.
+// don't include ID tokens, and so is the resource the grant is bound to.
 func (s *MusterTokenStore) SaveToken(ctx context.Context, token *transport.Token) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -95,7 +98,7 @@ func (s *MusterTokenStore) SaveToken(ctx context.Context, token *transport.Token
 	}
 
 	s.mu.RLock()
-	cachedIDToken := s.idToken
+	cachedIDToken, cachedResource := s.idToken, s.resource
 	s.mu.RUnlock()
 
 	s.oauthHandler.StoreToken(s.sessionID, s.userID, s.issuer, &api.OAuthToken{
@@ -105,6 +108,7 @@ func (s *MusterTokenStore) SaveToken(ctx context.Context, token *transport.Token
 		ExpiresAt:    token.ExpiresAt,
 		IDToken:      cachedIDToken,
 		Issuer:       s.issuer,
+		Resource:     cachedResource,
 	})
 
 	return nil

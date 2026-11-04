@@ -773,7 +773,7 @@ func (r *MCPServerReconciler) validateDefinition(info *api.MCPServerInfo) error 
 	if r.isKubernetesMode() {
 		serverNamespace = info.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, r.Namespace, info.Name, info.ToolPrefix, info.Family, info.Auth); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, r.Namespace, info.Name, info.ToolPrefix, info.Family, info.Auth, info.URLElicitation); err != nil {
 		return err
 	}
 	return api.ValidateSecretNamespaces(serverNamespace, r.Namespace, info.Auth)

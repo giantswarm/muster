@@ -1988,6 +1988,19 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							}
 						}
 
+						// oauth.auth_grant_scope sets spec.auth.grantScope (and type
+						// oauth) without pinning anything: the server discovers its
+						// authorization server through RFC 9728 and "subject" files
+						// the grant of the discovered issuer under the person -- the
+						// connector the developer portal registers.
+						if authGrantScope, ok := oauthConfig["auth_grant_scope"].(string); ok && authGrantScope != "" {
+							authConfig["type"] = "oauth"
+							authConfig["grantScope"] = authGrantScope
+							if m.debug {
+								logger.Debug("🔐 Setting spec.auth.grantScope=%q for MCPServer %s\n", authGrantScope, mcpServer.Name)
+							}
+						}
+
 						if len(authConfig) > 0 {
 							spec["auth"] = authConfig
 						}

@@ -159,6 +159,27 @@ A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked 
 
 Only the sign-in answers muster issues are elicited: a backend result that has the same shape is returned unchanged. A server muster connects with the person's muster sign-in (token forwarding, token exchange) has no link to open, and keeps the `auth_required` answer.
 
+#### A call a server answers with a URL elicitation
+
+An MCP server can answer a tool call with a URL elicitation: a request that the person open a page, such as the Dev Portal's form for a missing credential. muster relays it to the client only when both are true:
+
+- the server's MCPServer is in muster's namespace and sets `spec.urlElicitation: Relay` ([MCPServer spec fields](crds.md#spec-fields)). A server of an organization namespace (`org-…`) that sets `Relay` is not started, so an organization cannot put its own server on the allowlist, and
+- the page is on the origin (scheme, host and port) of muster's `aggregator.devPortalUrl` ([configuration](configuration.md#aggregator-configuration)).
+
+muster declares URL mode elicitation (`elicitation: {url: {}}`) only to a server with `Relay`. A server without it is asked for its ordinary text answer.
+
+A relayed elicitation reaches the client in the shape of the client's protocol version, as a sign-in does:
+
+| Client's protocol version | Answer |
+|---|---|
+| 2026-07-28 or later, `elicitation.url` in the request's client capabilities | `resultType: "input_required"` with one `elicitation/create` input request per page (`mode: "url"`, the server's `url`, `message` and `elicitationId`) under the keys `muster_relayed_elicitation_0`, `muster_relayed_elicitation_1`, and so on. The client echoes `requestState`, which names the server and its `elicitationId`s. A retry whose `inputResponses` accept them waits until the server sends `notifications/elicitation/complete` for each of them, at most 5 minutes, then runs the call again: the client retries when the person agrees to open the page, usually before they complete it, and the wait keeps the server from asking again. When the 5 minutes pass without the completion, the call runs anyway; if the server asks again, the new elicitation's message says that muster waited 5 minutes for the server to report the page completed and it did not. A retry that declines or cancels one runs nothing and gets a tool error. |
+| 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the server's elicitations. When the server sends `notifications/elicitation/complete` for one, muster sends the same notification, with the same `elicitationId`, to the session that received the `-32042`, once. Retry the call then. |
+| Any other | A tool error with the server's message and the link, to open by hand. |
+
+muster keeps the server's `elicitationId` when it relays an elicitation, and waits for or passes on a completion only for an elicitation it relayed to that session in the last 10 minutes. The completion arrives on the connection to the server that received the elicitation, so it is per replica: a retry that reaches another muster replica, or one after a restart, does not wait and runs the call at once, and a 2025-11-25 session is told of the completion only by the replica that relayed the elicitation. A server that sends no completion costs a 2026-07-28 retry the 5-minute wait.
+
+muster drops every other URL elicitation: from a server without `Relay`, to a page on another origin, or when `aggregator.devPortalUrl` is not set. It logs `Dropped a backend's URL elicitation` with the server, the page's origin and the reason, and answers the call with a tool error that names the server and holds the server's message with every link in it removed, never the URL. Thus no server, an organization's own included, can send a person to a page of its choice.
+
 ### Resource Access
 
 | Meta-Tool | Description | Arguments |
@@ -240,8 +261,12 @@ sign-in) reads the person's state on every server in one call. The answer is the
 
 - `kind`: `grant` (a grant of the person's own, started with `core_auth_login`), `sso` (the muster
   sign-in, forwarded or exchanged; never a link) or `none`;
-- `grant_scope`: for a `grant` server, `subject` (the grant is the person's, every later session
-  reuses it) or `session` (the session that completed it);
+- `grant_scope`: for a `grant` server, the scope muster applies: `subject` (the grant is the
+  person's, every later session reuses it) when `spec.auth.grantScope` or
+  `spec.auth.authorizationServer.grantScope` is `subject` for a pinned issuer, or, for a
+  discovered issuer, once muster knows the issuer and its pin is subject-scoped; `session` (the
+  session that completed it) otherwise, among them a discovered issuer that is not known yet or
+  that an operator's session-scoped pin describes;
 - `auth_url`, with `auth_urls: true`, for every `grant` server in `auth_required` or
   `reauth_required` that is not suspended: the link `core_auth_login` would issue for it, with the
   same expiry and the same `redirect` parameter on `/oauth/proxy/start`. A server whose grant the

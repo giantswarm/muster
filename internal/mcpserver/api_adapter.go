@@ -125,6 +125,7 @@ func convertCRDAuthToAPI(src *musterv1alpha1.MCPServerAuth) *api.MCPServerAuth {
 	}
 	auth := &api.MCPServerAuth{
 		Type:              src.Type,
+		GrantScope:        src.GrantScope,
 		ForwardToken:      src.ForwardToken,
 		ForwardIdentity:   src.ForwardIdentity,
 		ProviderApps:      src.ProviderApps,
@@ -167,6 +168,7 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 	}
 	auth := &musterv1alpha1.MCPServerAuth{
 		Type:              src.Type,
+		GrantScope:        src.GrantScope,
 		ForwardToken:      src.ForwardToken,
 		ForwardIdentity:   src.ForwardIdentity,
 		ProviderApps:      src.ProviderApps,
@@ -446,6 +448,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Meta:                  server.Spec.Meta,
 		Timeout:               server.Spec.Timeout,
 		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
+		URLElicitation:        server.Spec.URLElicitation,
 		Error:                 server.Status.LastError,
 		State:                 string(server.Status.State),
 		ConsecutiveFailures:   server.Status.ConsecutiveFailures,
@@ -741,6 +744,11 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 					},
 					api.SchemaKeyRequired: []string{"region"},
 				},
+				"grantScope": map[string]interface{}{
+					api.SchemaKeyType:        string(api.ArgTypeString),
+					api.SchemaKeyDescription: "Whose grant, for a discovered or pinned issuer (oauth): session (default) or subject (the person's; later sessions reuse it until core_auth_logout)",
+					api.SchemaKeyEnum:        []string{api.GrantScopeSession, api.GrantScopeSubject},
+				},
 				"forwardToken": map[string]interface{}{
 					api.SchemaKeyType:        string(api.ArgTypeBoolean),
 					api.SchemaKeyDescription: "Enable SSO token forwarding (oauth only)",
@@ -804,7 +812,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						"grantScope": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
 							api.SchemaKeyDescription: "Whose token: session (default, the login session that got it) or subject (the person's; later sessions reuse it until core_auth_logout or sign-out)",
-							api.SchemaKeyEnum:        []string{"session", api.GrantScopeSubject},
+							api.SchemaKeyEnum:        []string{api.GrantScopeSession, api.GrantScopeSubject},
 						},
 					},
 					api.SchemaKeyRequired: []string{"issuer"},
@@ -1361,7 +1369,7 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	if a.client != nil && a.client.IsKubernetesMode() {
 		serverNamespace = server.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth, server.Spec.URLElicitation); err != nil {
 		return err
 	}
 	if err := api.ValidateSecretNamespaces(serverNamespace, a.namespace, auth); err != nil {
@@ -1371,6 +1379,9 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 		return err
 	}
 	if err := api.ValidateForwardIdentity(auth); err != nil {
+		return err
+	}
+	if err := api.ValidateGrantScope(auth); err != nil {
 		return err
 	}
 	if err := api.ValidateProviderApps(auth); err != nil {
