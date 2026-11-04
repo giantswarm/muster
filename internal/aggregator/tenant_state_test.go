@@ -189,8 +189,14 @@ func TestTenantSignIns_StayWithTheirServers(t *testing.T) {
 			f.signIn("alice", github, tenantTestIssuer)
 
 			f.restart()
+			f.sweepAtStart(listedAlready())
+			f.settled()
+			grant, mark := f.signedIn("alice", github, tenantTestIssuer)
+			assert.True(t, grant, "the sweep at start leaves the sign-in of a live server")
+			assert.True(t, mark)
+
 			require.NoError(t, f.register(github, "uid-g", tenantTestIssuer))
-			grant, _ := f.signedIn("alice", github, tenantTestIssuer)
+			grant, _ = f.signedIn("alice", github, tenantTestIssuer)
 			assert.True(t, grant, "nobody signs in again after a restart")
 		})
 

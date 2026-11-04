@@ -1004,6 +1004,14 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	a.wg.Add(1)
 	go a.runCapabilityPoller(CapabilityPollInterval)
 
+	// Sweep the organization namespaces whose recorded servers went while
+	// muster was down, once the MCPServer objects are listed.
+	if listed := a.config.MCPServersListed; listed != nil && a.tenantOwners != nil {
+		a.tenantSweeps.start(func(ctx context.Context) {
+			a.sweepRecordedTenantsAtStart(ctx, listed)
+		})
+	}
+
 	// Subscribe to tool update events from workflow and other managers
 	// This ensures the aggregator stays synchronized with core muster components
 	logging.Info("Aggregator", "Subscribing to tool update events...")
