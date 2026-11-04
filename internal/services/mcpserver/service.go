@@ -1080,6 +1080,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		Auth:            s.definition.Auth,
 		Timeout:         s.operationTimeout(),
 		MaxCallDuration: s.definition.ProgressMaxDuration(),
+		URLElicitation:  s.definition.RelaysURLElicitation(),
 	}
 
 	// Use factory to create the appropriate client type

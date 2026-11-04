@@ -446,6 +446,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Meta:                  server.Spec.Meta,
 		Timeout:               server.Spec.Timeout,
 		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
+		URLElicitation:        server.Spec.URLElicitation,
 		Error:                 server.Status.LastError,
 		State:                 string(server.Status.State),
 		ConsecutiveFailures:   server.Status.ConsecutiveFailures,
@@ -1361,7 +1362,7 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	if a.client != nil && a.client.IsKubernetesMode() {
 		serverNamespace = server.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth, server.Spec.URLElicitation); err != nil {
 		return err
 	}
 	if err := api.ValidateSecretNamespaces(serverNamespace, a.namespace, auth); err != nil {

@@ -428,6 +428,10 @@ type AggregatorConfig struct {
 	// MusterNamespace is muster's own namespace, where a provider App's client
 	// Secret lives unless its reference names another.
 	MusterNamespace string
+
+	// DevPortalURL is the installation's Dev Portal, whose origin is the only
+	// one a backend's URL elicitation is relayed to (backend_elicitation.go).
+	DevPortalURL string
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.

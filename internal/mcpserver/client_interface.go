@@ -122,6 +122,37 @@ type baseMCPClient struct {
 	// listenMode makes a streamable-http client negotiate protocol revision
 	// 2026-07-28 for subscriptions/listen (client_listen.go).
 	listenMode bool
+
+	// urlElicitation makes the client declare URL mode elicitation to the
+	// server at its handshake (DeclareURLElicitation).
+	urlElicitation bool
+}
+
+// URLElicitationDeclarer is a client that can declare URL mode elicitation
+// to its server; every transport is one.
+type URLElicitationDeclarer interface {
+	DeclareURLElicitation()
+}
+
+// DeclareURLElicitation makes the client declare URL mode elicitation
+// (capabilities.elicitation.url) to the server at its handshake, for a
+// server whose URL elicitations muster relays to its own client
+// (spec.urlElicitation Relay). A server muster does not declare it to keeps
+// its text answer instead of an elicitation muster would drop. Call it
+// before Initialize.
+func (b *baseMCPClient) DeclareURLElicitation() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.urlElicitation = true
+}
+
+// clientCapabilities returns the capabilities the client declares at its
+// handshake. Caller holds b.mu.
+func (b *baseMCPClient) clientCapabilities() mcp.ClientCapabilities {
+	if !b.urlElicitation {
+		return mcp.ClientCapabilities{}
+	}
+	return mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{URL: &struct{}{}}}
 }
 
 // OnSessionRecovered registers a handler called after the client lost its
