@@ -404,6 +404,17 @@
               },
               "type": "object"
             },
+            "tags": {
+              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars",
+              "items": {
+                "maxLength": 63,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array",
+              "uniqueItems": true
+            },
             "timeout": {
               "description": "Connection timeout in seconds",
               "type": "integer"
@@ -783,6 +794,16 @@
               "description": "Desired lifecycle state: true stops the server's service and keeps it stopped; false resumes it; omitted keeps the current value",
               "type": "boolean"
             },
+            "tags": {
+              "description": "Replaces the tags; omitted keeps, [] clears. Unique a-z0-9 words joined by single hyphens, max 63 chars; at most 50, unless none is new",
+              "items": {
+                "maxLength": 63,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
+            },
             "timeout": {
               "description": "Connection timeout in seconds",
               "type": "integer"
@@ -1088,6 +1109,17 @@
                 }
               },
               "type": "object"
+            },
+            "tags": {
+              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars",
+              "items": {
+                "maxLength": 63,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array",
+              "uniqueItems": true
             },
             "timeout": {
               "description": "Connection timeout in seconds",
@@ -1863,6 +1895,17 @@
               },
               "minItems": 1,
               "type": "array"
+            },
+            "tags": {
+              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars",
+              "items": {
+                "maxLength": 63,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array",
+              "uniqueItems": true
             }
           },
           "required": [
@@ -2635,6 +2678,16 @@
               },
               "minItems": 1,
               "type": "array"
+            },
+            "tags": {
+              "description": "Replaces the tags; omitted keeps, [] clears. Unique a-z0-9 words joined by single hyphens, max 63 chars; at most 50, unless none is new",
+              "items": {
+                "maxLength": 63,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "type": "array",
+              "uniqueItems": true
             }
           },
           "required": [
@@ -3324,6 +3377,17 @@
               },
               "minItems": 1,
               "type": "array"
+            },
+            "tags": {
+              "description": "Up to 50 unique tags (ui.giantswarm.io/tags): a-z0-9 words joined by single hyphens, max 63 chars",
+              "items": {
+                "maxLength": 63,
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array",
+              "uniqueItems": true
             }
           },
           "required": [
