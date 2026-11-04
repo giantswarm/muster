@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -16,12 +17,37 @@ import (
 )
 
 // captureLog initializes muster's logger to write JSON to a buffer for
-// the duration of one test.
-func captureLog(t *testing.T) *bytes.Buffer {
+// the duration of one test. The buffer is safe to read while a goroutine
+// the test started, a backend client's listen stream for one, still logs.
+func captureLog(t *testing.T) *logBuffer {
 	t.Helper()
-	var buf bytes.Buffer
-	logging.InitForCLI(logging.LevelInfo, &buf)
-	return &buf
+	buf := &logBuffer{}
+	logging.InitForCLI(logging.LevelInfo, buf)
+	return buf
+}
+
+// logBuffer is a bytes.Buffer guarded by a mutex.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *logBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
 }
 
 func TestLogging(t *testing.T) {
@@ -84,7 +110,7 @@ func TestLogging(t *testing.T) {
 // to buf. muster's TextHandler is the default, so we accept the line
 // being either JSON or a "key=value" string; here we parse the slog
 // text form by extracting key=value pairs into a map.
-func lastJSONLine(t *testing.T, buf *bytes.Buffer) map[string]any {
+func lastJSONLine(t *testing.T, buf *logBuffer) map[string]any {
 	t.Helper()
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
 	require.NotEmpty(t, lines)

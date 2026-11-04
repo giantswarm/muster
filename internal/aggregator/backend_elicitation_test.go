@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -33,6 +35,19 @@ type elicitingClient struct {
 	url         string
 	elicitTimes int
 	calls       int
+	completed   func(elicitationID string)
+}
+
+// OnElicitationComplete keeps the handler muster registers for the
+// backend's notifications/elicitation/complete.
+func (c *elicitingClient) OnElicitationComplete(handler func(string)) { c.completed = handler }
+
+// complete sends the backend's notifications/elicitation/complete, as the
+// client hands it over.
+func (c *elicitingClient) complete(elicitationID string) {
+	if c.completed != nil {
+		c.completed(elicitationID)
+	}
 }
 
 func (c *elicitingClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
@@ -127,22 +142,78 @@ func TestBackendElicitation_Relayed(t *testing.T) {
 		require.Contains(t, mcpText(result), testElicitationText)
 	})
 
-	t.Run("a 2026-07-28 retry that accepted runs the call again", func(t *testing.T) {
+	t.Run("a 2026-07-28 retry that accepted waits for the backend's completion, then runs the call again", func(t *testing.T) {
 		a, backend, call := newElicitingBackend(t, testCredentialFormURL, api.MCPServerURLElicitationRelay)
-		ctx := modernContext(t.Context(), urlElicitationCapabilities())
-		first, err := a.urlElicitation()(call)(ctx, mcp.CallToolRequest{})
-		require.NoError(t, err)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			first, err := a.urlElicitation()(call)(ctx, mcp.CallToolRequest{})
+			require.NoError(t, err)
+			go func() {
+				time.Sleep(30 * time.Second)
+				backend.complete(testElicitationID)
+			}()
+			start := time.Now()
 
-		var retry mcp.CallToolRequest
-		retry.Params.InputResponses = mcp.InputResponses{
-			relayedElicitationKey(0): mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: mcp.ElicitationResponseActionAccept}}),
-		}
-		retry.Params.RequestState = first.RequestState
-		result, err := a.urlElicitation()(call)(ctx, retry)
+			result, err := a.urlElicitation()(call)(ctx, acceptedRelayedRetry(first.RequestState))
 
-		require.NoError(t, err)
-		require.Equal(t, "agent created", mcpText(result))
-		require.Equal(t, 2, backend.calls)
+			require.NoError(t, err)
+			require.Equal(t, "agent created", mcpText(result))
+			require.Equal(t, 2, backend.calls, "the call runs once more, after the wait: the person sees one prompt")
+			require.Equal(t, 30*time.Second, time.Since(start), "the retry runs as soon as the backend completes the page")
+		})
+	})
+
+	t.Run("a completion that arrived before the retry runs it at once", func(t *testing.T) {
+		a, backend, call := newElicitingBackend(t, testCredentialFormURL, api.MCPServerURLElicitationRelay)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			first, err := a.urlElicitation()(call)(ctx, mcp.CallToolRequest{})
+			require.NoError(t, err)
+			backend.complete(testElicitationID)
+			start := time.Now()
+
+			result, err := a.urlElicitation()(call)(ctx, acceptedRelayedRetry(first.RequestState))
+
+			require.NoError(t, err)
+			require.Equal(t, "agent created", mcpText(result))
+			require.Zero(t, time.Since(start))
+		})
+	})
+
+	t.Run("a completion that never arrives ends the wait at the bound, and the answer says so", func(t *testing.T) {
+		a, backend, call := newElicitingBackend(t, testCredentialFormURL, api.MCPServerURLElicitationRelay)
+		backend.elicitTimes = 2
+		synctest.Test(t, func(t *testing.T) {
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			first, err := a.urlElicitation()(call)(ctx, mcp.CallToolRequest{})
+			require.NoError(t, err)
+			start := time.Now()
+
+			result, err := a.urlElicitation()(call)(ctx, acceptedRelayedRetry(first.RequestState))
+
+			require.NoError(t, err)
+			require.Equal(t, relayedRetryWait, time.Since(start))
+			require.Equal(t, 2, backend.calls, "after the bound the call runs again: a page completed without a notification is not asked again")
+			require.Equal(t, mcp.ResultTypeInputRequired, result.ResultType)
+			message := result.InputRequests[relayedElicitationKey(0)].Elicitation.Message
+			require.Contains(t, message, "waited 5 minutes for "+testElicitingServer)
+			require.Contains(t, message, testElicitationText)
+		})
+	})
+
+	t.Run("a retry for an elicitation this replica did not relay waits for nothing", func(t *testing.T) {
+		a, backend, call := newElicitingBackend(t, testCredentialFormURL, api.MCPServerURLElicitationRelay)
+		synctest.Test(t, func(t *testing.T) {
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			state := relayedRequestState{Relayed: testElicitingServer, ElicitationIDs: []string{testElicitationID}}.encode()
+			start := time.Now()
+
+			_, err := a.urlElicitation()(call)(ctx, acceptedRelayedRetry(state))
+
+			require.NoError(t, err)
+			require.Zero(t, time.Since(start), "another replica's elicitation never completes here")
+			require.Equal(t, 1, backend.calls)
+		})
 	})
 
 	t.Run("a 2026-07-28 retry that declined or cancelled runs nothing", func(t *testing.T) {
@@ -164,6 +235,44 @@ func TestBackendElicitation_Relayed(t *testing.T) {
 			})
 		}
 	})
+}
+
+// acceptedRelayedRetry is the 2026-07-28 retry of a client whose person
+// agreed to open the relayed page, echoing requestState.
+func acceptedRelayedRetry(requestState string) mcp.CallToolRequest {
+	var retry mcp.CallToolRequest
+	retry.Params.InputResponses = mcp.InputResponses{
+		relayedElicitationKey(0): mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: mcp.ElicitationResponseActionAccept}}),
+	}
+	retry.Params.RequestState = requestState
+	return retry
+}
+
+// The backend's completion of a relayed elicitation reaches the 2025-11-25
+// transport session that received the -32042, with the same elicitationId,
+// once; no other session, and no completion of an elicitation muster did
+// not relay.
+func TestBackendElicitation_CompletionReachesTheAskedSession(t *testing.T) {
+	a, backend, call := newElicitingBackend(t, testCredentialFormURL, api.MCPServerURLElicitationRelay)
+	a.mcpServer = mcpserver.NewMCPServer("muster", "test")
+	asked := newLegacySession("transport-asked", urlElicitationCapabilities())
+	other := newLegacySession("transport-other", urlElicitationCapabilities())
+	require.NoError(t, a.mcpServer.RegisterSession(t.Context(), asked))
+	require.NoError(t, a.mcpServer.RegisterSession(t.Context(), other))
+	_, err := a.urlElicitation()(call)(a.mcpServer.WithContext(t.Context(), asked), mcp.CallToolRequest{})
+	require.True(t, errors.As(err, new(mcp.URLElicitationRequiredError)), "err: %v", err)
+
+	backend.complete("not-relayed")
+	require.Empty(t, asked.ch, "a completion of an elicitation muster did not relay is not passed on")
+
+	backend.complete(testElicitationID)
+	backend.complete(testElicitationID)
+
+	require.Len(t, asked.ch, 1, "an elicitation completes once")
+	notification := <-asked.ch
+	require.Equal(t, string(mcp.MethodNotificationElicitationComplete), notification.Method)
+	require.Equal(t, testElicitationID, notification.Params.AdditionalFields["elicitationId"])
+	require.Empty(t, other.ch, "only the session that was asked is told")
 }
 
 // droppedLine returns the parsed log line of a dropped backend elicitation.
@@ -297,7 +406,7 @@ func TestDeclareURLElicitation(t *testing.T) {
 			t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
 			client := &declaringClient{}
 
-			declareURLElicitation(t.Context(), testElicitingServer, client)
+			(&AggregatorServer{}).declareURLElicitation(t.Context(), testElicitingServer, client)
 
 			require.Equal(t, want, client.declared)
 		})
@@ -308,7 +417,7 @@ func TestDeclareURLElicitation(t *testing.T) {
 		t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
 		client := &declaringClient{}
 
-		declareURLElicitation(t.Context(), testElicitingServer, client)
+		(&AggregatorServer{}).declareURLElicitation(t.Context(), testElicitingServer, client)
 
 		require.False(t, client.declared)
 	})
@@ -326,7 +435,7 @@ func TestBackendElicitation_TenantServerIsNeverRelayed(t *testing.T) {
 
 	require.False(t, serverRelaysURLElicitation(t.Context(), tenantServer))
 	client := &declaringClient{}
-	declareURLElicitation(t.Context(), tenantServer, client)
+	(&AggregatorServer{}).declareURLElicitation(t.Context(), tenantServer, client)
 	require.False(t, client.declared)
 
 	buf := captureLog(t)

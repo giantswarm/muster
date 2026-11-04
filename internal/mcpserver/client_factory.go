@@ -70,6 +70,7 @@ type budgetedClient interface {
 	setTimeout(time.Duration)
 	setMaxCallDuration(time.Duration)
 	URLElicitationDeclarer
+	ElicitationCompleteObserver
 }
 
 func newClientOfType(serverType api.MCPServerType, config MCPClientConfig) (budgetedClient, error) {

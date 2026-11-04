@@ -8,7 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -34,6 +37,16 @@ import (
 // with a text result holding the link, the answer of a client that does not
 // support URL elicitation; the urlElicitation middleware turns that answer
 // into the elicitation, in the shape of the request's protocol version.
+//
+// The backend tells muster when the person completed the page: it sends
+// notifications/elicitation/complete with the elicitationId on the connection
+// that received the -32042. muster keeps the backend's elicitationId when it
+// relays, records each relayed one (relayedCompletions), and on the backend's
+// notification sends the same notification to the transport sessions that
+// received the -32042, and ends the wait of a 2026-07-28 retry that accepted
+// it (awaitRelayedCompletion). The record is local to the replica that
+// relayed, as the backend connection is: a retry on another replica, or after
+// a restart, waits for nothing.
 
 // relayedElicitationInputKey prefixes the inputRequests keys of a relayed
 // backend elicitation in an input_required answer.
@@ -56,10 +69,14 @@ func (r relayedElicitation) link() string {
 }
 
 // relayedRequestState is the requestState of a relayed elicitation, echoed
-// by the client on its retry. It only names the server in the answer to a
-// declined elicitation.
+// by the client on its retry: the server, named in the answer to a declined
+// elicitation, and the backend's elicitationIds, whose completion a retry
+// that accepted waits for. Being the client's echo, it only decides what the
+// retry waits for, and only among the elicitations relayed to its own
+// session: the call is gated as any other afterwards.
 type relayedRequestState struct {
-	Relayed string `json:"relayed"`
+	Relayed        string   `json:"relayed"`
+	ElicitationIDs []string `json:"elicitationIds,omitempty"`
 }
 
 func (s relayedRequestState) encode() string {
@@ -175,12 +192,183 @@ func serverRelaysURLElicitation(ctx context.Context, serverName string) bool {
 
 // declareURLElicitation makes a session-scoped client declare URL mode
 // elicitation to its server when the server's MCPServer relays it, as the
-// client factory does for a shared client (MCPClientConfig.URLElicitation).
-// Call it before the client's Initialize.
-func declareURLElicitation(ctx context.Context, serverName string, client MCPClient) {
-	if declarer, ok := client.(internalmcp.URLElicitationDeclarer); ok && serverRelaysURLElicitation(ctx, serverName) {
-		declarer.DeclareURLElicitation()
+// client factory does for a shared client (MCPClientConfig.URLElicitation),
+// and passes the server's completions of the elicitations muster relayed on
+// (observeRelayedCompletions). Call it before the client's Initialize.
+func (a *AggregatorServer) declareURLElicitation(ctx context.Context, serverName string, client MCPClient) {
+	declarer, ok := client.(internalmcp.URLElicitationDeclarer)
+	if !ok || !serverRelaysURLElicitation(ctx, serverName) {
+		return
 	}
+	declarer.DeclareURLElicitation()
+	a.observeRelayedCompletions(serverName, client)
+}
+
+// observeRelayedCompletions passes the server's
+// notifications/elicitation/complete, received on the client, to the
+// elicitations muster relayed from the server (completeRelayedElicitation).
+func (a *AggregatorServer) observeRelayedCompletions(serverName string, client MCPClient) {
+	if a == nil {
+		return
+	}
+	if observer, ok := client.(internalmcp.ElicitationCompleteObserver); ok {
+		observer.OnElicitationComplete(func(elicitationID string) {
+			a.completeRelayedElicitation(serverName, elicitationID)
+		})
+	}
+}
+
+// completeRelayedElicitation handles the server's completion of a URL
+// elicitation: when muster relayed it, the transport sessions that received
+// it as -32042 are sent notifications/elicitation/complete with the same
+// elicitationId, and the 2026-07-28 retries waiting for it run. A completion
+// of an elicitation muster did not relay, or of one that expired, does
+// nothing.
+func (a *AggregatorServer) completeRelayedElicitation(serverName, elicitationID string) {
+	transportIDs, relayed := a.relayedCompletions.complete(serverName, elicitationID)
+	if !relayed {
+		return
+	}
+	logging.InfoWithAttrs("Aggregator", "A backend completed a relayed URL elicitation",
+		slog.String("server", serverName))
+	if a.mcpServer == nil {
+		return
+	}
+	params := map[string]any{"elicitationId": elicitationID}
+	for _, transportID := range transportIDs {
+		if err := a.mcpServer.SendNotificationToSpecificClient(transportID, string(mcp.MethodNotificationElicitationComplete), params); err != nil {
+			logging.Debug("Aggregator", "elicitation complete to session %s failed: %v",
+				logging.TruncateIdentifier(transportID), err)
+		}
+	}
+}
+
+// relayedRetryWait is how long a 2026-07-28 retry that accepted a relayed
+// elicitation waits for the backend's completion of it before it runs the
+// call again. The client retries as soon as the person agreed to open the
+// page, before they completed it. It is the sign-in's wait (signInRetryWait).
+const relayedRetryWait = 5 * time.Minute
+
+// relayedElicitationTTL is how long muster keeps a relayed elicitation for
+// its completion, from the last time it relayed it.
+const relayedElicitationTTL = 10 * time.Minute
+
+// awaitRelayedCompletion waits, at most relayedRetryWait and while ctx
+// lasts, until the backend completed every elicitation of the retry's
+// requestState that this replica relayed to the session. It reports whether
+// the wait ran out with an elicitation still not completed. A retry whose
+// elicitations this replica did not relay -- on another replica, after a
+// restart, or expired -- waits for nothing.
+func (a *AggregatorServer) awaitRelayedCompletion(ctx context.Context, sessionID string, state relayedRequestState) (expired bool) {
+	var pending []<-chan struct{}
+	for _, elicitationID := range state.ElicitationIDs {
+		if done := a.relayedCompletions.done(state.Relayed, sessionID, elicitationID); done != nil {
+			pending = append(pending, done)
+		}
+	}
+	if len(pending) == 0 {
+		return false
+	}
+	wait, cancel := context.WithTimeout(ctx, relayedRetryWait)
+	defer cancel()
+	for _, done := range pending {
+		select {
+		case <-done:
+		case <-wait.Done():
+			return ctx.Err() == nil
+		}
+	}
+	return false
+}
+
+// relayedCompletions remembers the backend URL elicitations muster relayed,
+// per server, session and the backend's elicitationId, until the backend
+// completes them or relayedElicitationTTL passes: the transport sessions that
+// received each as -32042, and a channel closed on its completion.
+//
+// The zero value is ready to use. It is local to the replica, as the backend
+// connection the completion arrives on is.
+type relayedCompletions struct {
+	mu      sync.Mutex
+	entries map[relayedCompletionKey]*relayedCompletion
+}
+
+type relayedCompletionKey struct {
+	server, sessionID, elicitationID string
+}
+
+type relayedCompletion struct {
+	transportIDs []string
+	completed    chan struct{}
+	expiresAt    time.Time
+}
+
+func (c *relayedCompletion) isCompleted() bool {
+	select {
+	case <-c.completed:
+		return true
+	default:
+		return false
+	}
+}
+
+// add records that the server's elicitation was relayed to the session,
+// through the transport session when it is not "" (-32042). An elicitation
+// relayed again after its completion is a new one to complete.
+func (r *relayedCompletions) add(server, sessionID, elicitationID, transportID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for key, entry := range r.entries {
+		if !now.Before(entry.expiresAt) {
+			delete(r.entries, key)
+		}
+	}
+	key := relayedCompletionKey{server: server, sessionID: sessionID, elicitationID: elicitationID}
+	entry, ok := r.entries[key]
+	if !ok || entry.isCompleted() {
+		entry = &relayedCompletion{completed: make(chan struct{})}
+		if r.entries == nil {
+			r.entries = make(map[relayedCompletionKey]*relayedCompletion)
+		}
+		r.entries[key] = entry
+	}
+	entry.expiresAt = now.Add(relayedElicitationTTL)
+	if transportID != "" && !slices.Contains(entry.transportIDs, transportID) {
+		entry.transportIDs = append(entry.transportIDs, transportID)
+	}
+}
+
+// complete marks the server's elicitation completed, for every session it
+// was relayed to, and returns the transport sessions to tell, each once, and
+// whether muster relayed it at all.
+func (r *relayedCompletions) complete(server, elicitationID string) (transportIDs []string, relayed bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	for key, entry := range r.entries {
+		if key.server != server || key.elicitationID != elicitationID || !now.Before(entry.expiresAt) || entry.isCompleted() {
+			continue
+		}
+		relayed = true
+		close(entry.completed)
+		transportIDs = append(transportIDs, entry.transportIDs...)
+		entry.transportIDs = nil
+	}
+	return transportIDs, relayed
+}
+
+// done returns the channel closed when the backend completes the server's
+// elicitation relayed to the session, or nil when this replica did not
+// relay it or it expired.
+func (r *relayedCompletions) done(server, sessionID, elicitationID string) <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entries[relayedCompletionKey{server: server, sessionID: sessionID, elicitationID: elicitationID}]
+	if !ok || !time.Now().Before(entry.expiresAt) {
+		return nil
+	}
+	return entry.completed
 }
 
 // droppedElicitationResult answers a call whose URL elicitation muster
@@ -239,18 +427,38 @@ func relayedElicitationLink(result *mcp.CallToolResult) string {
 
 // elicitRelayed answers a tool call with a relayed backend elicitation, in
 // the shape of the request's protocol version: an input_required result
-// from 2026-07-28, URLElicitationRequiredError (-32042) before.
-func elicitRelayed(ctx context.Context, relayed relayedElicitation) (*mcp.CallToolResult, error) {
+// from 2026-07-28, URLElicitationRequiredError (-32042) before. Each
+// elicitation that holds the backend's elicitationId is recorded, so the
+// backend's completion of it reaches this request's transport session
+// (2025-11-25) or ends the wait of the retry (2026-07-28). waitExpired says
+// that this call is a retry which waited relayedRetryWait for the completion
+// in vain: the person is told so.
+func (a *AggregatorServer) elicitRelayed(ctx context.Context, relayed relayedElicitation, waitExpired bool) (*mcp.CallToolResult, error) {
+	modern := mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx))
+	transportID := ""
+	if !modern {
+		transportID = getTransportSessionID(ctx)
+	}
+	sessionID := getSessionIDFromContext(ctx)
+	state := relayedRequestState{Relayed: relayed.server}
 	elicitations := make([]mcp.ElicitationParams, len(relayed.elicitations))
 	for i, elicitation := range relayed.elicitations {
 		if elicitation.Message == "" {
 			elicitation.Message = fmt.Sprintf("%s asks you to open a page of the Dev Portal to continue.", relayed.server)
 		}
+		if waitExpired {
+			elicitation.Message = fmt.Sprintf("muster waited %s for %s to report that its page was completed, and it did not. %s",
+				fmt.Sprintf("%d minutes", int(relayedRetryWait/time.Minute)), relayed.server, elicitation.Message)
+		}
+		if elicitation.ElicitationID != "" {
+			a.relayedCompletions.add(relayed.server, sessionID, elicitation.ElicitationID, transportID)
+			state.ElicitationIDs = append(state.ElicitationIDs, elicitation.ElicitationID)
+		}
 		elicitations[i] = elicitation
 	}
 
-	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
-		builder := mcpserver.NewInputRequestBuilder(relayedRequestState{Relayed: relayed.server}.encode())
+	if modern {
+		builder := mcpserver.NewInputRequestBuilder(state.encode())
 		for i, elicitation := range elicitations {
 			if elicitation.ElicitationID == "" {
 				// rmcp refuses a URL elicitation without one (signInElicitationID).
@@ -296,11 +504,18 @@ func relayedElicitationAnswer(responses mcp.InputResponses) (mcp.ElicitationResp
 	return action, answered
 }
 
+// decodeRelayedRequestState reads a retry's requestState; an unreadable one
+// is the zero value, which waits for nothing.
+func decodeRelayedRequestState(requestState string) relayedRequestState {
+	var state relayedRequestState
+	_ = json.Unmarshal([]byte(requestState), &state)
+	return state
+}
+
 // declinedRelayedResult answers a retry whose relayed elicitation the person
 // declined or cancelled. The server is from the client's echo of requestState.
 func declinedRelayedResult(action mcp.ElicitationResponseAction, requestState string) *mcp.CallToolResult {
-	var state relayedRequestState
-	_ = json.Unmarshal([]byte(requestState), &state)
+	state := decodeRelayedRequestState(requestState)
 	if state.Relayed == "" {
 		return mcp.NewToolResultError(fmt.Sprintf("The tool did not run: the person answered %s to opening the page.", action))
 	}

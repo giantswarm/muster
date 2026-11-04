@@ -237,7 +237,8 @@ The counter is `muster.downstream_progress_notifications` (see
 [Observability](observability.md)). Sampling and form elicitation requests
 from a downstream server are not relayed. A downstream URL elicitation is
 relayed only from a server with `spec.urlElicitation: Relay` and to the Dev
-Portal's origin (see
+Portal's origin, and the server's `notifications/elicitation/complete` for it
+goes to the session that received it, on the replica that relayed it (see
 [A call a server answers with a URL elicitation](../reference/mcp-tools.md#a-call-a-server-answers-with-a-url-elicitation)).
 
 ### Tool Calls Across a Replica Stop
