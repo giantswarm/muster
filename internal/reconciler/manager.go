@@ -181,6 +181,10 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start change detector: %w", err)
 	}
 
+	if m.config.Synced != nil {
+		close(m.config.Synced)
+	}
+
 	// Start periodic resync (level-based safety net for lost change events)
 	m.wg.Add(1)
 	go m.periodicResync()

@@ -432,6 +432,13 @@ type AggregatorConfig struct {
 	// DevPortalURL is the installation's Dev Portal, whose origin is the only
 	// one a backend's URL elicitation is relayed to (backend_elicitation.go).
 	DevPortalURL string
+
+	// MCPServersListed is closed once the MCPServer objects of every
+	// namespace are listed (the reconciler's informer has synced). When set,
+	// muster then sweeps the sign-ins of the organization namespaces whose
+	// recorded servers are gone (tenant_sweep_start.go); nil sweeps nothing
+	// at start.
+	MCPServersListed <-chan struct{}
 }
 
 // AdminConfig holds admin web UI configuration for the aggregator.
