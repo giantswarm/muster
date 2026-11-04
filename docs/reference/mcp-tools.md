@@ -163,7 +163,7 @@ Only the sign-in answers muster issues are elicited: a backend result that has t
 
 An MCP server can answer a tool call with a URL elicitation: a request that the person open a page, such as the Dev Portal's form for a missing credential. muster relays it to the client only when both are true:
 
-- the server's MCPServer sets `spec.urlElicitation: Relay` ([MCPServer spec fields](crds.md#spec-fields)), and
+- the server's MCPServer is in muster's namespace and sets `spec.urlElicitation: Relay` ([MCPServer spec fields](crds.md#spec-fields)). A server of an organization namespace (`org-…`) that sets `Relay` is not started, so an organization cannot put its own server on the allowlist, and
 - the page is on the origin (scheme, host and port) of muster's `aggregator.devPortalUrl` ([configuration](configuration.md#aggregator-configuration)).
 
 muster declares URL mode elicitation (`elicitation: {url: {}}`) only to a server with `Relay`. A server without it is asked for its ordinary text answer.

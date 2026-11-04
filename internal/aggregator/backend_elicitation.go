@@ -153,8 +153,14 @@ func (a *AggregatorServer) refuseBackendElicitation(ctx context.Context, serverN
 // spec.urlElicitation to Relay. The field is read from the definition source,
 // as spec.suspended is (serverSuspended): the aggregator keeps no copy of it.
 // Without a manager, or for a name it does not know or cannot read, nothing is
-// relayed.
+// relayed. Nor is anything relayed from a server outside muster's namespace,
+// whose Relay its namespace refuses (api.ValidateServerNamespace): an
+// organization cannot put its own server on the allowlist, even while a
+// refused definition is still listed.
 func serverRelaysURLElicitation(ctx context.Context, serverName string) bool {
+	if api.IsTenantMCPServerKey(serverName) {
+		return false
+	}
 	manager := api.GetMCPServerManager()
 	if manager == nil {
 		return false

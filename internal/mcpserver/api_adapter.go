@@ -1362,7 +1362,7 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	if a.client != nil && a.client.IsKubernetesMode() {
 		serverNamespace = server.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth, server.Spec.URLElicitation); err != nil {
 		return err
 	}
 	if err := api.ValidateSecretNamespaces(serverNamespace, a.namespace, auth); err != nil {

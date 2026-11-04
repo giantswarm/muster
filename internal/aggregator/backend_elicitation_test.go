@@ -312,3 +312,29 @@ func TestDeclareURLElicitation(t *testing.T) {
 		require.False(t, client.declared)
 	})
 }
+
+// SECURITY: an organization's MCPServer cannot put itself on the allowlist.
+// Its namespace refuses Relay (api.ValidateServerNamespace), and a refused
+// definition that is still listed relays nothing and is declared nothing.
+func TestBackendElicitation_TenantServerIsNeverRelayed(t *testing.T) {
+	const tenantServer = "org-a/agents"
+	api.RegisterMCPServerManager(&stubMCPServerManager{servers: map[string]api.MCPServerInfo{
+		tenantServer: {Name: "agents", Namespace: "org-a", Key: tenantServer, URLElicitation: api.MCPServerURLElicitationRelay},
+	}})
+	t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
+
+	require.False(t, serverRelaysURLElicitation(t.Context(), tenantServer))
+	client := &declaringClient{}
+	declareURLElicitation(t.Context(), tenantServer, client)
+	require.False(t, client.declared)
+
+	buf := captureLog(t)
+	a := &AggregatorServer{devPortalOrigin: "https://portal.example.com"}
+	result, err := a.answerBackendElicitation(t.Context(), tenantServer, nil, mcp.URLElicitationRequiredError{
+		Elicitations: []mcp.ElicitationParams{{Mode: mcp.ElicitationModeURL, URL: testCredentialFormURL, ElicitationID: testElicitationID}},
+	})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	require.NotContains(t, mcpText(result), testCredentialFormURL)
+	require.Equal(t, tenantServer, droppedLine(t, buf.String())["server"])
+}
