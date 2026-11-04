@@ -30,6 +30,8 @@ type tenantFixture struct {
 	capabilities oauthstore.CapabilityStore
 	definitions  *stubMCPServerManager
 	am           *AggregatorManager
+	// valkey is the store's server on the valkey backend; nil in memory.
+	valkey *miniredis.Miniredis
 }
 
 func newTenantFixture(t *testing.T, backend string) *tenantFixture {
@@ -43,6 +45,7 @@ func newTenantFixture(t *testing.T, backend string) *tenantFixture {
 		f.capabilities = oauthstore.NewInMemoryCapabilityStore(time.Hour)
 	case "valkey":
 		srv := miniredis.RunT(t)
+		f.valkey = srv
 		client, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{srv.Addr()}, DisableCache: true})
 		require.NoError(t, err)
 		t.Cleanup(client.Close)
