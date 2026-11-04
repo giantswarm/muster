@@ -238,6 +238,24 @@ type GrantReleaser interface {
 	SubjectGrantForRelease(ctx context.Context, userID, issuer string) *OAuthToken
 }
 
+// SubjectGrantForgetter is implemented by an OAuthHandler that can drop the
+// person's grant filed under an issuer whatever the issuer's pin says now.
+// Kept separate from SubjectGrantHandler so its test doubles need not grow.
+type SubjectGrantForgetter interface {
+	// ForgetSubjectGrant revokes the person's grant for the issuer at the
+	// authorization server, where it can, and removes muster's copy filed
+	// under the person; the sessions' own copies stay.
+	ForgetSubjectGrant(userID, issuer string)
+}
+
+// ForgetSubjectGrant drops the person's grant for the issuer when the handler
+// supports it; a no-op otherwise.
+func ForgetSubjectGrant(h OAuthHandler, userID, issuer string) {
+	if f, ok := h.(SubjectGrantForgetter); ok && userID != "" && issuer != "" {
+		f.ForgetSubjectGrant(userID, issuer)
+	}
+}
+
 // FullTokenByIssuerForUser looks a token up with the subject-scoped fallback
 // when the handler supports it and the user is known, and behaves like
 // GetFullTokenByIssuer otherwise.

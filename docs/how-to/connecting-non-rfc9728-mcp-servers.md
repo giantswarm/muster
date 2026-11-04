@@ -146,6 +146,9 @@ spec:
   answered `auth_required` with that person's sign-in link on every call
   until they log in once. Use it only for external accounts the person owns; a
   token that carries session-specific authority stays `session`, the default.
+  A server that publishes RFC 9728 metadata and pins nothing gets the same
+  with `spec.auth.grantScope: subject`, applied to the issuer muster discovers
+  ([MCPServerAuth fields](../reference/crds.md#subject-scoped-grants-for-a-discovered-authorization-server)).
 
 Several MCPServers may point at the same issuer (GitHub's hosted MCP server
 and an in-house server that verifies GitHub tokens, say): the grant is stored

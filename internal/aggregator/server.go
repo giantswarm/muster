@@ -130,6 +130,11 @@ type AggregatorServer struct {
 	toolManager    *activeItemManager // Tracks active meta-tools
 	isShuttingDown bool               // Indicates whether the server is currently stopping
 
+	// backgroundStopped is set once Stop waits for the background
+	// goroutines; goBackground starts none after it.
+	backgroundMu      sync.Mutex
+	backgroundStopped bool
+
 	// calls are the tool calls in flight, which Stop drains (call_drain.go).
 	calls *inFlightCalls
 
@@ -223,6 +228,11 @@ type AggregatorServer struct {
 	// the person's subject-scoped grant (adoptSubjectGrant), keyed by
 	// sessionID/serverName.
 	subjectGrantGroup singleflight.Group
+
+	// discovered remembers the issuer muster learned for each server that
+	// discovers a subject-scoped issuer, and its failed lookups
+	// (subject_grant_discovered.go).
+	discovered discoveredIssuers
 
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
@@ -422,6 +432,19 @@ func (t *subjectSessionTracker) RemoveSession(mcpSessionID string) {
 			delete(t.sessions, sub)
 		}
 	}
+}
+
+// Subjects returns the subjects that have a live MCP session.
+func (t *subjectSessionTracker) Subjects() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	subjects := make([]string, 0, len(t.sessions))
+	for sub, ids := range t.sessions {
+		if len(ids) > 0 {
+			subjects = append(subjects, sub)
+		}
+	}
+	return subjects
 }
 
 // GetSessionIDs returns the MCP session IDs for the given user subject.
@@ -994,6 +1017,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	a.mcpServer = mcpSrv
 	a.isShuttingDown = false
+	a.backgroundMu.Lock()
+	a.backgroundStopped = false
+	a.backgroundMu.Unlock()
 
 	// Start background monitoring for registry changes
 	a.wg.Add(1)
@@ -1306,7 +1332,8 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 
 	// Note: Stdio server stops automatically on context cancellation, no explicit shutdown needed
 
-	// Wait for all background routines to complete
+	// Wait for all background routines to complete; none starts from here on.
+	a.stopBackground()
 	a.wg.Wait()
 
 	if a.bearerSessions != nil {
@@ -1483,12 +1510,12 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		}
 	}
 
-	// The entry's auth config, read before the delete: a removed server
-	// releases the authorization server it described.
-	var previousAuth *api.MCPServerAuth
+	// The entry's description of its authorization server, read before the
+	// delete: a removed server releases the authorization server it described.
+	var previousDescription *api.MCPServerAuthAuthorizationServer
 	info, registered := a.registry.GetServerInfo(name)
 	if registered {
-		previousAuth = info.AuthConfig
+		previousDescription = serverDescription(info)
 	}
 
 	// A reconnecting server is tracked before its entry goes, so no call
@@ -1500,6 +1527,16 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		a.reconnects.lost(name)
 	}
 
+	// A definition that goes takes the issuer it discovered with it, before
+	// the release: else the definition, still listed, would describe the
+	// issuer from memory and keep its pin. Without a registry entry that
+	// issuer is the description to release.
+	if !keepSessionAuth {
+		if issuer := a.discovered.forget(name); issuer != "" && !registered {
+			previousDescription = &api.MCPServerAuthAuthorizationServer{Issuer: issuer, GrantScope: api.GrantScopeSubject}
+		}
+	}
+
 	removed := true
 	var err error
 	if keepSessionAuth {
@@ -1507,9 +1544,9 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 	} else {
 		err = a.registry.DeregisterRequestedAt(name, requestedAt)
 	}
-	if err == nil && removed {
+	if (err == nil && removed) || (!keepSessionAuth && !registered) {
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		a.releaseAuthorizationServerPin(releaseCtx, name, previousAuth)
+		a.releaseAuthorizationServerDescription(releaseCtx, name, previousDescription)
 		cancel()
 	}
 	if !keepSessionAuth {
@@ -3194,9 +3231,9 @@ func (a *AggregatorServer) tearDownSession(ctx context.Context, sessionID string
 // for the server's issuer, auth store entry, capability entry, and the
 // pooled connection.
 func (a *AggregatorServer) tearDownSessionServer(ctx context.Context, sessionID string, serverInfo *ServerInfo) {
-	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
+	if authInfo := serverInfo.GetAuthInfo(); authInfo != nil && authInfo.Issuer != "" {
 		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sessionID, api.ServerIssuerKey(serverInfo.Name, serverInfo.AuthInfo.Issuer))
+			oauthHandler.ClearTokenByIssuer(sessionID, api.ServerIssuerKey(serverInfo.Name, authInfo.Issuer))
 		}
 	}
 	serverName := serverInfo.Name

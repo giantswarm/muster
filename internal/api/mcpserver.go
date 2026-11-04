@@ -153,6 +153,13 @@ type MCPServerAuth struct {
 	//   - "sigv4": AWS Signature Version 4 request signing, see SigV4
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
 
+	// GrantScope is "session" (default) or "subject": whom the grant of the
+	// server's OAuth sign-in belongs to, for whichever authorization server
+	// the server uses -- the one discovered through RFC 9728 or the one
+	// pinned in AuthorizationServer. See SubjectScoped, ValidateGrantScope
+	// and the v1alpha1 CRD field of the same name.
+	GrantScope string `yaml:"grantScope,omitempty" json:"grantScope,omitempty"`
+
 	// ForwardToken enables SSO via Token Forwarding.
 	// When true, muster forwards its own ID token (obtained when user authenticated
 	// TO muster) to this downstream server. The downstream server must be configured
@@ -295,29 +302,14 @@ func (a *MCPServerAuthAuthorizationServer) HasPinnedEndpoints() bool {
 	return a != nil && a.AuthorizationEndpoint != "" && a.TokenEndpoint != ""
 }
 
+// GrantScopeSession is the default grant scope: a token is bound to the login
+// session that obtained it.
+const GrantScopeSession = "session"
+
 // SubjectScoped reports whether tokens from this authorization server belong
 // to the person rather than to one login session.
 func (a *MCPServerAuthAuthorizationServer) SubjectScoped() bool {
 	return a != nil && a.GrantScope == GrantScopeSubject
-}
-
-// ValidateAuthorizationServer checks the parts of spec.auth.authorizationServer
-// the CRD's own rules express as CEL, for the paths that do not go through the
-// API server (filesystem mode, core_mcpserver_validate): expectedIssuer makes
-// sense only on a pin with explicit endpoints -- without them muster discovers
-// the authorization server and compares against the issuer it publishes.
-func ValidateAuthorizationServer(auth *MCPServerAuth) error {
-	if auth == nil || auth.AuthorizationServer == nil {
-		return nil
-	}
-	as := auth.AuthorizationServer
-	if (as.AuthorizationEndpoint == "") != (as.TokenEndpoint == "") {
-		return fmt.Errorf("auth.authorizationServer: authorizationEndpoint and tokenEndpoint must be set together")
-	}
-	if as.ExpectedIssuer != "" && !as.HasPinnedEndpoints() {
-		return fmt.Errorf("auth.authorizationServer.expectedIssuer needs authorizationEndpoint and tokenEndpoint")
-	}
-	return nil
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.

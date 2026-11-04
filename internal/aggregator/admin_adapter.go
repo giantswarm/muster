@@ -184,8 +184,8 @@ func (a *AggregatorServer) adminGetSessionDetail(ctx context.Context, sessionID 
 
 		info, hasInfo := a.registry.GetServerInfo(serverName)
 		var issuer string
-		if hasInfo && info.AuthInfo != nil {
-			issuer = info.AuthInfo.Issuer
+		if authInfo := authInfoOf(info, hasInfo); authInfo != nil {
+			issuer = authInfo.Issuer
 			entry.Issuer = issuer
 		}
 
@@ -270,8 +270,8 @@ func (a *AggregatorServer) adminGetMCPDetail(_ context.Context, name string) (*a
 		MCPSummary: mcpSummaryFromServerInfo(info),
 		ToolPrefix: info.ToolPrefix,
 	}
-	if info.AuthInfo != nil {
-		detail.Scope = info.AuthInfo.Scope
+	if authInfo := info.GetAuthInfo(); authInfo != nil {
+		detail.Scope = authInfo.Scope
 	}
 	return detail, true, nil
 }
@@ -286,8 +286,8 @@ func mcpSummaryFromServerInfo(info *ServerInfo) admin.MCPSummary {
 		RequiresAuth: info.RequiresSessionAuth(),
 		LastUpdate:   info.LastUpdate,
 	}
-	if info.AuthInfo != nil {
-		summary.Issuer = info.AuthInfo.Issuer
+	if authInfo := info.GetAuthInfo(); authInfo != nil {
+		summary.Issuer = authInfo.Issuer
 	}
 	return summary
 }
@@ -361,4 +361,13 @@ func (a *AggregatorServer) adminReconnectServer(ctx context.Context, sessionID, 
 		slog.String("sessionID", logging.TruncateIdentifier(sessionID)),
 		slog.String("server", serverName))
 	return nil
+}
+
+// authInfoOf is the server's AuthInfo when there is a server, read under its
+// lock.
+func authInfoOf(info *ServerInfo, ok bool) *AuthInfo {
+	if !ok || info == nil {
+		return nil
+	}
+	return info.GetAuthInfo()
 }

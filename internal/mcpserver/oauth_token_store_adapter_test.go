@@ -245,6 +245,24 @@ func TestMusterTokenStore_SaveToken_PreservesIDToken(t *testing.T) {
 	assert.Equal(t, "my-id-token", stored.IDToken)
 }
 
+// A refresh mcp-go makes keeps the RFC 8707 resource the grant is bound to,
+// so the person's refreshed grant is still recognised as the server's own.
+func TestMusterTokenStore_SaveToken_PreservesResource(t *testing.T) {
+	handler := &stubOAuthHandler{
+		enabled:   true,
+		fullToken: &api.OAuthToken{AccessToken: "original-access", Resource: "https://connector.example.com/mcp"},
+	}
+	store := NewMusterTokenStore("session-1", "test-user", "https://issuer.example.com", handler)
+
+	_, err := store.GetToken(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, store.SaveToken(t.Context(), &transport.Token{AccessToken: "refreshed-access"}))
+
+	stored := handler.storedTokens["session-1|https://issuer.example.com"]
+	require.NotNil(t, stored)
+	assert.Equal(t, "https://connector.example.com/mcp", stored.Resource)
+}
+
 func TestMusterTokenStore_SaveToken_RoundTrips(t *testing.T) {
 	handler := &stubOAuthHandler{
 		enabled: true,
