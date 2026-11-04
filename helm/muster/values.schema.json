@@ -243,6 +243,9 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "devPortalUrl": {
+                            "type": "string"
+                        },
                         "port": {
                             "type": "integer"
                         },

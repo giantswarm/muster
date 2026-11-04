@@ -752,6 +752,19 @@ spec:
                 - message: 'url must not hold a user name or password: put the credential
                     in a Secret and refer to it in headersFrom'
                   rule: '!self.matches(''^[^:/?#]+://[^/?#]*@'')'
+              urlElicitation:
+                description: |-
+                  URLElicitation decides what muster does when this server answers a
+                  tool call with a URL elicitation, a request that the person open a
+                  page. Relay declares URL mode elicitation to the server and passes the
+                  request on to muster's client, but only when the page is on the
+                  origin of muster's aggregator.devPortalUrl. Unset or Drop, muster does
+                  not declare it, and drops and logs any URL elicitation the server
+                  sends: the client gets a tool error that does not hold the URL.
+                enum:
+                - Drop
+                - Relay
+                type: string
             required:
             - type
             type: object

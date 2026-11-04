@@ -104,6 +104,10 @@ type MCPServer struct {
 	// affects that call's budget (see ProgressMaxDuration).
 	Progress *MCPServerProgress `yaml:"progress,omitempty" json:"progress,omitempty"`
 
+	// URLElicitation is spec.urlElicitation: MCPServerURLElicitationRelay
+	// when muster relays the server's URL elicitations (RelaysURLElicitation).
+	URLElicitation string `yaml:"urlElicitation,omitempty" json:"urlElicitation,omitempty"`
+
 	// Error contains any error message from the most recent server operation.
 	// This is runtime information and not persisted to YAML files.
 	Error string `json:"error,omitempty" yaml:"-"`
@@ -478,6 +482,8 @@ func (i MCPServerInfo) ToMCPServer() *MCPServer {
 		Timeout:     i.Timeout,
 		Progress:    i.Progress,
 		Auth:        i.Auth,
+
+		URLElicitation: i.URLElicitation,
 	}
 }
 
@@ -630,6 +636,17 @@ type MCPServerProgress struct {
 	MaxDuration int `yaml:"maxDuration,omitempty" json:"maxDuration,omitempty"`
 }
 
+// MCPServerURLElicitationRelay is the spec.urlElicitation value with which
+// muster relays the server's URL elicitations to its client, to the Dev
+// Portal's origin only. Any other value, the empty one included, drops them.
+const MCPServerURLElicitationRelay = "Relay"
+
+// RelaysURLElicitation reports whether the server's spec.urlElicitation is
+// MCPServerURLElicitationRelay.
+func (s *MCPServer) RelaysURLElicitation() bool {
+	return s != nil && s.URLElicitation == MCPServerURLElicitationRelay
+}
+
 // ProgressMaxDuration is how long progress may keep a tool call on the
 // server going: spec.progress.maxDuration, DefaultProgressMaxDurationSeconds
 // when unset.
@@ -764,6 +781,10 @@ type MCPServerInfo struct {
 	// DisplayNameAnnotation. Empty when the annotation is not set.
 	DisplayName string `json:"displayName,omitempty"`
 
+	// Tags are the server's free-form tags, read from the TagsAnnotation with
+	// ParseTags (malformed entries dropped). Empty when none are set.
+	Tags []string `json:"tags,omitempty"`
+
 	// Description provides a human-readable description of the server's purpose and capabilities.
 	Description string `json:"description,omitempty"`
 
@@ -817,6 +838,9 @@ type MCPServerInfo struct {
 	// Progress configures how progress the server reports on a tool call
 	// affects that call's budget.
 	Progress *MCPServerProgress `json:"progress,omitempty"`
+
+	// URLElicitation is spec.urlElicitation (see MCPServer.URLElicitation).
+	URLElicitation string `json:"urlElicitation,omitempty"`
 
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`

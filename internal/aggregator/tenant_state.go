@@ -29,8 +29,9 @@ import (
 //     of the namespace goes;
 //   - some are gone: the issuer keys only gone servers used go.
 //
-// It runs when a tenant server's service is removed (forgetTenantServer)
-// and before a server with an unrecorded UID registers (adoptTenantServer).
+// It runs when a tenant server's service is removed (forgetTenantServer,
+// retried until it succeeds) and before a server with an unrecorded UID
+// registers (adoptTenantServer).
 // The second makes it safe: no new server can reach the old state, even
 // when muster never saw the deletion (it was down, or the delete and the
 // create reached it as one update). A restart registers recorded UIDs and
@@ -129,28 +130,34 @@ func (a *AggregatorServer) recordIssuerKeys(ctx context.Context, namespace, uid 
 }
 
 // forgetTenantServer runs when the service of a server outside muster's
-// namespace was removed (its definition deleted or refused). A failure is
-// logged only: the next adoption in the namespace sweeps it again.
+// namespace was removed (its definition deleted or refused). A sweep that
+// fails is retried with backoff until it succeeds (tenantSweepRetries): the
+// namespace may never be adopted again.
 func (a *AggregatorServer) forgetTenantServer(ctx context.Context, name string) {
 	namespace, _ := api.SplitMCPServerKey(name)
 	if namespace == "" || a.tenantOwners == nil {
 		return
 	}
-	err := func() error {
-		live, err := tenantDefinitionUIDs(ctx, namespace)
-		if err != nil {
-			return fmt.Errorf("list the MCPServers of namespace %s: %w", namespace, err)
-		}
-		owners, err := a.tenantOwners.Owners(ctx, namespace)
-		if err != nil {
-			return fmt.Errorf("read the owners of namespace %s: %w", namespace, err)
-		}
-		return a.sweepTenantNamespace(ctx, namespace, owners, live, name)
-	}()
-	if err != nil {
-		logging.WarnWithAttrs("Aggregator", "Cannot forget the sign-ins of a removed server; the next registration in its namespace does",
-			slog.String("server", name), slog.String("error", err.Error()))
+	if err := a.sweepGoneTenantServers(ctx, namespace, name); err != nil {
+		a.tenantSweeps.schedule(namespace, name, err, func(ctx context.Context) error {
+			return a.sweepGoneTenantServers(ctx, namespace, "")
+		})
 	}
+}
+
+// sweepGoneTenantServers sweeps a namespace against the MCPServer objects
+// that exist now; server is the removed one ("" for a retry, which names
+// none: the key may be live again).
+func (a *AggregatorServer) sweepGoneTenantServers(ctx context.Context, namespace, server string) error {
+	live, err := tenantDefinitionUIDs(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("list the MCPServers of namespace %s: %w", namespace, err)
+	}
+	owners, err := a.tenantOwners.Owners(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("read the owners of namespace %s: %w", namespace, err)
+	}
+	return a.sweepTenantNamespace(ctx, namespace, owners, live, server)
 }
 
 // sweepTenantNamespace forgets the state of the recorded servers that no
@@ -158,7 +165,7 @@ func (a *AggregatorServer) forgetTenantServer(ctx context.Context, name string) 
 // the namespace goes, also under keys no record names; otherwise the issuer
 // keys only gone servers used. The sessions' marks, capabilities and pooled
 // clients of the gone servers go too, and of server, the one being
-// registered or removed. Then the gone servers are no owners any more.
+// registered or removed (if any). Then the gone servers are no owners any more.
 func (a *AggregatorServer) sweepTenantNamespace(ctx context.Context, namespace string, owners map[string]oauthstore.TenantOwner, live map[string]bool, server string) error {
 	var gone []string
 	kept := make(map[string]bool)
@@ -196,7 +203,10 @@ func (a *AggregatorServer) sweepTenantNamespace(ctx context.Context, namespace s
 		}
 	}
 
-	servers := []string{server}
+	var servers []string
+	if server != "" {
+		servers = append(servers, server)
+	}
 	for _, uid := range gone {
 		if s := owners[uid].Server; s != "" && !liveServers[s] && !slices.Contains(servers, s) {
 			servers = append(servers, s)

@@ -280,6 +280,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			CredentialProvider: cfg.MusterConfig.Aggregator.CredentialProvider,
 			ProviderApps:       config.ProviderAppsWithDefaults(cfg.MusterConfig.Aggregator.ProviderApps),
 			MusterNamespace:    cfg.MusterConfig.Namespace,
+			DevPortalURL:       cfg.MusterConfig.Aggregator.DevPortalURL,
 		}
 
 		// Set defaults if not specified

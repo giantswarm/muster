@@ -159,6 +159,25 @@ A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked 
 
 Only the sign-in answers muster issues are elicited: a backend result that has the same shape is returned unchanged. A server muster connects with the person's muster sign-in (token forwarding, token exchange) has no link to open, and keeps the `auth_required` answer.
 
+#### A call a server answers with a URL elicitation
+
+An MCP server can answer a tool call with a URL elicitation: a request that the person open a page, such as the Dev Portal's form for a missing credential. muster relays it to the client only when both are true:
+
+- the server's MCPServer is in muster's namespace and sets `spec.urlElicitation: Relay` ([MCPServer spec fields](crds.md#spec-fields)). A server of an organization namespace (`org-…`) that sets `Relay` is not started, so an organization cannot put its own server on the allowlist, and
+- the page is on the origin (scheme, host and port) of muster's `aggregator.devPortalUrl` ([configuration](configuration.md#aggregator-configuration)).
+
+muster declares URL mode elicitation (`elicitation: {url: {}}`) only to a server with `Relay`. A server without it is asked for its ordinary text answer.
+
+A relayed elicitation reaches the client in the shape of the client's protocol version, as a sign-in does:
+
+| Client's protocol version | Answer |
+|---|---|
+| 2026-07-28 or later, `elicitation.url` in the request's client capabilities | `resultType: "input_required"` with one `elicitation/create` input request per page (`mode: "url"`, the server's `url`, `message` and `elicitationId`) under the keys `muster_relayed_elicitation_0`, `muster_relayed_elicitation_1`, and so on. A retry whose `inputResponses` accept them runs the call again at once. The client retries when the person agrees to open the page, usually before they complete it, so the server can answer with the same elicitation again and the person sees a second prompt; retry once the page is done. A retry that declines or cancels one runs nothing and gets a tool error. |
+| 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the server's elicitations. muster does not pass on the server's `notifications/elicitation/complete`. Retry the call after the person completed the page. |
+| Any other | A tool error with the server's message and the link, to open by hand. |
+
+muster drops every other URL elicitation: from a server without `Relay`, to a page on another origin, or when `aggregator.devPortalUrl` is not set. It logs `Dropped a backend's URL elicitation` with the server, the page's origin and the reason, and answers the call with a tool error that names the server and holds the server's message with every link in it removed, never the URL. Thus no server, an organization's own included, can send a person to a page of its choice.
+
 ### Resource Access
 
 | Meta-Tool | Description | Arguments |
@@ -492,6 +511,7 @@ Create a new MCP server definition that can be started as a service.
 - `name` (string, required) - Unique server name (used as service identifier)
 - `type` (string, required) - Server type (`stdio`, `streamable-http`, or `sse`)
 - `displayName` (string, optional) - Human-friendly name UIs show for the server, stored in the `ui.giantswarm.io/display-name` annotation next to the `registered-by` annotations muster stamps. Surrounding whitespace is trimmed; a blank value sets no annotation
+- `tags` (array of strings, optional) - Stored comma-joined in the `ui.giantswarm.io/tags` annotation. Each tag: lowercase letters and digits joined by single hyphens (`^[a-z0-9]+(-[a-z0-9]+)*$`), at most 63 characters, no duplicates; at most 50 tags
 - `description` (string, optional) - Human-readable description of server purpose
 - `command` (array of strings, optional) - Command executable and arguments (for stdio servers)
 - `args` (array of strings, optional) - Command line arguments (for stdio servers)
@@ -535,7 +555,7 @@ Get detailed information about a specific MCP server definition.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to retrieve
 
-**Returns:** Complete MCP server definition object. `displayName`, `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server
+**Returns:** Complete MCP server definition object. `displayName`, `tags` (array), `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server
 
 **Example Request:**
 ```json
@@ -552,6 +572,7 @@ Get detailed information about a specific MCP server definition.
 {
   "name": "my-tools",
   "displayName": "My Tools",
+  "tags": ["project-management"],
   "type": "stdio",
   "autoStart": true,
   "description": "Custom tool server for project management",
@@ -570,6 +591,7 @@ Update an existing MCP server definition. Only provided fields are updated.
 - `name` (string, required) - Name of the MCP server to update
 - `type` (string, optional) - Server type
 - `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation, trimmed; an empty or blank string removes it, and omitting it keeps the current one
+- `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones. More than 50 only when none of them is new, so a longer hand-set list can be sent back
 - `description` (string, optional) - Updated description
 - `command` (array of strings, optional) - New command and arguments
 - `env` (object, optional) - Updated environment variables (replaces existing)
@@ -632,6 +654,7 @@ Validate MCP server configuration without creating or modifying the server.
 - `name` (string, required) - Server name to validate
 - `type` (string, required) - Server type to validate
 - `displayName` (string, optional) - Display name to validate, as on create
+- `tags` (array of strings, optional) - Tags to validate, as on create
 - `description` (string, optional) - Description to validate
 - `command` (array of strings, optional) - Command to validate
 - `env` (object, optional) - Environment variables to validate
@@ -900,7 +923,7 @@ List all workflow definitions with their availability status.
 
 **Arguments:** None
 
-**Returns:** Object containing array of workflow definitions
+**Returns:** Object containing array of workflow definitions; each carries `tags` (array) when it has any
 
 **Example Request:**
 ```json
@@ -917,7 +940,8 @@ List all workflow definitions with their availability status.
     {
       "name": "deploy-application",
       "description": "Deploy application with monitoring setup",
-      "available": true
+      "available": true,
+      "tags": ["deploy", "monitoring"]
     },
     {
       "name": "backup-database",
@@ -950,6 +974,7 @@ Create a new workflow definition with advanced step configuration.
   - Each argument has: `type`, `required`, `default`, `description`
   - Supported types: `string`, `integer`, `boolean`, `number`, `object`, `array`
 - `description` (string, optional) - Workflow description
+- `tags` (array of strings, optional) - Stored comma-joined in the Workflow's `ui.giantswarm.io/tags` annotation. Each tag: lowercase letters and digits joined by single hyphens (`^[a-z0-9]+(-[a-z0-9]+)*$`), at most 63 characters, no duplicates; at most 50 tags
 
 The field names are the `Workflow` CRD's, so a step copied from a manifest works unchanged. The snake_case spellings `allow_failure`, `from_step`, `expect_not` and `json_path` are deprecated aliases: still accepted, with a warning in the server log.
 
@@ -1025,7 +1050,7 @@ Get detailed information about a specific workflow definition.
 **Arguments:**
 - `name` (string, required) - Name of the workflow to retrieve
 
-**Returns:** Complete workflow definition with all steps and configuration
+**Returns:** Complete workflow definition with all steps and configuration; `tags` (array) is omitted when unset
 
 **Example Request:**
 ```json
@@ -1073,6 +1098,7 @@ Update an existing workflow definition. Only provided fields are updated.
 - `steps` (array, optional) - Updated workflow steps (replaces all existing steps)
 - `args` (object, optional) - Updated argument schema
 - `description` (string, optional) - Updated description
+- `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones. More than 50 only when none of them is new, so a longer hand-set list can be sent back
 
 **Returns:** Updated workflow definition
 
@@ -1135,6 +1161,7 @@ Validate a workflow definition without creating it.
 - `steps` (array, required) - Workflow steps to validate
 - `args` (object, optional) - Argument schema to validate
 - `description` (string, optional) - Description to validate
+- `tags` (array of strings, optional) - Tags to validate, as on create
 
 **Returns:** Validation result with errors, warnings, and tool availability check
 

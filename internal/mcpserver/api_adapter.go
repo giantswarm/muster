@@ -10,6 +10,7 @@ import (
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
@@ -447,6 +448,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Meta:                  server.Spec.Meta,
 		Timeout:               server.Spec.Timeout,
 		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
+		URLElicitation:        server.Spec.URLElicitation,
 		Error:                 server.Status.LastError,
 		State:                 string(server.Status.State),
 		ConsecutiveFailures:   server.Status.ConsecutiveFailures,
@@ -479,6 +481,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	info.StatusMessage = generateStatusMessage(info.State, info.Error, server.Name, info.Auth)
 
 	info.DisplayName = server.Annotations[api.DisplayNameAnnotation]
+	info.Tags = api.ParseTags(server.Annotations[api.TagsAnnotation])
 	info.RegisteredBy = server.Annotations[api.RegisteredByAnnotation]
 	info.RegisteredByEmail = server.Annotations[api.RegisteredByEmailAnnotation]
 
@@ -623,6 +626,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 		},
 	}
 	setDisplayName(crd, req.DisplayName)
+	crd.Annotations = api.ApplyTagsAnnotation(crd.Annotations, &req.Tags)
 
 	return crd
 }
@@ -632,6 +636,10 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 // mcpServerArgs returns the common argument metadata for MCP server tools.
 // typeRequired controls whether the "type" field is required (true for create/validate, false for update).
 func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
+	tags := api.TagsUpdateArg()
+	if typeRequired {
+		tags = api.TagsArg()
+	}
 	return []api.ArgMetadata{
 		{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server name"},
 		{Name: "type", Type: api.ArgTypeString, Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
@@ -652,6 +660,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			api.SchemaKeyRequired: []string{"name", "instanceArg"},
 		}},
 		{Name: "displayName", Type: api.ArgTypeString, Required: false, Description: "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it"},
+		tags,
 		{Name: "description", Type: api.ArgTypeString, Required: false, Description: "MCP server description"},
 		{Name: "autoStart", Type: api.ArgTypeBoolean, Required: false, Description: "Whether server should auto-start; on update, omitted keeps the current value"},
 		{Name: "command", Type: api.ArgTypeString, Required: false, Description: "Command executable path (required for stdio)"},
@@ -1065,6 +1074,9 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 			IsError: true,
 		}, nil
 	}
+	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
+		return refused, nil
+	}
 
 	// Create MCPServer CRD for validation
 	server := a.convertRequestToCRD(&api.MCPServerCreateRequest{
@@ -1073,6 +1085,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		ToolPrefix:  req.ToolPrefix,
 		Family:      req.Family,
 		DisplayName: req.DisplayName,
+		Tags:        req.Tags,
 		Description: req.Description,
 		AutoStart:   req.AutoStart,
 		Command:     req.Command,
@@ -1135,6 +1148,9 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 			IsError: true,
 		}, nil
 	}
+	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
+		return refused, nil
+	}
 
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
@@ -1193,6 +1209,9 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 			IsError: true,
 		}, nil
 	}
+	if refused := api.InvalidTagsUpdateResult(req.Tags); refused != nil {
+		return refused, nil
+	}
 
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
@@ -1203,81 +1222,30 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		return refused, nil
 	}
 
-	// Get existing server first. The read stays on the SA client — only the
-	// spec mutation itself switches to the caller's identity.
-	existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(req.Name), "Failed to update MCP server"), nil
+	// Get-modify-update on a fresh read per attempt. The read stays on the SA
+	// client — only the write switches to the caller's identity — and a
+	// conflict with the status reconciler bumping the resourceVersion is
+	// retried.
+	var refused *api.CallToolResult
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
+		if err != nil {
+			if errors.IsNotFound(err) {
+				refused = api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(req.Name), "Failed to update MCP server")
+			} else {
+				refused, _ = simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
+			}
+			return err
 		}
-		return simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
+		if refused = a.applyMCPServerUpdate(existing, &req); refused != nil {
+			return errUpdateRefused
+		}
+		return writer.UpdateMCPServer(ctx, existing)
+	})
+	if refused != nil {
+		return refused, nil
 	}
-
-	// Update common fields from request
-	if req.Type != "" {
-		existing.Spec.Type = req.Type
-	}
-	if req.ToolPrefix != "" {
-		existing.Spec.ToolPrefix = req.ToolPrefix
-	}
-	if req.Family != nil {
-		existing.Spec.Family = convertAPIFamilyToCRD(req.Family)
-	}
-	if req.Description != "" {
-		existing.Spec.Description = req.Description
-	}
-	updateDisplayName(existing, req.DisplayName)
-	// Tri-state: an omitted autoStart keeps the current value.
-	if req.AutoStart != nil {
-		existing.Spec.AutoStart = *req.AutoStart
-	}
-	// Tri-state: only an explicit suspended value changes the lifecycle state,
-	// so unrelated updates don't silently resume a stopped server (issue #1057).
-	if req.Suspended != nil {
-		existing.Spec.Suspended = *req.Suspended
-	}
-	if req.RestartRequestedAt != nil {
-		existing.Spec.RestartRequestedAt = &metav1.Time{Time: *req.RestartRequestedAt}
-	}
-	if req.Command != "" {
-		existing.Spec.Command = req.Command
-	}
-	if req.Args != nil {
-		existing.Spec.Args = req.Args
-	}
-	if req.URL != "" {
-		existing.Spec.URL = req.URL
-	}
-	if req.Env != nil {
-		existing.Spec.Env = req.Env
-	}
-	if req.Headers != nil {
-		existing.Spec.Headers = req.Headers
-	}
-	if req.HeadersFrom != nil {
-		existing.Spec.HeadersFrom = convertAPIHeadersFromToCRD(req.HeadersFrom)
-	}
-	if req.Meta != nil {
-		existing.Spec.Meta = req.Meta
-	}
-	if req.Timeout > 0 {
-		existing.Spec.Timeout = req.Timeout
-	}
-	if req.Progress != nil {
-		existing.Spec.Progress = convertAPIProgressToCRD(req.Progress)
-	}
-	// Update auth configuration if provided
-	if req.Auth != nil {
-		existing.Spec.Auth = convertAPIAuthToCRD(req.Auth)
-	}
-
-	// Validate the updated definition (reuse existing CRD object)
-	if err := a.validateMCPServer(existing); err != nil {
-		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
-	}
-
-	// Update the MCP server with the resolved write identity
-	if err := writer.UpdateMCPServer(ctx, existing); err != nil {
+	if err != nil {
 		if msg := a.describeWriteAuthError(err, "update", req.Name); msg != "" {
 			return simpleError(msg)
 		}
@@ -1401,7 +1369,7 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	if a.client != nil && a.client.IsKubernetesMode() {
 		serverNamespace = server.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth, server.Spec.URLElicitation); err != nil {
 		return err
 	}
 	if err := api.ValidateSecretNamespaces(serverNamespace, a.namespace, auth); err != nil {

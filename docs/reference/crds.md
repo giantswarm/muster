@@ -128,10 +128,11 @@ the MCP server as its own workload and register it with `streamable-http` or
 | Annotation | Set by | Description |
 |------------|--------|-------------|
 | `ui.giantswarm.io/display-name` | The author, or `displayName` on `core_mcpserver_create` / `_update` | Human-friendly name UIs show in place of `metadata.name` (e.g. `Kagi Search` for `kagi-search`). Returned as `displayName` by `core_mcpserver_get` and `_list` |
+| `ui.giantswarm.io/tags` | The author, or `tags` on `core_mcpserver_create` / `_update` | Comma-joined tags (e.g. `triage,kubernetes`), each lowercase letters and digits joined by single hyphens, at most 63 characters. Returned as `tags` (array) by `core_mcpserver_get` and `_list`, which drop malformed entries |
 | `ui.giantswarm.io/registered-by` | muster, on `core_mcpserver_create` | Subject of the authenticated caller that created the server. Returned as `registeredBy` |
 | `ui.giantswarm.io/registered-by-email` | muster, on `core_mcpserver_create` | Email claim of that caller, when the token carried one. Returned as `registeredByEmail` |
 
-`core_mcpserver_update` changes no annotation but the display name, and that only when `displayName` is given, so an annotation set with `kubectl` or GitOps survives an update.
+`core_mcpserver_update` changes no annotation but the display name and the tags, and those only when `displayName` or `tags` is given, so an annotation set with `kubectl` or GitOps survives an update.
 
 #### Spec Fields
 
@@ -153,6 +154,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 | `timeout` | `integer` | No | Budget of every operation in seconds, a tool call included, for every type; for a remote server also the connect and the health probe | Min: 1, Max: 300, Default: 30 |
 | `progress.maxDuration` | `integer` | No | Budget of a whole tool call in seconds. On a tool call, each progress notification from the server restarts `timeout`, up to this; muster sends the server a progressToken on every tool call, whether its caller asked for progress or not. Every other operation stays bounded by `timeout`. Equal to `timeout`, progress extends nothing | Min: `timeout`, Max: 3600, Default: 3600 |
 | `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
+| `urlElicitation` | `string` | No | What muster does when the server answers a tool call with a URL elicitation (a request that the person open a page). `Relay`: muster declares URL mode elicitation to the server and relays the elicitation to its client, only when the page is on the origin of `aggregator.devPortalUrl`. Unset or `Drop`: muster does not declare it, and drops and logs any URL elicitation the server sends; the client gets a tool error without the URL. See [A call a server answers with a URL elicitation](mcp-tools.md#a-call-a-server-answers-with-a-url-elicitation) | `Drop` or `Relay`; default: unset (`Drop`). `Relay` only in muster's namespace: a server of another namespace that sets it is not started |
 | `suspended` | `boolean` | No | Desired lifecycle state: `true` stops the server's service and keeps it stopped; setting it back to `false` resumes it | Default: `false` |
 | `restartRequestedAt` | `timestamp` | No | Requests a one-shot restart; processed by the reconciler's first attempt, whatever its outcome, which mirrors the value into `status.lastRestartedAt`. A failed attempt is not repeated by the reconciler: the service retries on its reconnect backoff (`status.nextRetryAfter`) | RFC 3339 timestamp |
 
@@ -838,6 +840,12 @@ status:
 ```
 
 ### Field Reference
+
+#### Annotations
+
+| Annotation | Set by | Description |
+|------------|--------|-------------|
+| `ui.giantswarm.io/tags` | The author, or `tags` on `core_workflow_create` / `_update` | Comma-joined tags (e.g. `triage,kubernetes`), each lowercase letters and digits joined by single hyphens, at most 63 characters. Returned as `tags` (array) by `core_workflow_get` and `_list`, which drop malformed entries. `core_workflow_update` changes it only when `tags` is given |
 
 #### Spec Fields
 

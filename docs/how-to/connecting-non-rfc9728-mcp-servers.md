@@ -423,7 +423,12 @@ keeps its stored sign-ins.
   appears later in a namespace of the same name, or under the name of a
   deleted server, starts with nothing, also when muster was down while the
   old one went: muster tells servers apart by their Kubernetes UID. A restart
-  signs nobody out.
+  signs nobody out. When muster cannot forget the sign-ins (the token store
+  or the MCPServer listing does not answer), it tries again with backoff,
+  from 1 second up to 2 minutes, until it succeeds, and logs each failed
+  attempt as `tenant_signins_sweep_failed` with the namespace and the
+  attempt. A retry ends when muster stops; the next server that appears in
+  the namespace forgets the old sign-ins before it serves.
 
 ## When not to use this
 
