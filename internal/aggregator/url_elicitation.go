@@ -125,8 +125,11 @@ func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
 // the auth_required answer.
 //
 // A backend's URL elicitation muster relays (backend_elicitation.go) is
-// asked in the same two shapes. A 2026-07-28 retry that accepted it runs the
-// call again; one that declined or cancelled it runs nothing.
+// asked in the same two shapes. A 2026-07-28 retry that accepted it first
+// waits for the backend's completion of it (awaitRelayedCompletion), then
+// runs the call again; one that declined or cancelled it runs nothing. On
+// 2025-11-25 the session is sent notifications/elicitation/complete when the
+// backend completes it (completeRelayedElicitation).
 func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 	return func(next mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -141,10 +144,12 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 				a.awaitSignIn(ctx, getSessionIDFromContext(ctx), state)
 				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
 			}
+			relayedWaitExpired := false
 			if action, answered := relayedElicitationAnswer(req.Params.InputResponses); answered {
 				if action != mcp.ElicitationResponseActionAccept {
 					return declinedRelayedResult(action, req.Params.RequestState), nil
 				}
+				relayedWaitExpired = a.awaitRelayedCompletion(ctx, getSessionIDFromContext(ctx), decodeRelayedRequestState(req.Params.RequestState))
 				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
 			}
 
@@ -157,7 +162,7 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 				return a.elicitSignIn(callCtx, *challenge)
 			}
 			if relayed := recorder.relayed.Load(); relayed != nil && relayedElicitationLink(result) == relayed.link() {
-				return elicitRelayed(callCtx, *relayed)
+				return a.elicitRelayed(callCtx, *relayed, relayedWaitExpired)
 			}
 			return result, err
 		}

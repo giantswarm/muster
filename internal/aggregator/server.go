@@ -150,6 +150,11 @@ type AggregatorServer struct {
 	// awaiting notifications/elicitation/complete (url_elicitation.go).
 	signInElicitations signInElicitations
 
+	// relayedCompletions are the backend URL elicitations muster relayed,
+	// awaiting the backend's notifications/elicitation/complete
+	// (backend_elicitation.go).
+	relayedCompletions relayedCompletions
+
 	// devPortalOrigin is the origin of aggregator.devPortalUrl, the only one
 	// a backend's URL elicitation is relayed to; "" relays none
 	// (backend_elicitation.go).
@@ -1415,6 +1420,7 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 		}
 	})
 	a.observeSharedRecovery(registration.Name, client)
+	a.observeRelayedCompletions(registration.Name, "", client)
 
 	if err := a.registry.Register(ctx, registration, client); err != nil {
 		return err
@@ -3444,7 +3450,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", err
 	}
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
-	declareURLElicitation(ctx, serverName, client)
+	a.declareURLElicitation(ctx, serverName, client)
 	return client, tokenExpiry, exchangedToken, nil
 }
 

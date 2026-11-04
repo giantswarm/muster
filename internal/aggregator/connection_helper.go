@@ -184,7 +184,7 @@ func establishConnection(
 		logging.Debug("Connection", "Using static auth headers for session %s, server %s",
 			logging.TruncateIdentifier(sessionID), serverName)
 	}
-	declareURLElicitation(ctx, serverName, client)
+	a.declareURLElicitation(ctx, serverName, client)
 
 	// Try to initialize the client
 	if err := client.Initialize(ctx); err != nil {
@@ -737,7 +737,7 @@ func EstablishConnectionWithTokenExchange(
 		return nil, err
 	}
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
-	declareURLElicitation(ctx, serverInfo.Name, client)
+	a.declareURLElicitation(ctx, serverInfo.Name, client)
 
 	// Try to initialize the client with the exchanged token
 	if err := client.Initialize(ctx); err != nil {
@@ -1051,7 +1051,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	presented := &atomic.Pointer[string]{}
 	headerFunc := presentingHeaderFunc(a.sessionHeaderFunc(sessionID, sub, serverInfo, makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired)), presented)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
-	declareURLElicitation(ctx, serverInfo.Name, client)
+	a.declareURLElicitation(ctx, serverInfo.Name, client)
 	return &tokenForwardingClient{StreamableHTTPClient: client, presented: presented}, token, nil
 }
 

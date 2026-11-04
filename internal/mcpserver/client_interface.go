@@ -110,6 +110,10 @@ type baseMCPClient struct {
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
+	// elicitationCompleteHandler is told the elicitationId of every
+	// notifications/elicitation/complete the server sends
+	// (OnElicitationComplete).
+	elicitationCompleteHandler func(elicitationID string)
 	// recoveredHandler is told, from a goroutine of its own, every time a
 	// lost MCP session was re-established by a fresh handshake
 	// (OnSessionRecovered).
@@ -144,6 +148,23 @@ func (b *baseMCPClient) DeclareURLElicitation() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.urlElicitation = true
+}
+
+// ElicitationCompleteObserver is a client that reports the server's
+// notifications/elicitation/complete; every transport is one.
+type ElicitationCompleteObserver interface {
+	OnElicitationComplete(handler func(elicitationID string))
+}
+
+// OnElicitationComplete registers the handler told the elicitationId of
+// each notifications/elicitation/complete the server sends: the server's
+// word that the page of a URL elicitation it answered a call with was
+// completed. Such a notification no longer reaches the OnNotification
+// handler. It replaces the handler registered before.
+func (b *baseMCPClient) OnElicitationComplete(handler func(elicitationID string)) {
+	b.notifMu.Lock()
+	defer b.notifMu.Unlock()
+	b.elicitationCompleteHandler = handler
 }
 
 // clientCapabilities returns the capabilities the client declares at its
@@ -461,8 +482,9 @@ func (b *baseMCPClient) wireNotificationHandler() {
 	}
 }
 
-// dispatchNotification routes progress to the call it belongs to and hands
-// every other notification to the stored handler.
+// dispatchNotification routes progress to the call it belongs to, an
+// elicitation's completion to the OnElicitationComplete handler when one is
+// registered, and every other notification to the stored handler.
 func (b *baseMCPClient) dispatchNotification(notification mcp.JSONRPCNotification) {
 	if notification.Method == string(mcp.MethodNotificationProgress) {
 		b.progress.route(notification)
@@ -471,7 +493,15 @@ func (b *baseMCPClient) dispatchNotification(notification mcp.JSONRPCNotificatio
 
 	b.notifMu.Lock()
 	handler := b.notifHandler
+	completed := b.elicitationCompleteHandler
 	b.notifMu.Unlock()
+
+	if completed != nil && notification.Method == string(mcp.MethodNotificationElicitationComplete) {
+		if elicitationID, _ := notification.Params.AdditionalFields["elicitationId"].(string); elicitationID != "" {
+			completed(elicitationID)
+		}
+		return
+	}
 
 	if handler != nil {
 		handler(notification)
