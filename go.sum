@@ -144,8 +144,8 @@ github.com/fxamacker/cbor/v2 v2.9.1 h1:2rWm8B193Ll4VdjsJY28jxs70IdDsHRWgQYAI80+r
 github.com/fxamacker/cbor/v2 v2.9.1/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/giantswarm/go-selfupdate v1.7.4 h1:6im5lkjaMaUs1lYrrGtZYPQsNnPtSb/oSdSXQrHERmI=
 github.com/giantswarm/go-selfupdate v1.7.4/go.mod h1:nqRW1Io8Ixo3x8tSnLKkpfenWn2PRf/Zcu548PZp780=
-github.com/giantswarm/mcp-oauth v1.9.8 h1:+gWQYx1s/hfO2bdQdjJj/aK8hbCo1U2pE7QO7APWSdI=
-github.com/giantswarm/mcp-oauth v1.9.8/go.mod h1:zySf65rDkXwTZ2aegIpLk1PadcWDXMxbY5oiVCY+FR4=
+github.com/giantswarm/mcp-oauth v1.10.1-0.20261104132454-5ebbfb1828a3 h1:gcLMEdGc6Mdh3LsRbDRF/7H6mSx+SUNMU8y3qOHlsy8=
+github.com/giantswarm/mcp-oauth v1.10.1-0.20261104132454-5ebbfb1828a3/go.mod h1:Hs/VtIVha63ls9zYrAuLUJTu0SeiXWqPCFOo49vrHSk=
 github.com/giantswarm/mcp-toolkit v0.4.12 h1:OSV2sMNheLn6rjzLJs8eJfqRPfIiMY/1shMHCR5xl4Y=
 github.com/giantswarm/mcp-toolkit v0.4.12/go.mod h1:m8dbpEeOg25kldNTnBh/al5ux4y5PYvbg2KhfHiUinc=
 github.com/giantswarm/pagekit v0.3.5 h1:NygF5vL+QOad5RsLe/jzASKCajxS0WFJ0wAsucdgXB4=
