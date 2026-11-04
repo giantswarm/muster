@@ -427,8 +427,10 @@ keeps its stored sign-ins.
   or the MCPServer listing does not answer), it tries again with backoff,
   from 1 second up to 2 minutes, until it succeeds, and logs each failed
   attempt as `tenant_signins_sweep_failed` with the namespace and the
-  attempt. A retry ends when muster stops; the next server that appears in
-  the namespace forgets the old sign-ins before it serves.
+  attempt. A retry ends when muster stops. With the Valkey store, muster
+  checks every namespace it holds sign-ins for at its next start, once it
+  has listed the MCPServer objects, and forgets the sign-ins of the servers
+  that went, with the same retries; servers that exist keep theirs.
 
 ## When not to use this
 

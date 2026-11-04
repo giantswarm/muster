@@ -89,6 +89,40 @@ func TestManager_StartStop(t *testing.T) {
 	}
 }
 
+// The manager closes ManagerConfig.Synced once its change detector has
+// started (listed the watched objects), not before: the aggregator's sweep at
+// start waits for it.
+func TestManager_StartClosesSynced(t *testing.T) {
+	synced := make(chan struct{})
+	manager := NewManager(ManagerConfig{
+		Mode:           WatchModeFilesystem,
+		FilesystemPath: t.TempDir(),
+		WorkerCount:    1,
+		Synced:         synced,
+	})
+	if err := manager.RegisterReconciler(&mockReconciler{resourceType: ResourceTypeMCPServer}); err != nil {
+		t.Fatalf("failed to register reconciler: %v", err)
+	}
+	select {
+	case <-synced:
+		t.Fatal("Synced is closed before the manager started")
+	default:
+	}
+
+	if err := manager.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start manager: %v", err)
+	}
+	select {
+	case <-synced:
+	default:
+		t.Fatal("Synced is open after the manager started")
+	}
+
+	if err := manager.Stop(); err != nil {
+		t.Fatalf("failed to stop manager: %v", err)
+	}
+}
+
 func TestManager_TriggerReconcile(t *testing.T) {
 	config := ManagerConfig{
 		Mode:           WatchModeFilesystem,

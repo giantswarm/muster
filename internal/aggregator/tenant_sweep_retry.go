@@ -27,7 +27,8 @@ import (
 // retry makes that retry run once more after it succeeds. There is no cap: a
 // retry that gave up would leave the sign-ins behind. A retry ends with
 // muster: after a restart the owner record still names the gone servers (on
-// Valkey), and the namespace's next adoption sweeps them, as before.
+// Valkey), and the sweep at start (sweepRecordedTenantsAtStart) sweeps them
+// once the MCPServer objects are listed, retrying here what fails.
 
 const (
 	tenantSweepInitialBackoff = time.Second
@@ -70,7 +71,7 @@ func (r *tenantSweepRetries) schedule(namespace, server string, err error, sweep
 	}
 	if r.stopped {
 		logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_not_retried", append(attrs,
-			slog.String("reason", "muster is stopping; the namespace's next adoption sweeps it"))...)
+			slog.String("reason", "muster is stopping; the sweep at the next start sweeps it"))...)
 		return
 	}
 	if retry, ok := r.pending[namespace]; ok {
@@ -85,9 +86,7 @@ func (r *tenantSweepRetries) schedule(namespace, server string, err error, sweep
 	if r.pending == nil {
 		r.pending = make(map[string]*tenantSweepRetry)
 	}
-	if r.ctx == nil {
-		r.ctx, r.cancel = context.WithCancel(context.Background())
-	}
+	r.ensureContext()
 	retry := &tenantSweepRetry{}
 	r.pending[namespace] = retry
 	wait := r.wait
@@ -151,7 +150,41 @@ func (r *tenantSweepRetries) abandon(namespace string, attempt int) {
 	logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_not_retried",
 		slog.String("namespace", namespace),
 		slog.Int("attempt", attempt),
-		slog.String("reason", "muster is stopping; the namespace's next adoption sweeps it"))
+		slog.String("reason", "muster is stopping; the sweep at the next start sweeps it"))
+}
+
+// start runs fn in the background with the retries' context, which stop
+// cancels and then waits for fn, unless muster is stopping already.
+func (r *tenantSweepRetries) start(fn func(ctx context.Context)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.stopped {
+		return
+	}
+	r.ensureContext()
+	r.wg.Add(1)
+	go func(ctx context.Context) {
+		defer r.wg.Done()
+		fn(ctx)
+	}(r.ctx)
+}
+
+// ensureContext creates the retries' context; r.mu is held.
+func (r *tenantSweepRetries) ensureContext() {
+	if r.ctx == nil {
+		r.ctx, r.cancel = context.WithCancel(context.Background())
+	}
+}
+
+// pause is the pause before an attempt: r.wait, or sleepCtx.
+func (r *tenantSweepRetries) pause(ctx context.Context, d time.Duration) error {
+	r.mu.Lock()
+	wait := r.wait
+	r.mu.Unlock()
+	if wait == nil {
+		wait = sleepCtx
+	}
+	return wait(ctx, d)
 }
 
 // stop ends the retries and waits for them; none starts afterwards.

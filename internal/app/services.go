@@ -238,6 +238,16 @@ func InitializeServices(cfg *Config) (*Services, error) {
 	// Note: Service creation (including MCPServer services) is handled by the orchestrator
 	// during its Start() method. The orchestrator manages dependencies and lifecycle.
 
+	// With MCPServer objects of every namespace, the reconciler's informer
+	// closes mcpServersListed once it has listed them; the aggregator then
+	// sweeps the sign-ins of organization namespaces whose servers went while
+	// muster was down. Without the reconciler nothing lists them, and nothing
+	// is swept at start.
+	var mcpServersListed chan struct{}
+	if mcpServersInAllNamespaces && cfg.ConfigPath != "" {
+		mcpServersListed = make(chan struct{})
+	}
+
 	// Need to get the service registry handler from the registry adapter
 	registryHandler := api.GetServiceRegistry()
 	if registryHandler != nil {
@@ -281,6 +291,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			ProviderApps:       config.ProviderAppsWithDefaults(cfg.MusterConfig.Aggregator.ProviderApps),
 			MusterNamespace:    cfg.MusterConfig.Namespace,
 			DevPortalURL:       cfg.MusterConfig.Aggregator.DevPortalURL,
+			MCPServersListed:   mcpServersListed,
 		}
 
 		// Set defaults if not specified
@@ -349,6 +360,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			// MCPServer objects in all namespaces when the setting is on;
 			// Workflow objects stay in muster's namespace.
 			MCPServersInAllNamespaces: mcpServersInAllNamespaces,
+			Synced:                    mcpServersListed,
 			WorkerCount:               2,
 			MaxRetries:                5,
 			Debug:                     cfg.Debug,
