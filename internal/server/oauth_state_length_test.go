@@ -10,10 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
-	"github.com/giantswarm/mcp-oauth/providers/mock"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
-	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/config"
@@ -23,19 +20,51 @@ import (
 // 22 characters.
 const codexState = "amXAojVgd6OlYylADsqKFg"
 
-func TestOAuthAuthorize_AcceptsCodexStateLength(t *testing.T) {
+// TestOAuthAuthorize_StateLength sends authorization requests through the
+// /oauth/authorize route of the server NewOAuthHTTPServer builds.
+func TestOAuthAuthorize_StateLength(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		state        string
+		wantHost     string
+		wantErrorKey string
+	}{
+		{name: "the Codex state is sent on to the provider", state: codexState, wantHost: "accounts.google.com"},
+		{name: "a 21-character state is refused", state: codexState[:21], wantHost: "127.0.0.1:54650", wantErrorKey: "invalid_request"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			location := authorizeWithState(t, tt.state)
+
+			require.Equal(t, tt.wantHost, location.Host, "redirect: %s", location)
+			require.Equal(t, tt.wantErrorKey, location.Query().Get("error"), "error_description: %s", location.Query().Get("error_description"))
+		})
+	}
+}
+
+// authorizeWithState registers a loopback public client, as the Codex CLI
+// is, sends an authorization request with the given state and returns the
+// redirect the server answers with.
+func authorizeWithState(t *testing.T, state string) *url.URL {
+	t.Helper()
 	const redirectURI = "http://127.0.0.1:54650/callback"
 
-	cfg := newOAuthServerConfig(config.OAuthServerConfig{
+	srv, err := NewOAuthHTTPServer(config.OAuthServerConfig{
+		Enabled:                    true,
 		BaseURL:                    "https://muster.example.com",
+		Provider:                   OAuthProviderGoogle,
+		Google:                     config.GoogleConfig{ClientID: "muster", ClientSecret: "secret"},
 		AllowLocalhostRedirectURIs: true,
-	}, oauthTokenLifetimes{})
-	store := memory.New()
-	t.Cleanup(store.Stop)
-	srv, err := oauthserver.New(mock.NewProvider(), store, store, store, cfg, nil)
+	}, http.NotFoundHandler(), false)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
 
-	client, _, err := srv.RegisterClient(context.Background(), "Codex", oauthserver.ClientTypePublic, "none",
+	client, _, err := srv.oauthServer.RegisterClient(context.Background(), "Codex", oauthserver.ClientTypePublic, "none",
 		[]string{redirectURI}, []string{"openid"}, "192.0.2.1", 10)
 	require.NoError(t, err)
 
@@ -46,18 +75,15 @@ func TestOAuthAuthorize_AcceptsCodexStateLength(t *testing.T) {
 		"client_id":             {client.ClientID},
 		"redirect_uri":          {redirectURI},
 		"scope":                 {"openid"},
-		"state":                 {codexState},
+		"state":                 {state},
 		"code_challenge":        {base64.RawURLEncoding.EncodeToString(challenge[:])},
 		"code_challenge_method": {"S256"},
 	}
-	req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+query.Encode(), nil)
 	rec := httptest.NewRecorder()
-
-	oauthhandler.New(srv, nil).ServeAuthorization(rec, req)
+	srv.CreateMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+query.Encode(), nil))
 
 	require.Equal(t, http.StatusFound, rec.Code, rec.Body.String())
 	location, err := url.Parse(rec.Header().Get("Location"))
 	require.NoError(t, err)
-	require.Empty(t, location.Query().Get("error"), "authorize refused the request: %s", location.Query().Get("error_description"))
-	require.NotEqual(t, "127.0.0.1:54650", location.Host, "authorize redirected back to the client instead of to the provider")
+	return location
 }
