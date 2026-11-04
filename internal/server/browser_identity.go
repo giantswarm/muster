@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/giantswarm/mcp-oauth/providers"
+	"github.com/giantswarm/mcp-oauth/providers/dex"
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
@@ -43,7 +44,7 @@ func (s *OAuthHTTPServer) LoginMethod(identity api.SignInIdentity) string {
 	if s.config.Provider != OAuthProviderDex || identity.Issuer != s.musterIssuer() {
 		return ""
 	}
-	connector, ok := dexSubjectConnector(identity.Subject)
+	connector, ok := dex.ConnectorFromSubject(identity.Subject)
 	if !ok || oidc.ValidateConnectorID(connector) != nil {
 		return ""
 	}
