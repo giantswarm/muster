@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -85,7 +86,7 @@ func (a *AggregatorServer) answerBackendElicitation(ctx context.Context, serverN
 		return result, err
 	}
 	if reason := a.refuseBackendElicitation(ctx, serverName, required.Elicitations); reason != "" {
-		return droppedElicitationResult(serverName, reason), nil
+		return droppedElicitationResult(serverName, reason, required.Elicitations), nil
 	}
 
 	relayed := relayedElicitation{server: serverName}
@@ -183,11 +184,26 @@ func declareURLElicitation(ctx context.Context, serverName string, client MCPCli
 }
 
 // droppedElicitationResult answers a call whose URL elicitation muster
-// dropped. It names the server and why, never the URL.
-func droppedElicitationResult(serverName, reason string) *mcp.CallToolResult {
-	return mcp.NewToolResultError(fmt.Sprintf(
-		"%s answered the call with a request to open a page, which muster does not pass on: %s.", serverName, reason))
+// dropped. It names the server and why, and carries the server's own words,
+// the elicitations' messages, with every link in them removed: never a URL.
+func droppedElicitationResult(serverName, reason string, elicitations []mcp.ElicitationParams) *mcp.CallToolResult {
+	text := fmt.Sprintf("%s answered the call with a request to open a page, which muster does not pass on: %s.", serverName, reason)
+	for _, elicitation := range elicitations {
+		if message := strings.TrimSpace(linkPattern.ReplaceAllString(elicitation.Message, droppedLinkText)); message != "" {
+			text += "\n\n" + message
+		}
+	}
+	return mcp.NewToolResultError(text)
 }
+
+// linkPattern matches what a client or a model could open as a link in a
+// dropped elicitation's message: a URL with a scheme, and a scheme-relative
+// or bare-host one (//host/path, host.tld/path).
+var linkPattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*:|//)\S+|\b[a-z0-9-]+(\.[a-z0-9-]+)+/\S*`)
+
+// droppedLinkText stands for a link removed from a dropped elicitation's
+// message.
+const droppedLinkText = "[link removed]"
 
 // relayedElicitationResult answers a call with a relayed elicitation's
 // messages and links as text: the answer of a client that does not support

@@ -176,7 +176,7 @@ A relayed elicitation reaches the client in the shape of the client's protocol v
 | 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the server's elicitations. Retry the call after the person completed the page. |
 | Any other | A tool error with the server's message and the link, to open by hand. |
 
-muster drops every other URL elicitation: from a server without `Relay`, to a page on another origin, or when `aggregator.devPortalUrl` is not set. It logs `Dropped a backend's URL elicitation` with the server, the page's origin and the reason, and answers the call with a tool error that names the server and does not hold the URL. Thus no server, an organization's own included, can send a person to a page of its choice.
+muster drops every other URL elicitation: from a server without `Relay`, to a page on another origin, or when `aggregator.devPortalUrl` is not set. It logs `Dropped a backend's URL elicitation` with the server, the page's origin and the reason, and answers the call with a tool error that names the server and holds the server's message with every link in it removed, never the URL. Thus no server, an organization's own included, can send a person to a page of its choice.
 
 ### Resource Access
 
