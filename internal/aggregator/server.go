@@ -164,6 +164,10 @@ type AggregatorServer struct {
 	// of each organization namespace (see adoptTenantServer).
 	tenantOwners oauthstore.TenantOwnerStore
 
+	// tenantSweeps retries the sweeps of organization namespaces that
+	// failed (see forgetTenantServer).
+	tenantSweeps tenantSweepRetries
+
 	// Per-session connection pool for reusing live MCP clients across tool calls.
 	// Always non-nil after NewAggregatorServer.
 	connPool *SessionConnectionPool
@@ -1255,6 +1259,7 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	if cancelFunc != nil {
 		cancelFunc()
 	}
+	a.tenantSweeps.stop()
 
 	// Shutdown transport servers with timeout
 	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
