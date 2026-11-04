@@ -22,7 +22,7 @@ var (
 	pngBytes  = append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{0}, 32)...)
 	jpegBytes = append([]byte("\xff\xd8\xff\xe0"), bytes.Repeat([]byte{0}, 32)...)
 	webpBytes = append([]byte("RIFF\x00\x00\x00\x00WEBPVP8 "), bytes.Repeat([]byte{0}, 32)...)
-	svgBytes  = []byte(`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"/>`)
+	svgBytes  = []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><rect width="16" height="16"/></svg>`)
 )
 
 func dataURI(mime string, data []byte) string {
@@ -161,7 +161,7 @@ func TestOutputMatchesCRD(t *testing.T) {
 		"data:image/svg+xml;charset=utf-8;base64,"+base64.StdEncoding.EncodeToString(svgBytes),
 		"data:image/svg+xml,"+strings.ReplaceAll(string(svgBytes), " ", "%20"),
 		"data:image/svg+xml;utf8,"+string(svgWithSpaces),
-		"data:Image/SVG+XML,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E",
+		"data:Image/SVG+XML,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Ccircle%20r%3D%221%22%2F%3E%3C%2Fsvg%3E",
 	)
 	prefix := len("data:image/png;base64,")
 	atCap := append(append([]byte{}, pngBytes...), make([]byte, (MaxEncodedLen-prefix)/4*3-len(pngBytes))...)

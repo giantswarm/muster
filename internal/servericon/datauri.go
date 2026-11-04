@@ -35,8 +35,8 @@ func normalizeMIME(mime string) string {
 	return strings.ToLower(strings.TrimSpace(mime))
 }
 
-// encode validates an image against its declared MIME type and returns it
-// as a data: URI.
+// encode validates an image against its declared MIME type, sanitises an
+// SVG, and returns it as a data: URI.
 func encode(declared string, data []byte) (string, error) {
 	mime := normalizeMIME(declared)
 	if !allowedMIME(mime) {
@@ -44,6 +44,13 @@ func encode(declared string, data []byte) (string, error) {
 	}
 	if sniffed := sniff(data); sniffed != mime {
 		return "", fmt.Errorf("%w: declared %s, content is %q", errInvalid, mime, sniffed)
+	}
+	if mime == mimeSVG {
+		clean, err := sanitizeSVG(data)
+		if err != nil {
+			return "", err
+		}
+		data = clean
 	}
 	uri := "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 	if len(uri) > MaxEncodedLen {
