@@ -238,6 +238,11 @@ func (a *Adapter) ClearTokenByIssuerForUser(sessionID, userID, issuer string) {
 	a.manager.ClearTokenByIssuerForUser(sessionID, userID, issuer)
 }
 
+// ForgetSubjectGrant implements api.SubjectGrantForgetter.
+func (a *Adapter) ForgetSubjectGrant(userID, issuer string) {
+	a.manager.ForgetSubjectGrant(userID, issuer)
+}
+
 // IssuerSubjectScoped implements api.SubjectGrantHandler.
 func (a *Adapter) IssuerSubjectScoped(issuer string) bool {
 	return a.manager.IssuerSubjectScoped(issuer)

@@ -50,6 +50,8 @@ func TestSessionAuthInvalidated(t *testing.T) {
 			AuthorizationEndpoint: "https://as.example.com/authorize", TokenEndpoint: "https://as.example.com/token",
 		}}, true, "authorizationServer"},
 		{"pin removed", pin("https://as.example.com", "", nil), &api.MCPServerAuth{Type: "oauth"}, true, "authorizationServer"},
+		{"issuer-less block removed", &api.MCPServerAuth{Type: "oauth", ForwardIdentity: true, AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Scopes: "read"}}, &api.MCPServerAuth{Type: "oauth", ForwardIdentity: true}, true, "authorizationServer"},
+		{"issuer-less block changed", &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Scopes: "read"}}, &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Scopes: "write"}}, true, "authorizationServer"},
 		{"token exchange enabled", forward, exchange("https://dex.example.com/token"), true, "forwardToken"},
 		{"token exchange endpoint changed", exchange("https://dex.example.com/token"), exchange("https://dex2.example.com/token"), true, "tokenExchange"},
 		{"token exchange unchanged", exchange("https://dex.example.com/token"), exchange("https://dex.example.com/token"), false, ""},

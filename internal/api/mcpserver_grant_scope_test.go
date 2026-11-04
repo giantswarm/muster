@@ -10,7 +10,8 @@ import (
 // spec.auth.grantScope CEL rules (TestGrantScopeCELEnvtest): one of session
 // and subject, only for an OAuth server with a sign-in of its own, and in
 // agreement with authorizationServer.grantScope. SubjectScoped and
-// DiscoversSubjectScopedIssuer read the result the way the aggregator does.
+// DiscoversSubjectScopedIssuer read the result the way the aggregator does: a
+// configuration the validation refuses is inert, so never subject-scoped.
 func TestValidateGrantScope(t *testing.T) {
 	pin := func(grantScope string) *MCPServerAuthAuthorizationServer {
 		return &MCPServerAuthAuthorizationServer{Issuer: "https://github.com/login/oauth", GrantScope: grantScope}
@@ -54,7 +55,6 @@ func TestValidateGrantScope(t *testing.T) {
 			name:      "disagreeing with the pin",
 			auth:      &MCPServerAuth{Type: MCPServerAuthTypeOAuth, GrantScope: GrantScopeSession, AuthorizationServer: pin(GrantScopeSubject)},
 			wantError: "disagree",
-			subject:   true,
 		},
 		{
 			name: "session next to forwardToken is the default and accepted",
@@ -65,6 +65,16 @@ func TestValidateGrantScope(t *testing.T) {
 			auth: &MCPServerAuth{Type: "none", GrantScope: GrantScopeSession},
 		},
 		{
+			name:      "subject next to an issuer-less block saying session",
+			auth:      &MCPServerAuth{Type: MCPServerAuthTypeOAuth, GrantScope: GrantScopeSubject, AuthorizationServer: &MCPServerAuthAuthorizationServer{GrantScope: GrantScopeSession}},
+			wantError: "disagree",
+		},
+		{
+			name:      "subject next to a pin saying session",
+			auth:      &MCPServerAuth{Type: MCPServerAuthTypeOAuth, GrantScope: GrantScopeSubject, AuthorizationServer: pin(GrantScopeSession)},
+			wantError: "disagree",
+		},
+		{
 			name:      "an unknown value",
 			auth:      &MCPServerAuth{Type: MCPServerAuthTypeOAuth, GrantScope: "person"},
 			wantError: `must be "session" or "subject"`,
@@ -73,25 +83,21 @@ func TestValidateGrantScope(t *testing.T) {
 			name:      "no type",
 			auth:      &MCPServerAuth{GrantScope: GrantScopeSubject},
 			wantError: `needs auth.type "oauth"`,
-			subject:   true,
 		},
 		{
 			name:      "type none",
 			auth:      &MCPServerAuth{Type: "none", GrantScope: GrantScopeSubject},
 			wantError: `needs auth.type "oauth"`,
-			subject:   true,
 		},
 		{
 			name:      "next to forwardToken",
 			auth:      &MCPServerAuth{Type: MCPServerAuthTypeOAuth, GrantScope: GrantScopeSubject, ForwardToken: true},
 			wantError: "neither auth.forwardToken nor auth.tokenExchange",
-			subject:   true,
 		},
 		{
 			name:      "next to an enabled token exchange",
 			auth:      &MCPServerAuth{Type: MCPServerAuthTypeOAuth, GrantScope: GrantScopeSubject, TokenExchange: &TokenExchangeConfig{Enabled: true}},
 			wantError: "neither auth.forwardToken nor auth.tokenExchange",
-			subject:   true,
 		},
 	}
 

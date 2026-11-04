@@ -812,7 +812,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						"grantScope": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
 							api.SchemaKeyDescription: "Whose token: session (default, the login session that got it) or subject (the person's; later sessions reuse it until core_auth_logout or sign-out)",
-							api.SchemaKeyEnum:        []string{"session", api.GrantScopeSubject},
+							api.SchemaKeyEnum:        []string{api.GrantScopeSession, api.GrantScopeSubject},
 						},
 					},
 					api.SchemaKeyRequired: []string{"issuer"},

@@ -145,9 +145,9 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 
 		switch status.Status {
 		case pkgoauth.SessionServerStatusAuthRequired, pkgoauth.SessionServerStatusReauthRequired:
-			if info.AuthInfo != nil {
-				status.Issuer = info.AuthInfo.Issuer
-				status.Scope = info.AuthInfo.Scope
+			if authInfo := info.GetAuthInfo(); authInfo != nil {
+				status.Issuer = authInfo.Issuer
+				status.Scope = authInfo.Scope
 			} else {
 				status.Issuer = api.IssuerURL(knownServerIssuer(info))
 			}
@@ -265,7 +265,7 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	// the person's grant needs it whether or not the registry entry learned
 	// its issuer yet: an entry rebuilt from the service's own data carries no
 	// AuthInfo until a login discovers it, and was reported disconnected.
-	if info.RequiresSessionAuth() && (info.AuthInfo != nil || needsGrant(info)) {
+	if info.RequiresSessionAuth() && (info.GetAuthInfo() != nil || needsGrant(info)) {
 		isSSO := ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)
 
 		// The session's fan-out is still connecting the SSO server (a sign-in

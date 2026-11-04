@@ -52,7 +52,9 @@ func (am *AggregatorManager) definedServers() map[string]*ServerInfo {
 // answers: a subject-scoped grant is released by FetchSecret and the broker
 // as soon as the definition exists, not only once the backend connects or
 // answers 401. A definition that changed or went releases the description it
-// was pinned with (releaseAuthorizationServerPin).
+// was pinned with (releaseAuthorizationServerDescription). It also makes every
+// replica learn and pin the issuer a server with subject-scoped grants
+// discovers (reconcileDiscoveredIssuer).
 //
 // Each description is pinned once; a pin that fails (the Secret not there
 // yet, OAuth not ready) is retried on the next call. Logins re-pin as before,
@@ -84,6 +86,15 @@ func (am *AggregatorManager) pinDefinedAuthorizationServers(ctx context.Context)
 	}
 
 	for name, info := range defined {
+		if info.AuthConfig.DiscoversSubjectScopedIssuer() {
+			// Discovered descriptions are pinned in each process that
+			// learns them, not tracked here: a replica that never learned
+			// the issuer looks it up, one that knows it pins it.
+			pinCtx, cancel := context.WithTimeout(ctx, definitionPinTimeout)
+			am.aggregatorServer.reconcileDiscoveredIssuer(pinCtx, info)
+			cancel()
+			continue
+		}
 		as := authorizationServerOf(info.AuthConfig)
 		if as == nil || am.definitionPins[name] != nil {
 			continue

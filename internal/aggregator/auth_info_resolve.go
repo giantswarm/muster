@@ -56,11 +56,7 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 	if err != nil {
 		return nil, err
 	}
-	authInfo := &AuthInfo{}
-	if current := serverInfo.GetAuthInfo(); current != nil {
-		copied := *current
-		authInfo = &copied
-	}
+	authInfo := copyAuthInfo(serverInfo.GetAuthInfo())
 	changed := applyAuthorizationServerPin(authInfo, serverInfo.AuthConfig)
 	if !needsResourceMetadata(authInfo, serverInfo.URL) {
 		if changed {
@@ -77,39 +73,14 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 			return nil, err
 		}
 	}
-	var override *api.MCPServerAuthAuthorizationServer
-	if serverInfo.AuthConfig != nil {
-		override = serverInfo.AuthConfig.AuthorizationServer
-	}
-	metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL, override)
+	// The override is the issuer the operator pinned; a block without an
+	// issuer pins none, so the metadata is discovered as without a block.
+	metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL, authorizationServerOf(serverInfo.AuthConfig))
 	if err != nil {
 		logging.Warn("AuthTools", "Failed to discover protected resource metadata for %s: %v", serverInfo.Name, err)
 		return authInfo, nil
 	}
-
-	hadIssuer, hadScope := authInfo.Issuer != "", authInfo.Scope != ""
-	if fillFromResourceMetadata(authInfo, metadata) {
-		changed = true
-	}
-	if !hadIssuer && authInfo.Issuer != "" {
-		logging.Info("AuthTools", "Discovered authorization server for %s: %s", serverInfo.Name, authInfo.Issuer)
-	}
-	if !hadScope && authInfo.Scope != "" {
-		logging.Info("AuthTools", "Discovered required scope for %s: %s", serverInfo.Name, authInfo.Scope)
-	}
-	if changed {
-		serverInfo.SetAuthInfo(authInfo)
-	}
-	if serverInfo.AuthConfig.DiscoversSubjectScopedIssuer() {
-		a.discovered.remember(serverInfo.Name, serverInfo.URL, authInfo)
-	}
-	// A server with subject-scoped grants that discovers its authorization
-	// server has its issuer now: its description is pinned under it before
-	// any flow starts or any grant is looked up there.
-	if err := a.pinDiscoveredIssuer(ctx, serverInfo); err != nil {
-		return nil, err
-	}
-	return authInfo, nil
+	return a.recordResourceMetadata(ctx, serverInfo, authInfo, changed, metadata)
 }
 
 // applyAuthorizationServerPin makes an operator's pin

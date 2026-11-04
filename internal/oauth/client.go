@@ -274,6 +274,19 @@ func (c *Client) DeleteByIssuerForUser(sessionID, userID, issuer string) {
 	}
 }
 
+// ForgetSubjectGrant revokes the grant filed under the person for an issuer
+// (revokeSubjectGrant) and removes that copy, whether or not the issuer is
+// subject-scoped now: a grant filed while it was must not outlive the
+// person's sign-out and be adopted once it is again. The sessions' own
+// copies, which may belong to another server's session-scoped sign-in, stay.
+func (c *Client) ForgetSubjectGrant(userID, issuer string) {
+	if userID == "" || issuer == "" {
+		return
+	}
+	c.revokeSubjectGrant(userID, issuer)
+	c.tokenStore.DeleteByIssuer(subjectSessionID(userID), issuer)
+}
+
 // resolveClient decides how muster identifies itself to the given issuer:
 // CIMD when the AS advertises support for it, previously registered DCR
 // credentials when present and still honored, a fresh RFC 7591 registration

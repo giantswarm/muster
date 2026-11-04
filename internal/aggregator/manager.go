@@ -420,11 +420,13 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 	// A tenant server is adopted before the lock: the first adoption in a
 	// namespace may sweep the stores, and other registrations need not wait
 	// for it. The entry is written only after it.
+	issuerFromMemory := false
 	if aggregatorServer := am.GetAggregatorServer(); aggregatorServer != nil {
 		// A server that discovers a subject-scoped issuer keeps the issuer
 		// muster learned for it at the same URL when the 401 names none, so a
-		// re-registration neither releases its pin nor looks it up again.
-		registration = aggregatorServer.withRememberedIssuer(registration)
+		// re-registration does not release its pin; the issuer is looked up
+		// again in the background, in case the backend moved.
+		registration, issuerFromMemory = aggregatorServer.withRememberedIssuer(registration)
 		adoptCtx, cancelAdopt := context.WithTimeout(context.Background(), tenantForgetTimeout)
 		err := aggregatorServer.adoptTenantServer(adoptCtx, registration.ServerRegistration, pendingIssuerKeys(registration))
 		cancelAdopt()
@@ -473,8 +475,9 @@ func (am *AggregatorManager) RegisterServerPendingAuth(registration PendingAuthR
 		}
 		cancel()
 		// Learned in the background when neither the 401 nor an earlier
-		// lookup named it; the registration does not wait.
-		am.aggregatorServer.lookupDiscoveredIssuer(registration.Name)
+		// lookup named it, and checked again when it came from memory; the
+		// registration does not wait.
+		am.aggregatorServer.lookupDiscoveredIssuer(registration.Name, issuerFromMemory)
 	}
 
 	// A changed auth configuration (forwardToken replaced by a pinned
@@ -642,9 +645,9 @@ func (am *AggregatorManager) handleAuthCompletion(ctx context.Context, sessionID
 	}
 
 	var issuer, scope string
-	if serverInfo.AuthInfo != nil {
-		issuer = api.ServerIssuerKey(serverName, serverInfo.AuthInfo.Issuer)
-		scope = serverInfo.AuthInfo.Scope
+	if authInfo := serverInfo.GetAuthInfo(); authInfo != nil {
+		issuer = api.ServerIssuerKey(serverName, authInfo.Issuer)
+		scope = authInfo.Scope
 	}
 
 	logging.Info("Aggregator-Manager", "OAuth callback completing - establishing connection for session=%s server=%s",
@@ -870,7 +873,9 @@ func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
 		// registration can be lost — e.g. the hook fired before this manager
 		// existed (startup race, issue #1110). Heal the missing entry from the
 		// service's own definition; AuthInfo is left empty and is re-discovered
-		// on the next core_auth_login via the RFC 9728 probe.
+		// on the next core_auth_login via the RFC 9728 probe -- except for a
+		// server that discovers a subject-scoped issuer, which gets the issuer
+		// remembered for it (withRememberedIssuer) and a background lookup.
 		//
 		// A server configured for session-level auth (forwardToken or
 		// tokenExchange) takes the same path whatever state it reports: it is
@@ -914,7 +919,9 @@ func (am *AggregatorManager) attemptPendingRegistrations(ctx context.Context) {
 // registerPendingAuthFromService rebuilds a pending-auth registration from a
 // service's own definition data (the same fields the orchestrator's
 // auth-required hook registers, minus the 401-time AuthInfo, which
-// core_auth_login re-discovers via the RFC 9728 probe when it is empty).
+// core_auth_login re-discovers via the RFC 9728 probe when it is empty; a
+// server that discovers a subject-scoped issuer gets the remembered issuer and
+// a background lookup through RegisterServerPendingAuth).
 func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceInfo) error {
 	serviceData := service.GetServiceData()
 	if serviceData == nil {

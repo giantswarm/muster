@@ -4,10 +4,13 @@ import "fmt"
 
 // SubjectScoped reports whether the grants of the server's OAuth sign-in
 // belong to the person rather than to one login session: spec.auth.grantScope
-// or spec.auth.authorizationServer.grantScope is "subject". ValidateGrantScope
-// refuses the two disagreeing, so either one saying "subject" decides.
+// or spec.auth.authorizationServer.grantScope is "subject", in a configuration
+// ValidateGrantScope accepts. A configuration it refuses -- the two
+// disagreeing, subject without type oauth or next to forwardToken or
+// tokenExchange -- stays inert whichever path let it through (filesystem
+// definitions are not validated), so it is session-scoped.
 func (a *MCPServerAuth) SubjectScoped() bool {
-	if a == nil {
+	if a == nil || ValidateGrantScope(a) != nil {
 		return false
 	}
 	return a.GrantScope == GrantScopeSubject || a.AuthorizationServer.SubjectScoped()
@@ -18,8 +21,9 @@ func (a *MCPServerAuth) SubjectScoped() bool {
 // oauth, spec.auth.grantScope "subject" and no
 // spec.auth.authorizationServer.issuer. muster learns that issuer from the
 // server's RFC 9728 metadata and makes it subject-scoped once it knows it.
+// False for a configuration ValidateGrantScope refuses.
 func (a *MCPServerAuth) DiscoversSubjectScopedIssuer() bool {
-	if a == nil || a.Type != MCPServerAuthTypeOAuth || a.GrantScope != GrantScopeSubject {
+	if a == nil || a.Type != MCPServerAuthTypeOAuth || a.GrantScope != GrantScopeSubject || ValidateGrantScope(a) != nil {
 		return false
 	}
 	if a.UsesSessionAuth() {
