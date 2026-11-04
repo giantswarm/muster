@@ -562,7 +562,7 @@ muster:
         # strong as the weakest connector listed, so list only connectors that
         # authenticate a person. muster's Dex client must be allowed to use
         # each of them.
-        identityCheckConnectors: []
+        identityCheckConnectors: []  # @schema item: string
         # Allow the Dex issuer URL to resolve to a private/loopback IP during
         # OIDC discovery. Required when Dex is fronted by an internal-only load
         # balancer (e.g. Azure internal LB) where the public hostname resolves to
