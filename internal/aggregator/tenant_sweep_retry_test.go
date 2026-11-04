@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -16,23 +17,32 @@ type sweepPauses struct {
 	resume chan struct{}
 }
 
+// newSweepPauses returns pauses whose wait hands each pause to the test.
+func newSweepPauses() *sweepPauses {
+	return &sweepPauses{paused: make(chan time.Duration), resume: make(chan struct{})}
+}
+
+// wait is a tenantSweepRetries wait: it hands the pause to the test and
+// returns when the test resumes it or muster stops.
+func (p *sweepPauses) wait(ctx context.Context, d time.Duration) error {
+	select {
+	case p.paused <- d:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	select {
+	case <-p.resume:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // pauseSweepRetries makes the sweep retries of f's muster wait for the test
 // instead of sleeping.
 func (f *tenantFixture) pauseSweepRetries() *sweepPauses {
-	p := &sweepPauses{paused: make(chan time.Duration), resume: make(chan struct{})}
-	f.am.aggregatorServer.tenantSweeps.wait = func(ctx context.Context, d time.Duration) error {
-		select {
-		case p.paused <- d:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-		select {
-		case <-p.resume:
-			return nil
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	p := newSweepPauses()
+	f.am.aggregatorServer.tenantSweeps.wait = p.wait
 	return p
 }
 
@@ -130,19 +140,68 @@ func TestTenantSignIns_RetriedSweepSparesARecreatedNamespace(t *testing.T) {
 	assert.Contains(t, owners, "uid-2")
 }
 
-// Stopping muster ends a waiting retry, and no retry starts afterwards.
+var errStoreUnavailable = errors.New("the store is unavailable")
+
+// Stopping muster ends a waiting retry before its attempt, and a failure
+// after the stop schedules nothing: no retry, no pause, no sweep.
 func TestTenantSweepRetries_StopEndsThem(t *testing.T) {
-	var r tenantSweepRetries
-	attempts := 0
-	r.schedule("org-a", func(context.Context) error {
-		attempts++
+	pauses := newSweepPauses()
+	r := &tenantSweepRetries{wait: pauses.wait}
+	sweeps := 0
+	sweep := func(context.Context) error {
+		sweeps++
 		return nil
-	})
+	}
+	r.schedule("org-a", "org-a/fixture", errStoreUnavailable, sweep)
+	pauses.next(t)
 	r.stop()
-	r.schedule("org-b", func(context.Context) error {
-		attempts++
+	assert.Zero(t, sweeps, "the retry stopped in its pause")
+
+	waits := 0
+	r.wait = func(context.Context, time.Duration) error {
+		waits++
+		return nil
+	}
+	r.schedule("org-b", "org-b/fixture", errStoreUnavailable, sweep)
+	r.mu.Lock()
+	assert.Empty(t, r.pending, "no retry is scheduled after the stop")
+	r.mu.Unlock()
+	r.wg.Wait()
+	assert.Zero(t, waits)
+	assert.Zero(t, sweeps)
+}
+
+// A sweep of a namespace that fails while the namespace's retry makes an
+// attempt (which may have read the state before that failure) makes the
+// retry run once more after the attempt succeeds, instead of a second retry.
+func TestTenantSweepRetries_AFailureDuringAnAttemptRunsItOnceMore(t *testing.T) {
+	r := &tenantSweepRetries{wait: func(context.Context, time.Duration) error { return nil }}
+	attempting := make(chan struct{})
+	release := make(chan struct{})
+	sweeps := 0
+	r.schedule("org-a", "org-a/github", errStoreUnavailable, func(context.Context) error {
+		sweeps++
+		if sweeps == 1 {
+			close(attempting)
+			<-release
+		}
 		return nil
 	})
+	select {
+	case <-attempting:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the retry made no attempt")
+	}
+
+	r.schedule("org-a", "org-a/miro", errStoreUnavailable, func(context.Context) error {
+		t.Error("a second retry of the namespace runs")
+		return nil
+	})
+	close(release)
 	r.wg.Wait()
-	assert.Zero(t, attempts, "the retry waited its first pause when muster stopped")
+
+	assert.Equal(t, 2, sweeps, "the retry swept once more")
+	r.mu.Lock()
+	assert.Empty(t, r.pending)
+	r.mu.Unlock()
 }

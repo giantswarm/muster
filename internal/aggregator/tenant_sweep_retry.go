@@ -56,22 +56,32 @@ type tenantSweepRetry struct {
 	again bool
 }
 
-// schedule retries the sweep of namespace until it succeeds, unless a retry
-// of the namespace is running already (that one runs once more) or muster
-// is stopping.
-func (r *tenantSweepRetries) schedule(namespace string, sweep func(context.Context) error) {
+// schedule retries the sweep of namespace, whose sweep for server failed
+// with err, until it succeeds, unless a retry of the namespace is running
+// already (that one runs once more) or muster is stopping. It logs the
+// failure with what follows it.
+func (r *tenantSweepRetries) schedule(namespace, server string, err error, sweep func(context.Context) error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	attrs := []slog.Attr{
+		slog.String("namespace", namespace),
+		slog.String("server", server),
+		slog.String("error", err.Error()),
+	}
 	if r.stopped {
-		logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_not_retried",
-			slog.String("namespace", namespace),
-			slog.String("reason", "muster is stopping; the namespace's next adoption sweeps it"))
+		logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_not_retried", append(attrs,
+			slog.String("reason", "muster is stopping; the namespace's next adoption sweeps it"))...)
 		return
 	}
 	if retry, ok := r.pending[namespace]; ok {
 		retry.again = true
+		logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_failed", append(attrs,
+			slog.String("retry", "the namespace's pending retry runs once more"))...)
 		return
 	}
+	logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_failed", append(attrs,
+		slog.Int("attempt", 1),
+		slog.Duration("retry_in", tenantSweepInitialBackoff))...)
 	if r.pending == nil {
 		r.pending = make(map[string]*tenantSweepRetry)
 	}

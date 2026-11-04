@@ -139,13 +139,7 @@ func (a *AggregatorServer) forgetTenantServer(ctx context.Context, name string) 
 		return
 	}
 	if err := a.sweepGoneTenantServers(ctx, namespace, name); err != nil {
-		logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_failed",
-			slog.String("namespace", namespace),
-			slog.String("server", name),
-			slog.Int("attempt", 1),
-			slog.Duration("retry_in", tenantSweepInitialBackoff),
-			slog.String("error", err.Error()))
-		a.tenantSweeps.schedule(namespace, func(ctx context.Context) error {
+		a.tenantSweeps.schedule(namespace, name, err, func(ctx context.Context) error {
 			return a.sweepGoneTenantServers(ctx, namespace, "")
 		})
 	}
