@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -126,24 +128,77 @@ func TestSizeCap(t *testing.T) {
 	}
 }
 
+// crdIconPattern reads the pattern the MCPServer CRD enforces on
+// status.icon, so the test fails when the encoder and the CRD drift apart.
+func crdIconPattern(t *testing.T) *regexp.Regexp {
+	t.Helper()
+	crd, err := os.ReadFile("../../helm/muster-crds/files/crds/muster.giantswarm.io_mcpservers.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.Lines(string(crd)) {
+		if pattern, ok := strings.CutPrefix(strings.TrimSpace(line), "pattern: ^data:image/"); ok {
+			return regexp.MustCompile("^data:image/" + pattern)
+		}
+	}
+	t.Fatal("status.icon pattern not found in the MCPServer CRD")
+	return nil
+}
+
+func TestOutputMatchesCRD(t *testing.T) {
+	pattern := crdIconPattern(t)
+	var inputs []string
+	// Every padding length: 0, 1 and 2 trailing "=".
+	for extra := range 6 {
+		data := append(append([]byte{}, pngBytes...), make([]byte, extra)...)
+		inputs = append(inputs, dataURI("image/png", data))
+		inputs = append(inputs, "data:image/png;base64,"+base64.RawStdEncoding.EncodeToString(data))
+	}
+	svgWithSpaces := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1"/></svg>`)
+	inputs = append(inputs,
+		dataURI("image/jpeg", jpegBytes),
+		dataURI("image/webp", webpBytes),
+		"data:image/svg+xml;charset=utf-8;base64,"+base64.StdEncoding.EncodeToString(svgBytes),
+		"data:image/svg+xml,"+strings.ReplaceAll(string(svgBytes), " ", "%20"),
+		"data:image/svg+xml;utf8,"+string(svgWithSpaces),
+		"data:Image/SVG+XML,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E",
+	)
+	prefix := len("data:image/png;base64,")
+	atCap := append(append([]byte{}, pngBytes...), make([]byte, (MaxEncodedLen-prefix)/4*3-len(pngBytes))...)
+	inputs = append(inputs, dataURI("image/png", atCap))
+	for _, in := range inputs {
+		got, err := FromDataURI(in)
+		if err != nil {
+			t.Fatalf("FromDataURI(%.60q): %v", in, err)
+		}
+		if !pattern.MatchString(got) || len(got) > 65536 {
+			t.Errorf("FromDataURI(%.60q) = %.60q (len %d), does not satisfy the CRD", in, got, len(got))
+		}
+	}
+}
+
 func TestPublicAddr(t *testing.T) {
 	for addr, want := range map[string]bool{
-		"8.8.8.8":          true,
-		"2606:4700::1111":  true,
-		"127.0.0.1":        false,
-		"::1":              false,
-		"10.1.2.3":         false,
-		"172.16.0.1":       false,
-		"192.168.1.1":      false,
-		"169.254.169.254":  false,
-		"fe80::1":          false,
-		"fd00::1":          false,
-		"0.0.0.0":          false,
-		"::":               false,
-		"100.64.0.1":       false,
-		"224.0.0.1":        false,
-		"::ffff:127.0.0.1": false,
-		"::ffff:10.0.0.1":  false,
+		"8.8.8.8":            true,
+		"2606:4700::1111":    true,
+		"127.0.0.1":          false,
+		"::1":                false,
+		"10.1.2.3":           false,
+		"172.16.0.1":         false,
+		"192.168.1.1":        false,
+		"169.254.169.254":    false,
+		"fe80::1":            false,
+		"fd00::1":            false,
+		"0.0.0.0":            false,
+		"::":                 false,
+		"100.64.0.1":         false,
+		"224.0.0.1":          false,
+		"::ffff:127.0.0.1":   false,
+		"::ffff:10.0.0.1":    false,
+		"64:ff9b::8.8.8.8":   true,
+		"64:ff9b::10.0.0.1":  false,
+		"64:ff9b::127.0.0.1": false,
+		"64:ff9b::a9fe:a9fe": false,
 	} {
 		if got := publicAddr(netip.MustParseAddr(addr)); got != want {
 			t.Errorf("publicAddr(%s) = %v, want %v", addr, got, want)

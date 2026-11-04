@@ -28,10 +28,19 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("100.64.0.0/10"),
 }
 
+// nat64Prefix is the well-known NAT64 prefix (RFC 6052): its last 32 bits
+// are the IPv4 address the gateway connects to.
+var nat64Prefix = netip.MustParsePrefix("64:ff9b::/96")
+
 // publicAddr reports whether muster may connect to addr for an icon: never
-// loopback, private, link-local, multicast or unspecified.
+// loopback, private, link-local, multicast or unspecified, also not when
+// reached through NAT64.
 func publicAddr(addr netip.Addr) bool {
 	addr = addr.Unmap()
+	if nat64Prefix.Contains(addr) {
+		b := addr.As16()
+		addr = netip.AddrFrom4([4]byte(b[12:]))
+	}
 	if !addr.IsValid() || addr.IsLoopback() || addr.IsPrivate() || addr.IsUnspecified() ||
 		addr.IsLinkLocalUnicast() || addr.IsLinkLocalMulticast() ||
 		addr.IsInterfaceLocalMulticast() || addr.IsMulticast() {

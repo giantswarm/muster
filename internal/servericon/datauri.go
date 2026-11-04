@@ -10,7 +10,8 @@ import (
 	"strings"
 )
 
-// MaxEncodedLen caps the length of the data: URI written to status.icon.
+// MaxEncodedLen caps the whole data: URI written to status.icon at 65536
+// characters; the CRD enforces the same MaxLength.
 const MaxEncodedLen = 64 << 10
 
 const mimeSVG = "image/svg+xml"

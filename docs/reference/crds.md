@@ -311,7 +311,7 @@ roleRef:
 | `lastAttempt` | `*metav1.Time` | When the last connection attempt was made |
 | `nextRetryAfter` | `*metav1.Time` | When muster tries again. The wait doubles from 30 s per failure and is capped at 2 minutes (`MUSTER_MCPSERVER_MAX_BACKOFF`); absent while no retry is scheduled |
 | `lastFailureHTTPStatus` | `int` | The HTTP status the endpoint answered the last failed attempt with, e.g. `504` from a gateway in front of the server or `404` from a backend whose route is not served yet. Absent when the attempt got no HTTP response (connection refused, DNS, timeout) or the last attempt succeeded |
-| `icon` | `string` | The icon the server declares in its initialize result (one for a light background over a dark one, SVG first, else the largest raster up to 256 px), as `data:<mime>;base64,...`: `image/svg+xml`, `image/png`, `image/jpeg` or `image/webp`, at most 64 KiB. An `https` icon is fetched once; other URLs are not fetched. Absent when the server sent no usable icon |
+| `icon` | `string` | The icon the server declares in its initialize result (one for a light background over a dark one, SVG first, else the largest raster up to 256 px), as `data:<mime>;base64,...`: `image/svg+xml`, `image/png`, `image/jpeg` or `image/webp`; the whole `data:` URI is at most 65536 characters. Render only as an image (e.g. `<img src>`); never inline the markup. An `https` icon is fetched once; other URLs are not fetched. Absent when the server sent no usable icon |
 | `conditions` | `[]metav1.Condition` | Standard Kubernetes conditions |
 
 ##### CRD State Values
