@@ -85,6 +85,7 @@ All inter-package communication goes through `internal/api`. This is the most cr
 ## Platform skills
 
 - The Agent Platform's skills in [giantswarm/agent-platform `skills/`](https://github.com/giantswarm/agent-platform/tree/main/skills) describe muster's meta-tools, toolsets and auth flows. A change that alters what an agent or a person can do, see or configure through it comes with a pull request there updating the affected skills, linked from this one.
+
 ## Config Locations
 
 - Default: `~/.config/muster/config.yaml`
