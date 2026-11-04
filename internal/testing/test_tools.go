@@ -530,9 +530,13 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		return nil, err
 	}
 	if strings.Contains(authURL, "/oauth/proxy/start") {
-		// "signed_in_as" is the person in the browser for muster's sign-in
-		// check; by default the person the link was issued to.
-		signedInAs, _ := args["signed_in_as"].(string)
+		// "signed_in_as" is the subject of the person in the browser for
+		// muster's sign-in check; by default the person the link was issued
+		// to. "signed_in_with_user" is their Dex user ID instead: the subject
+		// is the one Dex issues for the connector the sign-in names.
+		signedInAs := identitySignInPerson{}
+		signedInAs.subject, _ = args["signed_in_as"].(string)
+		signedInAs.dexUserID, _ = args["signed_in_with_user"].(string)
 		upstreamURL, err := h.resolveStartRedirect(ctx, browser, authURL, signedInAs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve start URL redirect: %w", err)
@@ -703,7 +707,7 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 // mock) back to muster, and from there to the start endpoint again. Those
 // hops are followed; the first redirect elsewhere is the upstream one.
 // signedInAs is who signs in at the check; empty means the link's owner.
-func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, browser *http.Client, startURL, signedInAs string) (string, error) {
+func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, browser *http.Client, startURL string, signedInAs identitySignInPerson) (string, error) {
 	start, err := url.Parse(startURL)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse start URL: %w", err)
@@ -719,7 +723,10 @@ func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, browser *ht
 		case sameOrigin(start, location):
 			next = location
 		case identitySignIn(start, location):
-			subject := signedInAs
+			subject, err := signedInAs.subjectAt(location)
+			if err != nil {
+				return "", err
+			}
 			if subject == "" {
 				subject = linkOwner(start)
 			}

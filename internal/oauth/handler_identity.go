@@ -116,7 +116,7 @@ func (h *Handler) sendToIdentityCheck(w http.ResponseWriter, r *http.Request, id
 		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
-	signInURL, err := identity.SignInURL(r.Context(), returnURL, identityState, challenge)
+	signInURL, err := identity.SignInURL(r.Context(), returnURL, identityState, challenge, state.SignIn)
 	if err != nil {
 		logging.Warn("OAuth", "Cannot start the sign-in check for server=%s: %v", state.ServerName, err)
 		h.renderErrorPage(w, summaryNotCompleted, "")
@@ -167,9 +167,7 @@ func (h *Handler) finishIdentityCheck(w http.ResponseWriter, r *http.Request, id
 		h.renderErrorPage(w, summaryUnconfirmedPerson, "")
 		return
 	case state.SignIn.Subject != signedIn.Subject:
-		logging.Warn("OAuth", "Refusing sign-in to server=%s: the browser signed in as %s, the link was issued to %s",
-			state.ServerName, logging.TruncateIdentifier(signedIn.Subject), logging.TruncateIdentifier(state.SignIn.Subject))
-		h.renderErrorPage(w, summaryOtherPerson, "")
+		h.refuseOtherSubject(w, identity, state, signedIn)
 		return
 	}
 
@@ -183,6 +181,21 @@ func (h *Handler) finishIdentityCheck(w http.ResponseWriter, r *http.Request, id
 	// The target is the upstream authorization URL stored server-side with
 	// the state; the request only supplies the state lookup key.
 	http.Redirect(w, r, bound.AuthorizationURL, http.StatusFound) //nolint:gosec // G710: server-side stored URL, not request input
+}
+
+// refuseOtherSubject refuses a sign-in that yielded another subject than the
+// link's, naming a different login method when that is the difference.
+func (h *Handler) refuseOtherSubject(w http.ResponseWriter, identity api.BrowserIdentity, state *OAuthState, signedIn api.SignInIdentity) {
+	issuedFor, signedInWith := identity.LoginMethod(state.SignIn), identity.LoginMethod(signedIn)
+	if issuedFor != "" && signedInWith != "" && issuedFor != signedInWith {
+		logging.Warn("OAuth", "Refusing sign-in to server=%s: the browser signed in with login method %q, the link was issued for %q",
+			state.ServerName, signedInWith, issuedFor)
+		h.renderErrorPage(w, summaryOtherLoginMethod, "")
+		return
+	}
+	logging.Warn("OAuth", "Refusing sign-in to server=%s: the browser signed in as %s, the link was issued to %s",
+		state.ServerName, logging.TruncateIdentifier(signedIn.Subject), logging.TruncateIdentifier(state.SignIn.Subject))
+	h.renderErrorPage(w, summaryOtherPerson, "")
 }
 
 // nonceState encodes a state parameter that names a stored flow by its nonce

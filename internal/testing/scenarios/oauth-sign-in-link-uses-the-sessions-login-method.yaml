@@ -1,0 +1,119 @@
+name: "oauth-sign-in-link-uses-the-sessions-login-method"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Dex issues one person a different subject for each connector they sign in
+  through. muster is configured with a fixed connector (dex.connectorId) that
+  skips Dex's chooser, while the portal's session comes from another
+  connector of the same Dex. The start endpoint's sign-in check sends the
+  browser to the connector the session's subject was issued through, so the
+  person passes it; a sign-in through another connector is refused with an
+  error naming the login method.
+
+  1. Alice's forwarded token was issued through azure-ad; muster's connector
+     is github.
+  2. Alice signing in through github is refused: different login method.
+  3. Alice signing in at the check as herself is sent to azure-ad by muster,
+     gets the subject her session has, and the server connects.
+tags: ["oauth", "authentication", "security", "token-forwarding", "mcpserver"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    # muster's identity provider and the issuer of the portal's forwarded
+    # tokens (Dex, trusted as an issuer), with a fixed connector.
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+      dex_connector_id: "github"
+
+    - name: "connector-idp"
+      scopes: ["mcp:read"]
+      auto_approve: true
+      pkce_required: true
+      token_lifetime: "1h"
+      client_id: "connector-client"
+      use_tls: true
+
+  muster_broker:
+    trusted_issuers:
+      - oauth_server_ref: "muster-idp"
+        accepted_typ_headers: [""]
+        subject_claim: "email"
+
+  mcp_servers:
+    - name: "connector"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "connector-idp"
+          scope: "mcp:read"
+        tools:
+          - name: "get_me"
+            description: "The authenticated user"
+            responses:
+              - response:
+                  login: "alice"
+
+steps:
+  - id: "server-registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains: ["connector"]
+      wait_for_state: "30s"
+
+  - id: mint-alice
+    description: "Alice's portal token, issued through the azure-ad connector"
+    tool: "test_mint_token"
+    args: {server: "muster-idp", name: "alice", sub: "CgVhbGljZRIIYXp1cmUtYWQ", email: "alice@example.com", email_verified: true, azp: "portal"}
+    expected: {success: true}
+
+  - id: alice-connects
+    tool: "test_reconnect_with_token"
+    args: {token_ref: "alice"}
+    expected:
+      success: true
+      wait_for_state: "30s"
+
+  - id: alice-signs-in-through-github
+    description: "Alice signs in at the check through github: refused, naming the login method"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "connector"
+      signed_in_as: "CgVhbGljZRIGZ2l0aHVi"
+    expected:
+      success: false
+      contains:
+        - "different login method"
+
+  - id: alice-still-signed-out
+    tool: "x_connector_get_me"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required"]
+
+  - id: alice-signs-in
+    description: "Alice signs in at the check; muster sends her to azure-ad, so Dex issues her session's subject"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "connector"
+      signed_in_with_user: "alice"
+    expected:
+      success: true
+
+  - id: alice-calls-the-tool
+    tool: "x_connector_get_me"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "alice"

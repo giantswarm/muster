@@ -43,7 +43,7 @@ func TestOAuthHTTPServer_BrowserIdentity(t *testing.T) {
 	sum := sha256.Sum256([]byte(verifier))
 	state := "identity-state-identity-state"
 
-	signIn, err := s.SignInURL(t.Context(), returnURL, state, base64.RawURLEncoding.EncodeToString(sum[:]))
+	signIn, err := s.SignInURL(t.Context(), returnURL, state, base64.RawURLEncoding.EncodeToString(sum[:]), api.SignInIdentity{})
 	require.NoError(t, err)
 	require.NotEmpty(t, signIn)
 
@@ -58,13 +58,73 @@ func TestOAuthHTTPServer_BrowserIdentity(t *testing.T) {
 	require.NotEmpty(t, identity.Subject)
 }
 
+// With Dex, the sign-in check goes to the connector the expected subject was
+// issued through, so a session from another login method than the configured
+// connector can pass it. Any other identity keeps the configured connector.
+func TestOAuthHTTPServer_SignInURLUsesTheExpectedLoginMethod(t *testing.T) {
+	for name, tc := range map[string]struct {
+		expected api.SignInIdentity
+		want     string
+	}{
+		"subject of muster's Dex":    {expected: api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIIYXp1cmUtYWQ"}, want: "azure-ad"},
+		"subject of another issuer":  {expected: api.SignInIdentity{Issuer: "https://dex.other.example.com", Subject: "CgVhbGljZRIIYXp1cmUtYWQ"}},
+		"subject without connector":  {expected: api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZQ"}},
+		"connector Dex would refuse": {expected: api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRINYmFkIGNvbm5lY3Rvcg"}},
+		"no expected identity":       {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			provider := mock.NewProvider()
+			var connector string
+			authorizationURL := provider.AuthorizationURLFunc
+			provider.AuthorizationURLFunc = func(state, challenge, method string, scopes []string, opts *providers.AuthorizationURLOptions) string {
+				connector = opts.ConnectorID
+				return authorizationURL(state, challenge, method, scopes, opts)
+			}
+			oauthSrv, err := oauth.NewServerWithCombined(provider, memory.New(), &oauth.ServerConfig{
+				Issuer:                      "https://muster.example.com",
+				DisableNonceEchoRequirement: true,
+			}, slog.Default())
+			require.NoError(t, err)
+			s := &OAuthHTTPServer{config: config.OAuthServerConfig{
+				BaseURL:  "https://muster.example.com",
+				Provider: OAuthProviderDex,
+				Dex:      config.DexConfig{IssuerURL: "https://dex.example.com", ConnectorID: "github"},
+			}, oauthServer: oauthSrv}
+			returnURL, err := url.Parse("https://muster.example.com" + config.DefaultOAuthProxyStartPath)
+			require.NoError(t, err)
+			sum := sha256.Sum256([]byte("identity-verifier-identity-verifier-identity-verifier"))
+
+			_, err = s.SignInURL(t.Context(), returnURL, "identity-state-identity-state", base64.RawURLEncoding.EncodeToString(sum[:]), tc.expected)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.want, connector, "empty: the provider's configured connector")
+		})
+	}
+}
+
+// Only a subject of muster's own Dex names a login method.
+func TestOAuthHTTPServer_LoginMethod(t *testing.T) {
+	dexServer := &OAuthHTTPServer{config: config.OAuthServerConfig{
+		Provider: OAuthProviderDex,
+		Dex:      config.DexConfig{IssuerURL: "https://dex.example.com"},
+	}}
+	require.Equal(t, "github", dexServer.LoginMethod(api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"}))
+	require.Empty(t, dexServer.LoginMethod(api.SignInIdentity{Issuer: "https://dex.other.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"}))
+	require.Empty(t, dexServer.LoginMethod(api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "alice"}))
+
+	googleServer := &OAuthHTTPServer{config: config.OAuthServerConfig{Provider: OAuthProviderGoogle, BaseURL: "https://muster.example.com"}}
+	require.Empty(t, googleServer.LoginMethod(api.SignInIdentity{Issuer: "https://muster.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"}))
+
+	require.Empty(t, (&LazyOAuthHTTPServer{}).LoginMethod(api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"}))
+}
+
 // Until OIDC discovery completed the check refuses, so no sign-in completes
 // unchecked while muster runs degraded.
 func TestLazyOAuthHTTPServer_BrowserIdentityRefusesUntilReady(t *testing.T) {
 	l := &LazyOAuthHTTPServer{}
 
 	returnURL := &url.URL{Scheme: "https", Host: "muster.example.com", Path: config.DefaultOAuthProxyStartPath}
-	_, err := l.SignInURL(t.Context(), returnURL, "state", "challenge")
+	_, err := l.SignInURL(t.Context(), returnURL, "state", "challenge", api.SignInIdentity{})
 	require.Error(t, err)
 	_, err = l.Identity(t.Context(), returnURL, "code", "verifier")
 	require.Error(t, err)
