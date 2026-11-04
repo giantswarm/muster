@@ -555,6 +555,14 @@ muster:
         clientSecret: ""
         # Optional connector ID to bypass Dex connector selection
         connectorId: ""
+        # Dex connectors besides connectorId that the OAuth proxy's sign-in
+        # check may sign in through: a session whose subject was issued
+        # through a listed connector (a portal session, for example) is
+        # checked there, every other one through connectorId. The check is as
+        # strong as the weakest connector listed, so list only connectors that
+        # authenticate a person. muster's Dex client must be allowed to use
+        # each of them.
+        identityCheckConnectors: []
         # Allow the Dex issuer URL to resolve to a private/loopback IP during
         # OIDC discovery. Required when Dex is fronted by an internal-only load
         # balancer (e.g. Azure internal LB) where the public hostname resolves to

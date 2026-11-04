@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
 
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/dex"
@@ -11,6 +12,8 @@ import (
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // signInIdentity is who a validated bearer was issued to. mcp-oauth names the
@@ -27,28 +30,51 @@ func (s *OAuthHTTPServer) signInIdentity(userInfo *providers.UserInfo) api.SignI
 
 // SignInURL implements api.BrowserIdentity with mcp-oauth's identity flow:
 // a sign-in at muster's identity provider that grants no token and starts no
-// session. With Dex it signs in through the connector of the expected
-// subject, which differs from the configured connector when a trusted
-// issuer's session came from another login method of the same Dex.
+// session.
 func (s *OAuthHTTPServer) SignInURL(ctx context.Context, returnURL *url.URL, state, codeChallenge string, expected api.SignInIdentity) (string, error) {
 	var opts []oauthserver.IdentityFlowOption
-	if connector := s.LoginMethod(expected); connector != "" {
+	if connector := s.identityCheckConnector(expected); connector != "" {
 		opts = append(opts, oauthserver.WithIdentityConnector(connector))
 	}
 	return s.oauthServer.StartIdentityFlow(ctx, returnURL, codeChallenge, state, opts...)
 }
 
-// LoginMethod implements api.BrowserIdentity: the Dex connector a subject of
-// muster's Dex was issued through.
-func (s *OAuthHTTPServer) LoginMethod(identity api.SignInIdentity) string {
-	if s.config.Provider != OAuthProviderDex || identity.Issuer != s.musterIssuer() {
+// identityCheckConnector returns the Dex connector the sign-in check signs in
+// through for a link issued to expected: the connector expected's subject was
+// issued through, when dex.identityCheckConnectors lists it. Empty keeps the
+// configured connector. Dex encodes the connector in the subject, so a
+// session of another connector can pass the check only through its own.
+func (s *OAuthHTTPServer) identityCheckConnector(expected api.SignInIdentity) string {
+	if s.config.Provider != OAuthProviderDex || expected.Issuer != s.musterIssuer() {
 		return ""
 	}
-	connector, ok := dex.ConnectorFromSubject(identity.Subject)
-	if !ok || oidc.ValidateConnectorID(connector) != nil {
+	connector, ok := dex.ConnectorFromSubject(expected.Subject)
+	if !ok || connector == s.config.Dex.ConnectorID {
+		return ""
+	}
+	if !slices.Contains(s.config.Dex.IdentityCheckConnectors, connector) {
+		logging.Warn("OAuth", "The sign-in check uses connector %q: the session's connector %q is not in dex.identityCheckConnectors, so its subject cannot match",
+			s.config.Dex.ConnectorID, connector)
 		return ""
 	}
 	return connector
+}
+
+// validateIdentityCheckConnectors refuses dex.identityCheckConnectors without
+// the dex provider, or with a connector ID Dex would refuse.
+func validateIdentityCheckConnectors(cfg config.OAuthServerConfig) error {
+	if len(cfg.Dex.IdentityCheckConnectors) == 0 {
+		return nil
+	}
+	if cfg.Provider != OAuthProviderDex {
+		return fmt.Errorf("dex.identityCheckConnectors needs the dex provider (provider is %q)", cfg.Provider)
+	}
+	for _, connector := range cfg.Dex.IdentityCheckConnectors {
+		if err := oidc.ValidateConnectorID(connector); err != nil {
+			return fmt.Errorf("dex.identityCheckConnectors: connector %q: %w", connector, err)
+		}
+	}
+	return nil
 }
 
 // Identity implements api.BrowserIdentity: the person who signed in at
@@ -69,15 +95,6 @@ func (l *LazyOAuthHTTPServer) SignInURL(ctx context.Context, returnURL *url.URL,
 		return "", err
 	}
 	return inner.SignInURL(ctx, returnURL, state, codeChallenge, expected)
-}
-
-// LoginMethod implements api.BrowserIdentity once OIDC discovery completed.
-func (l *LazyOAuthHTTPServer) LoginMethod(identity api.SignInIdentity) string {
-	inner, err := l.readyInner()
-	if err != nil {
-		return ""
-	}
-	return inner.LoginMethod(identity)
 }
 
 // Identity implements api.BrowserIdentity once OIDC discovery completed.

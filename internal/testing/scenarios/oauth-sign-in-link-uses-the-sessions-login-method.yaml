@@ -5,14 +5,14 @@ description: |
   Dex issues one person a different subject for each connector they sign in
   through. muster is configured with a fixed connector (dex.connectorId) that
   skips Dex's chooser, while the portal's session comes from another
-  connector of the same Dex. The start endpoint's sign-in check sends the
+  connector of the same Dex, one the operator allows for the sign-in check
+  (dex.identityCheckConnectors). The start endpoint's sign-in check sends the
   browser to the connector the session's subject was issued through, so the
-  person passes it; a sign-in through another connector is refused with an
-  error naming the login method.
+  person passes it; a sign-in through another connector is refused.
 
   1. Alice's forwarded token was issued through azure-ad; muster's connector
-     is github.
-  2. Alice signing in through github is refused: different login method.
+     is github, and azure-ad is allowed for the check.
+  2. Alice signing in through github is refused.
   3. Alice signing in at the check as herself is sent to azure-ad by muster,
      gets the subject her session has, and the server connects.
 tags: ["oauth", "authentication", "security", "token-forwarding", "mcpserver"]
@@ -31,6 +31,7 @@ pre_configuration:
       client_secret: "muster-secret"
       use_as_muster_oauth_server: true
       dex_connector_id: "github"
+      dex_identity_check_connectors: ["azure-ad"]
 
     - name: "connector-idp"
       scopes: ["mcp:read"]
@@ -84,7 +85,7 @@ steps:
       wait_for_state: "30s"
 
   - id: alice-signs-in-through-github
-    description: "Alice signs in at the check through github: refused, naming the login method"
+    description: "Alice signs in at the check through github: refused"
     tool: "test_simulate_oauth_callback"
     args:
       server: "connector"
@@ -92,7 +93,7 @@ steps:
     expected:
       success: false
       contains:
-        - "different login method"
+        - "different account or login method"
 
   - id: alice-still-signed-out
     tool: "x_connector_get_me"

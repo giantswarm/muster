@@ -101,6 +101,10 @@ data:
             {{- if .Values.muster.oauth.server.dex.connectorId }}
             connectorId: {{ .Values.muster.oauth.server.dex.connectorId | quote }}
             {{- end }}
+            {{- with .Values.muster.oauth.server.dex.identityCheckConnectors }}
+            identityCheckConnectors:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
             {{- if .Values.muster.oauth.server.dex.allowPrivateIPOIDC }}
             allowPrivateIPOIDC: true
             {{- end }}

@@ -24,10 +24,6 @@ type BrowserIdentity interface {
 
 	// Identity redeems the code returnURL received and returns who signed in.
 	Identity(ctx context.Context, returnURL *url.URL, code, codeVerifier string) (SignInIdentity, error)
-
-	// LoginMethod names the login method identity signed in with at muster's
-	// identity provider (a Dex connector), empty when it cannot tell.
-	LoginMethod(identity SignInIdentity) string
 }
 
 // SignInIdentity is the person a request was authenticated as at an identity

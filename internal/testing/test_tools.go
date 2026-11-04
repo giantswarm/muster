@@ -530,13 +530,10 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 		return nil, err
 	}
 	if strings.Contains(authURL, "/oauth/proxy/start") {
-		// "signed_in_as" is the subject of the person in the browser for
-		// muster's sign-in check; by default the person the link was issued
-		// to. "signed_in_with_user" is their Dex user ID instead: the subject
-		// is the one Dex issues for the connector the sign-in names.
-		signedInAs := identitySignInPerson{}
-		signedInAs.subject, _ = args["signed_in_as"].(string)
-		signedInAs.dexUserID, _ = args["signed_in_with_user"].(string)
+		signedInAs, err := identitySignInPersonFromArgs(args)
+		if err != nil {
+			return nil, err
+		}
 		upstreamURL, err := h.resolveStartRedirect(ctx, browser, authURL, signedInAs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve start URL redirect: %w", err)

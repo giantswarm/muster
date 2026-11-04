@@ -136,6 +136,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.dex.clientId | string | `""` |  |
 | muster.oauth.server.dex.clientSecret | string | `""` |  |
 | muster.oauth.server.dex.connectorId | string | `""` |  |
+| muster.oauth.server.dex.identityCheckConnectors | list | `[]` |  |
 | muster.oauth.server.dex.allowPrivateIPOIDC | bool | `false` |  |
 | muster.oauth.server.google.clientId | string | `""` |  |
 | muster.oauth.server.google.clientSecret | string | `""` |  |

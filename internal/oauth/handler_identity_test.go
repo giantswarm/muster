@@ -25,13 +25,11 @@ const testIdentityIssuer = "https://dex.example.com"
 // fakeBrowserIdentity signs every browser in as subject at
 // testIdentityIssuer. Like the real identity flow, it redeems a code only
 // with the verifier of the challenge the sign-in was started with.
-// loginMethods names the login method of a subject; expected records the
-// identity the last sign-in was started for.
+// expected records the identity the last sign-in was started for.
 type fakeBrowserIdentity struct {
-	subject      string
-	challenge    string
-	loginMethods map[string]string
-	expected     api.SignInIdentity
+	subject   string
+	challenge string
+	expected  api.SignInIdentity
 }
 
 func (f *fakeBrowserIdentity) SignInURL(_ context.Context, _ *url.URL, state, codeChallenge string, expected api.SignInIdentity) (string, error) {
@@ -46,10 +44,6 @@ func (f *fakeBrowserIdentity) Identity(_ context.Context, _ *url.URL, code, code
 		return api.SignInIdentity{}, errors.New("invalid identity code")
 	}
 	return api.SignInIdentity{Issuer: testIdentityIssuer, Subject: f.subject}, nil
-}
-
-func (f *fakeBrowserIdentity) LoginMethod(identity api.SignInIdentity) string {
-	return f.loginMethods[identity.Subject]
 }
 
 func registerBrowserIdentity(t *testing.T, identity api.BrowserIdentity) {
@@ -161,23 +155,6 @@ func TestHandler_IdentityCheck_SignsInForTheLinksIdentity(t *testing.T) {
 	sendToSignIn(t, handler, &browser{}, encodedState)
 
 	require.Equal(t, testSignIn, identity.expected)
-}
-
-// A person who signs in with another login method than the link's gets
-// another subject from the same identity provider; the error page says so
-// instead of calling them someone else.
-func TestHandler_IdentityCheck_NamesAnotherLoginMethod(t *testing.T) {
-	handler, encodedState := startTestHandler(t, "https://idp.example.com/authorize?state=abc")
-	registerBrowserIdentity(t, &fakeBrowserIdentity{subject: "user-1-github", loginMethods: map[string]string{
-		"user-1":        "azure-ad",
-		"user-1-github": "github",
-	}})
-
-	back := passIdentityCheck(t, handler, &browser{}, encodedState)
-
-	require.Equal(t, http.StatusBadRequest, back.Code)
-	require.Contains(t, back.Body.String(), summaryOtherLoginMethod)
-	require.Empty(t, back.Header().Get("Location"))
 }
 
 // A session whose subject a trusted issuer maps from email is checked by the
