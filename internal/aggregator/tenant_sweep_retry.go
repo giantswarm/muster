@@ -96,16 +96,17 @@ func (r *tenantSweepRetries) run(ctx context.Context, namespace string, retry *t
 	backoff := tenantSweepInitialBackoff
 	for attempt := 2; ; attempt++ {
 		if err := wait(ctx, backoff); err != nil {
-			r.finish(namespace)
-			logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_not_retried",
-				slog.String("namespace", namespace),
-				slog.Int("attempt", attempt),
-				slog.String("reason", "muster is stopping; the namespace's next adoption sweeps it"))
+			r.abandon(namespace, attempt)
 			return
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, tenantForgetTimeout)
 		err := sweep(attemptCtx)
 		cancel()
+		if err != nil && ctx.Err() != nil {
+			// muster stopped during the attempt: the failure is the stop's.
+			r.abandon(namespace, attempt)
+			return
+		}
 		if err != nil {
 			backoff = min(backoff*2, tenantSweepMaxBackoff)
 			logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_failed",
@@ -132,11 +133,15 @@ func (r *tenantSweepRetries) run(ctx context.Context, namespace string, retry *t
 	}
 }
 
-// finish forgets a namespace's retry.
-func (r *tenantSweepRetries) finish(namespace string) {
+// abandon forgets a namespace's retry when muster stops before attempt.
+func (r *tenantSweepRetries) abandon(namespace string, attempt int) {
 	r.mu.Lock()
 	delete(r.pending, namespace)
 	r.mu.Unlock()
+	logging.WarnWithAttrs("Aggregator", "tenant_signins_sweep_not_retried",
+		slog.String("namespace", namespace),
+		slog.Int("attempt", attempt),
+		slog.String("reason", "muster is stopping; the namespace's next adoption sweeps it"))
 }
 
 // stop ends the retries and waits for them; none starts afterwards.
