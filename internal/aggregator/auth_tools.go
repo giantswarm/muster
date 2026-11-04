@@ -355,6 +355,13 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 		return &api.CallToolResult{Content: []any{signInNotReadyMessage(serverName, err)}, IsError: true}
 	}
 	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, issuerKey)
+	if token != nil && !grantBoundToServer(serverInfo, authInfo.Resource, token) {
+		// Another server's grant for the same authorization server, bound to
+		// its own resource: neither sent to this backend nor cleared when the
+		// backend rejects it. The person signs in to this server.
+		logging.Info("AuthTools", "The token under issuer %s was issued for another server than %s; requesting a sign-in", issuerKey, serverName)
+		token = nil
+	}
 
 	if token != nil && token.AccessToken != "" {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",

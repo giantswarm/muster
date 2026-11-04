@@ -49,6 +49,7 @@ func tokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		ExpiresAt:    token.ExpiresAt,
 		Scope:        token.Scope,
 		Issuer:       token.Issuer,
+		Resource:     token.Resource,
 	}
 }
 
@@ -67,6 +68,7 @@ func fullTokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		Scope:        token.Scope,
 		IDToken:      token.IDToken,
 		Issuer:       token.Issuer,
+		Resource:     token.Resource,
 	}
 }
 
@@ -84,6 +86,7 @@ func apiTokenToPkgToken(token *api.OAuthToken) *pkgoauth.Token {
 		Scope:        token.Scope,
 		IDToken:      token.IDToken,
 		Issuer:       token.Issuer,
+		Resource:     token.Resource,
 	}
 }
 

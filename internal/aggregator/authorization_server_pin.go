@@ -70,7 +70,13 @@ func serverDescription(info *ServerInfo) *api.MCPServerAuthAuthorizationServer {
 // is the oldest operator pin under the key; with none, a key that an operator
 // names without pinning anything has no owner; only a key no operator names
 // is owned by the oldest discovered description.
+//
+// The empty key has no owner: it is no issuer, and a server that pins nothing
+// reports it too (pinnedDescription).
 func issuerOwner(described map[string]*ServerInfo, issuer string) *ServerInfo {
+	if issuer == "" {
+		return nil
+	}
 	var owner, discoveredOwner *ServerInfo
 	named := false
 	for _, info := range described {
@@ -175,7 +181,7 @@ func (a *AggregatorServer) connectionConflict(info *ServerInfo) error {
 		return nil
 	}
 	if pinner, err := issuerPinner(); err == nil {
-		if pinned, ok := pinner.PinnedDescriptionKey(issuer); ok && pinned == descriptionKey(as) {
+		if pinned, ok := pinner.PinnedDescriptionKey(issuer); ok && pinned == pinnedDescriptionKey(info, as) {
 			return nil
 		}
 	}
@@ -202,13 +208,16 @@ func issuerPinner() (api.IssuerPinner, error) {
 // no discovery document; and whether its grants belong to the person.
 func pinDescription(ctx context.Context, serverInfo *ServerInfo) error {
 	as, issuer := pinnedDescription(serverInfo)
+	if as == nil || issuer == "" {
+		return fmt.Errorf("server %s pins no authorization server", serverInfo.Name)
+	}
 	pinner, err := issuerPinner()
 	if err != nil {
 		return fmt.Errorf("server %s pins its authorization server but %w", serverInfo.Name, err)
 	}
 
 	pin := api.IssuerPin{
-		DescriptionKey:        descriptionKey(as),
+		DescriptionKey:        pinnedDescriptionKey(serverInfo, as),
 		AuthorizationEndpoint: as.AuthorizationEndpoint,
 		TokenEndpoint:         as.TokenEndpoint,
 		ExpectedIssuer:        as.ExpectedIssuer,
@@ -270,6 +279,16 @@ func descriptionKey(as *api.MCPServerAuthAuthorizationServer) string {
 	return strings.Join(fields, "\x00")
 }
 
+// pinnedDescriptionKey is the IssuerPin.DescriptionKey a server's description
+// is pinned with: descriptionKey, and for a discovered description
+// discoveredPinKey, which an operator's pin that says the same never has.
+func pinnedDescriptionKey(info *ServerInfo, as *api.MCPServerAuthAuthorizationServer) string {
+	if isDiscoveredDescription(info) {
+		return discoveredPinKey()
+	}
+	return descriptionKey(as)
+}
+
 // samePin reports whether two descriptions pin the same (descriptionKey).
 func samePin(a, b *api.MCPServerAuthAuthorizationServer) bool {
 	if a == nil || b == nil {
@@ -320,6 +339,10 @@ func (a *AggregatorServer) releaseAuthorizationServerDescription(ctx context.Con
 		return
 	}
 	issuer := api.ServerIssuerKey(name, strings.TrimSuffix(prev.Issuer, "/"))
+	if issuer == "" {
+		// No issuer key: nothing was pinned under it.
+		return
+	}
 	if appOwnsIssuer(issuer) {
 		// The pin is a provider App's and outlives every MCPServer.
 		return

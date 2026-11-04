@@ -89,6 +89,11 @@ type Token struct {
 
 	// IDToken is the OIDC ID token (if available).
 	IDToken string `json:"id_token,omitempty"`
+
+	// Resource is the RFC 8707 resource the token was requested for: the
+	// MCP server it is bound to. Empty when none was sent or for a token
+	// stored before muster recorded it.
+	Resource string `json:"resource,omitempty"`
 }
 
 // IsExpired checks if the token has expired.

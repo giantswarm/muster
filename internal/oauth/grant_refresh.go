@@ -212,6 +212,8 @@ func (c *Client) refreshSubjectGrant(ctx context.Context, userID, issuer string)
 	if fresh.IDToken == "" {
 		fresh.IDToken = current.IDToken
 	}
+	// A refresh keeps the audience the grant was issued for.
+	fresh.Resource = current.Resource
 	fresh.SetExpiresAtFromExpiresIn()
 
 	replaced := c.tokenStore.ReplaceByUserAndIssuer(userID, issuer, fresh)

@@ -498,8 +498,11 @@ func (c *Client) ExchangeCode(ctx context.Context, state *OAuthState, code strin
 		return nil, err
 	}
 
-	// Set issuer on the token
+	// Set issuer on the token, and the resource it is bound to: an
+	// adoption of the person's grant by another server of the same issuer
+	// compares it with its own (subjectGrantForServer).
 	token.Issuer = issuer
+	token.Resource = state.Resource
 	if token.Scope == "" {
 		token.Scope = state.Scope
 	}

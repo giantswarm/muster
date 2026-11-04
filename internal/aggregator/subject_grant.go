@@ -32,6 +32,30 @@ func holdsSubjectGrants(info *ServerInfo) bool {
 	return info.AuthConfig.SubjectScoped()
 }
 
+// subjectGrantAdoptable reports whether muster connects a session to a
+// server holdsSubjectGrants accepts with the grant filed under its issuer key
+// for the person. For a pinned issuer the server's own pin says so. A server
+// that discovers its issuer goes along with whatever is pinned under the key
+// (issuerPinOwner), so it adopts only under a discovered description
+// (discoveredPinStands): under an operator's or a provider App's pin, a
+// session-scoped one included, the token under the key is another server's
+// grant, and the backend only named its issuer.
+func subjectGrantAdoptable(info *ServerInfo) bool {
+	if !info.AuthConfig.DiscoversSubjectScopedIssuer() {
+		return effectiveSubjectScoped(info)
+	}
+	return discoveredPinStands(info)
+}
+
+// declaredResource is the RFC 8707 resource the server's metadata declared,
+// as recorded on its registry entry; empty when none is known.
+func declaredResource(info *ServerInfo) string {
+	if authInfo := info.GetAuthInfo(); authInfo != nil {
+		return authInfo.Resource
+	}
+	return ""
+}
+
 // sessionOAuthIssuer returns the issuer and scope a session's tokens for the
 // server are filed under: what the 401 discovered, else what the operator
 // pinned in spec.auth.authorizationServer. The 401 yields nothing for an
@@ -99,8 +123,14 @@ func (a *AggregatorServer) adoptSubjectGrant(ctx context.Context, info *ServerIn
 	if issuer == "" {
 		return false, nil
 	}
+	// The spec makes the server a candidate; whether the grant under the
+	// issuer key is one this server may take is the pin's and the grant's
+	// to say.
+	if !subjectGrantAdoptable(info) {
+		return false, nil
+	}
 	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, issuer)
-	if token == nil || token.AccessToken == "" {
+	if token == nil || token.AccessToken == "" || !grantBoundToServer(info, declaredResource(info), token) {
 		return false, nil
 	}
 

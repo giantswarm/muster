@@ -259,9 +259,13 @@ func newPRMBackend(t *testing.T, issuer string) (*httptest.Server, *atomic.Int32
 			http.NotFound(w, r)
 			return
 		}
+		scheme := "https"
+		if r.TLS == nil {
+			scheme = "http"
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"resource":              "https://" + r.Host + "/mcp",
+			"resource":              scheme + "://" + r.Host + "/mcp",
 			"authorization_servers": []string{issuer},
 			"scopes_supported":      []string{"read"},
 		})
@@ -444,7 +448,9 @@ func TestAdoptSubjectGrantResolvesTheDiscoveredIssuer(t *testing.T) {
 	})
 
 	handler := &discoveredGrantHandler{subjectGrantMockHandler: newSubjectGrantMockHandler(), pins: map[string]api.IssuerPin{}}
-	handler.grant("alice", discoveredIssuer, subjectGrantToken)
+	// The grant alice's sign-in to this server filed: bound to the resource
+	// its metadata declares.
+	handler.grantFor("alice", discoveredIssuer, subjectGrantToken, backend.URL+"/mcp")
 	api.RegisterOAuthHandler(handler)
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
@@ -485,6 +491,9 @@ func proxy(t *testing.T, w http.ResponseWriter, r *http.Request, target string) 
 		return
 	}
 	req.Header = r.Header.Clone()
+	// The fixtures answer as the origin the client reached, so the resource
+	// the metadata declares is the backend's own.
+	req.Host = r.Host
 	resp, err := http.DefaultTransport.RoundTrip(req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)

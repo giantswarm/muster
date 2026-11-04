@@ -9,6 +9,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // A server that discovers its authorization server through RFC 9728 and files
@@ -288,7 +289,9 @@ func effectiveSubjectScoped(info *ServerInfo) bool {
 // spec.auth.grantScope: subject and no pinned issuer gives the issuer muster
 // discovered for it (the registry entry's AuthInfo): that issuer, its grants
 // filed under the person, discovery and client identification as without a
-// pin. Nil for any other server, and while the issuer is not known yet.
+// pin. Nil for any other server, while the issuer is not known yet, and for
+// an issuer that has no issuer key (api.ServerIssuerKey): the backend's
+// metadata named "/" or a value that reads as another namespace's key.
 func discoveredDescription(info *ServerInfo) *api.MCPServerAuthAuthorizationServer {
 	if info == nil || !info.AuthConfig.DiscoversSubjectScopedIssuer() {
 		return nil
@@ -297,10 +300,71 @@ func discoveredDescription(info *ServerInfo) *api.MCPServerAuthAuthorizationServ
 	if authInfo == nil || authInfo.Issuer == "" {
 		return nil
 	}
+	issuer := strings.TrimSuffix(authInfo.Issuer, "/")
+	if api.ServerIssuerKey(info.Name, issuer) == "" {
+		return nil
+	}
 	return &api.MCPServerAuthAuthorizationServer{
-		Issuer:     strings.TrimSuffix(authInfo.Issuer, "/"),
+		Issuer:     issuer,
 		GrantScope: api.GrantScopeSubject,
 	}
+}
+
+// discoveredPinKey is the IssuerPin.DescriptionKey of a discovered
+// description. It is set apart from descriptionKey's, so an operator's pin
+// that says only grantScope: subject is told from it: muster adopts the
+// person's grant for a discovered server only under its own kind of pin
+// (discoveredPinStands).
+func discoveredPinKey() string {
+	return descriptionKey(&api.MCPServerAuthAuthorizationServer{GrantScope: api.GrantScopeSubject}) + "\x00discovered"
+}
+
+// discoveredPinStands reports whether the pin under the issuer key of a
+// server that discovers its subject-scoped issuer is a discovered
+// description, so the person's grant under the key was filed by servers that
+// discovered the issuer too. False while the issuer is unknown, and when a
+// provider App or an operator's MCPServer describes the issuer: the grants
+// under the key are then theirs, whatever scope their pin gives them, and a
+// backend that merely names the issuer in its metadata never receives them.
+func discoveredPinStands(info *ServerInfo) bool {
+	as := discoveredDescription(info)
+	if as == nil {
+		return false
+	}
+	issuer := api.ServerIssuerKey(info.Name, as.Issuer)
+	if appOwnsIssuer(issuer) {
+		return false
+	}
+	pinner, err := issuerPinner()
+	if err != nil {
+		return false
+	}
+	pinned, ok := pinner.PinnedDescriptionKey(issuer)
+	return ok && pinned == discoveredPinKey()
+}
+
+// grantBoundToServer reports whether a grant found under a server's issuer
+// key was issued for that server. Servers that discover their subject-scoped
+// issuer share the key with every other server whose backend names the same
+// authorization server, and such an authorization server binds each token to
+// the RFC 8707 resource it was requested for. So for such a server the grant
+// counts only when it records the server's own resource, on the server's own
+// origin; a grant recorded without one is not taken. A grant of a pinned
+// issuer is the server's whatever it records, as before. declared is the
+// resource the server's metadata declared, from which the sign-in's resource
+// is formed (resourceIndicator).
+func grantBoundToServer(info *ServerInfo, declared string, token *api.OAuthToken) bool {
+	if info == nil || token == nil {
+		return false
+	}
+	if !info.AuthConfig.DiscoversSubjectScopedIssuer() {
+		return true
+	}
+	resolved, err := pkgoauth.ResolveResourceIndicator(tenantResource(info.Name, declared, info.URL), info.URL)
+	if err != nil || resolved.Value == "" || token.Resource != resolved.Value {
+		return false
+	}
+	return pkgoauth.ValidateAdvertisedResource(token.Resource, info.URL) == nil
 }
 
 // pinDiscoveredIssuer pins the description of the issuer a server discovered
@@ -319,7 +383,7 @@ func (a *AggregatorServer) pinDiscoveredIssuer(ctx context.Context, info *Server
 	}
 	issuer := api.ServerIssuerKey(info.Name, as.Issuer)
 	if pinner, err := issuerPinner(); err == nil {
-		if pinned, ok := pinner.PinnedDescriptionKey(issuer); ok && pinned == descriptionKey(as) {
+		if pinned, ok := pinner.PinnedDescriptionKey(issuer); ok && pinned == discoveredPinKey() {
 			return nil
 		}
 	}
@@ -349,8 +413,7 @@ func (a *AggregatorServer) withdrawDiscoveredPin(info *ServerInfo) {
 	if err != nil {
 		return
 	}
-	discoveredKey := descriptionKey(&api.MCPServerAuthAuthorizationServer{GrantScope: api.GrantScopeSubject})
-	if pinned, ok := pinner.PinnedDescriptionKey(issuer); !ok || pinned != discoveredKey {
+	if pinned, ok := pinner.PinnedDescriptionKey(issuer); !ok || pinned != discoveredPinKey() {
 		return
 	}
 	described := a.describedServers()
