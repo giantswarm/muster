@@ -203,8 +203,10 @@ type AuthorizationServerDescriptionChecker interface {
 	// MCPServer with this key (MCPServerKey) and auth would describe its
 	// issuer key differently from another MCPServer that pins under it; nil
 	// otherwise, and nil when previous (the server's auth before an update,
-	// nil on create) already pins the same description.
-	DescriptionConflict(key string, previous, auth *MCPServerAuth) error
+	// nil on create) already pins the same description. newClient says the
+	// write stores a client of its own, which no other MCPServer or provider
+	// App shares.
+	DescriptionConflict(key string, previous, auth *MCPServerAuth, newClient bool) error
 }
 
 // TenantIssuerForgetter is implemented by an OAuthHandler whose stored state

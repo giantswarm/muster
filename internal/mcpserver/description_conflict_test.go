@@ -19,11 +19,13 @@ type describingAggregator struct {
 	keys     []string
 	refs     []string
 	// previous lists the client Secret of each previous auth, "-" for none.
-	previous []string
+	previous  []string
+	newClient []bool
 }
 
-func (a *describingAggregator) DescriptionConflict(key string, previous, auth *api.MCPServerAuth) error {
+func (a *describingAggregator) DescriptionConflict(key string, previous, auth *api.MCPServerAuth, newClient bool) error {
 	a.keys = append(a.keys, key)
+	a.newClient = append(a.newClient, newClient)
 	was := "-"
 	if previous != nil && previous.AuthorizationServer != nil && previous.AuthorizationServer.ClientCredentialsSecretRef != nil {
 		was = previous.AuthorizationServer.ClientCredentialsSecretRef.Name
@@ -55,10 +57,11 @@ func TestDescriptionConflict_RefusedBeforeAnyWrite(t *testing.T) {
 		text, isErr := h.call(t, "mcpserver_create", credsArgs(nil))
 		require.True(t, isErr)
 		assert.Contains(t, text, "Cannot create MCP server 'test-server': MCP server 'hubspot' signs in to https://as.example.com")
-		assert.Contains(t, text, "use an existing Secret with that server's client, or another issuer")
+		assert.Contains(t, text, "use the client already signing in there (an existing Secret), or another issuer")
 		assert.Empty(t, h.writes)
 		require.Equal(t, []string{"test-server"}, aggregator.keys)
-		assert.Equal(t, []string{"test-server-muster-client-new"}, aggregator.refs, "checked with a client of its own")
+		assert.Equal(t, []string{""}, aggregator.refs, "no client Secret named yet")
+		assert.Equal(t, []bool{true}, aggregator.newClient, "checked as a client of its own")
 	})
 	t.Run("update that writes the auth", func(t *testing.T) {
 		useDescribingAggregator(t, errOtherHubSpot)
@@ -97,7 +100,7 @@ func TestDescriptionConflict_RefusedBeforeAnyWrite(t *testing.T) {
 			"clientCredentials": map[string]interface{}{"clientId": testClientID, "clientSecret": testClientSecret},
 		})
 		require.False(t, isErr, text)
-		assert.Equal(t, []string{"-"}, aggregator.previous)
+		assert.Equal(t, []bool{true}, aggregator.newClient, "a new client is never the previous description")
 	})
 	t.Run("no conflict", func(t *testing.T) {
 		useDescribingAggregator(t, nil)

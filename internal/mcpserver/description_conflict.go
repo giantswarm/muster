@@ -13,7 +13,7 @@ import (
 // another MCPServer that pins under the same issuer key: the server would
 // be saved and then sit Failed (api.ErrAuthorizationServerConflict).
 // newClient says the request stores a client of its own (clientCredentials),
-// which no other MCPServer can share; previous is the server's auth before an
+// which no other MCPServer or provider App shares; previous is the server's auth before an
 // update (nil on create). The check is check-then-write: of two concurrent
 // writes, the loser is saved and reads Failed, as without the check.
 func (a *Adapter) refuseDescriptionConflict(server *musterv1alpha1.MCPServer, previous *musterv1alpha1.MCPServerAuth,
@@ -26,18 +26,9 @@ func (a *Adapter) refuseDescriptionConflict(server *musterv1alpha1.MCPServer, pr
 	if auth == nil || auth.AuthorizationServer == nil {
 		return nil
 	}
-	if newClient {
-		auth.AuthorizationServer.ClientCredentialsSecretRef = &api.ClientCredentialsSecretRef{
-			Name: generatedClientSecretPrefix(server.Name) + "new",
-		}
-	}
 	key := api.MCPServerKey(server.Namespace, server.Name, a.namespace)
-	var was *api.MCPServerAuth
-	if !newClient {
-		was = convertCRDAuthToAPI(previous)
-	}
-	if err := checker.DescriptionConflict(key, was, auth); err != nil {
-		result, _ := simpleError(fmt.Sprintf("Cannot %s MCP server '%s': %v. One issuer, one client: use an existing Secret with that server's client, or another issuer",
+	if err := checker.DescriptionConflict(key, convertCRDAuthToAPI(previous), auth, newClient); err != nil {
+		result, _ := simpleError(fmt.Sprintf("Cannot %s MCP server '%s': %v. One issuer, one client: use the client already signing in there (an existing Secret), or another issuer",
 			verb, server.Name, err))
 		return result
 	}

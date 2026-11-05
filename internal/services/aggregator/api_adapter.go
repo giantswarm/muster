@@ -289,7 +289,7 @@ func (a *APIAdapter) AuthorizationServerConflict(serverName string) error {
 }
 
 // DescriptionConflict implements api.AuthorizationServerDescriptionChecker.
-func (a *APIAdapter) DescriptionConflict(key string, previous, auth *api.MCPServerAuth) error {
+func (a *APIAdapter) DescriptionConflict(key string, previous, auth *api.MCPServerAuth, newClient bool) error {
 	if a.service == nil {
 		return nil
 	}
@@ -301,5 +301,5 @@ func (a *APIAdapter) DescriptionConflict(key string, previous, auth *api.MCPServ
 	if server == nil {
 		return nil
 	}
-	return server.DescriptionConflict(key, previous, auth)
+	return server.DescriptionConflict(key, previous, auth, newClient)
 }

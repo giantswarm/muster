@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	configPkg "github.com/giantswarm/muster/v5/internal/config"
 )
 
 // refusedService is an MCPServer service in a state with its last error.
@@ -116,14 +117,14 @@ func TestDescriptionConflict(t *testing.T) {
 		return &api.MCPServerAuth{Type: "oauth", AuthorizationServer: as}
 	}
 
-	err := a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "hubspot-2-muster-client-new"))
+	err := a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", ""), true)
 	require.ErrorIs(t, err, api.ErrAuthorizationServerConflict)
 	assert.Contains(t, err.Error(), "MCP server 'hubspot' signs in to https://as.example.com with another client or endpoints")
 
-	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "fixture-muster-client-abcde12345")), "the same client")
-	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://other.example.com", "hubspot-2-muster-client-new")), "another issuer")
-	assert.NoError(t, a.DescriptionConflict("hubspot", nil, auth("https://as.example.com", "hubspot-muster-client-new")), "itself")
-	assert.NoError(t, a.DescriptionConflict("plain", nil, auth("https://as.example.com", "")), "a plain issuer override pins nothing")
+	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "fixture-muster-client-abcde12345"), false), "the same client")
+	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://other.example.com", ""), true), "another issuer")
+	assert.NoError(t, a.DescriptionConflict("hubspot", nil, auth("https://as.example.com", ""), true), "itself")
+	assert.NoError(t, a.DescriptionConflict("plain", nil, auth("https://as.example.com", ""), false), "a plain issuer override pins nothing")
 
 	// Unchanged auth on the owner is not blocked by a newer server that
 	// conflicts with it; changing its client is.
@@ -133,18 +134,39 @@ func TestDescriptionConflict(t *testing.T) {
 		AuthConfig:         auth("https://as.example.com", "hubspot-2-muster-client-xyzab12345"),
 	}))
 	owner := auth("https://as.example.com", "fixture-muster-client-abcde12345")
-	assert.NoError(t, a.DescriptionConflict("hubspot", owner, owner), "unchanged auth on the owner is not blocked")
+	assert.NoError(t, a.DescriptionConflict("hubspot", owner, owner, false), "unchanged auth on the owner is not blocked")
 	rescoped := auth("https://as.example.com", "fixture-muster-client-abcde12345")
 	rescoped.AuthorizationServer.Scopes = "crm"
-	assert.NoError(t, a.DescriptionConflict("hubspot", owner, rescoped), "scopes are not part of the pinned description")
-	require.ErrorIs(t, a.DescriptionConflict("hubspot", owner, auth("https://as.example.com", "hubspot-muster-client-new")),
+	assert.NoError(t, a.DescriptionConflict("hubspot", owner, rescoped, false), "scopes are not part of the pinned description")
+	require.ErrorIs(t, a.DescriptionConflict("hubspot", owner, auth("https://as.example.com", ""), true),
 		api.ErrAuthorizationServerConflict, "a new client is checked")
-	require.ErrorIs(t, a.DescriptionConflict("hubspot", auth("https://old.example.com", "fixture-muster-client-abcde12345"), owner),
+	require.ErrorIs(t, a.DescriptionConflict("hubspot", auth("https://old.example.com", "fixture-muster-client-abcde12345"), owner, false),
 		api.ErrAuthorizationServerConflict, "moving to the issuer is checked")
+
+	// A new client on an issuer only this server pins is no conflict.
+	assert.NoError(t, a.DescriptionConflict("fresh", nil, auth("https://fresh.example.com", ""), true))
 
 	// The comparison is the pin's: the older server's description is
 	// refused for the newer one there too.
 	newer := &ServerInfo{Name: "hubspot-2", AuthConfig: auth("https://as.example.com", "hubspot-2-muster-client-new")}
 	_, pinErr := a.issuerPinOwner(newer)
 	require.ErrorIs(t, pinErr, api.ErrAuthorizationServerConflict)
+}
+
+// An issuer a provider App owns signs in with the App's client: a new client
+// there would be stored and never used.
+func TestDescriptionConflict_ProviderApp(t *testing.T) {
+	setAppOwnedIssuers(&providerAppSet{
+		apps:  map[string]configPkg.ProviderAppConfig{"github": {Name: "github", Issuer: "https://github.com"}},
+		order: []string{"github"},
+	})
+	t.Cleanup(func() { setAppOwnedIssuers(nil) })
+	a := &AggregatorServer{registry: NewServerRegistry("x")}
+	auth := &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{Issuer: "https://github.com"}}
+
+	err := a.DescriptionConflict("github-connector", nil, auth, true)
+	require.ErrorIs(t, err, api.ErrAuthorizationServerConflict)
+	assert.Contains(t, err.Error(), "provider App 'github' signs in to https://github.com with its own client")
+
+	assert.NoError(t, a.DescriptionConflict("github-connector", nil, auth, false), "without a client of its own the App's pin stands, as before")
 }
