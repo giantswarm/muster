@@ -542,6 +542,24 @@ By default the SSRF guard rejects an OIDC issuer URL that resolves to a private 
 |-------|------|---------|-------------|
 | `dex.allowPrivateIPOIDC` | `bool` | `false` | Allow the Dex issuer URL to resolve to a private/loopback IP during OIDC discovery. This is the discovery-path counterpart to `allowPrivateIPJWKS`. Emits a CWE-918 startup warning when set; only enable it when the issuer is genuinely fronted by an internal-only load balancer. |
 
+#### Sign-in check connectors (Dex)
+
+Before a person signs in to a server through the OAuth proxy, muster checks that the person in the browser is the person the sign-in link was issued to: the browser signs in at muster's Dex, and the issuer and `sub` must match the session's. Dex issues one person a different `sub` for every connector, so a session from another connector than `dex.connectorId` (a Dev Portal session signed in through another login method, forwarded as a trusted issuer's token) can only match through its own connector.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dex.identityCheckConnectors` | `[]string` | `[]` | Dex connectors besides `dex.connectorId` that the sign-in check may sign in through. A session whose `sub` was issued through a listed connector is checked there; every other session through `dex.connectorId`, and a session of an unlisted connector is refused (muster logs which connector it would have needed). The check is as strong as the weakest connector it may use: a connector that signs any browser in as the same user (a mock connector, a shared static account) lets anyone pass the check for a link issued through it, so list only connectors that authenticate a person. muster's Dex client must be allowed to use each listed connector; a connector Dex refuses stops the browser on Dex's error page. muster refuses to start with a connector ID outside `[a-zA-Z0-9_-]` or over 64 characters, or without the `dex` provider. Helm: `muster.oauth.server.dex.identityCheckConnectors`. |
+
+```yaml
+aggregator:
+  oauth:
+    server:
+      provider: dex
+      dex:
+        connectorId: giantswarm-github
+        identityCheckConnectors: [giantswarm-ad]
+```
+
 #### Private-IP Token Exchange Endpoints
 
 The same guard applies to the token endpoint of a remote Dex that muster exchanges tokens with (`spec.auth.tokenExchange.dexTokenEndpoint` on an MCPServer). When that Dex sits behind an internal-only load balancer, the exchange fails with a DNS-rebinding error although the endpoint is reachable.

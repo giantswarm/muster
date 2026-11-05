@@ -1729,6 +1729,12 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		"clientId":     oauthCfg.ClientID,
 		"clientSecret": oauthCfg.ClientSecret,
 	}
+	if oauthCfg.DexConnectorID != "" {
+		dexConfig["connectorId"] = oauthCfg.DexConnectorID
+	}
+	if len(oauthCfg.DexIdentityCheckConnectors) > 0 {
+		dexConfig["identityCheckConnectors"] = oauthCfg.DexIdentityCheckConnectors
+	}
 
 	// The combined CA bundle (written by configureOAuthForInstance) is passed
 	// to `muster serve` via --extra-ca-file, which augments the process-wide

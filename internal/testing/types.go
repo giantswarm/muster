@@ -460,6 +460,16 @@ type MockOAuthServerConfig struct {
 	// and the issuer will be set to this mock server's URL.
 	UseAsMusterOAuthServer bool `yaml:"use_as_muster_oauth_server,omitempty"`
 
+	// DexConnectorID sets muster's dex.connectorId when this server is
+	// muster's OAuth server: the connector muster's sign-ins go to unless a
+	// sign-in names another, as on an installation that skips Dex's chooser.
+	DexConnectorID string `yaml:"dex_connector_id,omitempty"`
+
+	// DexIdentityCheckConnectors sets muster's dex.identityCheckConnectors
+	// when this server is muster's OAuth server: the connectors besides
+	// DexConnectorID that muster's sign-in check may sign in through.
+	DexIdentityCheckConnectors []string `yaml:"dex_identity_check_connectors,omitempty"`
+
 	// TrustedIssuers configures RFC 8693 token exchange support.
 	// When configured, this OAuth server can exchange tokens from the listed
 	// issuers for tokens valid on this server. This enables cross-cluster SSO testing.

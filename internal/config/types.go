@@ -806,6 +806,15 @@ type DexConfig struct {
 	// ConnectorID is the optional Dex connector ID to bypass connector selection.
 	ConnectorID string `yaml:"connectorId,omitempty"`
 
+	// IdentityCheckConnectors lists Dex connectors besides ConnectorID that
+	// the OAuth proxy's sign-in check may send a browser to: a session whose
+	// subject was issued through a listed connector signs in there, every
+	// other session through ConnectorID. The check is as strong as the weakest
+	// connector listed, so list only connectors that authenticate a person,
+	// never a mock or a shared account. muster's Dex client must be allowed to
+	// use each of them.
+	IdentityCheckConnectors []string `yaml:"identityCheckConnectors,omitempty"`
+
 	// AllowPrivateIPOIDC allows the Dex issuer URL to resolve to a private or
 	// loopback IP address during OIDC discovery. Required when Dex is fronted by
 	// an internal-only load balancer (e.g. Azure internal LB, air-gapped clusters)

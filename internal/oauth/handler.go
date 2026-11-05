@@ -58,7 +58,7 @@ const (
 	summaryUnverifiedResponse = "The sign-in response could not be verified"
 	summaryDenied             = "The sign-in was denied or failed"
 	summaryNotCompleted       = "The sign-in could not be completed"
-	summaryOtherPerson        = "This sign-in link was issued to someone else"
+	summaryOtherPerson        = "You signed in with a different account or login method than this sign-in link was issued to"
 	summaryUnconfirmedPerson  = "muster cannot confirm that this sign-in link was issued to you"
 )
 

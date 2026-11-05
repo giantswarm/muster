@@ -425,6 +425,12 @@
                                         "connectorId": {
                                             "type": "string"
                                         },
+                                        "identityCheckConnectors": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
                                         "issuerUrl": {
                                             "type": "string"
                                         }
