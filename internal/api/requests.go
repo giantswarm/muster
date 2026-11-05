@@ -64,6 +64,10 @@ type MCPServerCreateRequest struct {
 	// trimmed in the DisplayNameAnnotation. Optional; blank sets no annotation.
 	DisplayName string `json:"displayName,omitempty"`
 
+	// Tags are stored comma-joined in the TagsAnnotation. Optional; each must
+	// pass ValidateTags. An empty list sets no annotation.
+	Tags []string `json:"tags,omitempty"`
+
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
 
@@ -133,6 +137,10 @@ type MCPServerUpdateRequest struct {
 	// DisplayName sets the DisplayNameAnnotation, trimmed. Tri-state: omitting
 	// it keeps the current annotation, a blank value removes it.
 	DisplayName *string `json:"displayName,omitempty"`
+
+	// Tags replace the TagsAnnotation. Tri-state: omitting them keeps the
+	// current tags, an empty list removes them.
+	Tags *[]string `json:"tags,omitempty"`
 
 	// Description for the MCP server
 	Description string `json:"description,omitempty"`
@@ -242,6 +250,9 @@ type MCPServerValidateRequest struct {
 	// DisplayName for validation, as on create.
 	DisplayName string `json:"displayName,omitempty"`
 
+	// Tags for validation, as on create.
+	Tags []string `json:"tags,omitempty"`
+
 	// Description for validation and documentation.
 	Description string `json:"description,omitempty"`
 
@@ -304,6 +315,10 @@ type WorkflowCreateRequest struct {
 	// Should explain the workflow's purpose and expected outcomes.
 	Description string `json:"description,omitempty"`
 
+	// Tags are stored comma-joined in the Workflow's TagsAnnotation. Optional;
+	// each must pass ValidateTags. An empty list sets no annotation.
+	Tags []string `json:"tags,omitempty"`
+
 	// Args defines the expected input arguments for workflow execution.
 	// Used for arg validation and documentation generation.
 	// If not specified, the workflow accepts any args.
@@ -334,6 +349,10 @@ type WorkflowUpdateRequest struct {
 	// Description can be updated to improve documentation.
 	Description string `json:"description,omitempty"`
 
+	// Tags replace the TagsAnnotation. Tri-state: omitting them keeps the
+	// current tags, an empty list removes them.
+	Tags *[]string `json:"tags,omitempty"`
+
 	// Args can be modified to change arg requirements.
 	// Changes may affect existing callers of this workflow.
 	Args map[string]ArgDefinition `json:"args,omitempty"`
@@ -361,6 +380,9 @@ type WorkflowValidateRequest struct {
 
 	// Description for validation.
 	Description string `json:"description,omitempty"`
+
+	// Tags for validation, as on create.
+	Tags []string `json:"tags,omitempty"`
 
 	// Args for validation.
 	Args map[string]ArgDefinition `json:"args,omitempty"`

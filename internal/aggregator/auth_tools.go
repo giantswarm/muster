@@ -355,6 +355,13 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 		return &api.CallToolResult{Content: []any{signInNotReadyMessage(serverName, err)}, IsError: true}
 	}
 	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, issuerKey)
+	if token != nil && !grantBoundToServer(serverInfo, authInfo.Resource, token) {
+		// Another server's grant for the same authorization server, bound to
+		// its own resource: neither sent to this backend nor cleared when the
+		// backend rejects it. The person signs in to this server.
+		logging.Info("AuthTools", "The token under issuer %s was issued for another server than %s; requesting a sign-in", issuerKey, serverName)
+		token = nil
+	}
 
 	if token != nil && token.AccessToken != "" {
 		logging.Info("AuthTools", "Found existing token for server %s via SSO (issuer=%s), attempting to connect",
@@ -560,8 +567,10 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 
 	// What the logout revokes depends on whom the token belongs to.
 	//
-	// A subject-scoped issuer (spec.auth.authorizationServer.grantScope:
-	// subject, GitHub) issues the person's own grant: one consent serves every
+	// A subject-scoped issuer (spec.auth.grantScope or
+	// spec.auth.authorizationServer.grantScope: subject -- a pinned issuer
+	// such as GitHub's, or the issuer a server discovers) issues the person's
+	// own grant: one consent serves every
 	// server that verifies its tokens and every session of the person. Signing
 	// out of any of those servers is the person revoking that consent, so the
 	// grant goes for all of them -- otherwise nobody could revoke it from
@@ -582,16 +591,46 @@ func (p *AuthToolProvider) handleAuthLogout(ctx context.Context, args map[string
 		revokedGrant bool
 		siblings     []string
 	)
-	if issuer := p.resolveServerIssuer(ctx, serverInfo); issuer != "" {
+	issuer := p.resolveServerIssuer(ctx, serverInfo)
+	if issuer == "" && serverInfo.AuthConfig.DiscoversSubjectScopedIssuer() {
+		// The person's grant is filed under the issuer the server discovers,
+		// and muster cannot tell it right now: answering success would leave
+		// the grant to be adopted again once the issuer is known.
+		return &api.CallToolResult{
+			Content: []any{fmt.Sprintf(
+				"Cannot sign out of '%s' right now: muster cannot read which authorization server it uses (its resource metadata is unavailable), so nothing was revoked. Try again later.",
+				serverName,
+			)},
+			IsError: true,
+		}, nil
+	}
+	if issuer != "" {
 		oauthHandler := api.GetOAuthHandler()
 		oauthEnabled := oauthHandler != nil && oauthHandler.IsEnabled()
 		musterIssuer := p.getMusterIssuer(sessionID)
+		if oauthEnabled {
+			// A discovered issuer with subject-scoped grants is pinned, so
+			// the logout below revokes the person's grant and not only this
+			// session's copy, also when nothing in this process pinned it yet.
+			if err := p.aggregator.pinDiscoveredIssuer(ctx, serverInfo); err != nil {
+				logging.Warn("AuthTools", "Cannot pin the discovered authorization server of %s for logout: %v", serverName, err)
+			}
+		}
 
 		switch {
 		case oauthEnabled && (musterIssuer == "" || !sameIssuer(musterIssuer, issuer)) && api.IssuerSubjectScoped(oauthHandler, issuer):
 			api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, issuer)
 			siblings = p.aggregator.disconnectIssuerForSubject(ctx, sessionID, sub, serverName, issuer)
 			revokedGrant = true
+		case oauthEnabled && serverInfo.AuthConfig.DiscoversSubjectScopedIssuer():
+			// Another description of the issuer stands now (an operator's
+			// session-scoped pin), but a grant this server filed under the
+			// person while its own pin stood is still theirs: it goes, so it
+			// is not adopted once that pin is back.
+			api.ForgetSubjectGrant(oauthHandler, sub, issuer)
+			if p.isIssuerExclusiveToServer(sessionID, serverName, issuer) {
+				api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, issuer)
+			}
 		case p.isIssuerExclusiveToServer(sessionID, serverName, issuer):
 			if oauthEnabled {
 				api.ClearTokenByIssuerForUser(oauthHandler, sessionID, sub, issuer)
@@ -714,10 +753,10 @@ func knownServerIssuer(info *ServerInfo) string {
 		return ""
 	}
 	if as := authorizationServerOf(info.AuthConfig); as != nil {
-		return api.ServerIssuerKey(info.Name, strings.TrimSuffix(as.Issuer, "/"))
+		return namedIssuerKey(info.Name, as)
 	}
-	if info.AuthInfo != nil && info.AuthInfo.Issuer != "" {
-		return api.ServerIssuerKey(info.Name, info.AuthInfo.Issuer)
+	if authInfo := info.GetAuthInfo(); authInfo != nil && authInfo.Issuer != "" {
+		return api.ServerIssuerKey(info.Name, authInfo.Issuer)
 	}
 	return ""
 }
@@ -732,6 +771,16 @@ func (p *AuthToolProvider) resolveServerIssuer(ctx context.Context, info *Server
 	}
 	if info == nil || info.URL == "" {
 		return ""
+	}
+	// A server with subject-scoped grants for a discovered issuer records the
+	// issuer on its entry, so its description can be pinned and the
+	// person's grant found under it.
+	// It is the one lookup: a failed one is not repeated below.
+	// resolveServerAuthInfo records what it learns on the entry before its
+	// only late error (the pin), so the entry answers either way.
+	if info.AuthConfig.DiscoversSubjectScopedIssuer() {
+		_, _ = p.aggregator.resolveServerAuthInfo(ctx, info)
+		return knownServerIssuer(info)
 	}
 	metadata, err := discoverProtectedResourceMetadata(ctx, info.URL, nil)
 	if err != nil {

@@ -36,7 +36,7 @@ func (h *TestToolsHandler) handleResolveAuthRedirect(ctx context.Context, args m
 		if err != nil {
 			return nil, err
 		}
-		if upstream, err = h.resolveStartRedirect(ctx, browser, startURL, ""); err != nil {
+		if upstream, err = h.resolveStartRedirect(ctx, browser, startURL, identitySignInPerson{}); err != nil {
 			return nil, fmt.Errorf("failed to resolve start URL redirect: %w", err)
 		}
 	}

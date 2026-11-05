@@ -19,8 +19,9 @@ const subjectGrantConnectTimeout = 30 * time.Second
 // holdsSubjectGrants reports whether a session may connect to this server
 // with a grant another session of the same person completed: the server
 // authenticates per session through a browser-consent login (not SSO, which
-// connects on its own), and its authorization server files grants under the
-// person (spec.auth.authorizationServer.grantScope: subject).
+// connects on its own), and its grants are filed under the person
+// (spec.auth.grantScope or spec.auth.authorizationServer.grantScope:
+// subject), for the authorization server it pins or the one it discovers.
 func holdsSubjectGrants(info *ServerInfo) bool {
 	if info == nil || !info.RequiresSessionAuth() {
 		return false
@@ -28,7 +29,31 @@ func holdsSubjectGrants(info *ServerInfo) bool {
 	if ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info) {
 		return false
 	}
-	return info.AuthConfig.AuthorizationServer.SubjectScoped()
+	return info.AuthConfig.SubjectScoped()
+}
+
+// subjectGrantAdoptable reports whether muster connects a session to a
+// server holdsSubjectGrants accepts with the grant filed under its issuer key
+// for the person. For a pinned issuer the server's own pin says so. A server
+// that discovers its issuer goes along with whatever is pinned under the key
+// (issuerPinOwner), so it adopts only under a discovered description
+// (discoveredPinStands): under an operator's or a provider App's pin, a
+// session-scoped one included, the token under the key is another server's
+// grant, and the backend only named its issuer.
+func subjectGrantAdoptable(info *ServerInfo) bool {
+	if !info.AuthConfig.DiscoversSubjectScopedIssuer() {
+		return effectiveSubjectScoped(info)
+	}
+	return discoveredPinStands(info)
+}
+
+// declaredResource is the RFC 8707 resource the server's metadata declared,
+// as recorded on its registry entry; empty when none is known.
+func declaredResource(info *ServerInfo) string {
+	if authInfo := info.GetAuthInfo(); authInfo != nil {
+		return authInfo.Resource
+	}
+	return ""
 }
 
 // sessionOAuthIssuer returns the issuer and scope a session's tokens for the
@@ -46,8 +71,8 @@ func sessionOAuthIssuer(info *ServerInfo) (issuer, scope string) {
 	if info == nil {
 		return "", ""
 	}
-	if info.AuthInfo != nil {
-		issuer, scope = info.AuthInfo.Issuer, info.AuthInfo.Scope
+	if authInfo := info.GetAuthInfo(); authInfo != nil {
+		issuer, scope = authInfo.Issuer, authInfo.Scope
 	}
 	if info.AuthConfig != nil && info.AuthConfig.AuthorizationServer != nil {
 		as := info.AuthConfig.AuthorizationServer
@@ -91,12 +116,21 @@ func (a *AggregatorServer) adoptSubjectGrant(ctx context.Context, info *ServerIn
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return false, nil
 	}
-	issuer, scope := sessionOAuthIssuer(info)
+	issuer, scope, err := a.subjectGrantIssuer(ctx, info)
+	if err != nil {
+		return false, err
+	}
 	if issuer == "" {
 		return false, nil
 	}
+	// The spec makes the server a candidate; whether the grant under the
+	// issuer key is one this server may take is the pin's and the grant's
+	// to say.
+	if !subjectGrantAdoptable(info) {
+		return false, nil
+	}
 	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, issuer)
-	if token == nil || token.AccessToken == "" {
+	if token == nil || token.AccessToken == "" || !grantBoundToServer(info, declaredResource(info), token) {
 		return false, nil
 	}
 

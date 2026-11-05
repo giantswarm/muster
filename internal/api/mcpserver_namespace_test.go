@@ -43,6 +43,7 @@ func TestValidateServerNamespace(t *testing.T) {
 		toolPrefix string
 		family     *MCPServerFamily
 		auth       *MCPServerAuth
+		relay      string
 		refused    error
 		mentions   string
 	}{
@@ -59,11 +60,14 @@ func TestValidateServerNamespace(t *testing.T) {
 		{name: "tenant tokenExchange", namespace: "org-a", server: "x", auth: &MCPServerAuth{TokenExchange: &TokenExchangeConfig{Enabled: true}}, refused: ErrIdentityOutsideNamespace, mentions: "auth.tokenExchange"},
 		{name: "tenant sigv4", namespace: "org-a", server: "x", auth: &MCPServerAuth{Type: MCPServerAuthTypeSigV4}, refused: ErrIdentityOutsideNamespace, mentions: "auth.type sigv4"},
 		{name: "tenant family", namespace: "org-a", server: "x", family: &MCPServerFamily{Name: "kubernetes", InstanceArg: "cluster"}, refused: ErrIdentityOutsideNamespace, mentions: "family"},
+		{name: "tenant urlElicitation Relay", namespace: "org-a", server: "x", relay: MCPServerURLElicitationRelay, refused: ErrIdentityOutsideNamespace, mentions: "urlElicitation Relay"},
+		{name: "tenant urlElicitation Drop", namespace: "org-a", server: "x", relay: "Drop"},
+		{name: "urlElicitation Relay in muster's namespace", namespace: muster, server: "agents", relay: MCPServerURLElicitationRelay},
 		{name: "every refused field is named", namespace: "org-a", server: "x", auth: &MCPServerAuth{ForwardToken: true, RequiredAudiences: []string{"a"}}, refused: ErrIdentityOutsideNamespace, mentions: "auth.requiredAudiences, auth.forwardToken are not allowed in namespace \"org-a\""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateServerNamespace(tt.namespace, muster, tt.server, tt.toolPrefix, tt.family, tt.auth)
+			err := ValidateServerNamespace(tt.namespace, muster, tt.server, tt.toolPrefix, tt.family, tt.auth, tt.relay)
 			if tt.refused == nil {
 				require.NoError(t, err)
 				return

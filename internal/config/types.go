@@ -93,6 +93,13 @@ type AggregatorConfig struct {
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
 
+	// DevPortalURL is the installation's Dev Portal. Its origin is the only
+	// one a URL elicitation of a backend MCP server may send people to: an
+	// MCPServer with spec.urlElicitation Relay has its URL elicitations
+	// relayed to muster's client when their page is on this origin, and every
+	// other one is dropped. Empty, no backend's URL elicitation is relayed.
+	DevPortalURL string `yaml:"devPortalUrl,omitempty"`
+
 	// OAuth contains all OAuth-related configuration with explicit mcpClient/server roles.
 	// - oauth.mcpClient: muster as OAuth client/proxy for authenticating TO remote MCP servers
 	// - oauth.server: muster as OAuth resource server for protecting ITSELF
@@ -798,6 +805,15 @@ type DexConfig struct {
 
 	// ConnectorID is the optional Dex connector ID to bypass connector selection.
 	ConnectorID string `yaml:"connectorId,omitempty"`
+
+	// IdentityCheckConnectors lists Dex connectors besides ConnectorID that
+	// the OAuth proxy's sign-in check may send a browser to: a session whose
+	// subject was issued through a listed connector signs in there, every
+	// other session through ConnectorID. The check is as strong as the weakest
+	// connector listed, so list only connectors that authenticate a person,
+	// never a mock or a shared account. muster's Dex client must be allowed to
+	// use each of them.
+	IdentityCheckConnectors []string `yaml:"identityCheckConnectors,omitempty"`
 
 	// AllowPrivateIPOIDC allows the Dex issuer URL to resolve to a private or
 	// loopback IP address during OIDC discovery. Required when Dex is fronted by

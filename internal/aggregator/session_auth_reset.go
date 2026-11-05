@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
@@ -39,10 +40,30 @@ func sessionAuthInvalidated(previous, current *api.MCPServerAuth) (bool, string)
 		return true, "requiredAudiences"
 	case !sameTokenExchange(prev.TokenExchange, cur.TokenExchange):
 		return true, "tokenExchange"
-	case !sameAuthorizationServer(prev.AuthorizationServer, cur.AuthorizationServer):
+	case !sameAuthorizationServer(authorizationServerOf(prev), authorizationServerOf(cur)),
+		!sameAuthorizationServerBlock(prev.AuthorizationServer, cur.AuthorizationServer):
+		// The pins as muster applies them: spec.auth.grantScope moved onto
+		// or off a pin that keeps its scope is no change. A block without an
+		// issuer pins nothing but still decides what the server is
+		// (ForwardsIdentity needs one), so it is compared as written.
 		return true, "authorizationServer"
+	case prev.SubjectScoped() != cur.SubjectScoped():
+		return true, "grantScope"
 	}
 	return false, ""
+}
+
+// sameAuthorizationServerBlock compares two spec.auth.authorizationServer
+// blocks as written, apart from their grantScope (compared as the scope
+// muster applies, SubjectScoped).
+func sameAuthorizationServerBlock(a, b *api.MCPServerAuthAuthorizationServer) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	x, y := *a, *b
+	x.GrantScope, y.GrantScope = "", ""
+	x.Issuer, y.Issuer = strings.TrimSuffix(x.Issuer, "/"), strings.TrimSuffix(y.Issuer, "/")
+	return reflect.DeepEqual(x, y)
 }
 
 // authOrEmpty reads a nil auth configuration as the empty one, the way the

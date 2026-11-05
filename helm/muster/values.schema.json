@@ -243,6 +243,9 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "devPortalUrl": {
+                            "type": "string"
+                        },
                         "port": {
                             "type": "integer"
                         },
@@ -421,6 +424,12 @@
                                         },
                                         "connectorId": {
                                             "type": "string"
+                                        },
+                                        "identityCheckConnectors": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
                                         },
                                         "issuerUrl": {
                                             "type": "string"

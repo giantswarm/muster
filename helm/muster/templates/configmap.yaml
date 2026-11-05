@@ -10,6 +10,9 @@ data:
       host: "0.0.0.0"
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
+      {{- with .Values.muster.aggregator.devPortalUrl }}
+      devPortalUrl: {{ . | quote }}
+      {{- end }}
       {{- with .Values.muster.credentialProvider }}
       {{- if .enabled }}
       {{- if not .gatewayIdentity }}{{ fail "muster.credentialProvider.gatewayIdentity is required" }}{{- end }}
@@ -100,6 +103,10 @@ data:
             clientSecretFile: {{ printf "%s/dex-client-secret" $secretsPath | quote }}
             {{- if .Values.muster.oauth.server.dex.connectorId }}
             connectorId: {{ .Values.muster.oauth.server.dex.connectorId | quote }}
+            {{- end }}
+            {{- with .Values.muster.oauth.server.dex.identityCheckConnectors }}
+            identityCheckConnectors:
+              {{- toYaml . | nindent 14 }}
             {{- end }}
             {{- if .Values.muster.oauth.server.dex.allowPrivateIPOIDC }}
             allowPrivateIPOIDC: true

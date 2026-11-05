@@ -56,6 +56,33 @@ tests:
           path: data["config.yaml"]
           pattern: "allowPrivateIPClientMetadataHosts:\\n\\s+- gateway\\.internal\\.example"
 
+  - it: renders dex.identityCheckConnectors into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.dex.connectorId: "giantswarm-github"
+      muster.oauth.server.dex.identityCheckConnectors:
+        - "giantswarm-ad"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "connectorId: \"giantswarm-github\"\\n\\s+identityCheckConnectors:\\n\\s+- giantswarm-ad"
+
+  - it: omits dex.identityCheckConnectors by default
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "identityCheckConnectors:"
+
   - it: omits allowPrivateIPClientMetadataHosts by default
     set:
       muster.oauth.server.enabled: true
@@ -279,3 +306,17 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "toolsetPresets:\n  agent-platform:\n    include:\n    - server: agent-manager\n    - pattern: core_\\*\n  infrastructure:\n    description: Every infrastructure server\n    exclude:\n    - pattern: '\\*_delete'\n    include:\n    - server: mcp-kubernetes\n    - pattern: x_mcp-prometheus_\\*"
+
+  - it: renders aggregator.devPortalUrl into config.yaml
+    set:
+      muster.aggregator.devPortalUrl: "https://portal.example.com"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "aggregator:\\n(.*\\n)*?\\s+devPortalUrl: \"https://portal\\.example\\.com\""
+
+  - it: omits aggregator.devPortalUrl by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "devPortalUrl"

@@ -30,6 +30,8 @@ type tenantFixture struct {
 	capabilities oauthstore.CapabilityStore
 	definitions  *stubMCPServerManager
 	am           *AggregatorManager
+	// valkey is the store's server on the valkey backend; nil in memory.
+	valkey *miniredis.Miniredis
 }
 
 func newTenantFixture(t *testing.T, backend string) *tenantFixture {
@@ -43,6 +45,7 @@ func newTenantFixture(t *testing.T, backend string) *tenantFixture {
 		f.capabilities = oauthstore.NewInMemoryCapabilityStore(time.Hour)
 	case "valkey":
 		srv := miniredis.RunT(t)
+		f.valkey = srv
 		client, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{srv.Addr()}, DisableCache: true})
 		require.NoError(t, err)
 		t.Cleanup(client.Close)
@@ -186,8 +189,14 @@ func TestTenantSignIns_StayWithTheirServers(t *testing.T) {
 			f.signIn("alice", github, tenantTestIssuer)
 
 			f.restart()
+			f.sweepAtStart(listedAlready())
+			f.settled()
+			grant, mark := f.signedIn("alice", github, tenantTestIssuer)
+			assert.True(t, grant, "the sweep at start leaves the sign-in of a live server")
+			assert.True(t, mark)
+
 			require.NoError(t, f.register(github, "uid-g", tenantTestIssuer))
-			grant, _ := f.signedIn("alice", github, tenantTestIssuer)
+			grant, _ = f.signedIn("alice", github, tenantTestIssuer)
 			assert.True(t, grant, "nobody signs in again after a restart")
 		})
 

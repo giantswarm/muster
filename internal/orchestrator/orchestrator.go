@@ -263,7 +263,7 @@ func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo)
 	if o.kubernetesMode {
 		serverNamespace = mcpServerInfo.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, o.namespace, mcpServerInfo.Name, mcpServerInfo.ToolPrefix, mcpServerInfo.Family, mcpServerInfo.Auth); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, o.namespace, mcpServerInfo.Name, mcpServerInfo.ToolPrefix, mcpServerInfo.Family, mcpServerInfo.Auth, mcpServerInfo.URLElicitation); err != nil {
 		return nil, err
 	}
 	if err := api.ValidateSecretNamespaces(serverNamespace, o.namespace, mcpServerInfo.Auth); err != nil {

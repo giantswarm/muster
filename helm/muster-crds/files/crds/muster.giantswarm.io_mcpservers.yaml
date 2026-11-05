@@ -164,7 +164,8 @@ spec:
                           without a new consent, until the person signs out of this server
                           (`core_auth_logout`) or everywhere. Use `subject` for external accounts
                           the person owns (GitHub), never for tokens that carry session-specific
-                          authority.
+                          authority. MCPServerAuth.GrantScope says the same for a server that
+                          discovers its authorization server instead of pinning it.
                         enum:
                         - session
                         - subject
@@ -264,6 +265,33 @@ spec:
                       by the IdP, e.g. via exchange at dex) carries the delegation chain for
                       backend authorization decisions.
                     type: boolean
+                  grantScope:
+                    description: |-
+                      GrantScope decides whom the grant of this server's OAuth sign-in
+                      belongs to, whichever authorization server the server uses: the one
+                      muster discovers through the server's RFC 9728 Protected Resource
+                      Metadata, or the one pinned in AuthorizationServer. `session` (the
+                      default) binds the grant to the login session that completed the
+                      browser flow. `subject` files it under the person as well, so every
+                      later session of the same person -- another client, an agent
+                      conversation, a session after a muster restart -- connects with it
+                      without a new consent, until the person signs out of the server
+                      (`core_auth_logout`). The semantics are those of
+                      AuthorizationServer.GrantScope, which a pinned server may set instead;
+                      set both only to the same value.
+
+                      muster decides grant scope per authorization server: a server with
+                      `subject` and no pin makes the issuer it discovers subject-scoped, as a
+                      pin with `grantScope: subject` does for its issuer, and the
+                      one-description-per-issuer rule of the pins applies to it, except that
+                      an issuer an operator names in an AuthorizationServer pin keeps that
+                      pin's description. `subject` is only valid with Type "oauth" and
+                      neither ForwardToken nor TokenExchange, which obtain no grant of their
+                      own; `session` is accepted everywhere.
+                    enum:
+                    - session
+                    - subject
+                    type: string
                   providerApps:
                     description: |-
                       ProviderApps names the provider Apps (muster's aggregator.providerApps)
@@ -464,6 +492,18 @@ spec:
                   rule: '!has(self.providerApps) || size(self.providerApps) == 0 ||
                     (has(self.forwardToken) && self.forwardToken) || (has(self.forwardIdentity)
                     && self.forwardIdentity)'
+                - message: grantScope subject files the grant of a per-server OAuth
+                    sign-in under the person, so it needs type oauth and neither forwardToken
+                    nor tokenExchange
+                  rule: '!has(self.grantScope) || self.grantScope != ''subject'' ||
+                    (self.type == ''oauth'' && !(has(self.forwardToken) && self.forwardToken)
+                    && !(has(self.tokenExchange) && has(self.tokenExchange.enabled)
+                    && self.tokenExchange.enabled))'
+                - message: 'grantScope and authorizationServer.grantScope disagree:
+                    set one of them, or both to the same value'
+                  rule: '!has(self.grantScope) || !has(self.authorizationServer) ||
+                    !has(self.authorizationServer.grantScope) || self.grantScope ==
+                    self.authorizationServer.grantScope'
               autoStart:
                 default: false
                 description: |-
@@ -712,6 +752,19 @@ spec:
                 - message: 'url must not hold a user name or password: put the credential
                     in a Secret and refer to it in headersFrom'
                   rule: '!self.matches(''^[^:/?#]+://[^/?#]*@'')'
+              urlElicitation:
+                description: |-
+                  URLElicitation decides what muster does when this server answers a
+                  tool call with a URL elicitation, a request that the person open a
+                  page. Relay declares URL mode elicitation to the server and passes the
+                  request on to muster's client, but only when the page is on the
+                  origin of muster's aggregator.devPortalUrl. Unset or Drop, muster does
+                  not declare it, and drops and logs any URL elicitation the server
+                  sends: the client gets a tool error that does not hold the URL.
+                enum:
+                - Drop
+                - Relay
+                type: string
             required:
             - type
             type: object

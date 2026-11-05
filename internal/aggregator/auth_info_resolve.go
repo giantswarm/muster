@@ -46,7 +46,8 @@ func oauthProtected(s *ServerInfo) bool {
 // authenticated"), so its tool calls could not choose an auth method.
 //
 // A server whose description of its authorization server conflicts with the
-// one pinned under its issuer key (issuerPinOwner) is an error, and so is a
+// one pinned under its issuer key (issuerPinOwner, pinDiscoveredIssuer for a
+// discovered subject-scoped issuer) is an error, and so is a
 // pin that cannot be applied (the login must not proceed with a client the
 // operator did not intend); a discovery failure is logged and
 // leaves the caller with whatever the entry already knew.
@@ -55,15 +56,14 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 	if err != nil {
 		return nil, err
 	}
-	authInfo := &AuthInfo{}
-	if current := serverInfo.GetAuthInfo(); current != nil {
-		copied := *current
-		authInfo = &copied
-	}
+	authInfo := copyAuthInfo(serverInfo.GetAuthInfo())
 	changed := applyAuthorizationServerPin(authInfo, serverInfo.AuthConfig)
 	if !needsResourceMetadata(authInfo, serverInfo.URL) {
 		if changed {
 			serverInfo.SetAuthInfo(authInfo)
+		}
+		if err := a.pinDiscoveredIssuer(ctx, serverInfo); err != nil {
+			return nil, err
 		}
 		return authInfo, nil
 	}
@@ -73,34 +73,14 @@ func (a *AggregatorServer) resolveServerAuthInfo(ctx context.Context, serverInfo
 			return nil, err
 		}
 	}
-	var override *api.MCPServerAuthAuthorizationServer
-	if serverInfo.AuthConfig != nil {
-		override = serverInfo.AuthConfig.AuthorizationServer
-	}
-	metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL, override)
+	// The override is the issuer the operator pinned; a block without an
+	// issuer pins none, so the metadata is discovered as without a block.
+	metadata, err := discoverProtectedResourceMetadata(ctx, serverInfo.URL, authorizationServerOf(serverInfo.AuthConfig))
 	if err != nil {
 		logging.Warn("AuthTools", "Failed to discover protected resource metadata for %s: %v", serverInfo.Name, err)
 		return authInfo, nil
 	}
-
-	if authInfo.Issuer == "" && metadata.Issuer != "" {
-		authInfo.Issuer = metadata.Issuer
-		changed = true
-		logging.Info("AuthTools", "Discovered authorization server for %s: %s", serverInfo.Name, metadata.Issuer)
-	}
-	if authInfo.Scope == "" && metadata.Scope != "" {
-		authInfo.Scope = metadata.Scope
-		changed = true
-		logging.Info("AuthTools", "Discovered required scope for %s: %s", serverInfo.Name, metadata.Scope)
-	}
-	if authInfo.Resource == "" && metadata.Resource != "" {
-		authInfo.Resource = metadata.Resource
-		changed = true
-	}
-	if changed {
-		serverInfo.SetAuthInfo(authInfo)
-	}
-	return authInfo, nil
+	return a.recordResourceMetadata(ctx, serverInfo, authInfo, changed, metadata)
 }
 
 // applyAuthorizationServerPin makes an operator's pin
@@ -127,4 +107,31 @@ func applyAuthorizationServerPin(authInfo *AuthInfo, auth *api.MCPServerAuth) bo
 		changed = true
 	}
 	return changed
+}
+
+// fillAuthInfo fills in the issuer, scope and resource authInfo lacks and
+// reports whether it changed; what authInfo already holds is kept.
+func fillAuthInfo(authInfo *AuthInfo, issuer, scope, resource string) bool {
+	changed := false
+	if authInfo.Issuer == "" && issuer != "" {
+		authInfo.Issuer = issuer
+		changed = true
+	}
+	if authInfo.Scope == "" && scope != "" {
+		authInfo.Scope = scope
+		changed = true
+	}
+	if authInfo.Resource == "" && resource != "" {
+		authInfo.Resource = resource
+		changed = true
+	}
+	return changed
+}
+
+// fillFromResourceMetadata is fillAuthInfo from a server's RFC 9728 metadata.
+func fillFromResourceMetadata(authInfo *AuthInfo, metadata *ProtectedResourceMetadata) bool {
+	if metadata == nil {
+		return false
+	}
+	return fillAuthInfo(authInfo, metadata.Issuer, metadata.Scope, metadata.Resource)
 }

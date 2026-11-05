@@ -160,6 +160,9 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		return nil, fmt.Errorf("OAuth server is not enabled")
 	}
 
+	if err := validateIdentityCheckConnectors(cfg); err != nil {
+		return nil, err
+	}
 	if err := validateHTTPSRequirement(cfg.BaseURL); err != nil {
 		return nil, err
 	}

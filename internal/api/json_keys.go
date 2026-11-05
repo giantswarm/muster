@@ -12,6 +12,10 @@ const (
 	SchemaKeyDefault              = "default"
 	SchemaKeyEnum                 = "enum"
 	SchemaKeyAdditionalProperties = "additionalProperties"
+	SchemaKeyPattern              = "pattern"
+	SchemaKeyMaxLength            = "maxLength"
+	SchemaKeyMaxItems             = "maxItems"
+	SchemaKeyUniqueItems          = "uniqueItems"
 )
 
 // Field names used as keys when emitting muster API responses through

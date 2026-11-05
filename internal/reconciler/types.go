@@ -218,6 +218,10 @@ type ManagerConfig struct {
 	// namespace. Workflow objects stay in Namespace.
 	MCPServersInAllNamespaces bool
 
+	// Synced, when set, is closed once the change detector has started:
+	// its informers have synced the watched objects.
+	Synced chan<- struct{}
+
 	// WorkerCount is the number of concurrent reconciliation workers.
 	// Defaults to 2 if not specified.
 	WorkerCount int

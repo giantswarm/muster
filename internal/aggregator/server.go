@@ -130,6 +130,11 @@ type AggregatorServer struct {
 	toolManager    *activeItemManager // Tracks active meta-tools
 	isShuttingDown bool               // Indicates whether the server is currently stopping
 
+	// backgroundStopped is set once Stop waits for the background
+	// goroutines; goBackground starts none after it.
+	backgroundMu      sync.Mutex
+	backgroundStopped bool
+
 	// calls are the tool calls in flight, which Stop drains (call_drain.go).
 	calls *inFlightCalls
 
@@ -144,6 +149,16 @@ type AggregatorServer struct {
 	// signInElicitations are the sign-in URL elicitations sent as -32042,
 	// awaiting notifications/elicitation/complete (url_elicitation.go).
 	signInElicitations signInElicitations
+
+	// relayedCompletions are the backend URL elicitations muster relayed,
+	// awaiting the backend's notifications/elicitation/complete
+	// (backend_elicitation.go).
+	relayedCompletions relayedCompletions
+
+	// devPortalOrigin is the origin of aggregator.devPortalUrl, the only one
+	// a backend's URL elicitation is relayed to; "" relays none
+	// (backend_elicitation.go).
+	devPortalOrigin string
 
 	// Per-backend tool dispatch metrics. May be nil when instrument
 	// creation failed; record() is nil-safe.
@@ -163,6 +178,10 @@ type AggregatorServer struct {
 	// tenantOwners records which MCPServer objects own the stored sign-ins
 	// of each organization namespace (see adoptTenantServer).
 	tenantOwners oauthstore.TenantOwnerStore
+
+	// tenantSweeps retries the sweeps of organization namespaces that
+	// failed (see forgetTenantServer).
+	tenantSweeps tenantSweepRetries
 
 	// Per-session connection pool for reusing live MCP clients across tool calls.
 	// Always non-nil after NewAggregatorServer.
@@ -209,6 +228,11 @@ type AggregatorServer struct {
 	// the person's subject-scoped grant (adoptSubjectGrant), keyed by
 	// sessionID/serverName.
 	subjectGrantGroup singleflight.Group
+
+	// discovered remembers the issuer muster learned for each server that
+	// discovers a subject-scoped issuer, and its failed lookups
+	// (subject_grant_discovered.go).
+	discovered discoveredIssuers
 
 	// SSO tracking for proactive SSO initialization (replaces SessionRegistry SSO methods)
 	ssoTracker *ssoTracker
@@ -408,6 +432,19 @@ func (t *subjectSessionTracker) RemoveSession(mcpSessionID string) {
 			delete(t.sessions, sub)
 		}
 	}
+}
+
+// Subjects returns the subjects that have a live MCP session.
+func (t *subjectSessionTracker) Subjects() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	subjects := make([]string, 0, len(t.sessions))
+	for sub, ids := range t.sessions {
+		if len(ids) > 0 {
+			subjects = append(subjects, sub)
+		}
+	}
+	return subjects
 }
 
 // GetSessionIDs returns the MCP session IDs for the given user subject.
@@ -795,6 +832,10 @@ func (s *ssoTracker) CleanupExpired() {
 // Returns a configured but unstarted aggregator server ready for initialization,
 // or an error when the configured session store backend cannot be reached.
 func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorCallback func(error)) (*AggregatorServer, error) {
+	devPortalOrigin, err := config.DevPortalOrigin(aggConfig.DevPortalURL)
+	if err != nil {
+		return nil, err
+	}
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 	stores, err := createStores(ctx, aggConfig)
 	if err != nil {
@@ -816,6 +857,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 	}
 
 	return &AggregatorServer{
+		devPortalOrigin:   devPortalOrigin,
 		providerApps:      providerApps,
 		deviceSignIns:     newDeviceSignIns(deviceStore),
 		config:            aggConfig,
@@ -975,6 +1017,9 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 
 	a.mcpServer = mcpSrv
 	a.isShuttingDown = false
+	a.backgroundMu.Lock()
+	a.backgroundStopped = false
+	a.backgroundMu.Unlock()
 
 	// Start background monitoring for registry changes
 	a.wg.Add(1)
@@ -989,6 +1034,14 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// has never seen (capability_poller.go).
 	a.wg.Add(1)
 	go a.runCapabilityPoller(CapabilityPollInterval)
+
+	// Sweep the organization namespaces whose recorded servers went while
+	// muster was down, once the MCPServer objects are listed.
+	if listed := a.config.MCPServersListed; listed != nil && a.tenantOwners != nil {
+		a.tenantSweeps.start(func(ctx context.Context) {
+			a.sweepRecordedTenantsAtStart(ctx, listed)
+		})
+	}
 
 	// Subscribe to tool update events from workflow and other managers
 	// This ensures the aggregator stays synchronized with core muster components
@@ -1255,6 +1308,7 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 	if cancelFunc != nil {
 		cancelFunc()
 	}
+	a.tenantSweeps.stop()
 
 	// Shutdown transport servers with timeout
 	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -1278,7 +1332,8 @@ func (a *AggregatorServer) Stop(ctx context.Context) error {
 
 	// Note: Stdio server stops automatically on context cancellation, no explicit shutdown needed
 
-	// Wait for all background routines to complete
+	// Wait for all background routines to complete; none starts from here on.
+	a.stopBackground()
 	a.wg.Wait()
 
 	if a.bearerSessions != nil {
@@ -1365,6 +1420,7 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 		}
 	})
 	a.observeSharedRecovery(registration.Name, client)
+	a.observeRelayedCompletions(registration.Name, "", client)
 
 	if err := a.registry.Register(ctx, registration, client); err != nil {
 		return err
@@ -1471,12 +1527,12 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		}
 	}
 
-	// The entry's auth config, read before the delete: a removed server
-	// releases the authorization server it described.
-	var previousAuth *api.MCPServerAuth
+	// The entry's description of its authorization server, read before the
+	// delete: a removed server releases the authorization server it described.
+	var previousDescription *api.MCPServerAuthAuthorizationServer
 	info, registered := a.registry.GetServerInfo(name)
 	if registered {
-		previousAuth = info.AuthConfig
+		previousDescription = serverDescription(info)
 	}
 
 	// A reconnecting server is tracked before its entry goes, so no call
@@ -1488,6 +1544,16 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 		a.reconnects.lost(name)
 	}
 
+	// A definition that goes takes the issuer it discovered with it, before
+	// the release: else the definition, still listed, would describe the
+	// issuer from memory and keep its pin. Without a registry entry that
+	// issuer is the description to release.
+	if !keepSessionAuth {
+		if issuer := a.discovered.forget(name); issuer != "" && !registered {
+			previousDescription = &api.MCPServerAuthAuthorizationServer{Issuer: issuer, GrantScope: api.GrantScopeSubject}
+		}
+	}
+
 	removed := true
 	var err error
 	if keepSessionAuth {
@@ -1495,9 +1561,9 @@ func (a *AggregatorServer) deregisterServer(name string, keepSessionAuth, reconn
 	} else {
 		err = a.registry.DeregisterRequestedAt(name, requestedAt)
 	}
-	if err == nil && removed {
+	if (err == nil && removed) || (!keepSessionAuth && !registered) {
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		a.releaseAuthorizationServerPin(releaseCtx, name, previousAuth)
+		a.releaseAuthorizationServerDescription(releaseCtx, name, previousDescription)
 		cancel()
 	}
 	if forget {
@@ -2218,6 +2284,7 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			start := time.Now()
 			ctx := observability.AnnotateDownstreamCall(ctx, sessionServerName, toolName, originalName)
 			res, err := a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
+			res, err = a.answerBackendElicitation(ctx, sessionServerName, res, err)
 			a.finishDispatch(ctx, sessionServerName, toolName, start, res, err)
 			return res, err
 		}
@@ -2348,6 +2415,9 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 	}
 	start := time.Now()
 	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
+	// Runs before finishDispatch: a backend's URL elicitation is relayed or
+	// dropped here, where the server it came from is known.
+	defer func() { res, err = a.answerBackendElicitation(ctx, serverName, res, err) }()
 	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
@@ -3178,9 +3248,9 @@ func (a *AggregatorServer) tearDownSession(ctx context.Context, sessionID string
 // for the server's issuer, auth store entry, capability entry, and the
 // pooled connection.
 func (a *AggregatorServer) tearDownSessionServer(ctx context.Context, sessionID string, serverInfo *ServerInfo) {
-	if serverInfo.AuthInfo != nil && serverInfo.AuthInfo.Issuer != "" {
+	if authInfo := serverInfo.GetAuthInfo(); authInfo != nil && authInfo.Issuer != "" {
 		if oauthHandler := api.GetOAuthHandler(); oauthHandler != nil && oauthHandler.IsEnabled() {
-			oauthHandler.ClearTokenByIssuer(sessionID, api.ServerIssuerKey(serverInfo.Name, serverInfo.AuthInfo.Issuer))
+			oauthHandler.ClearTokenByIssuer(sessionID, api.ServerIssuerKey(serverInfo.Name, authInfo.Issuer))
 		}
 	}
 	serverName := serverInfo.Name
@@ -3397,6 +3467,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", err
 	}
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
+	a.declareURLElicitation(ctx, serverName, client)
 	return client, tokenExpiry, exchangedToken, nil
 }
 

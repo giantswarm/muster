@@ -86,7 +86,7 @@ steps:
     expected:
       success: false
       contains:
-        - "issued to someone else"
+        - "different account or login method"
 
   - id: alice-still-signed-out
     tool: "x_connector_get_me"

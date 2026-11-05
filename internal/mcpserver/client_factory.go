@@ -36,6 +36,9 @@ type MCPClientConfig struct {
 	// progress may keep a tool call going. Zero means DefaultMaxCallDuration;
 	// at or below Timeout, progress extends nothing.
 	MaxCallDuration time.Duration
+	// URLElicitation makes the client declare URL mode elicitation to the
+	// server: its spec.urlElicitation is Relay (DeclareURLElicitation).
+	URLElicitation bool
 }
 
 // NewMCPClientFromType creates the appropriate MCP client based on the server type.
@@ -54,6 +57,9 @@ func NewMCPClientFromType(serverType api.MCPServerType, config MCPClientConfig) 
 	// builds, so no transport can be left on the default.
 	client.setTimeout(config.Timeout)
 	client.setMaxCallDuration(config.MaxCallDuration)
+	if config.URLElicitation {
+		client.DeclareURLElicitation()
+	}
 	return client, nil
 }
 
@@ -63,6 +69,8 @@ type budgetedClient interface {
 	MCPClient
 	setTimeout(time.Duration)
 	setMaxCallDuration(time.Duration)
+	URLElicitationDeclarer
+	ElicitationCompleteObserver
 }
 
 func newClientOfType(serverType api.MCPServerType, config MCPClientConfig) (budgetedClient, error) {

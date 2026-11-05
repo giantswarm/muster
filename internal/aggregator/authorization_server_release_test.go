@@ -10,6 +10,12 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
+// releaseAuthorizationServerPin is releaseAuthorizationServerDescription for
+// the authorization server a previous auth config pinned.
+func (a *AggregatorServer) releaseAuthorizationServerPin(ctx context.Context, name string, previous *api.MCPServerAuth) {
+	a.releaseAuthorizationServerDescription(ctx, name, authorizationServerOf(previous))
+}
+
 func pinnedAuth(issuer, authEP, tokenEP string) *api.MCPServerAuth {
 	return &api.MCPServerAuth{
 		Type: "oauth",

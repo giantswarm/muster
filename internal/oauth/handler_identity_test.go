@@ -25,13 +25,16 @@ const testIdentityIssuer = "https://dex.example.com"
 // fakeBrowserIdentity signs every browser in as subject at
 // testIdentityIssuer. Like the real identity flow, it redeems a code only
 // with the verifier of the challenge the sign-in was started with.
+// expected records the identity the last sign-in was started for.
 type fakeBrowserIdentity struct {
 	subject   string
 	challenge string
+	expected  api.SignInIdentity
 }
 
-func (f *fakeBrowserIdentity) SignInURL(_ context.Context, _ *url.URL, state, codeChallenge string) (string, error) {
+func (f *fakeBrowserIdentity) SignInURL(_ context.Context, _ *url.URL, state, codeChallenge string, expected api.SignInIdentity) (string, error) {
 	f.challenge = codeChallenge
+	f.expected = expected
 	return "https://dex.example.com/auth?state=" + url.QueryEscape(state), nil
 }
 
@@ -140,6 +143,18 @@ func TestHandler_IdentityCheck_RefusesSomeoneElse(t *testing.T) {
 	identity.subject = "user-1"
 	owner := passIdentityCheck(t, handler, &browser{}, encodedState)
 	require.Equal(t, http.StatusFound, owner.Code, "the link stays usable by its owner")
+}
+
+// The sign-in is started for the identity the link was issued to, so the
+// identity provider can send the browser to that identity's login method.
+func TestHandler_IdentityCheck_SignsInForTheLinksIdentity(t *testing.T) {
+	handler, encodedState := startTestHandler(t, "https://idp.example.com/authorize?state=abc")
+	identity := &fakeBrowserIdentity{subject: "user-1"}
+	registerBrowserIdentity(t, identity)
+
+	sendToSignIn(t, handler, &browser{}, encodedState)
+
+	require.Equal(t, testSignIn, identity.expected)
 }
 
 // A session whose subject a trusted issuer maps from email is checked by the

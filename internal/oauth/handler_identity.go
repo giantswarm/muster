@@ -116,7 +116,7 @@ func (h *Handler) sendToIdentityCheck(w http.ResponseWriter, r *http.Request, id
 		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
-	signInURL, err := identity.SignInURL(r.Context(), returnURL, identityState, challenge)
+	signInURL, err := identity.SignInURL(r.Context(), returnURL, identityState, challenge, state.SignIn)
 	if err != nil {
 		logging.Warn("OAuth", "Cannot start the sign-in check for server=%s: %v", state.ServerName, err)
 		h.renderErrorPage(w, summaryNotCompleted, "")
