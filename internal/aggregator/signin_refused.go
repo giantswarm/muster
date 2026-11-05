@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -79,4 +80,29 @@ func describedAuth(described map[string]*ServerInfo, name string) *api.MCPServer
 		return info.AuthConfig
 	}
 	return nil
+}
+
+// signInRefused reports whether a server's service failed because muster
+// refuses its sign-in (api.IsSignInRefused): its client Secret, or its
+// description of the authorization server. Its pending-auth entry, and the
+// pin it was registered with, describe a sign-in that no longer applies, so
+// the entry goes; core_auth_login then answers with the refusal
+// (definedSignInNotReady) instead of signing in with the old pin.
+func (am *AggregatorManager) signInRefused(serverName string) bool {
+	if am.serviceRegistry == nil {
+		return false
+	}
+	service, exists := am.serviceRegistry.Get(serverName)
+	if !exists || service == nil {
+		return false
+	}
+	switch service.GetState() {
+	case api.StateFailed, api.StateUnreachable:
+		// A policy not in force refuses every Secret read, often only
+		// while a chart upgrade replaces it: the server is Failed and
+		// answers with the reason, but keeps its entry and pins.
+		err := service.GetLastError()
+		return api.IsSignInRefused(err) && !errors.Is(err, api.ErrSecretReferencePolicyInactive)
+	}
+	return false
 }
