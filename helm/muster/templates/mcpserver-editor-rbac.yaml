@@ -29,7 +29,8 @@ rules:
   # A connector's client entered in the portal is written as the editor to a
   # Secret owned by the MCPServer (giantswarm/giantswarm#38849). create only:
   # get, update or delete would reach every Secret of the namespace, muster's
-  # own included.
+  # own included; mcpserver-client-secrets.yaml holds the create to such
+  # client Secrets.
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create"]

@@ -42,6 +42,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | rbac.workflowEditor.subjects[0].kind | string | `"Group"` |  |
 | rbac.workflowEditor.subjects[0].name | string | `"system:authenticated"` |  |
 | mcpServerSecretReferences.enabled | bool | `true` |  |
+| mcpServerClientSecrets.enabled | bool | `true` |  |
 | podAnnotations | object | `{}` |  |
 | podLabels | object | `{}` |  |
 | podSecurityContext.runAsUser | int | `1000` |  |
@@ -239,7 +240,8 @@ RoleBinding pairs in muster's install namespace:
 
 * `mcpserver-editor` — create/update/patch/delete on `mcpservers`, and
   create (only) on `secrets` for a connector's client entered in the portal
-  (`rbac.mcpServerEditor`)
+  (`rbac.mcpServerEditor`); the `mcpServerClientSecrets` policy holds that
+  create to such client Secrets for a writer who may not get Secrets
 * `workflow-editor` — create/update/patch/delete on `workflows`
   (`rbac.workflowEditor`)
 

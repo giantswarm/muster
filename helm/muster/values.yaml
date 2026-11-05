@@ -48,7 +48,11 @@ rbac:
   additionalSecretNamespaces: []
   # mcpServerEditor ships the default answer to "who may register and manage
   # MCP servers" under writes-as-caller: a namespaced Role granting
-  # create/update/patch/delete on mcpservers, plus a RoleBinding.
+  # create/update/patch/delete on mcpservers and create (only) on secrets,
+  # plus a RoleBinding. The create on secrets is for a connector's client
+  # entered in the portal (clientCredentials), which muster writes as the
+  # editor to a Secret owned by the MCPServer; mcpServerClientSecrets holds
+  # that create to such Secrets.
   #
   # Who to bind is a real trade-off. Everyone bound here registers servers
   # into a SHARED aggregator: other users see those servers and are routed
@@ -97,6 +101,18 @@ rbac:
 # muster reads no Secret for an MCPServer while the policy is not in force,
 # so disabling it turns those Secret references off.
 mcpServerSecretReferences:
+  enabled: true
+
+# A ValidatingAdmissionPolicy on Secret creates in muster's namespace: a
+# writer who may not get the Secret (an mcpserver-editor, who holds create
+# alone, for clientCredentials) creates only a connector's client, an Opaque
+# Secret named <server>-muster-client-<10 random>. Without it, create on
+# secrets reaches every Secret type and name of the namespace: a
+# service-account-token Secret annotated for muster's ServiceAccount gets a
+# token minted into it, and a name muster or its chart expects can be taken
+# before it exists. A writer who may get the Secret (Helm, a GitOps
+# controller) creates what they create today.
+mcpServerClientSecrets:
   enabled: true
 
 podAnnotations: {}  # @schema additionalProperties: true
