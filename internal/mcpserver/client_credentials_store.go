@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
@@ -156,84 +155,4 @@ func checkClientCredentials(writer mcpServerWriter, creds *api.MCPServerClientCr
 		return nil, result
 	}
 	return secrets, nil
-}
-
-// storedClient is the client Secret an update wrote, kept across the
-// update's conflict retries so that a retry names it instead of writing
-// another.
-type storedClient struct {
-	name string
-	uid  types.UID
-}
-
-// applyClientUpdate applies the client side of an update onto the live
-// server, after applyMCPServerUpdate: it keeps a generated client Secret an
-// auth without one would drop, refuses moving a stored client, checks for a
-// conflicting authorization server, and stores new clientCredentials in a
-// new Secret owned by the server (once per update). The previous Secret
-// stays until the server is deleted: editors may not delete Secrets.
-func (a *Adapter) applyClientUpdate(ctx context.Context, writer mcpServerWriter, existing *musterv1alpha1.MCPServer,
-	previousAuth *musterv1alpha1.MCPServerAuth, req *api.MCPServerUpdateRequest, client *storedClient) *api.CallToolResult {
-	previousAS := authorizationServerOf(&musterv1alpha1.MCPServerSpec{Auth: previousAuth})
-	if req.Auth != nil {
-		keepGeneratedClientSecretRef(existing, previousAS)
-		if req.ClientCredentials == nil {
-			if refused := refuseMovedClient(existing, previousAS); refused != nil {
-				return refused
-			}
-		}
-	}
-	var secrets secretWriter
-	if req.ClientCredentials != nil {
-		var refused *api.CallToolResult
-		if secrets, refused = checkClientCredentials(writer, req.ClientCredentials, existing,
-			requestNamesClientSecretRef(req.Auth)); refused != nil {
-			return refused
-		}
-	}
-	// Only an update that changes the pinned description, or stores a new
-	// client, is checked: a conflict it did not make does not block it.
-	if req.Auth != nil || req.ClientCredentials != nil {
-		if refused := a.refuseDescriptionConflict(existing, previousAuth, "update", req.ClientCredentials != nil); refused != nil {
-			return refused
-		}
-	}
-	if secrets == nil {
-		return nil
-	}
-	if existing.UID == "" || (client.name != "" && client.uid != existing.UID) {
-		result, _ := simpleError(fmt.Sprintf("Cannot store the client credentials of MCP server '%s': it has no UID to own the Secret, or was replaced meanwhile", existing.Name))
-		return result
-	}
-	if client.name == "" {
-		name, err := createClientSecret(ctx, secrets, existing, req.ClientCredentials)
-		if err != nil {
-			result, _ := simpleError(fmt.Sprintf("Cannot store the client credentials of MCP server '%s', so it was not updated: %s",
-				existing.Name, a.describeSecretWriteError(err, name)))
-			return result
-		}
-		client.name, client.uid = name, existing.UID
-	}
-	authorizationServerOf(&existing.Spec).ClientCredentialsSecretRef = &musterv1alpha1.ClientCredentialsSecretRef{Name: client.name}
-	return nil
-}
-
-// refuseMovedClient refuses an update that changes where the stored client of
-// a server is sent (the issuer or an endpoint of its authorizationServer)
-// while keeping its generated Secret: muster would not read it there
-// (checkGeneratedOwner). The client must be entered again.
-func refuseMovedClient(server *musterv1alpha1.MCPServer, previous *musterv1alpha1.MCPServerAuthAuthorizationServer) *api.CallToolResult {
-	as := authorizationServerOf(&server.Spec)
-	if as == nil || as.ClientCredentialsSecretRef == nil {
-		return nil
-	}
-	ref := as.ClientCredentialsSecretRef
-	if (ref.Namespace != "" && ref.Namespace != server.Namespace) || !isGeneratedClientSecretName(server.Name, ref.Name) {
-		return nil
-	}
-	if destinationDigest(as) == destinationDigest(previous) {
-		return nil
-	}
-	result, _ := simpleError(fmt.Sprintf("Cannot update MCP server '%s': its stored client belongs to the previous issuer and endpoints of auth.authorizationServer; re-enter it with clientCredentials", server.Name))
-	return result
 }

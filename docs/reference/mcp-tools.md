@@ -605,7 +605,8 @@ Update an existing MCP server definition. Only provided fields are updated.
 - `autoStart` (boolean, optional) - Auto-start setting; omitting it keeps the current one
 - `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` (or omitted) resumes it
 - `restartRequestedAt` (string, optional) - RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler
-- `auth` (object, optional) - Replaces the server's auth. An `authorizationServer` without `clientCredentialsSecretRef` keeps a client stored with `clientCredentials`; one without `authorizationServer` drops it. Changing its `issuer`, `authorizationEndpoint`, `tokenEndpoint` or `revocationEndpoint` while keeping that client is refused: send `clientCredentials` again. A changed `authorizationServer` that another MCPServer describes differently under the same issuer is refused, as on create
+- `auth` (object, optional) - Replaces the server's auth. An `authorizationServer` without `clientCredentialsSecretRef` keeps a client stored with `clientCredentials`; one without `authorizationServer` drops it. Changing its `issuer`, `authorizationEndpoint`, `tokenEndpoint` or `revocationEndpoint` away from those the client was entered for, while keeping that client, is refused: send `clientCredentials` again, or `clearClientCredentials`. A changed `authorizationServer` that another MCPServer describes differently under the same issuer is refused, as on create
+- `clearClientCredentials` (boolean, optional) - Drops the client stored with `clientCredentials` and keeps `auth.authorizationServer`. Not with `clientCredentials` or `clientCredentialsSecretRef`
 - `clientCredentials` (object, optional, write-only) - Replaces the client: a new Secret owned by the server, then the reference switches to it. The previous Secret stays until the server is deleted. Same rules as on create
 
 **Returns:** Updated MCP server definition

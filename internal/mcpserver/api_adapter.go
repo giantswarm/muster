@@ -920,11 +920,12 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_update",
 			Annotations: api.WriteAnnotations(true, true),
-			Description: "Update an existing MCP server definition.\n\nauth replaces the server's auth, but an authorizationServer without clientCredentialsSecretRef keeps a client stored with clientCredentials; omit authorizationServer to drop it. Changing its issuer or an endpoint while keeping that client is refused: send clientCredentials again.",
+			Description: "Update an existing MCP server definition.\n\nauth replaces the server's auth, but an authorizationServer without clientCredentialsSecretRef keeps a client stored with clientCredentials; clearClientCredentials drops it. Changing its issuer or an endpoint while keeping that client is refused: send clientCredentials again.",
 			// type is optional for update; suspended/restartRequestedAt are the
 			// CR-driven lifecycle fields (issue #1055) and only settable here.
 			Args: append(mcpServerArgs(false),
 				clientCredentialsArg("Write-only: replaces the client of auth.authorizationServer with a new Secret owned by the server, written as you"),
+				api.ArgMetadata{Name: "clearClientCredentials", Type: api.ArgTypeBoolean, Required: false, Description: "Drops the client stored with clientCredentials and keeps auth.authorizationServer; not with clientCredentials or clientCredentialsSecretRef"},
 				api.ArgMetadata{Name: "suspended", Type: api.ArgTypeBoolean, Required: false, Description: "Desired lifecycle state: true stops the server's service and keeps it stopped; false resumes it; omitted keeps the current value"},
 				api.ArgMetadata{Name: "restartRequestedAt", Type: api.ArgTypeString, Required: false, Description: "RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler"},
 			),

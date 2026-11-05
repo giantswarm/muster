@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
@@ -182,5 +184,89 @@ func TestClientCredentials_MovedClient(t *testing.T) {
 			}},
 		})
 		require.False(t, isErr, text)
+	})
+}
+
+func TestClientCredentials_Clear(t *testing.T) {
+	const generated = "test-server-muster-client-aaaaaaaaaa"
+	t.Run("drops the stored client, keeps the authorization server", func(t *testing.T) {
+		h := newCredsHarness(t, generatedServer(generated))
+		text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{"name": "test-server", "clearClientCredentials": true})
+		require.False(t, isErr, text)
+		as := h.server(t).Spec.Auth.AuthorizationServer
+		require.NotNil(t, as)
+		assert.Equal(t, "https://as.example.com", string(as.Issuer))
+		assert.Nil(t, as.ClientCredentialsSecretRef)
+		assert.Equal(t, []string{"update MCPServer"}, h.writes)
+	})
+	t.Run("with auth re-sent, in one update", func(t *testing.T) {
+		h := newCredsHarness(t, generatedServer(generated))
+		text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
+			"name": "test-server", "clearClientCredentials": true,
+			"auth": map[string]interface{}{"type": "oauth", "authorizationServer": map[string]interface{}{"issuer": "https://dcr.example.com"}},
+		})
+		require.False(t, isErr, text)
+		as := h.server(t).Spec.Auth.AuthorizationServer
+		assert.Equal(t, "https://dcr.example.com", string(as.Issuer))
+		assert.Nil(t, as.ClientCredentialsSecretRef)
+	})
+	t.Run("a reference not generated stays", func(t *testing.T) {
+		h := newCredsHarness(t, generatedServer("gitops-client"))
+		text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{"name": "test-server", "clearClientCredentials": true})
+		require.False(t, isErr, text)
+		assert.Equal(t, "gitops-client", h.server(t).Spec.Auth.AuthorizationServer.ClientCredentialsSecretRef.Name)
+	})
+	for name, extra := range map[string]map[string]interface{}{
+		"with clientCredentials": {"clientCredentials": map[string]interface{}{"clientId": testClientID, "clientSecret": testClientSecret}},
+		"with an explicit reference": {"auth": map[string]interface{}{"type": "oauth", "authorizationServer": map[string]interface{}{
+			"issuer": "https://as.example.com", "clientCredentialsSecretRef": map[string]interface{}{"name": "gitops-client"},
+		}}},
+	} {
+		t.Run("refused "+name, func(t *testing.T) {
+			h := newCredsHarness(t, generatedServer(generated))
+			args := map[string]interface{}{"name": "test-server", "clearClientCredentials": true}
+			for k, v := range extra {
+				args[k] = v
+			}
+			text, isErr := h.call(t, "mcpserver_update", args)
+			require.True(t, isErr)
+			assert.Contains(t, text, "mutually exclusive")
+			assert.Empty(t, h.writes)
+		})
+	}
+}
+
+// The stored client is compared with the issuer and endpoints its Secret was
+// entered for, not with the server's previous spec: an update that repairs a
+// spec changed behind muster's back passes, one that keeps it is refused.
+func TestClientCredentials_MovedClientComparesWithTheSecret(t *testing.T) {
+	const generated = "test-server-muster-client-aaaaaaaaaa"
+	storedFor := api.AuthorizationServerDigest(&api.MCPServerAuthAuthorizationServer{Issuer: "https://as.example.com"})
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: generated, Namespace: "test-ns",
+		Annotations: map[string]string{api.AuthorizationServerAnnotation: storedFor}}}
+	moved := func() *musterv1alpha1.MCPServer {
+		server := generatedServer(generated)
+		server.Spec.Auth.AuthorizationServer.Issuer = "https://evil.example.com" // changed with kubectl
+		return server
+	}
+	update := func(issuer string) map[string]interface{} {
+		return map[string]interface{}{"name": "test-server", "auth": map[string]interface{}{"type": "oauth",
+			"authorizationServer": map[string]interface{}{"issuer": issuer}}}
+	}
+
+	t.Run("the repair passes", func(t *testing.T) {
+		h := newCredsHarness(t, moved(), secret.DeepCopy())
+		text, isErr := h.call(t, "mcpserver_update", update("https://as.example.com"))
+		require.False(t, isErr, text)
+		as := h.server(t).Spec.Auth.AuthorizationServer
+		assert.Equal(t, "https://as.example.com", string(as.Issuer))
+		assert.Equal(t, generated, as.ClientCredentialsSecretRef.Name)
+	})
+	t.Run("keeping the mismatch is refused", func(t *testing.T) {
+		h := newCredsHarness(t, moved(), secret.DeepCopy())
+		text, isErr := h.call(t, "mcpserver_update", update("https://evil.example.com"))
+		require.True(t, isErr)
+		assert.Contains(t, text, "re-enter it with clientCredentials")
+		assert.Empty(t, h.writes)
 	})
 }

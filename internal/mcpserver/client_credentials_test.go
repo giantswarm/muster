@@ -69,6 +69,11 @@ func (r *storeReader) GetMCPServer(ctx context.Context, name, namespace string) 
 	return obj, nil
 }
 
+// Get reads any object, a Secret too, as muster's ServiceAccount may.
+func (r *storeReader) Get(ctx context.Context, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+	return r.store.Get(ctx, key, obj, opts...)
+}
+
 func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer, objects ...ctrlclient.Object) *credsHarness {
 	t.Helper()
 	scheme := runtime.NewScheme()

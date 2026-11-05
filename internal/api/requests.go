@@ -187,6 +187,11 @@ type MCPServerUpdateRequest struct {
 	// new Secret owned by the server, written as the caller. Write-only.
 	ClientCredentials *MCPServerClientCredentials `json:"clientCredentials,omitempty"`
 
+	// ClearClientCredentials drops the client stored with ClientCredentials:
+	// the generated client Secret reference goes, auth.authorizationServer
+	// stays. Not with ClientCredentials or an explicit reference.
+	ClearClientCredentials bool `json:"clearClientCredentials,omitempty"`
+
 	// Suspended declares the desired lifecycle state of the server's service.
 	// Tri-state: omitting it keeps the current value, so an unrelated update
 	// (description, headers) does not silently resume a server that was

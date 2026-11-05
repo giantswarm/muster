@@ -212,16 +212,13 @@ func clientCredentialsSecret(name string, server *musterv1alpha1.MCPServer, cred
 // keepGeneratedClientSecretRef keeps, on an update whose auth names no
 // authorizationServer client Secret, the generated one the server had: an
 // edit that re-sends auth without the reference keeps the stored client. An
-// auth without authorizationServer drops it.
+// auth without authorizationServer drops it; so does clearClientCredentials.
 func keepGeneratedClientSecretRef(server *musterv1alpha1.MCPServer, previous *musterv1alpha1.MCPServerAuthAuthorizationServer) {
 	as := authorizationServerOf(&server.Spec)
-	if as == nil || as.ClientCredentialsSecretRef != nil || previous == nil || previous.ClientCredentialsSecretRef == nil {
+	if as == nil || as.ClientCredentialsSecretRef != nil || previous == nil || !ownGeneratedRef(server, previous.ClientCredentialsSecretRef) {
 		return
 	}
-	ref := previous.ClientCredentialsSecretRef
-	if (ref.Namespace == "" || ref.Namespace == server.Namespace) && isGeneratedClientSecretName(server.Name, ref.Name) {
-		as.ClientCredentialsSecretRef = ref.DeepCopy()
-	}
+	as.ClientCredentialsSecretRef = previous.ClientCredentialsSecretRef.DeepCopy()
 }
 
 // storedInSecret is the note a create or update result adds for the Secret
