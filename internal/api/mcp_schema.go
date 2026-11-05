@@ -38,6 +38,9 @@ func InputSchemaFromArgs(args []ArgMetadata) mcp.ToolInputSchema {
 		if arg.Default != nil {
 			propSchema["default"] = arg.Default
 		}
+		if arg.Sensitive {
+			propSchema["writeOnly"] = true
+		}
 
 		properties[arg.Name] = propSchema
 

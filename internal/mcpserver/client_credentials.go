@@ -242,7 +242,7 @@ func unusedSecret(name string) string {
 // clientCredentialsArg is the clientCredentials argument of
 // core_mcpserver_create and core_mcpserver_update.
 func clientCredentialsArg(description string) api.ArgMetadata {
-	return api.ArgMetadata{Name: "clientCredentials", Type: api.ArgTypeObject, Required: false, Description: description, Schema: map[string]interface{}{
+	return api.ArgMetadata{Name: "clientCredentials", Type: api.ArgTypeObject, Required: false, Description: description, Sensitive: true, Schema: map[string]interface{}{
 		api.SchemaKeyType:        string(api.ArgTypeObject),
 		api.SchemaKeyDescription: "Write-only; never returned. Not with auth.authorizationServer.clientCredentialsSecretRef",
 		api.SchemaKeyProperties: map[string]interface{}{

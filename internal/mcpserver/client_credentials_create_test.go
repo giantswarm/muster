@@ -79,3 +79,16 @@ func TestClientCredentials_CreateChangedMeanwhile(t *testing.T) {
 		})
 	}
 }
+
+// clientCredentials is sensitive on both tools: its schema says writeOnly,
+// and a workflow execution record does not keep what is passed into it.
+func TestClientCredentials_ArgIsSensitive(t *testing.T) {
+	adapter := NewAdapterWithClient(&stubMusterClient{}, "test-ns")
+	for _, tool := range adapter.GetTools() {
+		for _, arg := range tool.Args {
+			if arg.Name == "clientCredentials" {
+				assert.True(t, arg.Sensitive, tool.Name)
+			}
+		}
+	}
+}
