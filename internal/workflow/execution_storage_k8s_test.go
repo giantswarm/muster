@@ -16,11 +16,9 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 )
 
-// These tests define the contract for the Kubernetes-backed ExecutionStorage
-// (Phase 2 of #930). They are written test-first: the production
-// newK8sExecutionStorage / k8sExecutionStorage / WorkflowExecution CRD do not
-// exist yet, so this file is expected to fail to compile until the storage
-// backend and CRD type land.
+// longWorkflowName is a real muster-runbooks workflow name, longer than the
+// 63-character limit on a label value.
+const longWorkflowName = "certificate-giantswarm-managed-certificate-cr-will-expire-in-less-than-two-weeks"
 
 // k8sTestScheme registers the muster CRD types (including WorkflowExecution)
 // alongside the core types so the controller-runtime fake client can serve them.
@@ -39,6 +37,12 @@ func newTestK8sStorage(t *testing.T, now time.Time, seed ...client.Object) *k8sE
 	fakeClient := fake.NewClientBuilder().
 		WithScheme(k8sTestScheme(t)).
 		WithObjects(seed...).
+		WithIndex(&musterv1alpha1.WorkflowExecution{}, fieldWorkflowName, func(obj client.Object) []string {
+			return []string{obj.(*musterv1alpha1.WorkflowExecution).Spec.WorkflowName}
+		}).
+		WithIndex(&musterv1alpha1.WorkflowExecution{}, fieldStatus, func(obj client.Object) []string {
+			return []string{obj.(*musterv1alpha1.WorkflowExecution).Spec.Status}
+		}).
 		Build()
 	s := newK8sExecutionStorage(fakeClient, "default")
 	s.now = func() time.Time { return now }
@@ -142,6 +146,27 @@ func TestK8sExecutionStorageListFilters(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, resp.Total)
 	require.Equal(t, "alpha-old", resp.Executions[0].ExecutionID)
+}
+
+func TestK8sExecutionStorageLongWorkflowName(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	s := newTestK8sStorage(t, now)
+	ctx := t.Context()
+
+	require.Greater(t, len(longWorkflowName), 63)
+	require.NoError(t, s.Store(ctx, sampleExecution("long-old", longWorkflowName, api.WorkflowExecutionFailed, now.Add(-2*time.Hour))))
+	require.NoError(t, s.Store(ctx, sampleExecution("long-new", longWorkflowName, api.WorkflowExecutionCompleted, now.Add(-time.Hour))))
+	require.NoError(t, s.Store(ctx, sampleExecution("short-1", "short", api.WorkflowExecutionCompleted, now)))
+
+	resp, err := s.List(ctx, &api.ListWorkflowExecutionsRequest{WorkflowName: longWorkflowName})
+	require.NoError(t, err)
+	require.Equal(t, 2, resp.Total)
+	require.Equal(t, "long-new", resp.Executions[0].ExecutionID)
+	require.Equal(t, "long-old", resp.Executions[1].ExecutionID)
+
+	var stored musterv1alpha1.WorkflowExecution
+	require.NoError(t, s.client.Get(ctx, client.ObjectKey{Namespace: "default", Name: "long-new"}, &stored))
+	require.Empty(t, stored.Labels)
 }
 
 func TestK8sExecutionStorageListPagination(t *testing.T) {

@@ -1133,9 +1133,6 @@ kind: WorkflowExecution
 metadata:
   name: <execution-uuid>
   namespace: <namespace>
-  labels:
-    muster.giantswarm.io/workflow: <workflow-name>  # set by muster, used for list filtering
-    muster.giantswarm.io/status: <status>           # set by muster, used for list filtering
 spec:
   workflowName: <workflow-name>
   status: inprogress|completed|failed
@@ -1163,8 +1160,8 @@ spec:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spec.workflowName` | string (required) | Name of the workflow that was executed |
-| `spec.status` | enum | `inprogress`, `completed`, or `failed` |
+| `spec.workflowName` | string (required) | Name of the workflow that was executed; a selectable field |
+| `spec.status` | enum | `inprogress`, `completed`, or `failed`; a selectable field |
 | `spec.startedAt` | timestamp (required) | When the execution began |
 | `spec.completedAt` | timestamp | When the execution finished (unset while in progress) |
 | `spec.durationMs` | int64 | Total execution duration in milliseconds |
@@ -1186,9 +1183,9 @@ kubectl get workflowexecutions
 # or using short name
 kubectl get wfe
 
-# Filter by workflow or status via labels
-kubectl get wfe -l muster.giantswarm.io/workflow=deploy-application
-kubectl get wfe -l muster.giantswarm.io/status=failed
+# Filter by workflow or status (selectable fields, Kubernetes 1.31 or later)
+kubectl get wfe --field-selector spec.workflowName=deploy-application
+kubectl get wfe --field-selector spec.status=failed
 
 # Inspect a single run
 kubectl describe wfe <execution-uuid>

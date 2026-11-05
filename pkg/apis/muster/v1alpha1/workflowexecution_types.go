@@ -93,6 +93,8 @@ type WorkflowExecutionStepRecord struct {
 
 //+kubebuilder:object:root=true
 //+kubebuilder:resource:shortName=wfe
+//+kubebuilder:selectablefield:JSONPath=".spec.workflowName"
+//+kubebuilder:selectablefield:JSONPath=".spec.status"
 //+kubebuilder:printcolumn:name="Workflow",type="string",JSONPath=".spec.workflowName"
 //+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".spec.status"
 //+kubebuilder:printcolumn:name="Duration(ms)",type="integer",JSONPath=".spec.durationMs"
