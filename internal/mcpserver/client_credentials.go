@@ -27,10 +27,12 @@ import (
 
 const (
 	// generatedClientSecretInfix separates the server's name from the random
-	// suffix in a generated client Secret name.
-	generatedClientSecretInfix = "-oauth-client-" //nolint:gosec // G101: part of a Secret name, not a credential
+	// suffix in a generated client Secret name. It names muster, and the
+	// suffix is long, so that no Secret made by hand has such a name: muster
+	// refuses one without its ownerReference (checkGeneratedOwner).
+	generatedClientSecretInfix = "-muster-client-" //nolint:gosec // G101: part of a Secret name, not a credential
 	// generatedClientSecretSuffixLen is the length of the random suffix.
-	generatedClientSecretSuffixLen = 5
+	generatedClientSecretSuffixLen = 10
 	// generatedClientSecretMaxServer is how much of the server's name a
 	// generated name keeps, so it stays a DNS label (63 characters).
 	generatedClientSecretMaxServer = validation.DNS1123LabelMaxLength - len(generatedClientSecretInfix) - generatedClientSecretSuffixLen
@@ -45,15 +47,18 @@ const (
 
 // generatedClientSecretPrefix is the part of a generated client Secret name
 // before its random suffix.
+// The server's name is cut to generatedClientSecretMaxServer characters, and
+// a '.' or '-' the cut ends on is trimmed: the name stays a valid DNS
+// subdomain. The chart's admission policy computes the same prefix.
 func generatedClientSecretPrefix(server string) string {
 	if len(server) > generatedClientSecretMaxServer {
-		server = server[:generatedClientSecretMaxServer]
+		server = strings.TrimRight(server[:generatedClientSecretMaxServer], ".-")
 	}
 	return server + generatedClientSecretInfix
 }
 
 // newGeneratedClientSecretName returns a fresh client Secret name for a
-// server: <server>-oauth-client-<5 of [a-z0-9]>.
+// server: <server, cut>-muster-client-<10 of [a-z0-9]>.
 func newGeneratedClientSecretName(server string) (string, error) {
 	suffix := make([]byte, generatedClientSecretSuffixLen)
 	limit := big.NewInt(int64(len(generatedClientSecretAlphabet)))

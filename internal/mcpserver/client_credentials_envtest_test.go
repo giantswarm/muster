@@ -223,8 +223,8 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 
 	t.Run("policy admits only the server's own generated name", func(t *testing.T) {
 		for name, ref := range map[string]string{
-			"another server's name": "hubspot-oauth-client-abcde",
-			"a sixth character":     "thief-oauth-client-abcdef",
+			"another server's name": "hubspot-muster-client-abcde12345",
+			"a sixth character":     "thief-muster-client-abcde123456",
 		} {
 			text, isErr := call(editorCtx, "mcpserver_create", args("thief", map[string]interface{}{
 				"issuer": "https://as.example.com", "clientCredentialsSecretRef": map[string]interface{}{"name": ref},
@@ -233,9 +233,18 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 			assert.Contains(t, text, "may name only Secrets they may get", name)
 		}
 		text, isErr := call(editorCtx, "mcpserver_create", args("thief", map[string]interface{}{
-			"issuer": "https://as.example.com", "clientCredentialsSecretRef": map[string]interface{}{"name": "thief-oauth-client-abcde"},
+			"issuer": "https://as.example.com", "clientCredentialsSecretRef": map[string]interface{}{"name": "thief-muster-client-abcde12345"},
 		}, false))
 		require.False(t, isErr, "the server's own generated name: %s", text)
+	})
+
+	t.Run("a name cut on a dot", func(t *testing.T) {
+		const name = "team-a.example.internal.connectorsxyz.platform"
+		text, isErr := call(editorCtx, "mcpserver_create", args(name, issuer, true))
+		require.False(t, isErr, text)
+		ref := refOf(name)
+		assert.True(t, strings.HasPrefix(ref, "team-a.example.internal.connectorsxyz-muster-client-"), ref)
+		secretOf(ref)
 	})
 
 	t.Run("editor without create on secrets", func(t *testing.T) {

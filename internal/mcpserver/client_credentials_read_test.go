@@ -14,7 +14,7 @@ import (
 )
 
 // githubGenerated is a generated client Secret name for githubServer.
-const githubGenerated = "github-oauth-client-x1y2z"
+const githubGenerated = "github-muster-client-x1y2z3w4v5"
 
 func ownerRefTo(uid, kind string) func(*corev1.Secret) {
 	return func(s *corev1.Secret) {

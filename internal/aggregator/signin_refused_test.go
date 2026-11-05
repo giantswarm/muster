@@ -41,7 +41,7 @@ func (r *serviceRegistryOf) Get(name string) (api.ServiceInfo, bool) {
 // fixtureAuth pins https://as.example.com with a client Secret.
 var fixtureAuth = &api.MCPServerAuth{Type: "oauth", AuthorizationServer: &api.MCPServerAuthAuthorizationServer{
 	Issuer:                     "https://as.example.com",
-	ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{Name: "fixture-oauth-client-abcde"},
+	ClientCredentialsSecretRef: &api.ClientCredentialsSecretRef{Name: "fixture-muster-client-abcde12345"},
 }}
 
 // A server whose sign-in muster refuses loses its pending-auth entry and the
@@ -116,13 +116,13 @@ func TestDescriptionConflict(t *testing.T) {
 		return &api.MCPServerAuth{Type: "oauth", AuthorizationServer: as}
 	}
 
-	err := a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "hubspot-2-oauth-client-new"))
+	err := a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "hubspot-2-muster-client-new"))
 	require.ErrorIs(t, err, api.ErrAuthorizationServerConflict)
 	assert.Contains(t, err.Error(), "MCP server 'hubspot' signs in to https://as.example.com with another client or endpoints")
 
-	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "fixture-oauth-client-abcde")), "the same client")
-	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://other.example.com", "hubspot-2-oauth-client-new")), "another issuer")
-	assert.NoError(t, a.DescriptionConflict("hubspot", nil, auth("https://as.example.com", "hubspot-oauth-client-new")), "itself")
+	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://as.example.com", "fixture-muster-client-abcde12345")), "the same client")
+	assert.NoError(t, a.DescriptionConflict("hubspot-2", nil, auth("https://other.example.com", "hubspot-2-muster-client-new")), "another issuer")
+	assert.NoError(t, a.DescriptionConflict("hubspot", nil, auth("https://as.example.com", "hubspot-muster-client-new")), "itself")
 	assert.NoError(t, a.DescriptionConflict("plain", nil, auth("https://as.example.com", "")), "a plain issuer override pins nothing")
 
 	// Unchanged auth on the owner is not blocked by a newer server that
@@ -130,21 +130,21 @@ func TestDescriptionConflict(t *testing.T) {
 	require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
 		ServerRegistration: ServerRegistration{Name: "hubspot-2"},
 		URL:                "https://hubspot-2.example.com/mcp",
-		AuthConfig:         auth("https://as.example.com", "hubspot-2-oauth-client-xyzab"),
+		AuthConfig:         auth("https://as.example.com", "hubspot-2-muster-client-xyzab12345"),
 	}))
-	owner := auth("https://as.example.com", "fixture-oauth-client-abcde")
+	owner := auth("https://as.example.com", "fixture-muster-client-abcde12345")
 	assert.NoError(t, a.DescriptionConflict("hubspot", owner, owner), "unchanged auth on the owner is not blocked")
-	rescoped := auth("https://as.example.com", "fixture-oauth-client-abcde")
+	rescoped := auth("https://as.example.com", "fixture-muster-client-abcde12345")
 	rescoped.AuthorizationServer.Scopes = "crm"
 	assert.NoError(t, a.DescriptionConflict("hubspot", owner, rescoped), "scopes are not part of the pinned description")
-	require.ErrorIs(t, a.DescriptionConflict("hubspot", owner, auth("https://as.example.com", "hubspot-oauth-client-new")),
+	require.ErrorIs(t, a.DescriptionConflict("hubspot", owner, auth("https://as.example.com", "hubspot-muster-client-new")),
 		api.ErrAuthorizationServerConflict, "a new client is checked")
-	require.ErrorIs(t, a.DescriptionConflict("hubspot", auth("https://old.example.com", "fixture-oauth-client-abcde"), owner),
+	require.ErrorIs(t, a.DescriptionConflict("hubspot", auth("https://old.example.com", "fixture-muster-client-abcde12345"), owner),
 		api.ErrAuthorizationServerConflict, "moving to the issuer is checked")
 
 	// The comparison is the pin's: the older server's description is
 	// refused for the newer one there too.
-	newer := &ServerInfo{Name: "hubspot-2", AuthConfig: auth("https://as.example.com", "hubspot-2-oauth-client-new")}
+	newer := &ServerInfo{Name: "hubspot-2", AuthConfig: auth("https://as.example.com", "hubspot-2-muster-client-new")}
 	_, pinErr := a.issuerPinOwner(newer)
 	require.ErrorIs(t, pinErr, api.ErrAuthorizationServerConflict)
 }

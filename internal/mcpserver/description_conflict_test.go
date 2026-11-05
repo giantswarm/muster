@@ -58,7 +58,7 @@ func TestDescriptionConflict_RefusedBeforeAnyWrite(t *testing.T) {
 		assert.Contains(t, text, "use an existing Secret with that server's client, or another issuer")
 		assert.Empty(t, h.writes)
 		require.Equal(t, []string{"test-server"}, aggregator.keys)
-		assert.Equal(t, []string{"test-server-oauth-client-new"}, aggregator.refs, "checked with a client of its own")
+		assert.Equal(t, []string{"test-server-muster-client-new"}, aggregator.refs, "checked with a client of its own")
 	})
 	t.Run("update that writes the auth", func(t *testing.T) {
 		useDescribingAggregator(t, errOtherHubSpot)

@@ -30,7 +30,7 @@ func TestPinSecretWithTheRealAdapter(t *testing.T) {
 		Data:       map[string][]byte{"client-id": []byte("id"), "client-secret": []byte("shh")},
 	}
 	generated := clientSecret.DeepCopy()
-	generated.Name = "github-oauth-client-abcde"
+	generated.Name = "github-muster-client-abcde12345"
 	ownedGenerated := generated.DeepCopy()
 	ownedGenerated.OwnerReferences = []metav1.OwnerReference{{
 		APIVersion: "muster.giantswarm.io/v1alpha1", Kind: "MCPServer", Name: "github", UID: "uid-github",
@@ -56,11 +56,11 @@ func TestPinSecretWithTheRealAdapter(t *testing.T) {
 			opts:      []mcpserver.CredentialsOption{mcpserver.WithSecretReferencePolicy("")},
 			wantState: services.StateFailed, wantErr: api.ErrSecretReferencePolicyInactive},
 		{name: "missing", wantState: services.StateAuthRequired},
-		{name: "generated name, not owned", ref: "github-oauth-client-abcde", objects: []*corev1.Secret{generated},
+		{name: "generated name, not owned", ref: "github-muster-client-abcde12345", objects: []*corev1.Secret{generated},
 			wantState: services.StateFailed, wantErr: api.ErrSecretNotOwned},
-		{name: "generated name, owned", ref: "github-oauth-client-abcde", objects: []*corev1.Secret{ownedGenerated},
+		{name: "generated name, owned", ref: "github-muster-client-abcde12345", objects: []*corev1.Secret{ownedGenerated},
 			wantState: services.StateAuthRequired},
-		{name: "generated name, stored for another authorization server", ref: "github-oauth-client-abcde",
+		{name: "generated name, stored for another authorization server", ref: "github-muster-client-abcde12345",
 			objects: []*corev1.Secret{movedGenerated}, wantState: services.StateFailed, wantErr: api.ErrSecretOtherAuthorizationServer},
 	}
 	for _, tc := range tests {

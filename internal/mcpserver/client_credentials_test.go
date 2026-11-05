@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -341,19 +342,38 @@ func TestClientCredentials_FilesystemMode(t *testing.T) {
 func TestGeneratedClientSecretName(t *testing.T) {
 	name, err := newGeneratedClientSecretName("hubspot")
 	require.NoError(t, err)
-	assert.Regexp(t, `^hubspot-oauth-client-[a-z0-9]{5}$`, name)
+	assert.Regexp(t, `^hubspot-muster-client-[a-z0-9]{10}$`, name)
 	assert.True(t, isGeneratedClientSecretName("hubspot", name))
 
 	long := strings.Repeat("a", 60)
 	name, err = newGeneratedClientSecretName(long)
 	require.NoError(t, err)
 	assert.Len(t, name, 63)
-	assert.Regexp(t, `^a{44}-oauth-client-[a-z0-9]{5}$`, name)
+	assert.Regexp(t, `^a{38}-muster-client-[a-z0-9]{10}$`, name)
 	assert.True(t, isGeneratedClientSecretName(long, name))
 
+	// A cut that ends on '.' or '-' is trimmed, so the name stays a DNS
+	// subdomain (the reviewer's example has its dot where the cut falls).
+	for _, server := range []string{
+		"team-a.example.internal.connectors.platform.x",
+		"team-a.example.internal.connectorsxyz.platform",
+		strings.Repeat("a", 37) + "-b",
+		strings.Repeat("a", 36) + ".-b",
+	} {
+		name, err := newGeneratedClientSecretName(server)
+		require.NoError(t, err)
+		assert.Empty(t, validation.IsDNS1123Subdomain(name), name)
+		assert.LessOrEqual(t, len(name), 63)
+		assert.True(t, isGeneratedClientSecretName(server, name))
+	}
+	// The cut falls on a dot (index 37): it is trimmed.
+	name, err = newGeneratedClientSecretName("team-a.example.internal.connectorsxyz.platform")
+	require.NoError(t, err)
+	assert.Regexp(t, `^team-a\.example\.internal\.connectorsxyz-muster-client-[a-z0-9]{10}$`, name)
+
 	for _, other := range []string{
-		"hubspot-oauth-client-abcd", "hubspot-oauth-client-abcdef", "hubspot-oauth-client-ABCDE",
-		"hubspot-oauth-client-ab-de", "other-oauth-client-abcde", "hubspot2-oauth-client-abcde", "hubspot",
+		"hubspot-muster-client-abcde1234", "hubspot-muster-client-abcde123456", "hubspot-muster-client-ABCDE12345",
+		"hubspot-muster-client-ab-de12345", "other-muster-client-abcde12345", "hubspot2-muster-client-abcde12345", "hubspot",
 	} {
 		assert.False(t, isGeneratedClientSecretName("hubspot", other), other)
 	}

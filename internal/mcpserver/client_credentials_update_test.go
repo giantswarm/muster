@@ -30,7 +30,7 @@ func generatedServer(name string) *musterv1alpha1.MCPServer {
 
 func TestClientCredentials_Replace(t *testing.T) {
 	logs := captureBindingLogs(t)
-	const old = "test-server-oauth-client-aaaaa"
+	const old = "test-server-muster-client-aaaaaaaaaa"
 	h := newCredsHarness(t, generatedServer(old))
 
 	text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
@@ -68,7 +68,7 @@ func TestClientCredentials_ReplaceExplicitRef(t *testing.T) {
 }
 
 func TestClientCredentials_ReplaceSecretForbidden(t *testing.T) {
-	h := newCredsHarness(t, generatedServer("test-server-oauth-client-aaaaa"))
+	h := newCredsHarness(t, generatedServer("test-server-muster-client-aaaaaaaaaa"))
 	h.secretErr = forbiddenSecretCreate()
 
 	text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
@@ -82,7 +82,7 @@ func TestClientCredentials_ReplaceSecretForbidden(t *testing.T) {
 }
 
 func TestClientCredentials_ReplaceUpdateFails(t *testing.T) {
-	h := newCredsHarness(t, generatedServer("test-server-oauth-client-aaaaa"))
+	h := newCredsHarness(t, generatedServer("test-server-muster-client-aaaaaaaaaa"))
 	h.updateErr = errors.New("conflict")
 
 	text, isErr := h.call(t, "mcpserver_update", map[string]interface{}{
@@ -98,7 +98,7 @@ func TestClientCredentials_ReplaceUpdateFails(t *testing.T) {
 }
 
 func TestClientCredentials_UpdateAuthKeepsGeneratedRef(t *testing.T) {
-	const generated = "test-server-oauth-client-aaaaa"
+	const generated = "test-server-muster-client-aaaaaaaaaa"
 	auth := func(as map[string]interface{}) map[string]interface{} {
 		a := map[string]interface{}{"type": "oauth"}
 		if as != nil {
@@ -144,7 +144,7 @@ func TestClientCredentials_UpdateAuthKeepsGeneratedRef(t *testing.T) {
 // Moving a stored client to another authorization server needs the client
 // again: muster sends it only where it was entered for.
 func TestClientCredentials_MovedClient(t *testing.T) {
-	const generated = "test-server-oauth-client-aaaaa"
+	const generated = "test-server-muster-client-aaaaaaaaaa"
 	for name, as := range map[string]map[string]interface{}{
 		"issuer":         {"issuer": "https://evil.example.com"},
 		"token endpoint": {"issuer": "https://as.example.com", "authorizationEndpoint": "https://as.example.com/a", "tokenEndpoint": "https://evil.example.com/t"},
