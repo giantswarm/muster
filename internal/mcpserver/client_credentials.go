@@ -9,6 +9,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
@@ -138,10 +139,12 @@ func destinationDigest(as *musterv1alpha1.MCPServerAuthAuthorizationServer) stri
 	return api.AuthorizationServerDigest(convertCRDAuthToAPI(&musterv1alpha1.MCPServerAuth{AuthorizationServer: as}).AuthorizationServer)
 }
 
-// secretWriter is the caller-identity write surface for Secrets. Only the
-// per-call caller client has it: in filesystem mode there is none.
+// secretWriter is the caller-identity write surface clientCredentials need:
+// creating a Secret, and deleting a server only while it is the one created.
+// Only the per-call caller client has it: muster writing as itself has none.
 type secretWriter interface {
 	CreateSecret(ctx context.Context, secret *corev1.Secret) error
+	DeleteMCPServerUID(ctx context.Context, name, namespace string, uid types.UID) error
 }
 
 // validateClientCredentials checks clientCredentials against the request's

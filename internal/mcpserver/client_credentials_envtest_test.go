@@ -158,6 +158,7 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 
 		obj, err := saClient.GetMCPServer(ctx, "hubspot", ns)
 		require.NoError(t, err)
+		assert.False(t, obj.Spec.Suspended, "released once its client is named")
 		first := refOf("hubspot")
 		require.True(t, isGeneratedClientSecretName("hubspot", first), first)
 		secret := secretOf(first)

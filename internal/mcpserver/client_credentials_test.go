@@ -46,6 +46,12 @@ type credsHarness struct {
 	secretErr  error
 	deleteErr  error
 	updateErr  error
+	// onSecret runs before a Secret is created: another writer's change.
+	onSecret func(ctx context.Context, c ctrlclient.WithWatch)
+	// createdSuspended records spec.suspended of each MCPServer created;
+	// deleteUIDs the UID precondition of each delete.
+	createdSuspended []bool
+	deleteUIDs       []types.UID
 }
 
 // storeReader is the SA client of credsHarness: it reads MCPServers from the
@@ -83,6 +89,9 @@ func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer, objects .
 		Create: func(ctx context.Context, c ctrlclient.WithWatch, obj ctrlclient.Object, opts ...ctrlclient.CreateOption) error {
 			h.writes = append(h.writes, "create "+kind(obj))
 			if _, ok := obj.(*corev1.Secret); ok {
+				if h.onSecret != nil {
+					h.onSecret(ctx, c)
+				}
 				if len(h.secretErrs) > 0 {
 					err := h.secretErrs[0]
 					h.secretErrs = h.secretErrs[1:]
@@ -94,6 +103,7 @@ func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer, objects .
 			}
 			if server, ok := obj.(*musterv1alpha1.MCPServer); ok {
 				server.UID = testServerUID
+				h.createdSuspended = append(h.createdSuspended, server.Spec.Suspended)
 			}
 			return c.Create(ctx, obj, opts...)
 		},
@@ -106,6 +116,11 @@ func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer, objects .
 		},
 		Delete: func(ctx context.Context, c ctrlclient.WithWatch, obj ctrlclient.Object, opts ...ctrlclient.DeleteOption) error {
 			h.writes = append(h.writes, "delete "+kind(obj))
+			deleteOpts := &ctrlclient.DeleteOptions{}
+			deleteOpts.ApplyOptions(opts)
+			if deleteOpts.Preconditions != nil && deleteOpts.Preconditions.UID != nil {
+				h.deleteUIDs = append(h.deleteUIDs, *deleteOpts.Preconditions.UID)
+			}
 			if h.deleteErr != nil {
 				return h.deleteErr
 			}
@@ -335,7 +350,7 @@ func TestClientCredentials_FilesystemMode(t *testing.T) {
 	result, err := adapter.ExecuteTool(context.Background(), "mcpserver_create", args)
 	require.NoError(t, err)
 	require.True(t, result.IsError)
-	assert.Contains(t, resultText(t, result), "need muster in Kubernetes mode")
+	assert.Contains(t, resultText(t, result), "need caller-identity writes")
 	assert.Empty(t, sa.created)
 }
 

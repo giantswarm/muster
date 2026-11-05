@@ -1175,13 +1175,9 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 
 	// clientCredentials go to a Secret muster writes as the caller once the
 	// server exists, and then names in it (client_credentials_store.go).
-	var secrets secretWriter
-	if req.ClientCredentials != nil {
-		var errResult *api.CallToolResult
-		if secrets, errResult = checkClientCredentials(writer, req.ClientCredentials,
-			serverCRD, requestNamesClientSecretRef(req.Auth)); errResult != nil {
-			return errResult, nil
-		}
+	secrets, refused := prepareCreateClient(writer, &req, serverCRD)
+	if refused != nil {
+		return refused, nil
 	}
 
 	// Validate the definition
