@@ -27,8 +27,9 @@ func signInNotReadyMessage(serverName string, reason error) string {
 
 // definedSignInNotReady returns why the sign-in of a server that has no
 // registry entry cannot start, or nil when there is no definition of it (the
-// server does not exist). The reason is the pin Secret muster cannot read,
-// else the definition's last error, else its state.
+// server does not exist) or, in muster's namespace, for a server without a
+// sign-in. The reason is the pin Secret muster cannot read, else the
+// definition's last error, else its state.
 func definedSignInNotReady(ctx context.Context, serverName string) error {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
@@ -36,6 +37,11 @@ func definedSignInNotReady(ctx context.Context, serverName string) error {
 	}
 	definition, err := manager.GetMCPServer(ctx, serverName)
 	if err != nil || definition == nil {
+		return nil
+	}
+	// In muster's namespace only a server with a sign-in has one that is not
+	// ready; any other unregistered server is "not found", as it always was.
+	if !api.IsTenantMCPServerKey(serverName) && !signsIn(definition.Auth) {
 		return nil
 	}
 	if err := pinSecretReadable(ctx, serverName, definition); err != nil {
@@ -81,4 +87,10 @@ func tenantSecretReadError(serverName, namespace, secret string, err error) erro
 	return fmt.Errorf("muster may not read the Secret %s/%s of the pin: give muster's ServiceAccount get on that Secret alone "+
 		"(a Role in %s with resourceNames: [%s] and a RoleBinding to it, see \"Servers outside muster's namespace\" in muster's docs): %w",
 		namespace, secret, namespace, secret, err)
+}
+
+// signsIn reports whether a server's auth has a sign-in: OAuth, or the
+// caller's own identity (token forwarding or exchange).
+func signsIn(auth *api.MCPServerAuth) bool {
+	return auth != nil && (auth.Type == "oauth" || auth.UsesSessionAuth())
 }

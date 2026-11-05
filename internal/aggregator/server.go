@@ -1475,21 +1475,6 @@ func (a *AggregatorServer) DeregisterServer(name string) error {
 	return err
 }
 
-// DeregisterRefusedServer removes a server whose sign-in muster refuses
-// (api.IsSignInRefused), pending-auth entry or not, and releases the
-// authorization server it was registered with. Unlike DeregisterServer it
-// keeps what people hold for a tenant server: the definition stays, and the
-// refusal may be lifted.
-func (a *AggregatorServer) DeregisterRefusedServer(name string) error {
-	var previous *api.MCPServerAuth
-	if info, registered := a.registry.GetServerInfo(name); registered {
-		previous = info.AuthConfig
-	}
-	_, err := a.deregisterServer(name, false, false, false)
-	a.unpinRefused(name, previous)
-	return err
-}
-
 // DeregisterServerOnStateChange is DeregisterServer for the aggregator's
 // service state-change handling: it never removes an entry that requires
 // per-session authentication, whatever the (possibly stale) event said. Such

@@ -101,6 +101,29 @@ func TestSignInRefused_DropsRegistrationAndPin(t *testing.T) {
 	}
 }
 
+// A refused server already removed is not removed again on every failed
+// retry of its backoff; a pin it still owns goes.
+func TestSignInRefused_NotRemovedAgain(t *testing.T) {
+	handler := &pinCaptureHandler{mockOAuthHandler: newMockOAuthHandler(true), pins: map[string]api.IssuerPin{}}
+	api.RegisterOAuthHandler(handler)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+	server := &AggregatorServer{registry: NewServerRegistry("x"), definedServers: func() map[string]*ServerInfo {
+		return map[string]*ServerInfo{"fixture": {Name: "fixture", AuthConfig: fixtureAuth}}
+	}}
+	am := &AggregatorManager{
+		aggregatorServer: server,
+		serviceRegistry: &serviceRegistryOf{stubServiceRegistry: newStubServiceRegistry(),
+			service: &refusedService{name: "fixture", state: api.StateFailed, err: fmt.Errorf("x: %w", api.ErrSecretNotOwned)}},
+	}
+
+	require.Error(t, am.deregisterOnStateChange("fixture"), "nothing to remove: the event handler emits no event")
+	assert.Empty(t, handler.unpinned)
+
+	handler.pins["https://as.example.com"] = api.IssuerPin{DescriptionKey: "repinned"}
+	require.Error(t, am.deregisterOnStateChange("fixture"))
+	assert.Equal(t, []string{"https://as.example.com"}, handler.unpinned, "a pin it still owns goes")
+}
+
 func TestDescriptionConflict(t *testing.T) {
 	reg := NewServerRegistry("x")
 	require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
