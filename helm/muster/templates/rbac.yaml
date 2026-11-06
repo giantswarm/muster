@@ -44,13 +44,16 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
-  {{- if not (kindIs "invalid" .Values.muster.mcpServerNamespaceSelector) }}
+  {{- with .Values.muster.mcpServerNamespaceSelector }}
+  {{- if or .matchLabels .matchExpressions }}
 
   # Namespaces - mcpServerNamespaceSelector selects the namespaces whose
-  # MCPServers muster serves by their labels.
+  # MCPServers muster serves by their labels. An empty selector selects every
+  # namespace without reading any.
   - apiGroups: [""]
     resources: ["namespaces"]
     verbs: ["get", "list", "watch"]
+  {{- end }}
   {{- end }}
   {{- if .Values.mcpServerSecretReferences.enabled }}
 
