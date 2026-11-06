@@ -71,6 +71,7 @@ type baseMCPClient struct {
 	// records them here as it completes the handshake (recordHandshake).
 	negotiatedProtocolVersion string
 	serverCapabilities        mcp.ServerCapabilities
+	serverInfo                mcp.Implementation
 
 	// Session recovery, see client_session_recovery.go. reconnect is set by
 	// the transports whose backend keeps an MCP session (streamable-http); it
@@ -258,6 +259,7 @@ func (b *baseMCPClient) closeClient() error {
 func (b *baseMCPClient) recordHandshake(result *mcp.InitializeResult) {
 	b.negotiatedProtocolVersion = result.ProtocolVersion
 	b.serverCapabilities = result.Capabilities
+	b.serverInfo = result.ServerInfo
 }
 
 // clearHandshake forgets the last initialize result: the connection it
@@ -265,6 +267,7 @@ func (b *baseMCPClient) recordHandshake(result *mcp.InitializeResult) {
 func (b *baseMCPClient) clearHandshake() {
 	b.negotiatedProtocolVersion = ""
 	b.serverCapabilities = mcp.ServerCapabilities{}
+	b.serverInfo = mcp.Implementation{}
 }
 
 // NegotiatedProtocolVersion returns the MCP revision the server answered with
@@ -289,6 +292,18 @@ func (b *baseMCPClient) ServerCapabilities() mcp.ServerCapabilities {
 		return mcp.ServerCapabilities{}
 	}
 	return b.serverCapabilities
+}
+
+// ServerImplementation returns the serverInfo of the initialize result
+// (name, version, icons), or the zero value when the client is not connected.
+func (b *baseMCPClient) ServerImplementation() mcp.Implementation {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	if !b.connected {
+		return mcp.Implementation{}
+	}
+	return b.serverInfo
 }
 
 // listTools returns all available tools from the server

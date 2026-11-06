@@ -8,6 +8,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/servericon"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -180,6 +181,7 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 		}
 		return nil, fmt.Errorf("failed to initialize on-demand client for %s: %w", serverName, err)
 	}
+	servericon.RecordClient(serverName, client)
 
 	return &sessionClient{client: client, tokenExpiry: tokenExpiry, exchangedToken: exchangedToken}, nil
 }

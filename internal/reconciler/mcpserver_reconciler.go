@@ -14,6 +14,7 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/servericon"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	"github.com/giantswarm/muster/v5/pkg/observability"
 )
@@ -361,7 +362,25 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 		server.Status.LastError = ""
 	}
 
+	applyIcon(server, name)
+
 	applyReadyCondition(server, service, exists)
+}
+
+// applyIcon writes status.icon: the server's own icon, otherwise the
+// built-in icon of the brand whose domain spec.url is on. An icon muster
+// learned at a handshake wins and persists: before the first handshake after
+// a restart, a stored server icon stays, while a stored brand icon (or none)
+// is recomputed from spec.url, so a suspended server or one never connected
+// gets it and a URL change updates it.
+func applyIcon(server *musterv1alpha1.MCPServer, name string) {
+	icon, known := servericon.Lookup(name)
+	switch {
+	case known && icon != "":
+		server.Status.Icon = icon
+	case known, server.Status.Icon == "", servericon.IsBrandIcon(server.Status.Icon):
+		server.Status.Icon = servericon.BrandIcon(server.Spec.URL)
+	}
 }
 
 // applyRetrySchedule mirrors the service's reconnect schedule into the CR
@@ -915,6 +934,7 @@ func (r *MCPServerReconciler) reconcileDelete(ctx context.Context, req Reconcile
 	// Done before the early returns below: every path out of here means the
 	// definition is gone.
 	r.stateMetrics.forget(r.metricKey(req))
+	servericon.Forget(key)
 
 	// Check if service exists
 	_, exists := r.serviceRegistry.Get(key)
