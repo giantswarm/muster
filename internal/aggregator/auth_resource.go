@@ -95,6 +95,14 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 			}
 		}
 	}
+	// Nor is a server outside the toolsets bounding the request.
+	if shows, scoped := api.ToolsetShows(ctx); scoped {
+		for name := range servers {
+			if !shows(name) {
+				delete(servers, name)
+			}
+		}
+	}
 	suspended := suspendedServers(ctx, servers)
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
@@ -534,6 +542,12 @@ func (a *AggregatorServer) establishSSOConnection(
 	// The person's token never reaches a server they may not see.
 	if refuseUnseenServer(ctx, serverInfo.Name, "SSO connect") {
 		return ssoConnectFailed
+	}
+	if _, delegated := api.DelegatedCallerFromContext(ctx); delegated {
+		if err := delegatedForwardRefusal(serverInfo); err != nil {
+			logging.Info("Aggregator", "SSO: not connecting a delegated caller: %v", err)
+			return ssoConnectFailed
+		}
 	}
 
 	// Guard against concurrent SSO connection attempts for the same session+server.

@@ -1880,6 +1880,10 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		return nil, fmt.Errorf("invalid OAuth server config type: expected OAuthServerConfig")
 	}
 
+	if cfg.Delegation.ActorTokenFile != "" {
+		api.RegisterDelegationExchange(a)
+	}
+
 	var oauthHTTPServer oauthServer
 	var browserIdentity api.BrowserIdentity
 	inner, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
@@ -1941,7 +1945,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 			// A fan-out already running for the session (a sign-in's, whose
 			// fast servers made the session live) covers the misses.
 			if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil &&
-				a.ssoPoolMissNeedingInitOf(sso.userID, sessionID, seesFunc(api.CallerVisibility(server.ContextWithCallerTokens(context.Background(), sso.tokens)))) {
+				a.ssoPoolMissNeedingInitOf(sso.userID, sessionID, seesFunc(api.CallerVisibility(sso.connectContext(context.Background())))) {
 				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
 					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 				a.beginSessionBootstrap(sso)
@@ -3387,17 +3391,23 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", fmt.Errorf("OAuth handler not available for token exchange to %s", serverName)
 	}
 
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
-	if idToken == "" {
-		return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
-	}
-	if expired, err := pkgoauth.IsExpired(idToken); expired {
-		return nil, time.Time{}, "", expiredTokenError("ID token", serverName, err)
-	}
-
-	userID, err := pkgoauth.Subject(idToken)
-	if err != nil || userID == "" {
-		return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s: %w", serverName, err)
+	caller, delegated := api.DelegatedCallerFromContext(ctx)
+	var idToken, userID string
+	if delegated {
+		idToken, userID = caller.Token, delegatedCacheKey(sessionID, serverName)
+	} else {
+		idToken = getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
+		if idToken == "" {
+			return nil, time.Time{}, "", fmt.Errorf("no ID token available for token exchange to %s", serverName)
+		}
+		if expired, err := pkgoauth.IsExpired(idToken); expired {
+			return nil, time.Time{}, "", expiredTokenError("ID token", serverName, err)
+		}
+		var err error
+		userID, err = pkgoauth.Subject(idToken)
+		if err != nil || userID == "" {
+			return nil, time.Time{}, "", fmt.Errorf("failed to extract user ID from token for %s: %w", serverName, err)
+		}
 	}
 
 	var clientID, clientSecret string
@@ -3423,10 +3433,19 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 			slog.String("server", serverName),
 			slog.String("error", err.Error()))
 	}
+	if delegated {
+		if exchangeConfig, err = a.withDelegation(caller, serverInfo, exchangeConfig); err != nil {
+			logDelegatedExchange(caller, sessionID, serverName, err)
+			return nil, time.Time{}, "", err
+		}
+	}
 
 	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
 		ctx, idToken, userID, &exchangeConfig.TokenExchangeConfig,
 	)
+	if delegated {
+		logDelegatedExchange(caller, sessionID, serverName, err)
+	}
 	// The server's state follows a failure that is the server's (credentials,
 	// endpoint, connector) and recovers on a success; a caller's own failure
 	// stays this caller's.

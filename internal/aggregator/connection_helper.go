@@ -552,7 +552,7 @@ func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {
 		return false
 	}
 	config := serverInfo.AuthConfig.TokenExchange
-	return config.Enabled && config.DexTokenEndpoint != "" && config.ConnectorID != ""
+	return config.Enabled && config.DexTokenEndpoint != ""
 }
 
 // EstablishConnectionWithTokenExchange attempts to establish a connection
@@ -603,30 +603,31 @@ func EstablishConnectionWithTokenExchange(
 		return nil, fmt.Errorf("OAuth handler not available for token exchange")
 	}
 
-	// Get ID token from multiple sources (in priority order):
-	// 1. Request context (for tokens from muster's OAuth server protection)
-	// 2. OAuth proxy token store (for tokens from muster's own OAuth session)
-	idToken := getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
-	if idToken == "" {
-		logging.Debug("Connection", "No ID token available for user %s",
-			logging.TruncateIdentifier(sub))
-		return nil, fmt.Errorf("no ID token available for token exchange")
-	}
-
-	// Validate ID token is not expired before exchanging
-	if expired, expErr := pkgoauth.IsExpired(idToken); expired {
-		err := expiredTokenError("ID token", serverInfo.Name, expErr)
-		logging.Warn("Connection", "Cannot exchange the ID token of user %s: %v",
-			logging.TruncateIdentifier(sub), err)
-		return nil, err
-	}
-
-	// Extract user ID from the token for cache key generation
-	userID, err := pkgoauth.Subject(idToken)
-	if err != nil || userID == "" {
-		logging.Warn("Connection", "Failed to extract user ID from token for user %s: %v",
-			logging.TruncateIdentifier(sub), err)
-		return nil, fmt.Errorf("failed to extract user ID from token: %w", err)
+	// The subject token: a delegated caller's own token, else the session's
+	// ID token from the request context or the OAuth proxy token store.
+	caller, delegated := api.DelegatedCallerFromContext(ctx)
+	var idToken, userID string
+	if delegated {
+		idToken, userID = caller.Token, delegatedCacheKey(sessionID, serverInfo.Name)
+	} else {
+		idToken = getIDTokenForForwarding(ctx, sessionID, musterIssuer, a.sessionRefresher())
+		if idToken == "" {
+			logging.Debug("Connection", "No ID token available for user %s",
+				logging.TruncateIdentifier(sub))
+			return nil, fmt.Errorf("no ID token available for token exchange")
+		}
+		if expired, expErr := pkgoauth.IsExpired(idToken); expired {
+			err := expiredTokenError("ID token", serverInfo.Name, expErr)
+			logging.Warn("Connection", "Cannot exchange the ID token of user %s: %v",
+				logging.TruncateIdentifier(sub), err)
+			return nil, err
+		}
+		userID, err = pkgoauth.Subject(idToken)
+		if err != nil || userID == "" {
+			logging.Warn("Connection", "Failed to extract user ID from token for user %s: %v",
+				logging.TruncateIdentifier(sub), err)
+			return nil, fmt.Errorf("failed to extract user ID from token: %w", err)
+		}
 	}
 
 	logging.Info("Connection", "Attempting token exchange for user %s to server %s",
@@ -664,6 +665,13 @@ func EstablishConnectionWithTokenExchange(
 			len(serverInfo.AuthConfig.RequiredAudiences), serverInfo.Name)
 	}
 
+	if delegated {
+		if exchangeConfig, err = a.withDelegation(caller, serverInfo, exchangeConfig); err != nil {
+			logDelegatedExchange(caller, sessionID, serverInfo.Name, err)
+			return nil, err
+		}
+	}
+
 	// Perform the token exchange.
 	exchangedToken, err := oauthHandler.ExchangeTokenForRemoteCluster(
 		ctx,
@@ -671,6 +679,9 @@ func EstablishConnectionWithTokenExchange(
 		userID,
 		&exchangeConfig.TokenExchangeConfig,
 	)
+	if delegated {
+		logDelegatedExchange(caller, sessionID, serverInfo.Name, err)
+	}
 	if err != nil {
 		logging.Warn("Connection", "Token exchange failed for user %s to server %s: %v",
 			logging.TruncateIdentifier(sub), serverInfo.Name, err)
@@ -691,7 +702,7 @@ func EstablishConnectionWithTokenExchange(
 			Error:   err.Error(),
 		})
 
-		return nil, fmt.Errorf("token exchange failed: %w", err)
+		return nil, fmt.Errorf("token exchange for %s: %w", serverInfo.Name, err)
 	}
 
 	// Token exchange succeeded - emit success event and audit log

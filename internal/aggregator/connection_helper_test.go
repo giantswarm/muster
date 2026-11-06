@@ -362,7 +362,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 		assert.False(t, ShouldUseTokenExchange(info))
 	})
 
-	t.Run("returns false when ConnectorID is missing", func(t *testing.T) {
+	t.Run("returns true without a ConnectorID (same-Dex exchange)", func(t *testing.T) {
 		info := &ServerInfo{
 			Name: "test-server",
 			AuthConfig: &api.MCPServerAuth{
@@ -373,7 +373,7 @@ func TestShouldUseTokenExchange(t *testing.T) {
 				},
 			},
 		}
-		assert.False(t, ShouldUseTokenExchange(info))
+		assert.True(t, ShouldUseTokenExchange(info))
 	})
 
 	t.Run("returns true when fully configured", func(t *testing.T) {

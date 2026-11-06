@@ -297,3 +297,59 @@ type PromptOrigin struct {
 	Prompt mcp.Prompt
 	Server string
 }
+
+// ToolsetServerScope is implemented by the meta-tools handler: it tells which
+// MCP servers the toolsets bounding a request admit, so server listings show
+// no server whose tools the request cannot reach.
+type ToolsetServerScope interface {
+	// ToolsetServers returns, for a request bounded by a toolset, whether a
+	// server is admitted. scoped is false for a request no toolset bounds. An
+	// error means the toolset could not be resolved; callers admit nothing.
+	ToolsetServers(ctx context.Context) (admits func(server string) bool, scoped bool, err error)
+
+	// ToolsetCoreTools reports, for a request bounded by a toolset, whether
+	// the toolsets resolve at least one of muster's core tools. scoped and
+	// err are as for ToolsetServers.
+	ToolsetCoreTools(ctx context.Context) (resolves bool, scoped bool, err error)
+}
+
+// ToolsetServers answers ToolsetServerScope through the registered meta-tools
+// handler; without one no toolset narrows the request.
+func ToolsetServers(ctx context.Context) (admits func(server string) bool, scoped bool, err error) {
+	scope, ok := GetMetaTools().(ToolsetServerScope)
+	if !ok {
+		return nil, false, nil
+	}
+	return scope.ToolsetServers(ctx)
+}
+
+// ToolsetShows returns whether the toolsets bounding the request admit a
+// server, and whether any toolset bounds it: every server for a request no
+// toolset bounds, none when the toolset cannot be resolved.
+func ToolsetShows(ctx context.Context) (shows func(server string) bool, scoped bool) {
+	admits, scoped, err := ToolsetServers(ctx)
+	switch {
+	case !scoped:
+		return func(string) bool { return true }, false
+	case err != nil:
+		return func(string) bool { return false }, true
+	default:
+		return admits, true
+	}
+}
+
+// ToolsetShowsCore reports whether the toolsets bounding the request show
+// muster's own services: always for a request no toolset bounds, when they
+// resolve at least one core tool otherwise, and never when the toolset cannot
+// be resolved.
+func ToolsetShowsCore(ctx context.Context) bool {
+	scope, ok := GetMetaTools().(ToolsetServerScope)
+	if !ok {
+		return true
+	}
+	resolves, scoped, err := scope.ToolsetCoreTools(ctx)
+	if !scoped {
+		return true
+	}
+	return err == nil && resolves
+}

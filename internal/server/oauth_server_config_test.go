@@ -303,3 +303,16 @@ func TestBuildOAuthServerOptions_AcceptsGrantTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
+
+// An issuer with delegation names the actor issuers its tokens may carry in
+// act; any other issuer leaves act unchecked.
+func TestToTrustedIssuer_ActorPolicy(t *testing.T) {
+	without := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"}, nil)
+	require.Nil(t, without.Actors)
+
+	with := toTrustedIssuer(config.TrustedIssuerConfig{
+		Issuer:     "https://dex.example.com",
+		Delegation: &config.TrustedIssuerDelegationConfig{ActorIssuers: []string{"https://idp.ate-system.svc"}},
+	}, nil)
+	require.Equal(t, []string{"https://idp.ate-system.svc"}, with.Actors.Issuers)
+}

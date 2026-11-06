@@ -418,8 +418,10 @@ spec:
                       connectorId:
                         description: |-
                           ConnectorID is the ID of the OIDC connector on the remote Dex that
-                          trusts the local cluster's Dex.
-                          Required when Enabled is true.
+                          trusts the local cluster's Dex, sent as Dex's connector_id parameter.
+                          Leave it empty when the exchange goes to the Dex that issued the
+                          subject token: that Dex verifies its own tokens with its own keys, and
+                          no connector_id is sent.
                           Example: "cluster-a-dex"
                         pattern: ^[a-zA-Z][a-zA-Z0-9_-]*$
                         type: string

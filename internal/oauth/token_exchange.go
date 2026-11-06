@@ -162,8 +162,8 @@ func validateExchangeRequest(req *ExchangeRequest) error {
 	if req.Config.ExpectedIssuer != "" && !strings.HasPrefix(req.Config.ExpectedIssuer, "https://") {
 		return fmt.Errorf("expected issuer must use HTTPS (got: %s)", req.Config.ExpectedIssuer)
 	}
-	if req.Config.ConnectorID == "" {
-		return fmt.Errorf("connector ID is required")
+	if req.Config.Delegation != nil && req.Config.Delegation.ActorToken == "" {
+		return fmt.Errorf("actor token is required for a delegated exchange")
 	}
 	if req.UserID == "" {
 		return fmt.Errorf("user ID is required for cache key generation")
@@ -241,6 +241,14 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 		ClientID:           req.Config.ClientID,
 		ClientSecret:       req.Config.ClientSecret,
 	}
+	if d := req.Config.Delegation; d != nil {
+		exchangeReq.SubjectTokenType = oidc.TokenTypeAccessToken
+		exchangeReq.ConnectorID = ""
+		exchangeReq.Scope = withoutCrossClientScopes(scopes)
+		exchangeReq.ActorToken = d.ActorToken
+		exchangeReq.ActorTokenType = oidc.TokenTypeJWT
+		exchangeReq.Audience = d.Audience
+	}
 
 	// Log whether client credentials are being used (without revealing them)
 	if req.Config.ClientID != "" {
@@ -252,7 +260,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	if err != nil {
 		logging.Warn("TokenExchange", "Token exchange failed for user=%s endpoint=%s: %v",
 			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint, err)
-		return nil, fmt.Errorf("token exchange failed: %w", err)
+		return nil, fmt.Errorf("token endpoint %s: %w", req.Config.DexTokenEndpoint, err)
 	}
 
 	// Validate the issuer claim of the exchanged token (defense-in-depth for proxied access)
@@ -290,6 +298,19 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 		ExpiresAt:       expiresAt,
 		FromCache:       false,
 	}, nil
+}
+
+// withoutCrossClientScopes drops Dex cross-client audience scopes
+// (audience:server:client_id:<id>) from a scope value: a delegated exchange
+// names its target with the audience parameter instead.
+func withoutCrossClientScopes(scopes string) string {
+	var kept []string
+	for _, scope := range strings.Fields(scopes) {
+		if !strings.HasPrefix(scope, "audience:server:client_id:") {
+			kept = append(kept, scope)
+		}
+	}
+	return strings.Join(kept, " ")
 }
 
 // ClearCache removes a cached token for the given parameters.

@@ -7,6 +7,7 @@ import (
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/server"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -18,6 +19,9 @@ type ssoSession struct {
 	sessionID   string
 	tokens      server.CallerTokens
 	tokenSource providers.TokenSource
+	// delegated is the request's delegated caller, nil for any other caller.
+	// Its token is the session's subject for token exchange, never forwarded.
+	delegated *api.DelegatedCaller
 }
 
 // ssoSessionFromContext extracts the SSO-relevant token state from an
@@ -28,12 +32,29 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 	if userInfo != nil {
 		tokenSource = userInfo.TokenSource
 	}
-	return ssoSession{
+	sso := ssoSession{
 		userID:      getUserSubjectFromContext(ctx),
 		sessionID:   sessionID,
 		tokens:      server.CallerTokensFromContext(ctx),
 		tokenSource: tokenSource,
 	}
+	if caller, ok := api.DelegatedCallerFromContext(ctx); ok {
+		sso.delegated = &caller
+	}
+	return sso
+}
+
+// connectContext is the context a background connect of the session runs on:
+// base carrying the session's subject, session ID, caller tokens and, for a
+// delegated caller, the delegated caller.
+func (s ssoSession) connectContext(base context.Context) context.Context {
+	ctx := api.WithSubject(base, s.userID)
+	ctx = api.WithSessionID(ctx, s.sessionID)
+	ctx = server.ContextWithCallerTokens(ctx, s.tokens)
+	if s.delegated != nil {
+		ctx = api.WithDelegatedCaller(ctx, *s.delegated)
+	}
+	return ctx
 }
 
 // canBootstrapSSO reports whether the session has a usable token for
@@ -45,9 +66,11 @@ func ssoSessionFromContext(ctx context.Context, sessionID string) ssoSession {
 // opaque access tokens, so a decodable bearer is by construction externally
 // issued. An opaque bearer does not count: it cannot be forwarded, so a
 // session holding only one has lost its upstream credential and the caller
-// treats it as a broken refresh chain.
+// treats it as a broken refresh chain. A delegated caller's token is a usable
+// subject for token exchange and the person's grants, though it carries
+// neither of the others.
 func (s ssoSession) canBootstrapSSO() bool {
-	return s.tokens.IDToken != "" || isForwardableToken(s.tokens.Bearer)
+	return s.tokens.IDToken != "" || isForwardableToken(s.tokens.Bearer) || s.delegated != nil
 }
 
 // LogValue implements slog.LogValuer so ssoSession can be passed directly to
@@ -59,6 +82,7 @@ func (s ssoSession) LogValue() slog.Value {
 		slog.Int("idTokenLen", len(s.tokens.IDToken)),
 		slog.Int("bearerLen", len(s.tokens.Bearer)),
 		slog.String("tokenSource", string(s.tokenSource)),
+		slog.Bool("delegated", s.delegated != nil),
 	)
 }
 

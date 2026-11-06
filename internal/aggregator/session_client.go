@@ -72,6 +72,12 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 	var exchangedToken string
 	var forwardedToken string
 
+	if _, delegated := api.DelegatedCallerFromContext(ctx); delegated {
+		if err := delegatedForwardRefusal(serverInfo); err != nil {
+			return nil, err
+		}
+	}
+
 	if ShouldUseTokenExchange(serverInfo) {
 		var err error
 		client, tokenExpiry, exchangedToken, err = a.exchangeTokenAndCreateClient(ctx, serverInfo, sessionID)

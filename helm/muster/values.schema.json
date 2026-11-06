@@ -409,6 +409,28 @@
                                 "baseUrl": {
                                     "type": "string"
                                 },
+                                "delegation": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "actorToken": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "audience": {
+                                                    "type": "string"
+                                                },
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                },
+                                                "expirationSeconds": {
+                                                    "type": "integer",
+                                                    "minimum": 600
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
                                 "dex": {
                                     "type": "object",
                                     "additionalProperties": false,

@@ -208,8 +208,8 @@ func (a *AggregatorServer) planSessionBootstrap(sso ssoSession) sessionBootstrap
 	servers := a.registry.GetAllServers()
 	// The fan-out connects only servers the person may see, judged with the
 	// session's own ID token.
-	view := api.CallerVisibility(server.ContextWithCallerTokens(context.Background(), sso.tokens))
-	var skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure, skippedNotVisible int
+	view := api.CallerVisibility(sso.connectContext(context.Background()))
+	var skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure, skippedNotVisible, skippedForwarding int
 	for _, info := range servers {
 		if !view.Sees(info.Name) {
 			skippedNotVisible++
@@ -217,6 +217,10 @@ func (a *AggregatorServer) planSessionBootstrap(sso ssoSession) sessionBootstrap
 		}
 		if !info.RequiresSessionAuth() {
 			skippedNotAuthRequired++
+			continue
+		}
+		if sso.delegated != nil && delegatedForwardRefusal(info) != nil {
+			skippedForwarding++
 			continue
 		}
 		if !ShouldUseTokenExchange(info) && !ShouldUseTokenForwarding(info) {
@@ -239,8 +243,8 @@ func (a *AggregatorServer) planSessionBootstrap(sso ssoSession) sessionBootstrap
 		plan.sso = append(plan.sso, info)
 	}
 
-	logging.Info("Aggregator", "SSO: initSSOForSession filter results: total=%d, pending=%d, grants=%d, skippedNotAuthRequired=%d, skippedNotSSO=%d, skippedPriorFailure=%d, skippedNotVisible=%d",
-		len(servers), len(plan.sso), len(plan.grants), skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure, skippedNotVisible)
+	logging.Info("Aggregator", "SSO: initSSOForSession filter results: total=%d, pending=%d, grants=%d, skippedNotAuthRequired=%d, skippedNotSSO=%d, skippedPriorFailure=%d, skippedNotVisible=%d, skippedForwardingForDelegated=%d",
+		len(servers), len(plan.sso), len(plan.grants), skippedNotAuthRequired, skippedNotSSO, skippedPriorFailure, skippedNotVisible, skippedForwarding)
 	return plan
 }
 
@@ -358,9 +362,7 @@ type ssoServerResult struct {
 func (a *AggregatorServer) runSessionBootstrap(b *ssoBootstrap, sso ssoSession, plan sessionBootstrapPlan, musterIssuer string) {
 	bgCtx, cancel := context.WithTimeout(context.Background(), initSSOTimeout)
 	defer cancel()
-	bgCtx = api.WithSubject(bgCtx, sso.userID)
-	bgCtx = api.WithSessionID(bgCtx, sso.sessionID)
-	bgCtx = server.ContextWithCallerTokens(bgCtx, sso.tokens)
+	bgCtx = sso.connectContext(bgCtx)
 
 	total := len(plan.sso) + len(plan.grants)
 	results := make(chan ssoServerResult, total)
@@ -466,6 +468,7 @@ func (a *AggregatorServer) scheduleSSORetry(ctx context.Context, serverName, mus
 	sub := getUserSubjectFromContext(ctx)
 	sessionID := getSessionIDFromContext(ctx)
 	tokens := server.CallerTokensFromContext(ctx)
+	caller, delegated := api.DelegatedCallerFromContext(ctx)
 	if a.subjectSessions != nil {
 		a.subjectSessions.TrackOAuth(sub, sessionID)
 	}
@@ -493,6 +496,9 @@ func (a *AggregatorServer) scheduleSSORetry(ctx context.Context, serverName, mus
 		retryCtx = api.WithSubject(retryCtx, sub)
 		retryCtx = api.WithSessionID(retryCtx, sessionID)
 		retryCtx = server.ContextWithCallerTokens(retryCtx, tokens)
+		if delegated {
+			retryCtx = api.WithDelegatedCaller(retryCtx, caller)
+		}
 		a.establishSSOConnection(retryCtx, info, musterIssuer)
 	}
 	a.retryAfter(delay, retry)
