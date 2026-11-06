@@ -54,17 +54,28 @@ func (v ServerVisibility) Sees(serverKey string) bool {
 // SeesEvent reports whether the caller may see an event: an event about an
 // MCPServer only when the caller sees the servers of its namespace.
 func (v ServerVisibility) SeesEvent(event EventResult) bool {
-	if !v.restricted || event.InvolvedObject.Kind != "MCPServer" {
+	if !v.restricted {
 		return true
+	}
+	key, ok := MCPServerEventKey(event, v.musterNamespace)
+	if !ok {
+		return true
+	}
+	return v.Sees(key)
+}
+
+// MCPServerEventKey returns the key of the MCPServer an event is about, and
+// false for an event about anything else. An event without a namespace is
+// about a server of musterNamespace.
+func MCPServerEventKey(event EventResult, musterNamespace string) (string, bool) {
+	if event.InvolvedObject.Kind != "MCPServer" {
+		return "", false
 	}
 	namespace := event.InvolvedObject.Namespace
 	if namespace == "" {
 		namespace = event.Namespace
 	}
-	if namespace == "" {
-		namespace = v.musterNamespace
-	}
-	return v.namespaces[namespace]
+	return MCPServerKey(namespace, event.InvolvedObject.Name, musterNamespace), true
 }
 
 // Restricted reports whether the view hides any server.
@@ -74,7 +85,7 @@ func (v ServerVisibility) Restricted() bool {
 
 // MCPServerVisibilityHandler answers which MCP servers the caller of a
 // request may see. It is registered only when muster serves MCPServer objects
-// of every namespace (mcpServersInAllNamespaces); without it every caller
+// of every namespace (mcpServerNamespaceSelector); without it every caller
 // sees every server, as before.
 type MCPServerVisibilityHandler interface {
 	// CallerVisibility returns the view of the caller whose ID token ctx

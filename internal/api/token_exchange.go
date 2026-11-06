@@ -53,5 +53,6 @@ func (c TokenExchangeConfig) WithResolvedRuntime(clientID, clientSecret string, 
 func (c TokenExchangeConfig) SpecOnly() TokenExchangeConfig {
 	c.ClientID = ""
 	c.ClientSecret = ""
+	c.Delegation = nil
 	return c
 }

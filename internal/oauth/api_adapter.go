@@ -49,6 +49,7 @@ func tokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		ExpiresAt:    token.ExpiresAt,
 		Scope:        token.Scope,
 		Issuer:       token.Issuer,
+		Resource:     token.Resource,
 	}
 }
 
@@ -67,6 +68,7 @@ func fullTokenToAPIToken(token *pkgoauth.Token) *api.OAuthToken {
 		Scope:        token.Scope,
 		IDToken:      token.IDToken,
 		Issuer:       token.Issuer,
+		Resource:     token.Resource,
 	}
 }
 
@@ -84,6 +86,7 @@ func apiTokenToPkgToken(token *api.OAuthToken) *pkgoauth.Token {
 		Scope:        token.Scope,
 		IDToken:      token.IDToken,
 		Issuer:       token.Issuer,
+		Resource:     token.Resource,
 	}
 }
 
@@ -164,8 +167,12 @@ const LoginIDTokenScope = "urn:muster:login-id-token" //nolint:gosec // G101: a 
 // (userID set) is also indexed by its token, so a bind request bearing it
 // names the session; an actor session's copy of a login is not, whoever it
 // is filed for. A forwarded session never takes the record from a login
-// family that filed the same token.
+// family that filed the same token. A delegated token (one carrying act) is
+// never a login: it is neither filed nor indexed.
 func (a *Adapter) StoreLoginIDToken(sessionID, userID, issuer, idToken string, expiresAt time.Time) {
+	if delegated, err := pkgoauth.HasActor(idToken); err == nil && delegated {
+		return
+	}
 	a.manager.StoreToken(sessionID, userID, issuer, &pkgoauth.Token{
 		IDToken:   idToken,
 		ExpiresAt: expiresAt,
@@ -233,6 +240,11 @@ func (a *Adapter) GetFullTokenByIssuerForUser(sessionID, userID, issuer string) 
 // ClearTokenByIssuerForUser implements api.SubjectGrantHandler.
 func (a *Adapter) ClearTokenByIssuerForUser(sessionID, userID, issuer string) {
 	a.manager.ClearTokenByIssuerForUser(sessionID, userID, issuer)
+}
+
+// ForgetSubjectGrant implements api.SubjectGrantForgetter.
+func (a *Adapter) ForgetSubjectGrant(userID, issuer string) {
+	a.manager.ForgetSubjectGrant(userID, issuer)
 }
 
 // IssuerSubjectScoped implements api.SubjectGrantHandler.

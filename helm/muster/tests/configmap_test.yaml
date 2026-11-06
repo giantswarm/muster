@@ -56,6 +56,33 @@ tests:
           path: data["config.yaml"]
           pattern: "allowPrivateIPClientMetadataHosts:\\n\\s+- gateway\\.internal\\.example"
 
+  - it: renders dex.identityCheckConnectors into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.dex.connectorId: "giantswarm-github"
+      muster.oauth.server.dex.identityCheckConnectors:
+        - "giantswarm-ad"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "connectorId: \"giantswarm-github\"\\n\\s+identityCheckConnectors:\\n\\s+- giantswarm-ad"
+
+  - it: omits dex.identityCheckConnectors by default
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "identityCheckConnectors:"
+
   - it: omits allowPrivateIPClientMetadataHosts by default
     set:
       muster.oauth.server.enabled: true
@@ -201,19 +228,34 @@ tests:
           path: data["config.yaml"]
           pattern: "writesAsCaller:\n  kubernetesAudience: \"custom-audience\""
 
-  - it: omits mcpServersInAllNamespaces by default (muster serves its own namespace only)
+  - it: omits the MCPServer selectors by default (muster serves its own namespace only)
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]
-          pattern: "mcpServersInAllNamespaces"
+          pattern: "mcpServerNamespaceSelector|mcpServerSelector"
 
-  - it: renders mcpServersInAllNamespaces when switched on
+  - it: renders an empty namespace selector, which selects every namespace
     set:
-      muster.mcpServersInAllNamespaces: true
+      muster.mcpServerNamespaceSelector: {}
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "\nmcpServersInAllNamespaces: true\n"
+          pattern: "\nmcpServerNamespaceSelector:\n  \\{\\}\n"
+
+  - it: renders the namespace and server selectors
+    set:
+      muster.mcpServerNamespaceSelector:
+        matchLabels:
+          agent-platform.giantswarm.io/organization: acme
+      muster.mcpServerSelector:
+        matchExpressions:
+          - key: tier
+            operator: In
+            values: [gold]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\nmcpServerNamespaceSelector:\n  matchLabels:\n    agent-platform.giantswarm.io/organization: acme\nmcpServerSelector:\n  matchExpressions:\n  - key: tier\n    operator: In\n    values:\n    - gold\n"
 
   - it: names the admission policy binding muster requires
     asserts:
@@ -279,3 +321,17 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "toolsetPresets:\n  agent-platform:\n    include:\n    - server: agent-manager\n    - pattern: core_\\*\n  infrastructure:\n    description: Every infrastructure server\n    exclude:\n    - pattern: '\\*_delete'\n    include:\n    - server: mcp-kubernetes\n    - pattern: x_mcp-prometheus_\\*"
+
+  - it: renders aggregator.devPortalUrl into config.yaml
+    set:
+      muster.aggregator.devPortalUrl: "https://portal.example.com"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "aggregator:\\n(.*\\n)*?\\s+devPortalUrl: \"https://portal\\.example\\.com\""
+
+  - it: omits aggregator.devPortalUrl by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "devPortalUrl"

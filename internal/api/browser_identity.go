@@ -18,7 +18,9 @@ type BrowserIdentity interface {
 	// SignInURL returns the provider URL the browser is sent to. The browser
 	// comes back to returnURL, on the issuer's origin, with code and state.
 	// codeChallenge is the S256 challenge of the verifier Subject is given.
-	SignInURL(ctx context.Context, returnURL *url.URL, state, codeChallenge string) (string, error)
+	// expected is the identity the sign-in must yield; the browser is sent to
+	// its login method when the provider has several.
+	SignInURL(ctx context.Context, returnURL *url.URL, state, codeChallenge string, expected SignInIdentity) (string, error)
 
 	// Identity redeems the code returnURL received and returns who signed in.
 	Identity(ctx context.Context, returnURL *url.URL, code, codeVerifier string) (SignInIdentity, error)

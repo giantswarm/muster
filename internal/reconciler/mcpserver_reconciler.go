@@ -172,7 +172,7 @@ func (r *MCPServerReconciler) Reconcile(ctx context.Context, req ReconcileReques
 	// CRD's CEL rule refuses at admission only for objects written after it
 	// shipped, and for a Secret reference of a server outside muster's
 	// namespace that names another namespace than the server's own.
-	if rejectErr := r.validateDefinition(mcpServerInfo); rejectErr != nil {
+	if rejectErr := r.validateDefinition(ctx, mcpServerInfo); rejectErr != nil {
 		result := r.reconcileReject(key, rejectErr, exists)
 		r.syncStatus(ctx, key, req.Name, req.Namespace, result.Error, nil)
 		r.recordState(ctx, req, mcpServerInfo, result.Error)
@@ -358,6 +358,8 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 	} else if reconcileErr != nil {
 		// Sanitize error message to remove sensitive data before CRD exposure
 		server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
+	} else {
+		server.Status.LastError = ""
 	}
 
 	applyIcon(server, name)
@@ -774,12 +776,13 @@ func (r *MCPServerReconciler) isKubernetesMode() bool {
 
 // validateDefinition reports a definition muster refuses to run: a stdio
 // server in Kubernetes mode (ValidateStdioAllowed), a credential written into
-// the definition (ValidateNoInlineCredential), an org- name or toolPrefix in
-// muster's namespace or an identity setting outside it
-// (ValidateServerNamespace), or a Secret reference of a server outside
+// the definition (ValidateNoInlineCredential), an identity setting outside
+// muster's namespace (ValidateServerNamespace), a server outside it whose
+// exposed names a server of muster's namespace takes (ValidateNotShadowed),
+// or a Secret reference of a server outside
 // muster's namespace that names another namespace than the server's own
 // (ValidateSecretNamespaces). r.Namespace is muster's namespace.
-func (r *MCPServerReconciler) validateDefinition(info *api.MCPServerInfo) error {
+func (r *MCPServerReconciler) validateDefinition(ctx context.Context, info *api.MCPServerInfo) error {
 	if err := api.ValidateStdioAllowed(info.Type, r.isKubernetesMode()); err != nil {
 		return err
 	}
@@ -792,7 +795,10 @@ func (r *MCPServerReconciler) validateDefinition(info *api.MCPServerInfo) error 
 	if r.isKubernetesMode() {
 		serverNamespace = info.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, r.Namespace, info.Name, info.ToolPrefix, info.Family, info.Auth); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, r.Namespace, info.Family, info.Auth, info.URLElicitation); err != nil {
+		return err
+	}
+	if err := api.ValidateNotShadowed(ctx, serverNamespace, r.Namespace, r.mcpServerManager.ListMCPServers); err != nil {
 		return err
 	}
 	return api.ValidateSecretNamespaces(serverNamespace, r.Namespace, info.Auth)
@@ -804,7 +810,7 @@ func isRefusal(err error) bool {
 	return errors.Is(err, api.ErrStdioNotAllowedInKubernetesMode) ||
 		errors.Is(err, api.ErrCredentialInDefinition) ||
 		errors.Is(err, api.ErrSecretOutsideNamespace) ||
-		errors.Is(err, api.ErrReservedServerName) ||
+		errors.Is(err, api.ErrShadowedServer) ||
 		errors.Is(err, api.ErrIdentityOutsideNamespace)
 }
 

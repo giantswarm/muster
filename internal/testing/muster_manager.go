@@ -1729,6 +1729,12 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		"clientId":     oauthCfg.ClientID,
 		"clientSecret": oauthCfg.ClientSecret,
 	}
+	if oauthCfg.DexConnectorID != "" {
+		dexConfig["connectorId"] = oauthCfg.DexConnectorID
+	}
+	if len(oauthCfg.DexIdentityCheckConnectors) > 0 {
+		dexConfig["identityCheckConnectors"] = oauthCfg.DexIdentityCheckConnectors
+	}
 
 	// The combined CA bundle (written by configureOAuthForInstance) is passed
 	// to `muster serve` via --extra-ca-file, which augments the process-wide
@@ -1979,6 +1985,19 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							if m.debug {
 								logger.Debug("🔐 Pinning authorization server %s (grantScope=%q, endpoints from %q, expectedIssuer=%v) for MCPServer %s\n",
 									authorizationServer["issuer"], grantScope, endpointsRef, authorizationServer["expectedIssuer"], mcpServer.Name)
+							}
+						}
+
+						// oauth.auth_grant_scope sets spec.auth.grantScope (and type
+						// oauth) without pinning anything: the server discovers its
+						// authorization server through RFC 9728 and "subject" files
+						// the grant of the discovered issuer under the person -- the
+						// connector the developer portal registers.
+						if authGrantScope, ok := oauthConfig["auth_grant_scope"].(string); ok && authGrantScope != "" {
+							authConfig["type"] = "oauth"
+							authConfig["grantScope"] = authGrantScope
+							if m.debug {
+								logger.Debug("🔐 Setting spec.auth.grantScope=%q for MCPServer %s\n", authGrantScope, mcpServer.Name)
 							}
 						}
 

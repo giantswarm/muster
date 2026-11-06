@@ -18,17 +18,11 @@ import (
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
-// Label keys used to index WorkflowExecution records so List can filter
-// server-side by workflow name and status before sorting/paginating in memory.
-//
-// ponytail: workflow names are used verbatim as label values. CRD names are
-// DNS-1123 compliant but may exceed the 63-character label-value ceiling; such
-// a name would make Store fail when the API server rejects the label. In
-// practice muster workflow names are short, so this is acceptable for v1. The
-// upgrade path is to hash long names or switch to in-memory-only filtering.
+// Field paths declared as selectableFields on the WorkflowExecution CRD, so
+// List filters server-side without the 63-character limit of label values.
 const (
-	labelWorkflow = "muster.giantswarm.io/workflow"
-	labelStatus   = "muster.giantswarm.io/status"
+	fieldWorkflowName = "spec.workflowName"
+	fieldStatus       = "spec.status"
 )
 
 // k8sExecutionStorage is the Kubernetes-backed ExecutionStorage. It persists
@@ -76,8 +70,7 @@ func (s *k8sExecutionStorage) Store(ctx context.Context, execution *api.Workflow
 	}
 
 	// Update in place, preserving the existing resourceVersion so the update is
-	// an optimistic-concurrency-safe overwrite of the spec and labels.
-	existing.Labels = desired.Labels
+	// an optimistic-concurrency-safe overwrite of the spec.
 	existing.Spec = desired.Spec
 	if updateErr := s.client.Update(ctx, &existing); updateErr != nil {
 		return fmt.Errorf("failed to update execution %s: %w", execution.ExecutionID, updateErr)
@@ -100,7 +93,7 @@ func (s *k8sExecutionStorage) Get(ctx context.Context, executionID string) (*api
 }
 
 // List returns paginated workflow executions, filtering server-side by workflow
-// name and status label selectors then sorting and paginating in memory.
+// name and status field selectors then sorting and paginating in memory.
 func (s *k8sExecutionStorage) List(ctx context.Context, req *api.ListWorkflowExecutionsRequest) (*api.ListWorkflowExecutionsResponse, error) {
 	limit := req.Limit
 	if limit <= 0 {
@@ -116,12 +109,12 @@ func (s *k8sExecutionStorage) List(ctx context.Context, req *api.ListWorkflowExe
 	}
 
 	opts := []crclient.ListOption{crclient.InNamespace(s.namespace)}
-	matching := crclient.MatchingLabels{}
+	matching := crclient.MatchingFields{}
 	if req.WorkflowName != "" {
-		matching[labelWorkflow] = req.WorkflowName
+		matching[fieldWorkflowName] = req.WorkflowName
 	}
 	if req.Status != "" {
-		matching[labelStatus] = string(req.Status)
+		matching[fieldStatus] = string(req.Status)
 	}
 	if len(matching) > 0 {
 		opts = append(opts, matching)
@@ -223,8 +216,7 @@ func (s *k8sExecutionStorage) Prune(ctx context.Context, policy RetentionPolicy)
 	return deleted, nil
 }
 
-// executionToCRD converts an api.WorkflowExecution into its CRD representation,
-// including the workflow/status labels used for List filtering.
+// executionToCRD converts an api.WorkflowExecution into its CRD representation.
 func (s *k8sExecutionStorage) executionToCRD(execution *api.WorkflowExecution) *musterv1alpha1.WorkflowExecution {
 	spec := musterv1alpha1.WorkflowExecutionSpec{
 		WorkflowName: execution.WorkflowName,
@@ -246,10 +238,6 @@ func (s *k8sExecutionStorage) executionToCRD(execution *api.WorkflowExecution) *
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      execution.ExecutionID,
 			Namespace: s.namespace,
-			Labels: map[string]string{
-				labelWorkflow: execution.WorkflowName,
-				labelStatus:   string(execution.Status),
-			},
 		},
 		Spec: spec,
 	}

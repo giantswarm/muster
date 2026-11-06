@@ -95,6 +95,14 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 			}
 		}
 	}
+	// Nor is a server outside the toolsets bounding the request.
+	if shows, scoped := api.ToolsetShows(ctx); scoped {
+		for name := range servers {
+			if !shows(name) {
+				delete(servers, name)
+			}
+		}
+	}
 	suspended := suspendedServers(ctx, servers)
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
@@ -145,9 +153,9 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 
 		switch status.Status {
 		case pkgoauth.SessionServerStatusAuthRequired, pkgoauth.SessionServerStatusReauthRequired:
-			if info.AuthInfo != nil {
-				status.Issuer = info.AuthInfo.Issuer
-				status.Scope = info.AuthInfo.Scope
+			if authInfo := info.GetAuthInfo(); authInfo != nil {
+				status.Issuer = authInfo.Issuer
+				status.Scope = authInfo.Scope
 			} else {
 				status.Issuer = api.IssuerURL(knownServerIssuer(info))
 			}
@@ -193,16 +201,18 @@ func needsGrant(info *ServerInfo) bool {
 }
 
 // serverGrantScope is whom a grant for the server belongs to: "subject" when
-// it is filed under the person (spec.auth.authorizationServer.grantScope:
-// subject), "session" for any other grant, empty for a server without one.
+// muster files it under the person (effectiveSubjectScoped: the spec of a
+// pinned issuer says subject, or a discovered issuer is known and pinned
+// subject-scoped), "session" for any other grant, empty for a server without
+// one.
 func serverGrantScope(info *ServerInfo) string {
 	if !needsGrant(info) {
 		return ""
 	}
-	if info.AuthConfig.AuthorizationServer.SubjectScoped() {
+	if effectiveSubjectScoped(info) {
 		return api.GrantScopeSubject
 	}
-	return "session"
+	return api.GrantScopeSession
 }
 
 // awaitGrantAdoptions waits for the session's fan-out to finish with the
@@ -263,7 +273,7 @@ func (a *AggregatorServer) determineSessionAuthStatus(sub, sessionID, serverName
 	// the person's grant needs it whether or not the registry entry learned
 	// its issuer yet: an entry rebuilt from the service's own data carries no
 	// AuthInfo until a login discovers it, and was reported disconnected.
-	if info.RequiresSessionAuth() && (info.AuthInfo != nil || needsGrant(info)) {
+	if info.RequiresSessionAuth() && (info.GetAuthInfo() != nil || needsGrant(info)) {
 		isSSO := ShouldUseTokenExchange(info) || ShouldUseTokenForwarding(info)
 
 		// The session's fan-out is still connecting the SSO server (a sign-in
@@ -532,6 +542,12 @@ func (a *AggregatorServer) establishSSOConnection(
 	// The person's token never reaches a server they may not see.
 	if refuseUnseenServer(ctx, serverInfo.Name, "SSO connect") {
 		return ssoConnectFailed
+	}
+	if _, delegated := api.DelegatedCallerFromContext(ctx); delegated {
+		if err := delegatedForwardRefusal(serverInfo); err != nil {
+			logging.Info("Aggregator", "SSO: not connecting a delegated caller: %v", err)
+			return ssoConnectFailed
+		}
 	}
 
 	// Guard against concurrent SSO connection attempts for the same session+server.

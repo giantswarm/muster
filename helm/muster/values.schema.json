@@ -243,6 +243,9 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "devPortalUrl": {
+                            "type": "string"
+                        },
                         "port": {
                             "type": "integer"
                         },
@@ -325,8 +328,19 @@
                         }
                     }
                 },
-                "mcpServersInAllNamespaces": {
-                    "type": "boolean"
+                "mcpServerNamespaceSelector": {
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "additionalProperties": true
+                },
+                "mcpServerSelector": {
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "additionalProperties": true
                 },
                 "namespace": {
                     "type": "string"
@@ -406,6 +420,28 @@
                                 "baseUrl": {
                                     "type": "string"
                                 },
+                                "delegation": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "actorToken": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "properties": {
+                                                "audience": {
+                                                    "type": "string"
+                                                },
+                                                "enabled": {
+                                                    "type": "boolean"
+                                                },
+                                                "expirationSeconds": {
+                                                    "type": "integer",
+                                                    "minimum": 600
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
                                 "dex": {
                                     "type": "object",
                                     "additionalProperties": false,
@@ -421,6 +457,12 @@
                                         },
                                         "connectorId": {
                                             "type": "string"
+                                        },
+                                        "identityCheckConnectors": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
                                         },
                                         "issuerUrl": {
                                             "type": "string"

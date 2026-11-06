@@ -342,6 +342,15 @@ func (m *Manager) SubjectGrantForRelease(ctx context.Context, userID, issuer str
 	return m.client.SubjectGrant(ctx, userID, issuer)
 }
 
+// ForgetSubjectGrant drops the person's grant for an issuer whatever its pin
+// says now, see Client.ForgetSubjectGrant.
+func (m *Manager) ForgetSubjectGrant(userID, issuer string) {
+	if m == nil {
+		return
+	}
+	m.client.ForgetSubjectGrant(userID, issuer)
+}
+
 // ClearTokenByIssuerForUser removes the session's tokens for an issuer and,
 // for a subject-scoped issuer, the person's grant, see
 // Client.DeleteByIssuerForUser.

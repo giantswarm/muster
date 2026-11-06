@@ -223,3 +223,21 @@ func audienceJWT(t *testing.T, audiences ...string) string {
 	require.NoError(t, err)
 	return "eyJhbGciOiJub25lIn0." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
 }
+
+// A delegated token (one carrying act) is the credential of one call, never a
+// login: it is neither filed nor indexed, so no bind or forward can pick it up.
+func TestAdapter_StoreLoginIDToken_SkipsDelegatedToken(t *testing.T) {
+	manager := NewManager(config.OAuthMCPClientConfig{
+		Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback",
+	})
+	defer manager.Stop()
+	adapter := NewAdapter(manager)
+	const issuer = "https://dex.example.com/dex"
+	exp := time.Now().Add(time.Hour)
+	delegated := unsignedJWT(t, map[string]any{"sub": "person", "act": map[string]any{"sub": "actor/kagent/a"}})
+
+	api.StoreLoginIDToken(adapter, "ext-delegated", "person", issuer, delegated, exp)
+
+	require.Nil(t, api.LoginIDToken(adapter, "ext-delegated", issuer))
+	require.Empty(t, api.LoginSessionForIDToken(adapter, delegated))
+}

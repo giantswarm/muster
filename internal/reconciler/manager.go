@@ -181,6 +181,10 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start change detector: %w", err)
 	}
 
+	if m.config.Synced != nil {
+		close(m.config.Synced)
+	}
+
 	// Start periodic resync (level-based safety net for lost change events)
 	m.wg.Add(1)
 	go m.periodicResync()
@@ -219,9 +223,7 @@ func (m *Manager) setupChangeDetector() error {
 		if err != nil {
 			return fmt.Errorf("failed to create Kubernetes detector: %w", err)
 		}
-		if m.config.MCPServersInAllNamespaces {
-			detector.WatchMCPServersInAllNamespaces()
-		}
+		detector.WatchMCPServerScope(m.config.MCPServerNamespaceSelector, m.config.MCPServerSelector)
 		m.changeDetector = detector
 
 	default:

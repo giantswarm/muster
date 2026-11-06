@@ -303,3 +303,20 @@ func TestBuildOAuthServerOptions_AcceptsGrantTarget(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
+
+// An issuer with delegation names the actor issuers its tokens may carry in
+// act; any other issuer leaves act unchecked.
+func TestToTrustedIssuer_ActorPolicy(t *testing.T) {
+	without := toTrustedIssuer(config.TrustedIssuerConfig{Issuer: "https://dex.example.com"}, nil)
+	require.Nil(t, without.Actors)
+
+	with := toTrustedIssuer(config.TrustedIssuerConfig{
+		Issuer: "https://dex.example.com",
+		Delegation: &config.TrustedIssuerDelegationConfig{
+			ActorIssuers:  []string{"https://idp.ate-system.svc", "https://kubernetes.default.svc"},
+			ActorSubjects: map[string]string{"https://kubernetes.default.svc": "system:serviceaccount:agents:*"},
+		},
+	}, nil)
+	require.Equal(t, []string{"https://idp.ate-system.svc", "https://kubernetes.default.svc"}, with.Actors.Issuers)
+	require.Equal(t, map[string]string{"https://kubernetes.default.svc": "system:serviceaccount:agents:*"}, with.Actors.Subjects)
+}

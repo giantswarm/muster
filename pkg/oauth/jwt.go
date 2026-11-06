@@ -25,8 +25,9 @@ var jwtParser = jwt.NewParser(jwt.WithPaddingAllowed())
 // tokens. Using one struct keeps the accessors symmetrical.
 type tokenClaims struct {
 	jwt.RegisteredClaims
-	Email         string `json:"email,omitempty"`
-	EmailVerified bool   `json:"email_verified,omitempty"`
+	Email         string         `json:"email,omitempty"`
+	EmailVerified bool           `json:"email_verified,omitempty"`
+	Act           map[string]any `json:"act,omitempty"`
 }
 
 func parseUnverified(token string) (tokenClaims, error) {
@@ -105,6 +106,17 @@ func Issuer(token string) (string, error) {
 		return "", fmt.Errorf("decode token: %w", err)
 	}
 	return c.Issuer, nil
+}
+
+// HasActor reports whether a trusted JWT carries an act claim (RFC 8693 §4.1),
+// that is, whether it was issued to a party acting for its subject. Returns a
+// wrapped error on decode failure.
+func HasActor(token string) (bool, error) {
+	c, err := parseUnverified(token)
+	if err != nil {
+		return false, fmt.Errorf("decode token: %w", err)
+	}
+	return c.Act != nil, nil
 }
 
 // Audience returns the aud claim of a trusted JWT as a list, whether the token

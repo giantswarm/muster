@@ -104,6 +104,10 @@ type MCPServer struct {
 	// affects that call's budget (see ProgressMaxDuration).
 	Progress *MCPServerProgress `yaml:"progress,omitempty" json:"progress,omitempty"`
 
+	// URLElicitation is spec.urlElicitation: MCPServerURLElicitationRelay
+	// when muster relays the server's URL elicitations (RelaysURLElicitation).
+	URLElicitation string `yaml:"urlElicitation,omitempty" json:"urlElicitation,omitempty"`
+
 	// Error contains any error message from the most recent server operation.
 	// This is runtime information and not persisted to YAML files.
 	Error string `json:"error,omitempty" yaml:"-"`
@@ -148,6 +152,13 @@ type MCPServerAuth struct {
 	//   - "none": No authentication
 	//   - "sigv4": AWS Signature Version 4 request signing, see SigV4
 	Type string `yaml:"type,omitempty" json:"type,omitempty"`
+
+	// GrantScope is "session" (default) or "subject": whom the grant of the
+	// server's OAuth sign-in belongs to, for whichever authorization server
+	// the server uses -- the one discovered through RFC 9728 or the one
+	// pinned in AuthorizationServer. See SubjectScoped, ValidateGrantScope
+	// and the v1alpha1 CRD field of the same name.
+	GrantScope string `yaml:"grantScope,omitempty" json:"grantScope,omitempty"`
 
 	// ForwardToken enables SSO via Token Forwarding.
 	// When true, muster forwards its own ID token (obtained when user authenticated
@@ -291,29 +302,14 @@ func (a *MCPServerAuthAuthorizationServer) HasPinnedEndpoints() bool {
 	return a != nil && a.AuthorizationEndpoint != "" && a.TokenEndpoint != ""
 }
 
+// GrantScopeSession is the default grant scope: a token is bound to the login
+// session that obtained it.
+const GrantScopeSession = "session"
+
 // SubjectScoped reports whether tokens from this authorization server belong
 // to the person rather than to one login session.
 func (a *MCPServerAuthAuthorizationServer) SubjectScoped() bool {
 	return a != nil && a.GrantScope == GrantScopeSubject
-}
-
-// ValidateAuthorizationServer checks the parts of spec.auth.authorizationServer
-// the CRD's own rules express as CEL, for the paths that do not go through the
-// API server (filesystem mode, core_mcpserver_validate): expectedIssuer makes
-// sense only on a pin with explicit endpoints -- without them muster discovers
-// the authorization server and compares against the issuer it publishes.
-func ValidateAuthorizationServer(auth *MCPServerAuth) error {
-	if auth == nil || auth.AuthorizationServer == nil {
-		return nil
-	}
-	as := auth.AuthorizationServer
-	if (as.AuthorizationEndpoint == "") != (as.TokenEndpoint == "") {
-		return fmt.Errorf("auth.authorizationServer: authorizationEndpoint and tokenEndpoint must be set together")
-	}
-	if as.ExpectedIssuer != "" && !as.HasPinnedEndpoints() {
-		return fmt.Errorf("auth.authorizationServer.expectedIssuer needs authorizationEndpoint and tokenEndpoint")
-	}
-	return nil
 }
 
 // TokenExchangeConfig configures RFC 8693 Token Exchange for cross-cluster SSO.
@@ -352,8 +348,9 @@ type TokenExchangeConfig struct {
 	ExpectedIssuer string `yaml:"expectedIssuer,omitempty" json:"expectedIssuer,omitempty"`
 
 	// ConnectorID is the ID of the OIDC connector on the remote Dex that
-	// trusts the local cluster's Dex.
-	// Required when Enabled is true.
+	// trusts the local cluster's Dex, sent as connector_id. Required for a
+	// person's exchange. A delegated caller's exchange sends none: it goes to
+	// the Dex that issued the delegated token, which verifies it itself.
 	// Example: "cluster-a-dex"
 	ConnectorID string `yaml:"connectorId,omitempty" json:"connectorId,omitempty"`
 
@@ -374,6 +371,21 @@ type TokenExchangeConfig struct {
 	// ClientSecret is the resolved client secret from the secret (populated at runtime).
 	// This field is not persisted and is populated when loading credentials.
 	ClientSecret string `yaml:"-" json:"-"`
+	// Delegation, set at runtime for a delegated caller, makes the exchange
+	// an RFC 8693 delegation with muster as the actor. Not persisted.
+	Delegation *TokenExchangeDelegation `yaml:"-" json:"-"`
+}
+
+// TokenExchangeDelegation is the runtime part of a token exchange for a
+// delegated caller. The subject token is the caller's delegated access token,
+// issued by the Dex the exchange goes to, so no connector_id is sent (RFC 8693
+// §2.1 parameters only).
+type TokenExchangeDelegation struct {
+	// ActorToken is muster's own workload token, sent as actor_token.
+	ActorToken string
+	// Audience is the Dex client ID of the backend, sent as audience. Empty
+	// sends none.
+	Audience string
 }
 
 // ClientCredentialsSecretRef references a Kubernetes Secret containing
@@ -486,6 +498,8 @@ func (i MCPServerInfo) ToMCPServer() *MCPServer {
 		Timeout:     i.Timeout,
 		Progress:    i.Progress,
 		Auth:        i.Auth,
+
+		URLElicitation: i.URLElicitation,
 	}
 }
 
@@ -636,6 +650,17 @@ type MCPServerProgress struct {
 	// progress restarts Timeout. Zero means
 	// DefaultProgressMaxDurationSeconds.
 	MaxDuration int `yaml:"maxDuration,omitempty" json:"maxDuration,omitempty"`
+}
+
+// MCPServerURLElicitationRelay is the spec.urlElicitation value with which
+// muster relays the server's URL elicitations to its client, to the Dev
+// Portal's origin only. Any other value, the empty one included, drops them.
+const MCPServerURLElicitationRelay = "Relay"
+
+// RelaysURLElicitation reports whether the server's spec.urlElicitation is
+// MCPServerURLElicitationRelay.
+func (s *MCPServer) RelaysURLElicitation() bool {
+	return s != nil && s.URLElicitation == MCPServerURLElicitationRelay
 }
 
 // ProgressMaxDuration is how long progress may keep a tool call on the
@@ -829,6 +854,9 @@ type MCPServerInfo struct {
 	// Progress configures how progress the server reports on a tool call
 	// affects that call's budget.
 	Progress *MCPServerProgress `json:"progress,omitempty"`
+
+	// URLElicitation is spec.urlElicitation (see MCPServer.URLElicitation).
+	URLElicitation string `json:"urlElicitation,omitempty"`
 
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`

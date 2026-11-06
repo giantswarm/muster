@@ -93,3 +93,24 @@ func TestSSOSession_FormattingRedactsTokens(t *testing.T) {
 		require.Contains(t, out, "oauth", "%s should keep the token source", name)
 	}
 }
+
+// A delegated caller carries neither an ID token nor a forwardable bearer, yet
+// its token is the session's subject for token exchange and the person's
+// grants: it bootstraps the session's connections, and every background
+// connect of the session carries it.
+func TestSSOSession_DelegatedCaller(t *testing.T) {
+	caller := api.DelegatedCaller{Token: "delegated-token", Issuer: "https://dex.example.com", Subject: "alice"}
+	ctx := api.WithDelegatedCaller(api.WithSubject(context.Background(), "alice"), caller)
+
+	sso := ssoSessionFromContext(ctx, "ext-delegated")
+	require.True(t, sso.canBootstrapSSO())
+	require.False(t, ssoSession{}.canBootstrapSSO())
+
+	bg := sso.connectContext(context.Background())
+	got, ok := api.DelegatedCallerFromContext(bg)
+	require.True(t, ok)
+	require.Equal(t, caller, got)
+	require.Equal(t, "ext-delegated", getSessionIDFromContext(bg))
+	require.Equal(t, "alice", getUserSubjectFromContext(bg))
+	require.Empty(t, server.GetBearerTokenFromContext(bg), "the delegated token is never a forwardable bearer")
+}

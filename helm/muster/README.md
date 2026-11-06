@@ -98,10 +98,12 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | affinity | object | `{}` |  |
 | muster.aggregator.port | int | `8090` |  |
 | muster.aggregator.transport | string | `"streamable-http"` |  |
+| muster.aggregator.devPortalUrl | string | `""` |  |
 | muster.namespace | string | `""` |  |
 | muster.debug | bool | `false` |  |
 | muster.writesAsCaller.kubernetesAudience | string | `""` |  |
-| muster.mcpServersInAllNamespaces | bool | `false` |  |
+| muster.mcpServerNamespaceSelector | string | `nil` |  |
+| muster.mcpServerSelector | string | `nil` |  |
 | muster.secretBinding.protectedSecrets | list | `[]` |  |
 | muster.toolsetPresets | object | `{}` |  |
 | muster.providerApps | list | `[]` |  |
@@ -136,6 +138,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.dex.clientId | string | `""` |  |
 | muster.oauth.server.dex.clientSecret | string | `""` |  |
 | muster.oauth.server.dex.connectorId | string | `""` |  |
+| muster.oauth.server.dex.identityCheckConnectors | list | `[]` |  |
 | muster.oauth.server.dex.allowPrivateIPOIDC | bool | `false` |  |
 | muster.oauth.server.google.clientId | string | `""` |  |
 | muster.oauth.server.google.clientSecret | string | `""` |  |
@@ -164,6 +167,9 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.allowPrivateIPRedirectURIs | bool | `false` |  |
 | muster.oauth.server.trustedAudiences | list | `[]` | ------------------------------------------------------------------------- OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer tokens without the client completing muster's own OAuth flow.  The token's aud claim must match one of these values and the signature must validate against the provider's JWKS. SECURITY: only list client IDs you fully trust. |
 | muster.oauth.server.trustedIssuers | list | `[]` |  |
+| muster.oauth.server.delegation.actorToken.enabled | bool | `false` |  |
+| muster.oauth.server.delegation.actorToken.audience | string | `""` |  |
+| muster.oauth.server.delegation.actorToken.expirationSeconds | int | `3600` |  |
 | muster.oauth.server.tokenExchangeBroker | object | `{}` |  |
 | muster.oauth.server.trustedProxyCIDRs | list | `[]` |  |
 | muster.oauth.server.resourceIdentifier | string | `""` |  |

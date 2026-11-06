@@ -1,24 +1,21 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
-
-// TenantNamePrefix starts the name of every organization namespace. In
-// muster's namespace a server name or toolPrefix may not start with it, so a
-// server for everyone cannot take the exposed prefix of a tenant's servers.
-const TenantNamePrefix = "org-"
 
 // mcpServerKeySeparator separates the namespace from the name in the key of a
 // server outside muster's namespace. Neither a namespace nor an object name
 // can hold it.
 const mcpServerKeySeparator = "/"
 
-// ErrReservedServerName reports a server in muster's namespace whose name or
-// toolPrefix starts with TenantNamePrefix.
-var ErrReservedServerName = errors.New("an MCPServer in muster's namespace may not use the prefix of an organization namespace")
+// ErrShadowedServer reports a server outside muster's namespace whose exposed
+// names a server in muster's namespace can take (ShadowingServer).
+var ErrShadowedServer = errors.New("an MCPServer outside muster's namespace may not share its exposed names with a server in muster's namespace")
 
 // ErrIdentityOutsideNamespace reports a server outside muster's namespace that
 // asks muster for an identity: the person's token, muster's own signature, a
@@ -57,17 +54,44 @@ func MCPServerObject(key, musterNamespace string) (namespace, name string) {
 	return namespace, name
 }
 
-// ServedNamespace reports whether muster serves the MCPServer objects of a
-// namespace when it serves other namespaces than its own: its own namespace
-// (or none, in filesystem mode) and the organization namespaces, whose names
-// start with TenantNamePrefix. A server name or toolPrefix in muster's
-// namespace may not start with that prefix (ValidateServerNamespace), so the
-// exposed prefix of a server for everyone ("<toolPrefix>") never equals the
-// exposed prefix of an organization's server ("<namespace>_<toolPrefix>"),
-// whatever the order in which the servers appear. A server in any other
-// namespace is not served at all.
-func ServedNamespace(namespace, musterNamespace string) bool {
-	return namespace == "" || namespace == musterNamespace || strings.HasPrefix(namespace, TenantNamePrefix)
+// ShadowingServer returns the first, by name, of the servers of muster's
+// namespace (or without a namespace) among servers whose exposed names can
+// equal those of a server in namespace. Every exposed name of a server in
+// namespace starts with "<namespace>_" (MCPServerExposedPrefix), and a
+// namespace name holds no '_', so a server of muster's namespace can take one
+// only when its exposed prefix (its toolPrefix, else its name) or its family
+// name is namespace or starts with "<namespace>_". The server of muster's
+// namespace wins: the caller refuses the servers of namespace, whatever the
+// order in which the servers appear.
+func ShadowingServer(namespace, musterNamespace string, servers []MCPServerInfo) (string, bool) {
+	if namespace == "" || namespace == musterNamespace {
+		return "", false
+	}
+	var shadowing []string
+	for _, server := range servers {
+		if server.Namespace != "" && server.Namespace != musterNamespace {
+			continue
+		}
+		prefix := server.ToolPrefix
+		if prefix == "" {
+			prefix = server.Name
+		}
+		heads := []string{prefix}
+		if server.Family != nil && server.Family.Name != "" {
+			heads = append(heads, server.Family.Name)
+		}
+		for _, head := range heads {
+			if head == namespace || strings.HasPrefix(head, namespace+"_") {
+				shadowing = append(shadowing, server.Name)
+				break
+			}
+		}
+	}
+	if len(shadowing) == 0 {
+		return "", false
+	}
+	sort.Strings(shadowing)
+	return shadowing[0], true
 }
 
 // IsTenantMCPServerKey reports whether a key names a server outside muster's
@@ -94,20 +118,14 @@ func MCPServerExposedPrefix(key, toolPrefix string) string {
 }
 
 // ValidateServerNamespace reports a server that its namespace does not
-// allow. In muster's namespace (or without a namespace, in filesystem mode) a
-// name or toolPrefix that starts with TenantNamePrefix is refused. Outside
-// muster's namespace a server gets no identity from muster: requiredAudiences,
-// forwardToken, forwardIdentity, tokenExchange, family and auth.type sigv4 are
-// refused, so it adds no audience to any login, receives no person's token
-// except through its own sign-in, signs nothing as muster and joins no family.
-func ValidateServerNamespace(namespace, musterNamespace, name, toolPrefix string, family *MCPServerFamily, auth *MCPServerAuth) error {
+// allow. Outside muster's namespace a server gets no identity from muster: requiredAudiences,
+// forwardToken, forwardIdentity, tokenExchange, family, auth.type sigv4 and
+// urlElicitation Relay are refused, so it adds no audience to any login,
+// receives no person's token except through its own sign-in, signs nothing as
+// muster, joins no family and sends nobody to a page through muster: an
+// organization cannot put its own server on the URL elicitation allowlist.
+func ValidateServerNamespace(namespace, musterNamespace string, family *MCPServerFamily, auth *MCPServerAuth, urlElicitation string) error {
 	if namespace == "" || namespace == musterNamespace {
-		if strings.HasPrefix(name, TenantNamePrefix) {
-			return fmt.Errorf("%w: name %q starts with %q", ErrReservedServerName, name, TenantNamePrefix)
-		}
-		if strings.HasPrefix(toolPrefix, TenantNamePrefix) {
-			return fmt.Errorf("%w: toolPrefix %q starts with %q", ErrReservedServerName, toolPrefix, TenantNamePrefix)
-		}
 		return nil
 	}
 	var refused []string
@@ -131,6 +149,9 @@ func ValidateServerNamespace(namespace, musterNamespace, name, toolPrefix string
 			refused = append(refused, "auth.type sigv4")
 		}
 	}
+	if urlElicitation == MCPServerURLElicitationRelay {
+		refused = append(refused, "urlElicitation Relay")
+	}
 	if len(refused) > 0 {
 		return fmt.Errorf("%w: %s %s not allowed in namespace %q; only a server in muster's namespace %q may use them",
 			ErrIdentityOutsideNamespace, strings.Join(refused, ", "), isOrAre(len(refused)), namespace, musterNamespace)
@@ -143,4 +164,22 @@ func isOrAre(n int) string {
 		return "is"
 	}
 	return "are"
+}
+
+// ValidateNotShadowed refuses a server of namespace when a server of muster's
+// namespace among the served ones (list) can take its exposed names
+// (ShadowingServer). It answers nil for a server of muster's namespace.
+func ValidateNotShadowed(ctx context.Context, namespace, musterNamespace string, list func(context.Context) ([]MCPServerInfo, error)) error {
+	if namespace == "" || namespace == musterNamespace || list == nil {
+		return nil
+	}
+	servers, err := list(ctx)
+	if err != nil {
+		return fmt.Errorf("list the MCPServers of muster's namespace: %w", err)
+	}
+	if owner, ok := ShadowingServer(namespace, musterNamespace, servers); ok {
+		return fmt.Errorf("%w: the server %q of muster's namespace %q exposes names under %q, which every server of namespace %q exposes its names under",
+			ErrShadowedServer, owner, musterNamespace, namespace+"_", namespace)
+	}
+	return nil
 }

@@ -34,6 +34,7 @@ type valkeyTokenEntry struct {
 	Scope        string    `json:"scope,omitempty"`
 	IDToken      string    `json:"id_token,omitempty"`
 	Issuer       string    `json:"issuer,omitempty"`
+	Resource     string    `json:"resource,omitempty"`
 	UserID       string    `json:"user_id"`
 }
 
@@ -101,6 +102,7 @@ func tokenToEntry(token *pkgoauth.Token, userID string) *valkeyTokenEntry {
 		Scope:        token.Scope,
 		IDToken:      token.IDToken,
 		Issuer:       token.Issuer,
+		Resource:     token.Resource,
 		UserID:       userID,
 	}
 }
@@ -115,6 +117,7 @@ func entryToToken(e *valkeyTokenEntry) *pkgoauth.Token {
 		Scope:        e.Scope,
 		IDToken:      e.IDToken,
 		Issuer:       e.Issuer,
+		Resource:     e.Resource,
 	}
 }
 

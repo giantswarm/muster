@@ -7,6 +7,9 @@ import (
 	"net"
 	"net/url"
 	"testing"
+
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/stretchr/testify/require"
 )
 
 // TestClassifyTokenExchangeError pins which exchange failures are the
@@ -141,5 +144,33 @@ func TestReportMCPServerTokenExchange(t *testing.T) {
 
 	if len(recorder.outcomes) != 2 || !errors.Is(recorder.outcomes[0], failure) || recorder.outcomes[1] != nil {
 		t.Errorf("the service must receive the failure and then the success, got %v", recorder.outcomes)
+	}
+}
+
+// A token endpoint's refusal is classified by its status and OAuth error code,
+// not by its description.
+func TestClassifyTokenExchangeError_Refusal(t *testing.T) {
+	tests := []struct {
+		name    string
+		refusal *oidc.TokenExchangeError
+		want    TokenExchangeFailureClass
+	}{
+		{"invalid_client", &oidc.TokenExchangeError{StatusCode: 401, Code: "invalid_client"}, TokenExchangeFailureCredentials},
+		{"server_error", &oidc.TokenExchangeError{StatusCode: 500, Code: "server_error"}, TokenExchangeFailureEndpoint},
+		{"proxy 502 page", &oidc.TokenExchangeError{StatusCode: 502, ContentType: "text/html"}, TokenExchangeFailureEndpoint},
+		{"proxy JSON page with an error member on a 502", &oidc.TokenExchangeError{StatusCode: 502, ContentType: "application/json", Code: "Bad Gateway"}, TokenExchangeFailureEndpoint},
+		{"invalid_client on a 503", &oidc.TokenExchangeError{StatusCode: 503, Code: "invalid_client"}, TokenExchangeFailureEndpoint},
+		{"Dex unknown connector", &oidc.TokenExchangeError{StatusCode: 400, Code: "invalid_request", Description: "Requested connector does not exist."}, TokenExchangeFailureConnector},
+		{"Dex connector not allowed", &oidc.TokenExchangeError{StatusCode: 400, Code: "invalid_grant", Description: "Connector not allowed for this client."}, TokenExchangeFailureConnector},
+		{"description naming a connector", &oidc.TokenExchangeError{StatusCode: 400, Code: "invalid_request", Description: "connector only verifies actor tokens"}, TokenExchangeFailureNone},
+		{"invalid_grant", &oidc.TokenExchangeError{StatusCode: 400, Code: "invalid_grant", Description: "invalid_client mentioned in text"}, TokenExchangeFailureNone},
+		{"invalid_target", &oidc.TokenExchangeError{StatusCode: 400, Code: "invalid_target"}, TokenExchangeFailureNone},
+		{"proxy 401 page", &oidc.TokenExchangeError{StatusCode: 401, ContentType: "text/html"}, TokenExchangeFailureNone},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wrapped := fmt.Errorf("token endpoint https://dex.example/connector/token: %w", tc.refusal)
+			require.Equal(t, tc.want, ClassifyTokenExchangeError(wrapped))
+		})
 	}
 }

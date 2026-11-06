@@ -69,6 +69,12 @@ func (a *AggregatorServer) startEventFollow(ctx context.Context, options api.Eve
 	// Each event is judged with the caller's token, so an event about an MCP
 	// server the caller may not see is never pushed.
 	viewCtx := server.ContextWithCallerTokens(context.Background(), server.CallerTokensFromContext(ctx))
+	// Nor one about a server outside the toolsets bounding the request.
+	shows, _ := api.ToolsetShows(ctx)
+	musterNamespace := a.config.MusterNamespace
+	if musterNamespace == "" {
+		musterNamespace = "default"
+	}
 
 	go func() {
 		defer a.removeEventFollow(sessionID, follow)
@@ -92,6 +98,9 @@ func (a *AggregatorServer) startEventFollow(ctx context.Context, options api.Eve
 					return
 				}
 				if !view.SeesEvent(ev) {
+					continue
+				}
+				if key, ok := api.MCPServerEventKey(ev, musterNamespace); ok && !shows(key) {
 					continue
 				}
 				params := map[string]any{

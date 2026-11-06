@@ -118,6 +118,7 @@ func storeDueGrant(client *Client, issuer, refreshToken string, sessions ...stri
 			ExpiresAt:    time.Now().Add(20 * time.Second),
 			Scope:        "repo",
 			Issuer:       issuer,
+			Resource:     "https://connector.example.com/mcp",
 		})
 	}
 }
@@ -137,8 +138,8 @@ func TestSubjectGrant_RefreshesDueGrantAndRotatesEveryCopy(t *testing.T) {
 	if got.RefreshToken != "ghr_rotated_x" {
 		t.Errorf("refresh token = %q, want the rotated one", got.RefreshToken)
 	}
-	if got.Scope != "repo" || got.Issuer != issuer {
-		t.Errorf("scope/issuer not carried over: %+v", got)
+	if got.Scope != "repo" || got.Issuer != issuer || got.Resource != "https://connector.example.com/mcp" {
+		t.Errorf("scope/issuer/resource not carried over: %+v", got)
 	}
 	if got.ExpiresAt.Before(time.Now().Add(50 * time.Minute)) {
 		t.Errorf("expiry not taken from the refresh response: %v", got.ExpiresAt)

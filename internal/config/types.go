@@ -12,12 +12,17 @@ type MusterConfig struct {
 	Namespace      string               `yaml:"namespace,omitempty"`      // Namespace for MCPServer and Workflow discovery
 	Kubernetes     bool                 `yaml:"kubernetes,omitempty"`     // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
 	WritesAsCaller WritesAsCallerConfig `yaml:"writesAsCaller,omitempty"` // Caller-identity writes: kubernetesAudience override
-	// MCPServersInAllNamespaces makes muster watch and serve MCPServer objects
-	// of every namespace in Kubernetes mode, not only of Namespace. Workflow
-	// objects, events and the broker's default Secret namespace stay in
-	// Namespace. A server outside Namespace is keyed and exposed with its
-	// namespace and gets no identity from muster. Off by default.
-	MCPServersInAllNamespaces bool `yaml:"mcpServersInAllNamespaces,omitempty"`
+	// MCPServerNamespaceSelector selects, in Kubernetes mode, the namespaces
+	// besides Namespace whose MCPServer objects muster serves: unset, none;
+	// empty ({}), every namespace; otherwise the namespaces whose labels
+	// match. Workflow objects, events and the broker's default Secret
+	// namespace stay in Namespace. A server outside Namespace is keyed and
+	// exposed with its namespace and gets no identity from muster.
+	MCPServerNamespaceSelector *LabelSelector `yaml:"mcpServerNamespaceSelector,omitempty"`
+	// MCPServerSelector selects, by their labels, the MCPServer objects
+	// muster serves in Namespace and in the selected namespaces: unset, every
+	// one.
+	MCPServerSelector *LabelSelector `yaml:"mcpServerSelector,omitempty"`
 	// ToolsetPresets are the installation's toolset presets (chart value
 	// muster.toolsetPresets): named selections of the catalogue an agent's
 	// X-Muster-Toolset header can reference as preset:<name>. read-only, none
@@ -92,6 +97,13 @@ type AggregatorConfig struct {
 	Host         string `yaml:"host,omitempty"`         // Host to bind to (default: localhost)
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
+
+	// DevPortalURL is the installation's Dev Portal. Its origin is the only
+	// one a URL elicitation of a backend MCP server may send people to: an
+	// MCPServer with spec.urlElicitation Relay has its URL elicitations
+	// relayed to muster's client when their page is on this origin, and every
+	// other one is dropped. Empty, no backend's URL elicitation is relayed.
+	DevPortalURL string `yaml:"devPortalUrl,omitempty"`
 
 	// OAuth contains all OAuth-related configuration with explicit mcpClient/server roles.
 	// - oauth.mcpClient: muster as OAuth client/proxy for authenticating TO remote MCP servers
@@ -349,7 +361,7 @@ type OAuthMCPClientConfig struct {
 	ExtraCAFile string `yaml:"-"`
 
 	// ServesOtherNamespaces is set when muster serves MCPServer objects of
-	// other namespaces (mcpServersInAllNamespaces in Kubernetes mode): their
+	// other namespaces (mcpServerNamespaceSelector in Kubernetes mode): their
 	// servers sign in through the namespace callbacks. Populated at wiring
 	// time, never from YAML.
 	ServesOtherNamespaces bool `yaml:"-"`
@@ -611,6 +623,9 @@ type OAuthServerConfig struct {
 	// gates which audiences each client may request.
 	TokenExchangeBroker TokenExchangeBrokerConfig `yaml:"tokenExchangeBroker,omitempty"`
 
+	// Delegation configures delegated callers, see DelegationConfig.
+	Delegation DelegationConfig `yaml:"delegation,omitempty"`
+
 	// ExtraCAFile mirrors the process-level --extra-ca-file flag. mcp-oauth's
 	// permissive JWKS / token-exchange clients (used for private-IP trusted
 	// issuers and forwarded-ID-token validation) no longer read a CA installed
@@ -777,6 +792,34 @@ type TrustedIssuerConfig struct {
 	// tokens from this issuer. Empty keeps the RFC 9068 default ("at+jwt").
 	// Dex sets no typ header on ID tokens; use [""] to accept them.
 	AcceptedTypHeaders []string `yaml:"acceptedTypHeaders,omitempty"`
+	// Delegation makes this issuer's tokens that name an acting party in the
+	// act claim (RFC 8693 §4.1) delegated tokens: served as the person, never
+	// forwarded. Without it, act is unchecked and such a token keeps the
+	// on-behalf-of path.
+	Delegation *TrustedIssuerDelegationConfig `yaml:"delegation,omitempty"`
+}
+
+// TrustedIssuerDelegationConfig lists the issuers a trusted issuer may name
+// as the current actor (the outermost act) of a delegated token.
+type TrustedIssuerDelegationConfig struct {
+	// ActorIssuers are the accepted act.iss values of the current actor.
+	ActorIssuers []string `yaml:"actorIssuers,omitempty"`
+	// ActorSubjects maps an issuer of ActorIssuers to a glob pattern ('*'
+	// spans '/') the current actor's sub must match. An issuer without an
+	// entry accepts any sub, so an issuer that also signs other workloads'
+	// tokens, such as a cluster's ServiceAccount issuer, needs one.
+	ActorSubjects map[string]string `yaml:"actorSubjects,omitempty"`
+}
+
+// DelegationConfig configures how muster serves delegated callers: a token
+// from a trusted issuer whose act claim names an acting party.
+type DelegationConfig struct {
+	// ActorTokenFile is the path of muster's own workload token (a projected
+	// ServiceAccount token), presented as the RFC 8693 actor_token when muster
+	// exchanges a delegated caller's token for a backend's token. It is read
+	// on every exchange, so a rotated token is picked up. Empty disables
+	// token exchange for delegated callers.
+	ActorTokenFile string `yaml:"actorTokenFile,omitempty"`
 }
 
 // DexConfig holds configuration for the Dex OIDC provider.
@@ -798,6 +841,15 @@ type DexConfig struct {
 
 	// ConnectorID is the optional Dex connector ID to bypass connector selection.
 	ConnectorID string `yaml:"connectorId,omitempty"`
+
+	// IdentityCheckConnectors lists Dex connectors besides ConnectorID that
+	// the OAuth proxy's sign-in check may send a browser to: a session whose
+	// subject was issued through a listed connector signs in there, every
+	// other session through ConnectorID. The check is as strong as the weakest
+	// connector listed, so list only connectors that authenticate a person,
+	// never a mock or a shared account. muster's Dex client must be allowed to
+	// use each of them.
+	IdentityCheckConnectors []string `yaml:"identityCheckConnectors,omitempty"`
 
 	// AllowPrivateIPOIDC allows the Dex issuer URL to resolve to a private or
 	// loopback IP address during OIDC discovery. Required when Dex is fronted by

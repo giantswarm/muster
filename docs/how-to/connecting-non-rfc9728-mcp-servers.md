@@ -146,6 +146,9 @@ spec:
   answered `auth_required` with that person's sign-in link on every call
   until they log in once. Use it only for external accounts the person owns; a
   token that carries session-specific authority stays `session`, the default.
+  A server that publishes RFC 9728 metadata and pins nothing gets the same
+  with `spec.auth.grantScope: subject`, applied to the issuer muster discovers
+  ([MCPServerAuth fields](../reference/crds.md#subject-scoped-grants-for-a-discovered-authorization-server)).
 
 Several MCPServers may point at the same issuer (GitHub's hosted MCP server
 and an in-house server that verifies GitHub tokens, say): the grant is stored
@@ -340,8 +343,8 @@ server as much as a `forwardToken` backend. See the
 
 ## Servers outside muster's namespace
 
-With `mcpServersInAllNamespaces`, a server can live in an organization's
-namespace. Its sign-in stays in that namespace: muster files its tokens, its
+With `mcpServerNamespaceSelector`, a server can live in a namespace the
+selector selects. Its sign-in stays in that namespace: muster files its tokens, its
 subject grants, its pin and its client registration under the namespace and the
 issuer, so it shares nothing with the servers in muster's namespace or with
 another namespace that names the same issuer. A server in muster's namespace
@@ -365,7 +368,7 @@ keeps its stored sign-ins.
   `<publicURL>/oauth/proxy/callback` for an app of muster's namespace, never a
   host root or a prefix: an authorization server that matches redirect URIs by
   prefix would otherwise accept a namespace's callback for it. With
-  `mcpServersInAllNamespaces` on, muster refuses to start when
+  `mcpServerNamespaceSelector` set, muster refuses to start when
   `oauth.mcpClient.callbackPath` is a prefix of `/oauth/ns/` or starts with it.
 - **Its resource.** muster always checks that the resource the server declares is
   on the server's own origin, whatever document declares it; otherwise it uses the
@@ -420,7 +423,14 @@ keeps its stored sign-ins.
   appears later in a namespace of the same name, or under the name of a
   deleted server, starts with nothing, also when muster was down while the
   old one went: muster tells servers apart by their Kubernetes UID. A restart
-  signs nobody out.
+  signs nobody out. When muster cannot forget the sign-ins (the token store
+  or the MCPServer listing does not answer), it tries again with backoff,
+  from 1 second up to 2 minutes, until it succeeds, and logs each failed
+  attempt as `tenant_signins_sweep_failed` with the namespace and the
+  attempt. A retry ends when muster stops. With the Valkey store, muster
+  checks every namespace it holds sign-ins for at its next start, once it
+  has listed the MCPServer objects, and forgets the sign-ins of the servers
+  that went, with the same retries; servers that exist keep theirs.
 
 ## When not to use this
 

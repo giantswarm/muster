@@ -293,6 +293,11 @@ muster:
     # Transport protocol for MCP communication
     # Options: "streamable-http", "sse"
     transport: "streamable-http"
+    # The installation's Dev Portal URL. Its origin is the only one a backend
+    # MCP server's URL elicitation (a request that the person open a page)
+    # is relayed to, and only from an MCPServer with
+    # spec.urlElicitation: Relay. Empty relays none.
+    devPortalUrl: ""
 
   # Namespace for MCPServer and Workflow discovery
   # Defaults to the release namespace if not set
@@ -318,15 +323,21 @@ muster:
     # ("dex-k8s-authenticator").
     kubernetesAudience: ""
 
-  # Serve the MCPServer objects of the organization namespaces (names that
-  # start with org-) next to those of muster's namespace (agent-permissions
-  # D9). A person then sees a server only
-  # when Kubernetes RBAC lets them list mcpservers in its namespace, and muster
-  # lists them with the person's own Dex ID token, so muster's login asks for
+  # The namespaces besides muster's whose MCPServer objects muster serves, as
+  # a label selector (matchLabels, matchExpressions), like prometheus-operator's
+  # serviceMonitorNamespaceSelector: null, none; {}, every namespace;
+  # otherwise the namespaces whose labels match (muster then reads Namespace
+  # objects). A person then sees a server only when Kubernetes RBAC lets them
+  # list mcpservers in its namespace, and muster lists them with the person's
+  # own Dex ID token, so muster's login asks for
   # writesAsCaller.kubernetesAudience. Needs muster.oauth.server with the dex
-  # provider. Before you switch it on, bind list on mcpservers in muster's
-  # namespace to every person who must keep seeing the servers for everyone.
-  mcpServersInAllNamespaces: false
+  # provider. Before you set it, bind list on mcpservers in muster's namespace
+  # to every person who must keep seeing the servers for everyone.
+  mcpServerNamespaceSelector: null  # @schema type: [object, null] ; additionalProperties: true
+
+  # The MCPServer objects muster serves, in its namespace and in the selected
+  # ones, as a label selector on their labels: null, every one.
+  mcpServerSelector: null  # @schema type: [object, null] ; additionalProperties: true
 
   # Secrets muster never reads for an MCPServer (spec.headersFrom and the
   # clientCredentialsSecretRef of spec.auth), whoever writes it. Which
@@ -555,6 +566,14 @@ muster:
         clientSecret: ""
         # Optional connector ID to bypass Dex connector selection
         connectorId: ""
+        # Dex connectors besides connectorId that the OAuth proxy's sign-in
+        # check may sign in through: a session whose subject was issued
+        # through a listed connector (a portal session, for example) is
+        # checked there, every other one through connectorId. The check is as
+        # strong as the weakest connector listed, so list only connectors that
+        # authenticate a person. muster's Dex client must be allowed to use
+        # each of them.
+        identityCheckConnectors: []  # @schema item: string
         # Allow the Dex issuer URL to resolve to a private/loopback IP during
         # OIDC discovery. Required when Dex is fronted by an internal-only load
         # balancer (e.g. Azure internal LB) where the public hostname resolves to
@@ -814,6 +833,34 @@ muster:
       #     acceptedTypHeaders: [""]
       #     subjectClaim: email
       trustedIssuers: []
+      # A trusted issuer whose tokens may name an acting party in the act claim
+      # (RFC 8693 §4.1, a delegated token: sub = person, act = the agent's
+      # workload) lists the accepted issuers of the current actor:
+      #   - issuer: https://dex.example.com
+      #     ...
+      #     delegation:
+      #       actorIssuers: ["https://idp.ate-system.svc"]
+      #       # Optional, per actor issuer: a glob the actor's sub must match.
+      #       # Needed for an issuer that also signs other workloads' tokens.
+      #       actorSubjects:
+      #         "https://idp.ate-system.svc": "actor/*"
+      # A token carrying act from an issuer it does not list is refused; an
+      # issuer without a delegation block keeps today's on-behalf-of path
+      # (act unchecked, token forwarded). A delegated call is served as the person,
+      # with the toolset the token's scope grants, and its token is never
+      # forwarded to an MCP server.
+
+      # Delegated callers reach token-exchange MCP servers through an RFC 8693
+      # delegation at the issuer of their token, with muster's own projected
+      # ServiceAccount token as actor_token. The audience is the client ID the
+      # Dex actor connector for muster's workload identity expects (muster's
+      # exchange client ID). Off: delegated callers reach no token-exchange
+      # server.
+      delegation:
+        actorToken:
+          enabled: false
+          audience: ""
+          expirationSeconds: 3600  # @schema minimum: 600
 
       # Brokered RFC 8693 token exchange: muster as a shared token broker.
       # An external confidential client POSTs a token-exchange request with an

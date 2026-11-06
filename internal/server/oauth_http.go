@@ -160,6 +160,9 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 		return nil, fmt.Errorf("OAuth server is not enabled")
 	}
 
+	if err := validateIdentityCheckConnectors(cfg); err != nil {
+		return nil, err
+	}
 	if err := validateHTTPSRequirement(cfg.BaseURL); err != nil {
 		return nil, err
 	}
@@ -304,6 +307,13 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
+		// Get user info from context (set by ValidateToken middleware)
+		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
+		if ok && s.isDelegated(userInfo) {
+			s.serveDelegated(w, r, userInfo, next)
+			return
+		}
+
 		// Surface the raw inbound bearer for downstream token forwarding: the
 		// aggregator forwards this validated token to backends. It is
 		// request-scoped and read per call by the forwarding header func, so
@@ -312,9 +322,6 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			ctx = ContextWithBearerToken(ctx, bearer)
 		}
 		r = r.WithContext(ctx)
-
-		// Get user info from context (set by ValidateToken middleware)
-		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil {
 			if s.debug {
 				logging.Debug("OAuth", "No user info in context, proceeding without token injection")

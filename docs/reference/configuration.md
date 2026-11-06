@@ -62,7 +62,8 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer and Workflow CRs: muster's namespace |
-| `mcpServersInAllNamespaces` | `bool` | `false` | In Kubernetes mode, watch MCPServer CRs of every namespace and serve those of `namespace` and of the organization namespaces (names that start with `org-`); a server in any other namespace is not served. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family` or `auth.type: sigv4`. In `namespace`, a server name or `toolPrefix` may not start with `org-`. Such a server signs in through `/oauth/ns/<namespace>/callback` with a client of its own namespace, and its sign-in is filed under its namespace and issuer and goes when the namespace's servers go; its pin's client Secret is read through a Role in its namespace with `get` on that Secret alone ([Servers outside muster's namespace](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)). A person sees a server only when Kubernetes RBAC lets them `list` `mcpservers.muster.giantswarm.io` in its namespace, `namespace` included ([Who sees which MCP server](#who-sees-which-mcp-server)). Needs `aggregator.oauth.server` with the `dex` provider; muster refuses to start otherwise. Helm: `muster.mcpServersInAllNamespaces`. |
+| `mcpServerNamespaceSelector` | label selector | unset | In Kubernetes mode, the namespaces besides `namespace` whose MCPServer CRs muster serves, as prometheus-operator's `serviceMonitorNamespaceSelector` selects namespaces: unset, none; `{}`, every namespace; otherwise (`matchLabels`, `matchExpressions`) the namespaces whose labels match, which muster reads (the chart then grants `get`, `list` and `watch` on `namespaces`). Set, muster watches MCPServer CRs of every namespace; a namespace whose labels change has its servers started or stopped as the selector now says, and a server that stops being served has its stored sign-ins swept. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family`, `auth.type: sigv4` or `urlElicitation: Relay`. A server of `namespace` whose `toolPrefix` (else its name) or `family.name` is a selected namespace's name, or starts with it followed by `_`, takes every exposed name of that namespace's servers: those are not started and read `Failed` until it goes. Such a server signs in through `/oauth/ns/<namespace>/callback` with a client of its own namespace, and its sign-in is filed under its namespace and issuer and goes when the namespace's servers go; its pin's client Secret is read through a Role in its namespace with `get` on that Secret alone ([Servers outside muster's namespace](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)). A person sees a server only when Kubernetes RBAC lets them `list` `mcpservers.muster.giantswarm.io` in its namespace, `namespace` included ([Who sees which MCP server](#who-sees-which-mcp-server)). Needs `aggregator.oauth.server` with the `dex` provider; muster refuses to start otherwise. Helm: `muster.mcpServerNamespaceSelector`. |
+| `mcpServerSelector` | label selector | unset | In Kubernetes mode, the MCPServer CRs muster serves, in `namespace` and in the selected namespaces, by their labels: unset, every one (prometheus-operator's `serviceMonitorSelector` selects none when unset; muster keeps serving every server). A server whose labels stop matching is stopped as if deleted. Helm: `muster.mcpServerSelector`. |
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage and requires the apiserver: if the Kubernetes client cannot be created at startup (apiserver unreachable, muster CRDs not installed), `muster serve` retries for about half a minute and then exits with an error instead of falling back to the filesystem, so the kubelet restarts it. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
@@ -88,7 +89,7 @@ A change takes effect when muster restarts: credentials already pinned stay for 
 
 ### Who sees which MCP server
 
-With `mcpServersInAllNamespaces`, muster lists the MCPServer objects as the
+With `mcpServerNamespaceSelector`, muster lists the MCPServer objects as the
 caller, with the session's own Dex ID token, once per namespace that holds
 servers, and keeps the answer for a few seconds per token. The caller sees the
 servers of every namespace where the Kubernetes API lets them `list`
@@ -157,6 +158,7 @@ The aggregator manages the unified MCP interface and tool aggregation.
 | `port` | `int` | `8090` | Port for the aggregator HTTP/WebSocket server |
 | `host` | `string` | `"localhost"` | Host address to bind the server to |
 | `transport` | `string` | `"streamable-http"` | MCP transport protocol |
+| `devPortalUrl` | `string` | `""` | The installation's Dev Portal. Its origin is the only one to which muster relays the URL elicitation of an MCPServer with `spec.urlElicitation: Relay` (see [A call a server answers with a URL elicitation](mcp-tools.md#a-call-a-server-answers-with-a-url-elicitation)). Empty, muster relays none. muster does not start with a value that is not an absolute `http` or `https` URL without a user name or password. Helm: `muster.aggregator.devPortalUrl`. |
 | `enabled` | `bool` | `true` | Whether to enable the aggregator service |
 
 #### Transport Options
@@ -479,6 +481,24 @@ dex (or their own IdP), never against muster.
 | `allowPrivateIPJWKSHosts` | `[]string` | Host-scoped alternative to `allowPrivateIPJWKS`: `jwksUrl` may resolve to a private IP only when its hostname is listed; every other host keeps the SSRF guard. |
 | `subjectClaim` | `string` | Verified claim whose value becomes the canonical subject. Empty keeps `sub`. Use `email` for Dex, whose `sub` is opaque. A token without the claim is rejected. |
 | `acceptedTypHeaders` | `[]string` | Accepted JWT `typ` header values. Empty keeps the RFC 9068 default (`at+jwt`). Dex sets no `typ` on ID tokens: use `[""]`. |
+| `delegation.actorIssuers` | `[]string` | Issuers this issuer may name as the current actor (the outermost `act`, RFC 8693 §4.1) of a delegated token; a token naming another actor issuer is refused. Without `delegation`, `act` is unchecked and a token carrying it keeps the on-behalf-of path. |
+| `delegation.actorSubjects` | `map[string]string` | Per actor issuer, a glob pattern (`*` spans `/`) the current actor's `sub` must match; a token whose actor does not match is refused. An actor issuer without an entry accepts any `sub`, so an issuer that also signs other workloads' tokens, such as a cluster's ServiceAccount issuer, needs one. Every key must be listed in `actorIssuers`. |
+
+#### Delegated callers (`delegation`)
+
+A delegated token comes from a trusted issuer with a `delegation` block: `sub` names the person, `act` the party acting for them. Dex issues such tokens only with RFC 8693 delegation (`actor_token`), proposed upstream in [dexidp/dex#5119](https://github.com/dexidp/dex/pull/5119). muster serves the call as the person (the raw `sub`, never the `subjectClaim` mapping) in a session of its own per person and actor chain. The toolset is the token's `scope`: its selectors (`preset:`, `server:`, `workflow:`, `tool:`) bind the session's toolset, and `X-Muster-Toolset` can only narrow it. A token without a selector is refused with `403` and `WWW-Authenticate: Bearer error="insufficient_scope"`. The scope bounds muster's core tools as well: `server:<name>` grants that server's tools only, so a delegated caller that needs a `core_*` tool needs it named or a preset that includes it ([Toolsets](toolsets.md#what-the-meta-tools-do-with-a-toolset)). A token that may use the Kubernetes server, list the MCP servers it can reach and read its own sign-in status, for example, carries
+
+```text
+scope: "openid server:mcp-kubernetes tool:core_mcpserver_list tool:core_auth_status"
+```
+
+The token is never filed as a login and never forwarded: an MCPServer with `forwardToken` (without `tokenExchange`) or `forwardIdentity` refuses a delegated caller, and a `tokenExchange` MCPServer gets a token exchanged at the issuer of the delegated token, with `subject_token` = the delegated token, `actor_token` = muster's workload token, `audience` = the server's single `requiredAudiences` entry, and no `connector_id`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `delegation.actorTokenFile` | `string` | `""` | Path of muster's workload token (a projected ServiceAccount token), read on every exchange. Empty: delegated callers reach no `tokenExchange` MCPServer and, with MCPServer visibility on, see no server. The chart sets it from `muster.oauth.server.delegation.actorToken`. |
+
+With MCPServer visibility on, a delegated caller's servers are listed with a token exchanged for it: an RFC 8693 delegation of the delegated token at muster's Dex (`dex.issuerUrl` + `/token`, muster's `dex.clientId`), with `actor_token` = muster's workload token and `audience` = the visibility audience. The delegated token never reaches the Kubernetes API server. The exchanged token is cached per session and audience until it expires. The delegated token must come from muster's Dex and name muster's Dex client in its `aud`; an exchange that fails shows the caller no server, with the reason.
 
 #### Brokered Token Exchange (`tokenExchangeBroker`)
 
@@ -540,6 +560,24 @@ By default the SSRF guard rejects an OIDC issuer URL that resolves to a private 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `dex.allowPrivateIPOIDC` | `bool` | `false` | Allow the Dex issuer URL to resolve to a private/loopback IP during OIDC discovery. This is the discovery-path counterpart to `allowPrivateIPJWKS`. Emits a CWE-918 startup warning when set; only enable it when the issuer is genuinely fronted by an internal-only load balancer. |
+
+#### Sign-in check connectors (Dex)
+
+Before a person signs in to a server through the OAuth proxy, muster checks that the person in the browser is the person the sign-in link was issued to: the browser signs in at muster's Dex, and the issuer and `sub` must match the session's. Dex issues one person a different `sub` for every connector, so a session from another connector than `dex.connectorId` (a Dev Portal session signed in through another login method, forwarded as a trusted issuer's token) can only match through its own connector.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dex.identityCheckConnectors` | `[]string` | `[]` | Dex connectors besides `dex.connectorId` that the sign-in check may sign in through. A session whose `sub` was issued through a listed connector is checked there; every other session through `dex.connectorId`, and a session of an unlisted connector is refused (muster logs which connector it would have needed). The check is as strong as the weakest connector it may use: a connector that signs any browser in as the same user (a mock connector, a shared static account) lets anyone pass the check for a link issued through it, so list only connectors that authenticate a person. muster's Dex client must be allowed to use each listed connector; a connector Dex refuses stops the browser on Dex's error page. muster refuses to start with a connector ID outside `[a-zA-Z0-9_-]` or over 64 characters, or without the `dex` provider. Helm: `muster.oauth.server.dex.identityCheckConnectors`. |
+
+```yaml
+aggregator:
+  oauth:
+    server:
+      provider: dex
+      dex:
+        connectorId: giantswarm-github
+        identityCheckConnectors: [giantswarm-ad]
+```
 
 #### Private-IP Token Exchange Endpoints
 

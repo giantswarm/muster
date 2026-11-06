@@ -53,9 +53,9 @@ type Orchestrator struct {
 	// are constructed knowing whether stdio is allowed at all (issue #1067).
 	kubernetesMode bool
 
-	// namespace is muster's namespace: a server in it may not take a
-	// tenant's prefix, a server outside it gets no identity from muster and
-	// reads Secrets of its own namespace only.
+	// namespace is muster's namespace: a server outside it gets no identity
+	// from muster, reads Secrets of its own namespace only and gives way to a
+	// server in it that takes its exposed names.
 	namespace string
 
 	// Service tracking
@@ -263,8 +263,13 @@ func (o *Orchestrator) registerMCPServerService(mcpServerInfo api.MCPServerInfo)
 	if o.kubernetesMode {
 		serverNamespace = mcpServerInfo.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, o.namespace, mcpServerInfo.Name, mcpServerInfo.ToolPrefix, mcpServerInfo.Family, mcpServerInfo.Auth); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, o.namespace, mcpServerInfo.Family, mcpServerInfo.Auth, mcpServerInfo.URLElicitation); err != nil {
 		return nil, err
+	}
+	if manager := api.GetMCPServerManager(); manager != nil {
+		if err := api.ValidateNotShadowed(o.ctx, serverNamespace, o.namespace, manager.ListMCPServers); err != nil {
+			return nil, err
+		}
 	}
 	if err := api.ValidateSecretNamespaces(serverNamespace, o.namespace, mcpServerInfo.Auth); err != nil {
 		return nil, err

@@ -172,6 +172,17 @@ type MCPServerSpec struct {
 	// +optional
 	Progress *MCPServerProgress `json:"progress,omitempty" yaml:"progress,omitempty"`
 
+	// URLElicitation decides what muster does when this server answers a
+	// tool call with a URL elicitation, a request that the person open a
+	// page. Relay declares URL mode elicitation to the server and passes the
+	// request on to muster's client, but only when the page is on the
+	// origin of muster's aggregator.devPortalUrl. Unset or Drop, muster does
+	// not declare it, and drops and logs any URL elicitation the server
+	// sends: the client gets a tool error that does not hold the URL.
+	// +kubebuilder:validation:Enum=Drop;Relay
+	// +optional
+	URLElicitation string `json:"urlElicitation,omitempty" yaml:"urlElicitation,omitempty"`
+
 	// Suspended declares the desired lifecycle state of this server's service.
 	// When true, the reconciler stops the service (and refuses to start it)
 	// until the field is set back to false. This is the CR-driven replacement
@@ -271,6 +282,8 @@ type MCPServerFamily struct {
 // +kubebuilder:validation:XValidation:rule="!has(self.sigv4) || (self.forwardToken == false && !has(self.tokenExchange))",message="sigv4 signs as muster's own machine identity, so forwardToken and tokenExchange do not apply"
 // +kubebuilder:validation:XValidation:rule="!has(self.forwardIdentity) || !self.forwardIdentity || (self.type == 'oauth' && has(self.authorizationServer))",message="forwardIdentity sends the session's ID token next to a pinned grant, so it needs type oauth and authorizationServer"
 // +kubebuilder:validation:XValidation:rule="!has(self.providerApps) || size(self.providerApps) == 0 || (has(self.forwardToken) && self.forwardToken) || (has(self.forwardIdentity) && self.forwardIdentity)",message="providerApps attaches the person's App tokens to a connection made as the person, so it needs forwardToken or forwardIdentity"
+// +kubebuilder:validation:XValidation:rule="!has(self.grantScope) || self.grantScope != 'subject' || (self.type == 'oauth' && !(has(self.forwardToken) && self.forwardToken) && !(has(self.tokenExchange) && has(self.tokenExchange.enabled) && self.tokenExchange.enabled))",message="grantScope subject files the grant of a per-server OAuth sign-in under the person, so it needs type oauth and neither forwardToken nor tokenExchange"
+// +kubebuilder:validation:XValidation:rule="!has(self.grantScope) || !has(self.authorizationServer) || !has(self.authorizationServer.grantScope) || self.grantScope == self.authorizationServer.grantScope",message="grantScope and authorizationServer.grantScope disagree: set one of them, or both to the same value"
 type MCPServerAuth struct {
 	// Type specifies the authentication type.
 	// Supported values:
@@ -281,6 +294,30 @@ type MCPServerAuth struct {
 	// +kubebuilder:validation:Enum=oauth;none;sigv4
 	// +kubebuilder:default=none
 	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+
+	// GrantScope decides whom the grant of this server's OAuth sign-in
+	// belongs to, whichever authorization server the server uses: the one
+	// muster discovers through the server's RFC 9728 Protected Resource
+	// Metadata, or the one pinned in AuthorizationServer. `session` (the
+	// default) binds the grant to the login session that completed the
+	// browser flow. `subject` files it under the person as well, so every
+	// later session of the same person -- another client, an agent
+	// conversation, a session after a muster restart -- connects with it
+	// without a new consent, until the person signs out of the server
+	// (`core_auth_logout`). The semantics are those of
+	// AuthorizationServer.GrantScope, which a pinned server may set instead;
+	// set both only to the same value.
+	//
+	// muster decides grant scope per authorization server: a server with
+	// `subject` and no pin makes the issuer it discovers subject-scoped, as a
+	// pin with `grantScope: subject` does for its issuer, and the
+	// one-description-per-issuer rule of the pins applies to it, except that
+	// an issuer an operator names in an AuthorizationServer pin keeps that
+	// pin's description. `subject` is only valid with Type "oauth" and
+	// neither ForwardToken nor TokenExchange, which obtain no grant of their
+	// own; `session` is accepted everywhere.
+	// +kubebuilder:validation:Enum=session;subject
+	GrantScope string `json:"grantScope,omitempty" yaml:"grantScope,omitempty"`
 
 	// ForwardToken enables ID token forwarding for SSO.
 	// When true, muster forwards the session's upstream dex ID token (or, for
@@ -505,7 +542,8 @@ type MCPServerAuthAuthorizationServer struct {
 	// without a new consent, until the person signs out of this server
 	// (`core_auth_logout`) or everywhere. Use `subject` for external accounts
 	// the person owns (GitHub), never for tokens that carry session-specific
-	// authority.
+	// authority. MCPServerAuth.GrantScope says the same for a server that
+	// discovers its authorization server instead of pinning it.
 	// +kubebuilder:validation:Enum=session;subject
 	GrantScope string `json:"grantScope,omitempty" yaml:"grantScope,omitempty"`
 
@@ -553,8 +591,11 @@ type TokenExchangeConfig struct {
 	ExpectedIssuer string `json:"expectedIssuer,omitempty" yaml:"expectedIssuer,omitempty"`
 
 	// ConnectorID is the ID of the OIDC connector on the remote Dex that
-	// trusts the local cluster's Dex.
-	// Required when Enabled is true.
+	// trusts the local cluster's Dex, sent as Dex's connector_id parameter.
+	// Required for a person's exchange. A delegated caller's exchange sends
+	// none: it goes to the Dex that issued the delegated token, which verifies
+	// it with its own keys, so a server only delegated callers reach may leave
+	// it empty.
 	// Example: "cluster-a-dex"
 	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
 	ConnectorID string `json:"connectorId,omitempty" yaml:"connectorId,omitempty"`
