@@ -35,3 +35,11 @@ steps:
       - "default value"
       - "completed"
       - "echo"
+- id: "run-workflow-without-arguments"
+  tool: "workflow_default-input-workflow"
+  expected:
+    success: true
+    contains:
+      - "default value"
+      - "completed"
+      - "echo"
