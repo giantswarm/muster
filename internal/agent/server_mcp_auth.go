@@ -7,6 +7,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/agent/oauth"
 
+	"github.com/giantswarm/mcp-toolkit/brand"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -32,6 +33,7 @@ func NewPendingAuthMCPServer(logger *Logger, authManager *oauth.AuthManager, ser
 	mcpServer := server.NewMCPServer(
 		"muster-agent",
 		"1.0.0",
+		brand.WithGiantSwarmIcon(),
 		server.WithToolCapabilities(true), // Enable notifications for tool list changes
 	)
 
