@@ -1859,39 +1859,13 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		h.logger.Debug("🔐 Calling muster authorize: %s\n", authorizeURL)
 	}
 
-	// Create HTTP client that follows redirects to get to Dex's authorize endpoint
-	var dexAuthURL string
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			// Capture the Dex authorize URL
-			if strings.Contains(req.URL.Path, "/authorize") {
-				dexAuthURL = req.URL.String()
-				return http.ErrUseLastResponse
-			}
-			return nil
-		},
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, authorizeURL, nil)
+	browser, err := newBrowser()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create authorize request: %w", err)
+		return nil, err
 	}
-
-	resp, err := client.Do(req)
+	dexAuthURL, err := approveClientConsent(ctx, browser, authorizeURL)
 	if err != nil {
-		return nil, fmt.Errorf("authorize request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// If we didn't capture the Dex auth URL during redirects, check the Location header
-	if dexAuthURL == "" {
-		dexAuthURL = resp.Header.Get("Location")
-	}
-
-	if dexAuthURL == "" {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, fmt.Errorf("no Dex redirect URL from authorize endpoint (status: %d, body: %s)", resp.StatusCode, string(body))
+		return nil, err
 	}
 
 	if h.debug {
@@ -1940,19 +1914,12 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		h.logger.Debug("🔐 Calling Dex callback: %s\n", dexCallbackURL)
 	}
 
-	callbackClient := &http.Client{
-		Timeout: 30 * time.Second,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
 	callbackReq, err := http.NewRequestWithContext(ctx, http.MethodGet, dexCallbackURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create callback request: %w", err)
 	}
 
-	callbackResp, err := callbackClient.Do(callbackReq)
+	callbackResp, err := browser.Do(callbackReq)
 	if err != nil {
 		return nil, fmt.Errorf("callback request failed: %w", err)
 	}
