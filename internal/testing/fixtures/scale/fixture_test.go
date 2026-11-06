@@ -157,7 +157,7 @@ func TestRenderingDecodesAsPreConfiguration(t *testing.T) {
 		if f.Servers[i].SessionAuth {
 			oauth, _ := s.Config["oauth"].(map[string]any)
 			assert.Equal(t, true, oauth["forward_token"], "server %s", s.Name)
-			assert.Equal(t, f.FleetIssuer, oauth["trust_issuer_ref"], "server %s", s.Name)
+			assert.Equal(t, f.MusterOAuthServer, oauth["trust_issuer_ref"], "server %s", s.Name)
 		} else {
 			assert.Nil(t, s.Config["oauth"], "in-house server %s must not require authentication", s.Name)
 		}

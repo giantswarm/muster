@@ -54,9 +54,9 @@ func TestResourceRelays_EvictionEndsOnlyRevokedRelays(t *testing.T) {
 }
 
 // TestRelayAuthorized_ExpiredForwardedBearer pins that a relay riding on a
-// forwarded bearer ends with the bearer.
+// resource bearer ends with the bearer.
 func TestRelayAuthorized_ExpiredForwardedBearer(t *testing.T) {
-	a := newSubscriptionAggregator(t, "http://unused.invalid/mcp")
+	a := newSubscriptionAggregator(t, "http://unused.invalid/mcp", "alice")
 	info, ok := a.registry.GetServerInfo("mailbox")
 	require.True(t, ok)
 	withBearer := func(exp time.Time) context.Context {
@@ -78,8 +78,6 @@ func TestRelaySubscriptionsListen_SignOutEndsTheRelay(t *testing.T) {
 	require.NoError(t, a.relaySubscriptionsListen(alice.ctx, 1, listenMessage(t, 1, "test://mailbox/alice")))
 	require.Equal(t, 1, backend.openStreams())
 
-	// A forwarded bearer is its own credential: the relay rides on it until
-	// it expires. Revoke what the relay checks.
 	a.relayRegistry().mu.Lock()
 	for _, rel := range a.relays.relays {
 		rel.authorized = func() bool { return false }

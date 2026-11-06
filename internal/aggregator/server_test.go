@@ -1505,7 +1505,7 @@ func TestAggregatorServer_MissingToolsForSession_SessionToolMemo(t *testing.T) {
 // bearer is the credential the connection forwards), so a stale-token eviction
 // that revoked the entry cannot fail calls that present a fresh token. An
 // opaque bearer stays gated.
-func TestGetOrCreateClientForToolCall_ForwardableBearerExemptFromAuthGate(t *testing.T) {
+func TestGetOrCreateClientForToolCall_ResourceBearerNeedsBackendGrant(t *testing.T) {
 	a := newTestAggregatorWithPool(t)
 	sessionID := "test-session"
 	serverName := "forward-server"
@@ -1527,9 +1527,11 @@ func TestGetOrCreateClientForToolCall_ForwardableBearerExemptFromAuthGate(t *tes
 	ctx := server.ContextWithBearerToken(context.Background(), bearer)
 
 	client, cleanup, clientErr := a.getOrCreateClientForToolCall(ctx, serverName, sessionID, "alice")
-	require.NoError(t, clientErr, "forwardable bearer must pass the auth gate for a token-forwarding server")
-	defer cleanup()
-	require.Equal(t, mockClient, client)
+	require.ErrorContains(t, clientErr, "not authenticated")
+	if cleanup != nil {
+		defer cleanup()
+	}
+	require.Nil(t, client)
 
 	// An opaque bearer cannot be forwarded and must stay gated.
 	opaqueCtx := server.ContextWithBearerToken(context.Background(), "opaque-token")

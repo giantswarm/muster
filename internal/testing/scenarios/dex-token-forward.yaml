@@ -2,15 +2,10 @@ name: "dex-token-forward"
 category: "behavioral"
 concept: "mcpserver"
 description: |
-  End-to-end agent OBO flow on the dex-only trust model. Dex (workload-idp
-  stand-in) is the sole token issuer: it mints the on-behalf-of token
-  (sub=human, act=agent, groups) itself. The agent presents that dex-issued
-  token on /mcp; muster validates it against the trusted issuer's JWKS and
-  forwards it unchanged to a forwardToken backend, which validates it against
-  the SAME issuer's JWKS (never muster's — muster signs nothing) and echoes
-  the received claims, proving the delegation chain reaches the backend
-  byte-identical. Byte-identical forwarding of the inbound bearer is pinned
-  at the unit level (TestHeaderFunc_ForwardsRequestBearer).
+  A resource access token issued for muster authenticates the caller on /mcp
+  without becoming a credential for another server. A backend that trusts
+  the same issuer still receives no copy of that inbound bearer. Downstream
+  authorization needs its own grant or an explicitly configured exchange.
 tags: ["oauth", "obo", "token-forwarding", "aggregator", "data-plane"]
 timeout: "2m"
 
@@ -30,7 +25,6 @@ pre_configuration:
   muster_broker:
     trusted_issuers:
       - oauth_server_ref: "workload-idp"
-        accepted_typ_headers: [""]
 
   mcp_servers:
     - name: "obo-backend"
@@ -66,6 +60,7 @@ steps:
     args:
       server: "workload-idp"
       name: "obo-token"
+      typ: "at+jwt"
       sub: "alice@giantswarm.io"
       email: "alice@giantswarm.io"
       email_verified: true
@@ -84,18 +79,12 @@ steps:
       success: true
       wait_for_state: "30s"
 
-  - id: "backend-receives-forwarded-token"
-    description: |
-      The backend tool is reachable through the aggregator and echoes the
-      claims of the token it received: the forwarded token still carries the
-      human subject and the agent act chain, and validated against the DEX
-      issuer's JWKS — the backend does not know muster's signing key because
-      muster has none.
+  - id: "backend-does-not-receive-resource-bearer"
+    description: "The backend requires a separate authorization grant"
     tool: "x_obo-backend_whoami"
     args: {}
     expected:
-      success: true
-      wait_for_state: "30s"
-      contains:
+      success: false
+      not_contains:
         - "alice@giantswarm.io"
         - "agent:sre-agent"

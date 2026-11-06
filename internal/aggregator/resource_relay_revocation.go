@@ -84,10 +84,10 @@ func (r *resourceRelays) evicted(sessionID, server string) {
 }
 
 // relayAuthorized reports whether a relay opened with ctx may go on: the
-// session still passes requireSessionAuth, and a forwarded bearer it rides
+// session still passes requireSessionAuth, and a resource bearer it rides
 // on has not expired.
 func (a *AggregatorServer) relayAuthorized(ctx context.Context, info *ServerInfo, sessionID, sub string) bool {
-	if bearer := forwardableBearer(ctx); bearer != "" {
+	if bearer := resourceJWTBearer(ctx); bearer != "" {
 		if expired, _ := pkgoauth.IsExpired(bearer); expired {
 			return false
 		}

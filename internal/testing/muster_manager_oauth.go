@@ -50,7 +50,7 @@ func (m *musterInstanceManager) startMockOAuthServers(
 			}
 		}
 
-		signTokens := oauthCfg.SignTokens || brokerRefs[oauthCfg.Name]
+		signTokens := oauthCfg.SignTokens || brokerRefs[oauthCfg.Name] || oauthCfg.UseAsMusterOAuthServer
 
 		// Determine if TLS should be enabled for this OAuth server.
 		// TLS is required for:

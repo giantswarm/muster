@@ -1018,20 +1018,9 @@ func (a *AggregatorServer) makeTokenExchangeRefreshClosures(
 	return reexchange, onStaleToken
 }
 
-// newTokenForwardingClient resolves the session's forwardable token and builds
-// the streamable-HTTP client whose header func re-resolves it on every request.
-// Both the connect-time discovery path and the pool-miss tool-call path build
-// their client here so token resolution cannot diverge between them.
-//
-// Resolution matches the header func: the validated inbound bearer first, so
-// the connect-time check exercises the token the connection will actually
-// forward, then the OAuth-store ID token (with an in-process upstream refresh)
-// for sessions without a forwardable bearer (opaque-token human sessions). An
-// expired or absent token is an error; the caller surfaces it to the session.
-//
-// The resolved token is returned alongside the client so connect-failure paths
-// can attribute a backend rejection to the token's issuer (see
-// forwardedTokenDiagnostic).
+// newTokenForwardingClient builds a client for explicitly configured provider
+// token forwarding. A missing or expired provider credential fails the connect.
+// The resolved token also supplies redacted issuer and audience diagnostics.
 func (a *AggregatorServer) newTokenForwardingClient(
 	ctx context.Context,
 	sessionID, sub, musterIssuer string,
@@ -1039,16 +1028,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	onStaleToken func(),
 ) (*tokenForwardingClient, string, error) {
 	refresher := a.sessionRefresher()
-	// A connection that forwards the request's own bearer belongs to a
-	// session keyed by that bearer: it ends when the bearer expires
-	// (bearer_session.go), with no refresh chain to fall back on.
-	var onExpired func()
-	token := forwardableBearer(ctx)
-	if token != "" {
-		onExpired = func() { a.endBearerSession(sessionID) }
-	} else {
-		token = getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
-	}
+	token := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
 	if token == "" {
 		logging.Debug("Connection", "No forwardable token available for user %s",
 			logging.TruncateIdentifier(sub))
@@ -1067,7 +1047,7 @@ func (a *AggregatorServer) newTokenForwardingClient(
 		return nil, "", err
 	}
 	presented := &atomic.Pointer[string]{}
-	headerFunc := presentingHeaderFunc(a.sessionHeaderFunc(sessionID, sub, serverInfo, makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken, onExpired)), presented)
+	headerFunc := presentingHeaderFunc(a.sessionHeaderFunc(sessionID, sub, serverInfo, makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)), presented)
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 	a.declareURLElicitation(ctx, serverInfo.Name, client)
 	return &tokenForwardingClient{StreamableHTTPClient: client, presented: presented}, token, nil
@@ -1217,13 +1197,8 @@ func forwardedTokenDiagnostic(token string, connectErr error) string {
 	return diagnostic
 }
 
-// isForwardableToken reports whether token is a decodable JWT. An opaque
-// bearer is never forwarded: a downstream backend cannot validate it, so
-// opaque-token sessions resolve the stored dex ID token instead. muster
-// issues only opaque access tokens (it is not an IdP and has no signing
-// key), so any decodable JWT here was issued by an external trusted issuer
-// (dex).
-func isForwardableToken(token string) bool {
+// isJWTBearer reports whether a validated bearer carries readable JWT claims.
+func isJWTBearer(token string) bool {
 	if token == "" {
 		return false
 	}
@@ -1231,18 +1206,10 @@ func isForwardableToken(token string) bool {
 	return err == nil
 }
 
-// forwardableBearer returns the validated inbound bearer from ctx when it is a
-// decodable JWT, or "" otherwise (see isForwardableToken).
-//
-// The bearer is forwarded byte-identical, not re-minted per backend, so it is
-// not audience-scoped to the receiving backend: a trusted-issuer (dex) token
-// carries that issuer's audience. The same token is accepted by every
-// forwardToken backend that trusts its issuer, so those backends must be
-// equally trusted; the token's nested act chain (minted by the IdP) is the
-// backend's delegation provenance.
-func forwardableBearer(ctx context.Context) string {
+// resourceJWTBearer exposes a validated JWT only for session lifetime checks.
+func resourceJWTBearer(ctx context.Context) string {
 	bearer := server.GetBearerTokenFromContext(ctx)
-	if !isForwardableToken(bearer) {
+	if !isJWTBearer(bearer) {
 		return ""
 	}
 	return bearer
@@ -1258,61 +1225,18 @@ func expiredTokenError(kind, serverName string, err error) error {
 	return fmt.Errorf("%s has expired for %s, re-authenticate to refresh", kind, serverName)
 }
 
-// makeTokenForwardingHeaderFunc creates the header function closure used by
-// newTokenForwardingClient. Resolution order per invocation:
-//
-//  1. The validated inbound bearer on the request context, forwarded
-//     byte-identical so the backend sees the caller's own IdP-issued token
-//     including any nested act delegation chain. This serves per-request
-//     forwarding for tool calls; opaque bearers are excluded (see
-//     forwardableBearer).
-//  2. The session's latest ID token from the OAuth store. The background
-//     listen stream runs without a request context, and opaque-token-mode
-//     sessions have no forwardable bearer.
-//  3. fallbackToken, captured when the connection was established. Sessions
-//     with no OAuth-store entry (agent OBO callers) live off 1 and 3.
-//  4. When the fallback has expired, an in-process provider-only upstream
-//     refresh via refresher, so sessions that still hold a refresh chain
-//     (opaque-token human sessions) recover in place instead of riding into
-//     eviction. The refresh is bounded by the provider's request timeout,
-//     coalesced by the per-user provider-refresh single-flight, and attempted
-//     only in the stale state, so sessions with no upstream refresh chain
-//     never trigger it while their token is valid. See
-//     oauthServer.RefreshSessionProvider for the rotation/deauth background
-//     (giantswarm#37164).
-//
-// A connection that forwards its session's own bearer (onExpired set) has no
-// refresh chain: once the fallback is within the expiry margin, the refresh
-// is not tried and no failure is counted. Until the bearer's exp the header
-// carries it, valid for those last seconds; past it, onExpired ends the
-// session (bearer_session.go) and onStaleToken evicts this connection, once
-// and at once -- a connection pooled after the session ended is closed too.
-//
-// Failure accounting: a resolution counts as failed only when it bottoms out
-// on an expired or undecodable fallback and the refresh recovered nothing,
-// the stale-token state that 401-loops against the backend. A WARN is
-// emitted at most once per headerFuncWarnInterval (DEBUG otherwise). When
-// the failure count reaches maxConsecutiveTokenFailures the onStaleToken
-// callback is invoked asynchronously to evict the pooled connection, which
-// stops mcp-go's retry loop because closing the client cancels the
-// transport's context. The callback fires at most once per failure streak;
-// the counter resets when a usable token is resolved.
-//
-// mcp-go invokes the returned closure concurrently on a single connection: the
-// continuous-listening GET runs in its own goroutine (listenForever) while tool
-// calls invoke it from their own goroutines, and both reach headerFunc via
-// sendHTTP. The mutex serialises the slow path (store lookup, refresh, warn
-// rate-limiting); the failure counter is atomic so the bearer fast path never
-// waits behind a store lookup or an in-flight refresh.
+// makeTokenForwardingHeaderFunc resolves the session's provider credential from
+// the OAuth store, then the connection's credential, refreshing it when needed.
+// Repeated resolution failures evict the connection. The mutex serializes
+// concurrent listen-stream and tool-call lookups and refresh attempts.
 func makeTokenForwardingHeaderFunc(
 	sessionID, musterIssuer, serverName, fallbackToken string,
 	refresher func(context.Context, string) error,
-	onStaleToken, onExpired func(),
+	onStaleToken func(),
 ) func(context.Context) map[string]string {
 	var mu sync.Mutex
 	var lastWarnTime time.Time
 	var consecutiveFailures atomic.Int64
-	var expireOnce sync.Once
 
 	bearerHeader := func(token string) map[string]string {
 		return map[string]string{
@@ -1355,39 +1279,17 @@ func makeTokenForwardingHeaderFunc(
 	}
 
 	return func(ctx context.Context) map[string]string {
-		if bearer := forwardableBearer(ctx); bearer != "" {
-			return succeed(bearer, "request bearer")
-		}
-
 		mu.Lock()
 		defer mu.Unlock()
 
 		if latestToken := getIDTokenForForwarding(context.Background(), sessionID, musterIssuer, nil); latestToken != "" {
 			return succeed(latestToken, "OAuth store")
 		}
-		expired, expErr := pkgoauth.IsExpired(fallbackToken)
+		expired, _ := pkgoauth.IsExpired(fallbackToken)
 		if !expired {
 			logging.Debug("Connection", "No ID token in OAuth store for session %s to %s, forwarding the connection token",
 				logging.TruncateIdentifier(sessionID), serverName)
 			return succeed(fallbackToken, "connection token")
-		}
-		if expErr == nil && onExpired != nil {
-			if exp, _ := pkgoauth.Expiry(fallbackToken); time.Now().Before(exp) {
-				return bearerHeader(fallbackToken)
-			}
-			expireOnce.Do(func() {
-				logging.Debug("Connection", "Forwarded bearer of session %s has expired, ending the session and its connection to %s",
-					logging.TruncateIdentifier(sessionID), serverName)
-				// Asynchronous like the strike path's eviction: both close
-				// the client whose request is running this header func.
-				go func() {
-					onExpired()
-					if onStaleToken != nil {
-						onStaleToken()
-					}
-				}()
-			})
-			return bearerHeader(fallbackToken)
 		}
 		if refresher != nil {
 			if err := refresher(ctx, sessionID); err != nil {

@@ -30,6 +30,7 @@ import (
 
 	oauth "github.com/giantswarm/mcp-oauth"
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -246,7 +247,7 @@ type AggregatorServer struct {
 	// actor requests make.
 	pinnedLoginRefreshes pinnedLoginRefreshes
 
-	// bearerSessions ends each session keyed by a forwarded bearer when that
+	// bearerSessions ends each session keyed by a resource bearer when that
 	// bearer expires (bearer_session.go).
 	bearerSessions *bearerSessions
 
@@ -1930,6 +1931,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 		if authAlive {
 			if !sso.canBootstrapSSO() {
+				if sso.tokenSource == providers.TokenSourceTrustedIssuer {
+					return
+				}
 				// No usable subject token: the upstream credential is gone.
 				// Evict stale SSO connections to stop mcp-go's infinite
 				// 1-second retry loop.

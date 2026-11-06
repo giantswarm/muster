@@ -1706,505 +1706,505 @@ mcp_servers:
   - name: amber-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v1
   - name: basalt-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v2
   - name: cobalt-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v3
   - name: dunite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v4
   - name: epidote-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v1
   - name: feldspar-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v2
   - name: garnet-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v3
   - name: halite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v4
   - name: iolite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v1
   - name: jasper-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v2
   - name: kyanite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v3
   - name: lazurite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v4
   - name: marble-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v1
   - name: nephrite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v2
   - name: onyx-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v3
   - name: pumice-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v4
   - name: quartz-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v1
   - name: rutile-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v2
   - name: sodalite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v3
   - name: topaz-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v4
   - name: ulexite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v1
   - name: verdite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v2
   - name: wulfenite-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v3
   - name: xenotime-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v4
   - name: yttria-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v1
   - name: zircon-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v2
   - name: agate-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v3
   - name: beryl-clusters
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: clusters, instanceArg: installation}
       tools: *clusters-v4
   - name: amber-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v1
   - name: basalt-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v2
   - name: cobalt-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v3
   - name: dunite-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v4
   - name: epidote-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v1
   - name: feldspar-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v2
   - name: garnet-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v3
   - name: halite-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v4
   - name: iolite-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v1
   - name: jasper-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v2
   - name: kyanite-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v3
   - name: lazurite-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v4
   - name: marble-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v1
   - name: nephrite-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v2
   - name: onyx-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v3
   - name: pumice-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v4
   - name: quartz-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v1
   - name: rutile-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v2
   - name: sodalite-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v3
   - name: topaz-metrics
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: metrics, instanceArg: installation}
       tools: *metrics-v4
   - name: amber-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v1
   - name: basalt-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v2
   - name: cobalt-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v3
   - name: dunite-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v4
   - name: epidote-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v1
   - name: feldspar-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v2
   - name: garnet-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v3
   - name: halite-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v4
   - name: iolite-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v1
   - name: jasper-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v2
   - name: kyanite-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v3
   - name: lazurite-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v4
   - name: marble-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v1
   - name: nephrite-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v2
   - name: onyx-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v3
   - name: pumice-alerts
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: alerts, instanceArg: installation}
       tools: *alerts-v4
   - name: amber-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v1
   - name: basalt-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v2
   - name: cobalt-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v3
   - name: dunite-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v1
   - name: epidote-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v2
   - name: feldspar-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v3
   - name: garnet-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v1
   - name: halite-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v2
   - name: iolite-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v3
   - name: jasper-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v1
   - name: kyanite-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v2
   - name: lazurite-logs
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: logs, instanceArg: installation}
       tools: *logs-v3
   - name: amber-ledger
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: ledger, instanceArg: installation}
       tools: *ledger-v1
   - name: basalt-ledger
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: ledger, instanceArg: installation}
       tools: *ledger-v2
   - name: cobalt-ledger
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: ledger, instanceArg: installation}
       tools: *ledger-v3
   - name: dunite-ledger
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: ledger, instanceArg: installation}
       tools: *ledger-v1
   - name: epidote-ledger
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: ledger, instanceArg: installation}
       tools: *ledger-v2
   - name: feldspar-ledger
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: ledger, instanceArg: installation}
       tools: *ledger-v3
   - name: garnet-ledger
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: ledger, instanceArg: installation}
       tools: *ledger-v1
   - name: halite-ledger
     config:
       type: streamable-http
-      oauth: {required: true, trust_issuer_ref: fleet-idp, forward_token: true}
+      oauth: {required: true, trust_issuer_ref: fixture-idp, forward_token: true}
       family: {name: ledger, instanceArg: installation}
       tools: *ledger-v2
   - name: handbook

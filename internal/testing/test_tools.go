@@ -1646,6 +1646,7 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {h.currentInstance.MusterOAuthRefreshToken},
 		"client_id":     {h.currentInstance.MusterOAuthClientID},
+		"resource":      {baseURL},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("token refresh failed: %w", err)
@@ -1851,6 +1852,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		url.QueryEscape(pkce.CodeChallenge),
 		url.QueryEscape(pkce.CodeChallengeMethod),
 	)
+	authorizeURL += "&resource=" + url.QueryEscape(baseURL)
 
 	if h.debug {
 		h.logger.Debug("🔐 Calling muster authorize: %s\n", authorizeURL)
@@ -1963,6 +1965,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		"redirect_uri":  {musterRedirectURI},
 		"client_id":     {registeredClientID},
 		"code_verifier": {pkce.CodeVerifier},
+		"resource":      {baseURL},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("code exchange failed: %w", err)
@@ -1974,6 +1977,9 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 
 	h.currentInstance.MusterOAuthAccessToken = tokenResult.AccessToken
 	h.loginSubjects[tokenResult.AccessToken] = subject
+	if name, _ := args["name"].(string); name != "" {
+		h.mintedTokens[name] = tokenResult.AccessToken
+	}
 	h.currentInstance.MusterOAuthSubject = subject
 	h.currentInstance.MusterOAuthRefreshToken = tokenResult.RefreshToken
 	h.currentInstance.MusterOAuthClientID = registeredClientID

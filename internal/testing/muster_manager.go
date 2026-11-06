@@ -433,9 +433,13 @@ func (m *musterInstanceManager) CreateInstance(ctx context.Context, scenarioName
 
 	// Extract muster OAuth access token if any mock OAuth server is used as muster's OAuth server
 	var musterOAuthToken string
-	for _, oauthInfo := range mockOAuthServerInfo {
-		if oauthInfo.AccessToken != "" {
-			musterOAuthToken = oauthInfo.AccessToken
+	for name, oauthInfo := range mockOAuthServerInfo {
+		if oauthInfo.UseAsMusterOAuthServer {
+			musterOAuthToken, err = m.testResourceBearer(instanceID, name, port)
+			if err != nil {
+				cleanupSetup()
+				return nil, err
+			}
 			break
 		}
 	}
@@ -668,12 +672,6 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	}
 
 	// Create MCP client to check availability
-	if instance.MusterOAuthAccessToken != "" && instance.MusterOAuthClientID == "" {
-		handler := NewTestToolsHandler(m, instance, m.debug, logger)
-		if _, err := handler.handleMusterAuthLogin(readyCtx, nil); err != nil {
-			return fmt.Errorf("authenticate test client at muster: %w", err)
-		}
-	}
 	mcpClient := NewMCPTestClient(m.debug)
 	defer func() { _ = mcpClient.Close() }()
 
@@ -1752,11 +1750,14 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 	}
 
 	return map[string]interface{}{
-		keyEnabled:                      true,
-		"baseUrl":                       fmt.Sprintf("http://localhost:%d", port),
-		"provider":                      "dex", // Mock server acts like Dex
-		"dex":                           dexConfig,
-		"storage":                       map[string]interface{}{"type": "memory"},
+		keyEnabled: true,
+		"baseUrl":  fmt.Sprintf("http://localhost:%d", port),
+		"provider": "dex", // Mock server acts like Dex
+		"dex":      dexConfig,
+		"storage":  map[string]interface{}{"type": "memory"},
+		"trustedIssuers": []map[string]interface{}{{
+			"issuer": issuerURL, "jwksUrl": issuerURL + "/jwks", "allowPrivateIPJWKS": true,
+		}},
 		"allowLocalhostRedirectURIs":    true,
 		"allowPublicClientRegistration": true, // Allow dynamic client registration for testing
 	}

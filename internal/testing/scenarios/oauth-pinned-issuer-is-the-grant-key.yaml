@@ -70,7 +70,6 @@ pre_configuration:
   muster_broker:
     trusted_issuers:
       - oauth_server_ref: "platform-idp"
-        accepted_typ_headers: [""]
 
   mcp_servers:
     - name: "platform-fixture"
@@ -110,6 +109,7 @@ steps:
     description: "The session's bearer is an externally issued token muster trusts (portal/agent shape)"
     tool: "test_mint_token"
     args:
+      typ: "at+jwt"
       server: "platform-idp"
       name: "person-token"
       sub: "person@example.com"

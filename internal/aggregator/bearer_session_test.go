@@ -12,7 +12,6 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/server"
-	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // TestBearerSessions_EndsOnceAtExp: a bound session is ended by its timer at
@@ -136,7 +135,7 @@ func TestEndBearerSession_ClosesTheSessionOnce(t *testing.T) {
 	assert.True(t, ok, "another session's connection stays")
 	assert.Equal(t, []api.ServiceState{api.StateAwaitingSession}, services.services["only-expired"].updates)
 	assert.Empty(t, services.services["shared"].updates, "a server another session still holds keeps its state")
-	assert.Contains(t, logBuf.String(), "its forwarded bearer expired at")
+	assert.Contains(t, logBuf.String(), "its resource bearer expired at")
 	assert.Contains(t, logBuf.String(), "closed 2 backend connections")
 }
 
@@ -154,7 +153,7 @@ func TestEndBearerSession_NotBeforeExp(t *testing.T) {
 }
 
 // TestPooledSessions_EndsExpiredBearerSessions: the capability poll does not
-// list through a session whose forwarded bearer has expired; it ends it.
+// list through a session whose resource bearer has expired; it ends it.
 func TestPooledSessions_EndsExpiredBearerSessions(t *testing.T) {
 	a, _ := bearerSessionFixture(t)
 
@@ -190,68 +189,4 @@ type countingListClient struct {
 func (c *countingListClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	c.lists.Add(1)
 	return c.MCPClient.ListTools(ctx)
-}
-
-// TestHeaderFunc_ForwardedBearerAtExpiry: a connection that forwards its
-// session's own bearer counts no strikes and tries no refresh -- the session
-// has no refresh chain. Within the expiry margin the header carries the
-// still valid token; past its exp the session is ended and the connection
-// evicted, once, however often the header func runs.
-func TestHeaderFunc_ForwardedBearerAtExpiry(t *testing.T) {
-	for name, tc := range map[string]struct {
-		exp       time.Time
-		wantEnded int32
-	}{
-		"within the margin": {exp: time.Now().Add(10 * time.Second), wantEnded: 0},
-		"past its exp":      {exp: time.Now().Add(-time.Second), wantEnded: 1},
-	} {
-		t.Run(name, func(t *testing.T) {
-			logBuf := captureLog(t)
-			logging.InitForCLI(logging.LevelDebug, logBuf)
-			api.RegisterOAuthHandler(nil)
-			defer api.RegisterOAuthHandler(nil)
-
-			var refreshes, evictions, ends atomic.Int32
-			refresher := func(context.Context, string) error { refreshes.Add(1); return nil }
-			onStaleToken := func() { evictions.Add(1) }
-			onExpired := func() { ends.Add(1) }
-
-			bearer := unsignedJWT(t, map[string]any{"sub": "agent", "exp": tc.exp.Unix()})
-			headerFunc := makeTokenForwardingHeaderFunc("ext-1", "https://dex.example.test", "srv", bearer, refresher, onStaleToken, onExpired)
-
-			for i := 0; i <= maxConsecutiveTokenFailures; i++ {
-				headers := headerFunc(context.Background())
-				require.Equal(t, "Bearer "+bearer, headers["Authorization"])
-			}
-
-			if tc.wantEnded > 0 {
-				require.Eventually(t, func() bool { return evictions.Load() == 1 }, time.Second, 5*time.Millisecond)
-			} else {
-				time.Sleep(50 * time.Millisecond)
-			}
-			assert.Equal(t, tc.wantEnded, ends.Load())
-			assert.Equal(t, tc.wantEnded, evictions.Load(), "the connection is evicted once, without strikes")
-			assert.Equal(t, int32(0), refreshes.Load(), "a forwarded bearer has no refresh chain")
-			assert.NotContains(t, logBuf.String(), "WARN")
-		})
-	}
-}
-
-// TestHeaderFunc_UndecodableForwardedBearerKeepsStrikes: an undecodable
-// connection token is not known to be expired, so the strike counter stays.
-func TestHeaderFunc_UndecodableForwardedBearerKeepsStrikes(t *testing.T) {
-	_ = captureLog(t)
-	api.RegisterOAuthHandler(nil)
-	defer api.RegisterOAuthHandler(nil)
-
-	var strikes, ends atomic.Int32
-	headerFunc := makeTokenForwardingHeaderFunc("ext-1", "https://dex.example.test", "srv", "not-a-jwt", nil,
-		func() { strikes.Add(1) }, func() { ends.Add(1) })
-
-	for i := 0; i < maxConsecutiveTokenFailures; i++ {
-		headerFunc(context.Background())
-	}
-
-	require.Eventually(t, func() bool { return strikes.Load() == 1 }, time.Second, 5*time.Millisecond)
-	assert.Equal(t, int32(0), ends.Load())
 }

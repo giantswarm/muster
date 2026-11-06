@@ -6,17 +6,14 @@ description: |
   session's SSO servers in the background, and a tool call waits for the one
   server it needs (#1226).
 
-  An agent presents a dex-issued on-behalf-of token: a brand-new session for
-  muster, whose SSO fan-out connects every forward-token backend. One backend
-  takes four seconds to answer initialize. Before, the fan-out ran inside the
-  first request: initialize (and the agent's first tools/list) returned only
-  after the slowest backend had connected. Now:
+  A browser login obtains a muster access token and a provider credential for
+  explicitly configured SSO. One backend takes four seconds to initialize.
 
   1. The connect (initialize) returns well under the slow backend's delay.
   2. A call to the quick backend right after is answered at once -- it waits
      for that backend's connect alone, not for the slow one still in flight.
   3. A call to the slow backend waits for its connect and then succeeds; the
-     forwarded token reaches it unchanged.
+     provider credential identifies the signed-in person.
   4. The serve log names the fan-out's duration and its slowest server.
 tags: ["oauth", "sso", "token-forwarding", "session", "latency", "issue-1226"]
 timeout: "2m"
@@ -45,7 +42,7 @@ pre_configuration:
         type: "streamable-http"
         oauth:
           required: true
-          trust_issuer_ref: "workload-idp"
+          trust_issuer_ref: "muster-idp"
           forward_token: true
         tools:
           - name: "quick_op"
@@ -63,7 +60,7 @@ pre_configuration:
         connect_delay: "4s"
         oauth:
           required: true
-          trust_issuer_ref: "workload-idp"
+          trust_issuer_ref: "muster-idp"
           forward_token: true
         tools:
           - name: "slow_op"
@@ -85,16 +82,11 @@ steps:
 
   - id: "mint-dex-obo-token"
     description: "Dex mints the on-behalf-of token: sub=human, act=agent"
-    tool: "test_mint_token"
+    tool: "test_muster_auth_login"
     args:
-      server: "workload-idp"
       name: "obo-token"
-      sub: "alice@giantswarm.io"
-      email: "alice@giantswarm.io"
-      email_verified: true
-      groups: ["customer:giantswarm:team-ai"]
-      act:
-        sub: "agent:sre-agent"
+      subject: "alice@giantswarm.io"
+    max_duration: "2s"
     expected:
       success: true
 
@@ -121,7 +113,6 @@ steps:
       success: true
       contains:
         - "alice@giantswarm.io"
-        - "agent:sre-agent"
 
   - id: "slow-backend-answers-after-its-connect"
     description: |
@@ -133,7 +124,6 @@ steps:
       success: true
       contains:
         - "alice@giantswarm.io"
-        - "agent:sre-agent"
 
   - id: "both-backends-connected"
     description: "auth://status shows both backends connected for the session"

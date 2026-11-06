@@ -74,7 +74,7 @@ func RenderSessions(f *Fixture) ([]byte, error) {
 		sessions.Content = append(sessions.Content, mapping("id", scalar(s.ID), "subject", scalar(s.Subject)))
 	}
 	root := mapping("sessions", sessions)
-	root.HeadComment = fmt.Sprintf("%s\n\n%d session records, one per forwarded bearer; every session is authenticated to every session-authenticated server of the fixture.",
+	root.HeadComment = fmt.Sprintf("%s\n\n%d session records, one per authorized browser login; every session is authenticated to every session-authenticated server of the fixture.",
 		generatedHeader, len(f.Sessions))
 	return encode(root)
 }
@@ -122,7 +122,7 @@ func serverNode(s Server, doc *yaml.Node) *yaml.Node {
 	config := mapping("type", scalar("streamable-http"))
 	if s.SessionAuth {
 		config.Content = append(config.Content,
-			scalar("oauth"), flow(mapping("required", boolean(true), "trust_issuer_ref", scalar(fleetIssuer), "forward_token", boolean(true))),
+			scalar("oauth"), flow(mapping("required", boolean(true), "trust_issuer_ref", scalar(musterOAuthServer), "forward_token", boolean(true))),
 		)
 	}
 	if s.Family != "" {

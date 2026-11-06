@@ -156,14 +156,12 @@ func TestServeDelegated(t *testing.T) {
 		require.Contains(t, rec.Header().Get("WWW-Authenticate"), `error="invalid_token"`)
 	})
 
-	// An on-behalf-of token (act) from an issuer without delegation is served
-	// as before: its bearer is forwarded to forwardToken servers.
-	t.Run("act from an issuer without delegation keeps the forwarding path", func(t *testing.T) {
+	t.Run("act without delegation does not propagate credentials", func(t *testing.T) {
 		defer stubAcceptForwardedIDToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 			return nil, oauth.ErrTrustedAudienceMismatch
 		})()
-		defer stubAcceptTrustedIssuerToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
-			return nil, oauthserver.ErrIssuerNotTrusted
+		defer stubAcceptTrustedIssuerToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+			return acceptanceFor(bearer, "alice", ""), nil
 		})()
 		userInfo := delegatedUserInfo()
 		userInfo.Issuer = "https://obo.example.com"
@@ -173,6 +171,8 @@ func TestServeDelegated(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 		require.NotNil(t, ctx)
 		require.Equal(t, bearer, GetBearerTokenFromContext(ctx))
+		identityToken, _ := GetIDTokenFromContext(ctx)
+		require.Empty(t, identityToken)
 		_, delegated := api.DelegatedCallerFromContext(ctx)
 		require.False(t, delegated)
 	})

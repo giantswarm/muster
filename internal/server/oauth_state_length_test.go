@@ -42,9 +42,11 @@ func TestOAuthAuthorize_StateLength(t *testing.T) {
 
 			response, mux := authorizeWithState(t, tt.state)
 			if tt.wantErrorKey != "" {
-				require.Equal(t, http.StatusBadRequest, response.Code)
-				require.Contains(t, response.Body.String(), `"`+tt.wantErrorKey+`"`)
-				require.Empty(t, response.Header().Get("Location"))
+				require.Equal(t, http.StatusFound, response.Code)
+				target, err := url.Parse(response.Header().Get("Location"))
+				require.NoError(t, err)
+				require.Equal(t, tt.wantErrorKey, target.Query().Get("error"))
+				require.Equal(t, tt.state, target.Query().Get("state"))
 				return
 			}
 			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
