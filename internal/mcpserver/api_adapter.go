@@ -835,7 +835,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						},
 						"connectorId": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "ID of the OIDC connector on the remote Dex that trusts the local Dex; omit it when the exchange goes to the Dex that issued the subject token",
+							api.SchemaKeyDescription: "ID of the OIDC connector on the remote Dex that trusts the local Dex; required for a person's exchange, a delegated caller's exchange sends none",
 						},
 						"scopes": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),

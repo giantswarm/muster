@@ -834,6 +834,10 @@ muster:
       #     ...
       #     delegation:
       #       actorIssuers: ["https://idp.ate-system.svc"]
+      #       # Optional, per actor issuer: a glob the actor's sub must match.
+      #       # Needed for an issuer that also signs other workloads' tokens.
+      #       actorSubjects:
+      #         "https://idp.ate-system.svc": "actor/*"
       # A token carrying act from an issuer it does not list is refused; an
       # issuer without a delegation block keeps today's on-behalf-of path
       # (act unchecked, token forwarded). A delegated call is served as the person,
@@ -850,7 +854,7 @@ muster:
         actorToken:
           enabled: false
           audience: ""
-          expirationSeconds: 3600
+          expirationSeconds: 3600  # @schema minimum: 600
 
       # Brokered RFC 8693 token exchange: muster as a shared token broker.
       # An external confidential client POSTs a token-exchange request with an

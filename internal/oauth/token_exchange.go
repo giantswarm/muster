@@ -162,6 +162,9 @@ func validateExchangeRequest(req *ExchangeRequest) error {
 	if req.Config.ExpectedIssuer != "" && !strings.HasPrefix(req.Config.ExpectedIssuer, "https://") {
 		return fmt.Errorf("expected issuer must use HTTPS (got: %s)", req.Config.ExpectedIssuer)
 	}
+	if req.Config.Delegation == nil && req.Config.ConnectorID == "" {
+		return fmt.Errorf("connector ID is required: only a delegated caller's exchange sends none")
+	}
 	if req.Config.Delegation != nil && req.Config.Delegation.ActorToken == "" {
 		return fmt.Errorf("actor token is required for a delegated exchange")
 	}

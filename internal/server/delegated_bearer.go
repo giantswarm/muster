@@ -43,10 +43,18 @@ func (s *OAuthHTTPServer) isDelegated(userInfo *providers.UserInfo) bool {
 func (s *OAuthHTTPServer) serveDelegated(w http.ResponseWriter, r *http.Request, userInfo *providers.UserInfo, next http.Handler) {
 	ctx := r.Context()
 	bearer := extractBearerToken(r)
+	sessionID, _ := oauthhandler.SessionIDFromContext(ctx)
+	actorChain := make([]string, 0, len(userInfo.ActorChain))
+	for _, actor := range userInfo.ActorChain {
+		actorChain = append(actorChain, actor.Subject)
+	}
+	actorDetails := fmt.Sprintf("session=%s actor_iss=%s actors=[%s]",
+		logging.TruncateIdentifier(sessionID), userInfo.ActorIssuer, strings.Join(actorChain, ","))
 	audit := logging.AuditEvent{
 		Action:  "delegated_bearer",
 		Subject: logging.TruncateIdentifier(userInfo.ID),
 		Target:  "muster",
+		Details: actorDetails,
 	}
 	refuse := func(status int, challenge, reason string) {
 		audit.Outcome, audit.Error = "failure", reason
@@ -70,20 +78,16 @@ func (s *OAuthHTTPServer) serveDelegated(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	sessionID, _ := oauthhandler.SessionIDFromContext(ctx)
 	caller := api.DelegatedCaller{
 		Token:       bearer,
 		Issuer:      userInfo.Issuer,
 		Subject:     userInfo.ID,
 		ActorIssuer: userInfo.ActorIssuer,
+		ActorChain:  actorChain,
 		Toolset:     ts.Raw,
 	}
-	for _, actor := range userInfo.ActorChain {
-		caller.ActorChain = append(caller.ActorChain, actor.Subject)
-	}
 	audit.Outcome = "success"
-	audit.Details = fmt.Sprintf("session=%s actor_iss=%s actors=[%s] toolset=%s",
-		logging.TruncateIdentifier(sessionID), caller.ActorIssuer, strings.Join(caller.ActorChain, ","), ts)
+	audit.Details = fmt.Sprintf("%s toolset=%s", actorDetails, ts)
 	logging.Audit(audit)
 
 	ctx = api.WithSessionID(ctx, sessionID)

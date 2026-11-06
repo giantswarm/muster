@@ -348,9 +348,9 @@ type TokenExchangeConfig struct {
 	ExpectedIssuer string `yaml:"expectedIssuer,omitempty" json:"expectedIssuer,omitempty"`
 
 	// ConnectorID is the ID of the OIDC connector on the remote Dex that
-	// trusts the local cluster's Dex, sent as connector_id. Empty when the
-	// exchange goes to the Dex that issued the subject token: no connector_id
-	// is sent and Dex verifies its own token.
+	// trusts the local cluster's Dex, sent as connector_id. Required for a
+	// person's exchange. A delegated caller's exchange sends none: it goes to
+	// the Dex that issued the delegated token, which verifies it itself.
 	// Example: "cluster-a-dex"
 	ConnectorID string `yaml:"connectorId,omitempty" json:"connectorId,omitempty"`
 

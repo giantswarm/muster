@@ -1,9 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/internal/toolset"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // delegatedUserInfo is what mcp-oauth puts in context for a verified
@@ -51,6 +54,42 @@ func serveInjector(t *testing.T, bearer string, userInfo *providers.UserInfo) (*
 	rec := httptest.NewRecorder()
 	s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rec, r.WithContext(ctx))
 	return rec, captured
+}
+
+// Every delegated call is audited with the actor chain, refused or served,
+// and the bearer never appears in the line.
+func TestServeDelegated_AuditNamesTheActors(t *testing.T) {
+	var buf bytes.Buffer
+	logging.InitForCLI(logging.LevelInfo, &buf)
+	t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, os.Stderr) })
+	handler := &capturingOAuthHandler{enabled: true}
+	api.RegisterOAuthHandler(handler)
+	defer api.RegisterOAuthHandler(nil)
+
+	t.Run("refused", func(t *testing.T) {
+		buf.Reset()
+		bearer := fakeJWT(t, map[string]interface{}{"sub": "CgdwZXJzb24xEgNkZXg"})
+		rec, _ := serveInjector(t, bearer, delegatedUserInfo())
+		require.Equal(t, http.StatusForbidden, rec.Code)
+		line := buf.String()
+		require.Contains(t, line, "action=delegated_bearer outcome=failure")
+		require.Contains(t, line, "actor_iss=https://idp.ate-system.svc actors=[actor/kagent/session-1]")
+		require.Contains(t, line, "error=the token grants no toolset")
+		require.NotContains(t, line, bearer)
+	})
+
+	t.Run("served", func(t *testing.T) {
+		buf.Reset()
+		bearer := fakeJWT(t, map[string]interface{}{"sub": "CgdwZXJzb24xEgNkZXg", "scope": "preset:read-only"})
+		userInfo := delegatedUserInfo()
+		userInfo.Scopes = []string{"preset:read-only"}
+		rec, _ := serveInjector(t, bearer, userInfo)
+		require.Equal(t, http.StatusOK, rec.Code)
+		line := buf.String()
+		require.Contains(t, line, "action=delegated_bearer outcome=success")
+		require.Contains(t, line, "actor_iss=https://idp.ate-system.svc actors=[actor/kagent/session-1] toolset=")
+		require.NotContains(t, line, bearer)
+	})
 }
 
 func TestServeDelegated(t *testing.T) {

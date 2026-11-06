@@ -84,12 +84,25 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 		assert.Contains(t, err.Error(), "dex token endpoint is required")
 	})
 
-	t.Run("an empty connector ID is valid", func(t *testing.T) {
+	t.Run("returns error for missing connector ID", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
 			Config: &api.TokenExchangeConfig{
 				Enabled:          true,
 				DexTokenEndpoint: "https://dex.example.com/token",
 				ConnectorID:      "",
+			},
+			SubjectToken: "test-token",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "connector ID is required")
+	})
+
+	t.Run("a delegated exchange needs no connector ID", func(t *testing.T) {
+		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				Delegation:       &api.TokenExchangeDelegation{ActorToken: "actor-token"},
 			},
 			SubjectToken: "test-token",
 		})

@@ -799,6 +799,11 @@ type TrustedIssuerConfig struct {
 type TrustedIssuerDelegationConfig struct {
 	// ActorIssuers are the accepted act.iss values of the current actor.
 	ActorIssuers []string `yaml:"actorIssuers,omitempty"`
+	// ActorSubjects maps an issuer of ActorIssuers to a glob pattern ('*'
+	// spans '/') the current actor's sub must match. An issuer without an
+	// entry accepts any sub, so an issuer that also signs other workloads'
+	// tokens, such as a cluster's ServiceAccount issuer, needs one.
+	ActorSubjects map[string]string `yaml:"actorSubjects,omitempty"`
 }
 
 // DelegationConfig configures how muster serves delegated callers: a token

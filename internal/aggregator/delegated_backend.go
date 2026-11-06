@@ -30,7 +30,11 @@ func delegatedForwardRefusal(serverInfo *ServerInfo) error {
 
 // delegatedCacheKey is the token-exchange cache key of a delegated caller: one
 // exchanged token per muster session and server, since the session is the
-// person and the actor chain together.
+// person and the actor chain together. The key leaves out the delegated token,
+// so a later token of the same session, with another scope, reuses the
+// exchanged token until it expires. That is safe because muster bounds the
+// toolset itself on every call from the current token's scope, and Dex caps
+// the exchanged token's lifetime at the delegated token's.
 func delegatedCacheKey(sessionID, serverName string) string {
 	return "delegated/" + sessionID + "/" + serverName
 }

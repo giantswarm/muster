@@ -113,9 +113,10 @@ func TestTokenExchanger_PersonExchangeSendsNoActor(t *testing.T) {
 	require.NotContains(t, form, "audience")
 }
 
-// connectorId is optional: an exchange at the Dex that issued the subject
-// token sends no connector_id; a configured connector is sent as before.
-func TestTokenExchanger_ConnectorIDOptional(t *testing.T) {
+// A person's exchange sends its configured connector and is refused before
+// any request without one: only a delegated caller's exchange goes to the Dex
+// that issued its token with no connector_id.
+func TestTokenExchanger_PersonExchangeNeedsConnectorID(t *testing.T) {
 	var forms []url.Values
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.NoError(t, r.ParseForm())
@@ -128,14 +129,16 @@ func TestTokenExchanger_ConnectorIDOptional(t *testing.T) {
 	defer srv.Close()
 	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{AllowPrivateIP: true, HTTPClient: srv.Client()})
 
-	for _, connector := range []string{"", "local-dex"} {
-		cfg := &api.TokenExchangeConfig{Enabled: true, DexTokenEndpoint: srv.URL + "/token", ConnectorID: connector}
-		_, err := exchanger.Exchange(t.Context(), &ExchangeRequest{Config: cfg, SubjectToken: "person-id-token", UserID: "alice-" + connector})
-		require.NoError(t, err)
-	}
-	require.Len(t, forms, 2)
-	require.NotContains(t, forms[0], "connector_id")
-	require.Equal(t, "local-dex", forms[1].Get("connector_id"))
+	cfg := &api.TokenExchangeConfig{Enabled: true, DexTokenEndpoint: srv.URL + "/token"}
+	_, err := exchanger.Exchange(t.Context(), &ExchangeRequest{Config: cfg, SubjectToken: "person-id-token", UserID: "alice"})
+	require.ErrorContains(t, err, "connector ID is required")
+	require.Empty(t, forms, "no request leaves muster")
+
+	cfg.ConnectorID = "local-dex"
+	_, err = exchanger.Exchange(t.Context(), &ExchangeRequest{Config: cfg, SubjectToken: "person-id-token", UserID: "alice"})
+	require.NoError(t, err)
+	require.Len(t, forms, 1)
+	require.Equal(t, "local-dex", forms[0].Get("connector_id"))
 }
 
 // A refused exchange names the token endpoint once and says "token exchange
@@ -149,7 +152,7 @@ func TestTokenExchanger_RefusalNamesTheEndpointOnce(t *testing.T) {
 	defer srv.Close()
 
 	exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{AllowPrivateIP: true, HTTPClient: srv.Client()})
-	cfg := &api.TokenExchangeConfig{Enabled: true, DexTokenEndpoint: srv.URL + "/token", ClientID: "muster", ClientSecret: "secret"}
+	cfg := &api.TokenExchangeConfig{Enabled: true, DexTokenEndpoint: srv.URL + "/token", ConnectorID: "local-dex", ClientID: "muster", ClientSecret: "secret"}
 	_, err := exchanger.Exchange(t.Context(), &ExchangeRequest{Config: cfg, SubjectToken: "person-id-token", UserID: "alice"})
 	require.Error(t, err)
 	require.Equal(t, "token endpoint "+srv.URL+"/token: token exchange failed: invalid_grant - subject token is expired", err.Error())

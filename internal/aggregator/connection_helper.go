@@ -544,7 +544,10 @@ func ShouldUseTokenForwarding(serverInfo *ServerInfo) bool {
 // Token exchange is enabled when:
 //   - AuthConfig.TokenExchange is not nil
 //   - AuthConfig.TokenExchange.Enabled is true
-//   - Required fields (DexTokenEndpoint, ConnectorID) are set
+//   - DexTokenEndpoint is set
+//
+// ConnectorID is not required: a delegated caller's exchange sends none, and a
+// person's exchange without one is refused when it runs.
 //
 // Token exchange takes precedence over token forwarding if both are configured.
 func ShouldUseTokenExchange(serverInfo *ServerInfo) bool {

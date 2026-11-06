@@ -311,8 +311,12 @@ func TestToTrustedIssuer_ActorPolicy(t *testing.T) {
 	require.Nil(t, without.Actors)
 
 	with := toTrustedIssuer(config.TrustedIssuerConfig{
-		Issuer:     "https://dex.example.com",
-		Delegation: &config.TrustedIssuerDelegationConfig{ActorIssuers: []string{"https://idp.ate-system.svc"}},
+		Issuer: "https://dex.example.com",
+		Delegation: &config.TrustedIssuerDelegationConfig{
+			ActorIssuers:  []string{"https://idp.ate-system.svc", "https://kubernetes.default.svc"},
+			ActorSubjects: map[string]string{"https://kubernetes.default.svc": "system:serviceaccount:agents:*"},
+		},
 	}, nil)
-	require.Equal(t, []string{"https://idp.ate-system.svc"}, with.Actors.Issuers)
+	require.Equal(t, []string{"https://idp.ate-system.svc", "https://kubernetes.default.svc"}, with.Actors.Issuers)
+	require.Equal(t, map[string]string{"https://kubernetes.default.svc": "system:serviceaccount:agents:*"}, with.Actors.Subjects)
 }

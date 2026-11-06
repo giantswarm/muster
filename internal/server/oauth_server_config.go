@@ -317,13 +317,14 @@ func toTrustedIssuer(iss config.TrustedIssuerConfig, caPool *x509.CertPool) oaut
 }
 
 // actorPolicy is the act policy of a trusted issuer: the listed actor issuers
-// when delegation is configured, otherwise none, which leaves act unchecked
-// and keeps on-behalf-of tokens on the token-forwarding path.
+// and their subject patterns when delegation is configured, otherwise none,
+// which leaves act unchecked and keeps on-behalf-of tokens on the
+// token-forwarding path.
 func actorPolicy(delegation *config.TrustedIssuerDelegationConfig) *oauthserver.ActorPolicy {
 	if delegation == nil {
 		return nil
 	}
-	return &oauthserver.ActorPolicy{Issuers: delegation.ActorIssuers}
+	return &oauthserver.ActorPolicy{Issuers: delegation.ActorIssuers, Subjects: delegation.ActorSubjects}
 }
 
 func parseCIDRs(cidrs []string) ([]*net.IPNet, error) {
