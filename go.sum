@@ -613,3 +613,5 @@ software.sslmate.com/src/go-pkcs12 v0.4.0 h1:H2g08FrTvSFKUj+D309j1DPfk5APnIdAQAB
 software.sslmate.com/src/go-pkcs12 v0.4.0/go.mod h1:Qiz0EyvDRJjjxGyUQa2cCNZn/wMyzrRJ/qcDXOQazLI=
 github.com/giantswarm/mcp-oauth v1.11.3-0.20261106133900-4cf3adfa84f3 h1:FwkNMTbZarrOYPtfE7Inam7eMrukNfWdPBDo4qvCh6w=
 github.com/giantswarm/mcp-oauth v1.11.3-0.20261106133900-4cf3adfa84f3/go.mod h1:02SNM8qMMRxunt7EmSA/jxRJ8742EFJ7/ygpEbxELJI=
+github.com/giantswarm/mcp-oauth v1.12.0-rc.3.0.20261106172946-e90245fe94e4 h1:sITJ+2J92ATow7ygbwMCPCeGEWbGDtwGCxUp+eUa+yo=
+github.com/giantswarm/mcp-oauth v1.12.0-rc.3.0.20261106172946-e90245fe94e4/go.mod h1:02SNM8qMMRxunt7EmSA/jxRJ8742EFJ7/ygpEbxELJI=

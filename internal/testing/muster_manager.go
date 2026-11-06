@@ -668,6 +668,12 @@ func (m *musterInstanceManager) WaitForReady(ctx context.Context, instance *Must
 	}
 
 	// Create MCP client to check availability
+	if instance.MusterOAuthAccessToken != "" && instance.MusterOAuthClientID == "" {
+		handler := NewTestToolsHandler(m, instance, m.debug, logger)
+		if _, err := handler.handleMusterAuthLogin(readyCtx, nil); err != nil {
+			return fmt.Errorf("authenticate test client at muster: %w", err)
+		}
+	}
 	mcpClient := NewMCPTestClient(m.debug)
 	defer func() { _ = mcpClient.Close() }()
 

@@ -5,7 +5,6 @@ package testing
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -182,6 +181,7 @@ type TestToolsHandler struct {
 	userClients     map[string]MCPTestClient // Named user sessions for multi-user testing
 	currentUser     string                   // Name of the currently active user ("default" if not set)
 	mintedTokens    map[string]string        // Named tokens minted by test_mint_token / test_broker_token_exchange
+	loginSubjects   map[string]string
 	debug           bool
 	logger          TestLogger
 }
@@ -192,6 +192,10 @@ func NewTestToolsHandler(instanceManager MusterInstanceManager, instance *Muster
 	if m, ok := instanceManager.(*musterInstanceManager); ok {
 		manager = m
 	}
+	loginSubjects := make(map[string]string)
+	if instance != nil {
+		loginSubjects[instance.MusterOAuthAccessToken] = instance.MusterOAuthSubject
+	}
 
 	return &TestToolsHandler{
 		instanceManager: manager,
@@ -199,6 +203,7 @@ func NewTestToolsHandler(instanceManager MusterInstanceManager, instance *Muster
 		userClients:     make(map[string]MCPTestClient),
 		currentUser:     defaultTestUser,
 		mintedTokens:    make(map[string]string),
+		loginSubjects:   loginSubjects,
 		debug:           debug,
 		logger:          logger,
 	}
@@ -725,7 +730,14 @@ func (h *TestToolsHandler) resolveStartRedirect(ctx context.Context, browser *ht
 				return "", err
 			}
 			if subject == "" {
-				subject = linkOwner(start)
+				token := h.GetCurrentClient().AccessToken()
+				subject = h.loginSubjects[token]
+				if subject == "" {
+					subject, err = pkgoauth.Subject(token)
+					if err != nil {
+						return "", fmt.Errorf("resolve test browser identity: %w", err)
+					}
+				}
 			}
 			if next, err = h.approveIdentitySignIn(location, subject); err != nil {
 				return "", err
@@ -759,22 +771,6 @@ func identitySignIn(start *url.URL, location string) bool {
 	}
 	redirectURI, err := url.Parse(parsed.Query().Get("redirect_uri"))
 	return err == nil && redirectURI.Host == start.Host && redirectURI.Path == "/oauth/callback"
-}
-
-// linkOwner is the person a start URL was issued to: the user_id its state
-// carries.
-func linkOwner(start *url.URL) string {
-	decoded, err := base64.URLEncoding.DecodeString(start.Query().Get("state"))
-	if err != nil {
-		return ""
-	}
-	var state struct {
-		UserID string `json:"user_id"`
-	}
-	if json.Unmarshal(decoded, &state) != nil {
-		return ""
-	}
-	return state.UserID
 }
 
 // approveIdentitySignIn plays muster's identity provider approving the
@@ -1655,6 +1651,7 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		return nil, fmt.Errorf("token refresh failed: %w", err)
 	}
 
+	h.loginSubjects[tokenResult.AccessToken] = h.loginSubjects[h.currentInstance.MusterOAuthAccessToken]
 	h.currentInstance.MusterOAuthAccessToken = tokenResult.AccessToken
 	if tokenResult.RefreshToken != "" {
 		h.currentInstance.MusterOAuthRefreshToken = tokenResult.RefreshToken
@@ -1896,12 +1893,10 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	// Step 3: Generate an auth code on the mock Dex server
 	// If a subject was specified, use it to generate per-user tokens
 	subject, _ := args["subject"].(string)
-	var authCode string
-	if subject != "" {
-		authCode = musterOAuthServer.GenerateAuthCodeWithSubject(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod, subject, dexNonce)
-	} else {
-		authCode = musterOAuthServer.GenerateAuthCode(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod, dexNonce)
+	if subject == "" {
+		subject = "test-user-123"
 	}
+	authCode := musterOAuthServer.GenerateAuthCodeWithSubject(dexClientID, dexRedirectURI, dexScope, dexState, codeChallenge, codeChallengeMethod, subject, dexNonce)
 
 	if h.debug {
 		h.logger.Debug("🔐 Generated Dex auth code: %s...\n", authCode[:min(16, len(authCode))])
@@ -1978,6 +1973,8 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	}
 
 	h.currentInstance.MusterOAuthAccessToken = tokenResult.AccessToken
+	h.loginSubjects[tokenResult.AccessToken] = subject
+	h.currentInstance.MusterOAuthSubject = subject
 	h.currentInstance.MusterOAuthRefreshToken = tokenResult.RefreshToken
 	h.currentInstance.MusterOAuthClientID = registeredClientID
 	if h.mcpClient != nil {

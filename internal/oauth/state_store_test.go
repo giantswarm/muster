@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestStateStore_GenerateAndValidate(t *testing.T) {
@@ -124,22 +126,10 @@ func TestStateStore_CodeVerifierNotInEncodedState(t *testing.T) {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
 
-	// Decode the state to verify CodeVerifier is not included
-	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
-	if err != nil {
-		t.Fatalf("Failed to decode state: %v", err)
-	}
-
-	// The encoded state should NOT contain the code verifier
-	// because it uses json:"-" tag
-	var decoded map[string]interface{}
-	if err := json.Unmarshal(stateJSON, &decoded); err != nil {
-		t.Fatalf("Failed to unmarshal state JSON: %v", err)
-	}
-
-	if _, exists := decoded["code_verifier"]; exists {
-		t.Error("Code verifier should NOT be included in encoded state (it's sensitive)")
-	}
+	nonce, err := base64.URLEncoding.Strict().DecodeString(encodedState)
+	require.NoError(t, err)
+	require.Len(t, nonce, 32)
+	require.NotContains(t, string(nonce), codeVerifier)
 
 	// But when we validate, the code verifier should be retrieved from storage
 	state := ss.ValidateState(encodedState)
@@ -174,11 +164,8 @@ func TestStateStore_Delete(t *testing.T) {
 		t.Fatalf("Failed to generate state: %v", err)
 	}
 
-	// Decode to get the nonce
-	stateJSON, _ := base64.URLEncoding.DecodeString(encodedState2)
-	var decodedState OAuthState
-	_ = json.Unmarshal(stateJSON, &decodedState)
-	nonce := decodedState.Nonce
+	nonce, err := decodeStateNonce(encodedState2)
+	require.NoError(t, err)
 
 	// Delete the state by nonce
 	ss.Delete(nonce)
@@ -202,11 +189,8 @@ func TestStateStore_UniqueNonces(t *testing.T) {
 			t.Fatalf("Failed to generate state: %v", err)
 		}
 
-		// Decode to get the nonce
-		stateJSON, _ := base64.URLEncoding.DecodeString(encodedState)
-		var state OAuthState
-		_ = json.Unmarshal(stateJSON, &state)
-		nonce := state.Nonce
+		nonce, err := decodeStateNonce(encodedState)
+		require.NoError(t, err)
 
 		if nonces[nonce] {
 			t.Errorf("Duplicate nonce generated: %s", nonce)
