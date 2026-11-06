@@ -64,19 +64,19 @@ func (s *providerAppSet) names() []string {
 	return s.order
 }
 
-// owns reports whether an App files its grants under the issuer key: an App
-// pin wins over an MCPServer's pin of the same issuer.
-func (s *providerAppSet) owns(issuerKey string) bool {
+// ownerOf returns the name of the App that files its grants under the issuer
+// key: an App pin wins over an MCPServer's pin of the same issuer.
+func (s *providerAppSet) ownerOf(issuerKey string) (string, bool) {
 	if s == nil {
-		return false
+		return "", false
 	}
 	issuerKey = strings.TrimSuffix(issuerKey, "/")
-	for _, app := range s.apps {
-		if app.Issuer == issuerKey {
-			return true
+	for _, name := range s.order {
+		if s.apps[name].Issuer == issuerKey {
+			return name, true
 		}
 	}
-	return false
+	return "", false
 }
 
 // pinAll pins every App not yet pinned with its client. An App whose Secret
@@ -177,7 +177,14 @@ func setAppOwnedIssuers(set *providerAppSet) {
 
 // appOwnsIssuer reports whether a provider App owns the issuer key.
 func appOwnsIssuer(issuerKey string) bool {
+	_, owned := appOwningIssuer(issuerKey)
+	return owned
+}
+
+// appOwningIssuer returns the name of the provider App that owns the issuer
+// key.
+func appOwningIssuer(issuerKey string) (string, bool) {
 	appOwnedIssuers.RLock()
 	defer appOwnedIssuers.RUnlock()
-	return appOwnedIssuers.set.owns(issuerKey)
+	return appOwnedIssuers.set.ownerOf(issuerKey)
 }

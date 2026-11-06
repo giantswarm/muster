@@ -20,6 +20,9 @@ tests:
             - apiGroups: ["muster.giantswarm.io"]
               resources: ["mcpservers"]
               verbs: ["create", "update", "patch", "delete"]
+            - apiGroups: [""]
+              resources: ["secrets"]
+              verbs: ["create"]
         documentIndex: 0
       - isKind:
           of: RoleBinding

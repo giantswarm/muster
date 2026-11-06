@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -10,10 +9,12 @@ import (
 
 // pinSecretError reports that muster refuses the client Secret of the
 // server's spec.auth.authorizationServer: it is one muster keeps for itself,
-// or the admission policy on Secret references is not in force. The pin is
-// never applied, so no sign-in can succeed: the server is Failed with the
-// refusal, retried with backoff, and reads Auth Required once the spec names
-// another Secret or the policy is in force.
+// the admission policy on Secret references is not in force, or it has a
+// generated client name and the server does not own it or it was stored for
+// another authorization server. The pin is never applied, so no sign-in can
+// succeed: the server is Failed with the refusal, retried with backoff, and
+// reads Auth Required once the spec names another Secret or the policy is in
+// force.
 type pinSecretError struct {
 	err error
 }
@@ -37,9 +38,9 @@ func (s *Service) refusedPinSecret(ctx context.Context) error {
 	if handler == nil {
 		return nil
 	}
-	_, err := handler.LoadMCPServerClientCredentials(ctx, s.secretOwner(), api.SecretFieldAuthorizationServer,
+	_, err := handler.LoadMCPServerClientCredentials(ctx, s.secretOwner().ForAuthorizationServer(auth.AuthorizationServer), api.SecretFieldAuthorizationServer,
 		auth.AuthorizationServer.ClientCredentialsSecretRef)
-	if errors.Is(err, api.ErrSecretProtected) || errors.Is(err, api.ErrSecretReferencePolicyInactive) {
+	if api.IsSignInRefused(err) {
 		return &pinSecretError{err: err}
 	}
 	return nil

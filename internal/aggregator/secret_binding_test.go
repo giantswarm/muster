@@ -45,7 +45,8 @@ func TestPinReadsTheSecretForTheMCPServer(t *testing.T) {
 
 	require.NoError(t, bareAggregator().pinAuthorizationServer(context.Background(), tenantGithub(ref)))
 	require.NotNil(t, secrets.lastOwner)
-	assert.Equal(t, tenantGithubOwner, *secrets.lastOwner)
+	assert.Equal(t, tenantGithubOwner.ForAuthorizationServer(tenantGithub(ref).AuthConfig.AuthorizationServer), *secrets.lastOwner,
+		"read for the authorization server the client is sent to")
 	assert.Equal(t, api.SecretFieldAuthorizationServer, secrets.lastField)
 	assert.Zero(t, secrets.configCalls, "an MCPServer's Secret is never read as configuration")
 
@@ -74,7 +75,7 @@ func TestPinSecretReadableReportsTheRefusal(t *testing.T) {
 	require.ErrorIs(t, err, api.ErrSecretProtected)
 	assert.Contains(t, err.Error(), "load client credentials for server org-a/github")
 	require.NotNil(t, secrets.lastOwner)
-	assert.Equal(t, tenantGithubOwner, *secrets.lastOwner)
+	assert.Equal(t, tenantGithubOwner.ForAuthorizationServer(definition.Auth.AuthorizationServer), *secrets.lastOwner)
 	assert.Equal(t, api.SecretFieldAuthorizationServer, secrets.lastField)
 }
 

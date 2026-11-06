@@ -194,6 +194,7 @@ func (a *AggregatorServer) buildCoreTools() ([]mcp.Tool, map[string][]string) {
 					Description: toolMeta.Description,
 					InputSchema: api.InputSchemaFromArgs(toolMeta.Args),
 				}
+				api.RegisterSensitiveToolArgs(name, toolMeta.Args)
 				// The provider's classification of the tool (read-only,
 				// destructive, ...) travels on the exposed tool exactly like
 				// a downstream server's annotations, so the read-only toolset

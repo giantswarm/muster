@@ -247,7 +247,8 @@ func (a *Adapter) ExecuteWorkflow(ctx context.Context, workflowName string, args
 	})
 
 	// Execute workflow with automatic tracking
-	result, execution, err := a.executionTracker.TrackExecution(ctx, workflowName, args, func() (*mcp.CallToolResult, error) {
+	// The record keeps no input passed into a sensitive tool argument.
+	result, execution, err := a.executionTracker.TrackExecution(ctx, workflowName, recordedInput(workflow, args), func() (*mcp.CallToolResult, error) {
 		return a.executor.ExecuteWorkflow(ctx, workflow, args)
 	})
 

@@ -534,7 +534,7 @@ func (am *AggregatorManager) isServerAuthRequired(serverName string) bool {
 		return false
 	}
 
-	return info.RequiresSessionAuth()
+	return info.RequiresSessionAuth() && !am.signInRefused(serverName)
 }
 
 // isServerSSOBased checks if a server is configured for session-level auth (token forwarding
@@ -696,6 +696,14 @@ func (am *AggregatorManager) deregisterSingleServer(serverName string) error {
 // state=starting event is being processed (the "Server not found" answer from
 // core_auth_login right after startup). The registry decides under its lock.
 func (am *AggregatorManager) deregisterOnStateChange(serverName string) error {
+	if am.signInRefused(serverName) {
+		// Removed with its pin, pending-auth entry or not (signInRefused).
+		if err := am.aggregatorServer.DeregisterRefusedServer(serverName); err != nil {
+			return fmt.Errorf("failed to deregister server: %w", err)
+		}
+		logging.Info("Aggregator-Manager", "Deregistered MCP server %s: muster refuses its sign-in", serverName)
+		return nil
+	}
 	removed, err := am.aggregatorServer.DeregisterServerOnStateChange(serverName, am.serviceReconnecting(serverName))
 	if err != nil {
 		return fmt.Errorf("failed to deregister server: %w", err)
