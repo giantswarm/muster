@@ -44,6 +44,14 @@ rules:
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["get", "list", "watch", "create", "update", "patch"]
+  {{- if not (kindIs "invalid" .Values.muster.mcpServerNamespaceSelector) }}
+
+  # Namespaces - mcpServerNamespaceSelector selects the namespaces whose
+  # MCPServers muster serves by their labels.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
   {{- if .Values.mcpServerSecretReferences.enabled }}
 
   # The admission policy on MCPServer Secret references: muster reads no

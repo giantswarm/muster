@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
@@ -16,8 +17,8 @@ import (
 const testMusterNamespace = "agent-platform"
 
 // TestDetectorScopesTheWatchPerResourceType: MCPServer objects are watched in
-// all namespaces only when the detector is told so; Workflow objects, like
-// every other type, stay in muster's namespace.
+// all namespaces only with a namespace selector; Workflow objects, like every
+// other type, stay in muster's namespace.
 func TestDetectorScopesTheWatchPerResourceType(t *testing.T) {
 	d, err := NewKubernetesDetector(nil, testMusterNamespace)
 	require.NoError(t, err)
@@ -26,7 +27,7 @@ func TestDetectorScopesTheWatchPerResourceType(t *testing.T) {
 	assert.Equal(t, []string{testMusterNamespace}, namespaceKeys(opts.DefaultNamespaces))
 	assert.Nil(t, opts.ByObject, "off by default: MCPServer objects stay in muster's namespace")
 
-	d.WatchMCPServersInAllNamespaces()
+	d.WatchMCPServerScope(labels.SelectorFromSet(labels.Set{"team": "a"}), nil)
 	opts = d.cacheOptions()
 	assert.Equal(t, []string{testMusterNamespace}, namespaceKeys(opts.DefaultNamespaces), "Workflow objects stay in muster's namespace")
 	require.Len(t, opts.ByObject, 1)
@@ -130,16 +131,46 @@ func TestReconcileRefusesAnIdentityOutsideMustersNamespace(t *testing.T) {
 	}
 }
 
-// TestReconcileRefusesATenantPrefixInMustersNamespace: a server for everyone
-// may not take the prefix space of an organization namespace.
-func TestReconcileRefusesATenantPrefixInMustersNamespace(t *testing.T) {
-	r, orchAPI, statusUpdater := namespacedFixture(t, map[string]*api.MCPServerInfo{
-		testMusterNamespace: {Name: "github", ToolPrefix: "org-a", Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
+// TestReconcileRefusesAShadowedServer: a server of muster's namespace whose
+// exposed prefix is a selected namespace's name takes every exposed name of
+// that namespace's servers, so those are refused and read Failed; the server
+// of muster's namespace runs.
+func TestReconcileRefusesAShadowedServer(t *testing.T) {
+	for name, own := range map[string]*api.MCPServerInfo{
+		"its name":        {Name: "team-a", Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
+		"its toolPrefix":  {Name: "github", ToolPrefix: "team-a_github", Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
+		"its family name": {Name: "kubernetes", Family: &api.MCPServerFamily{Name: "team-a", InstanceArg: "cluster"}, Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, orchAPI, statusUpdater := namespacedFixture(t, map[string]*api.MCPServerInfo{
+				testMusterNamespace: own,
+				"team-a":            {Name: "github", Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
+			})
+			result := r.Reconcile(context.Background(), ReconcileRequest{Type: ResourceTypeMCPServer, Name: "github", Namespace: "team-a", Attempt: 1})
+			require.ErrorIs(t, result.Error, api.ErrShadowedServer)
+			assert.Empty(t, orchAPI.StartCalls)
+			synced := statusUpdater.GetLastUpdatedMCPServer()
+			require.NotNil(t, synced)
+			assert.Equal(t, musterv1alpha1.MCPServerStateFailed, synced.Status.State)
+
+			result = r.Reconcile(context.Background(), ReconcileRequest{Type: ResourceTypeMCPServer, Name: own.Name, Namespace: testMusterNamespace, Attempt: 1})
+			require.NoError(t, result.Error)
+			assert.True(t, orchAPI.StartedServices[own.Name])
+		})
+	}
+}
+
+// TestReconcileRunsAServerBesideAnUnrelatedPrefix: a server of muster's
+// namespace whose prefix only starts like the namespace's name shares no
+// exposed name with it ("team_x" against "team-a_..."), so both run.
+func TestReconcileRunsAServerBesideAnUnrelatedPrefix(t *testing.T) {
+	r, orchAPI, _ := namespacedFixture(t, map[string]*api.MCPServerInfo{
+		testMusterNamespace: {Name: "github", ToolPrefix: "team", Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
+		"team-a":            {Name: "github", Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
 	})
-	result := r.Reconcile(context.Background(), ReconcileRequest{Type: ResourceTypeMCPServer, Name: "github", Namespace: testMusterNamespace, Attempt: 1})
-	require.ErrorIs(t, result.Error, api.ErrReservedServerName)
-	assert.Empty(t, orchAPI.StartCalls)
-	assert.Equal(t, musterv1alpha1.MCPServerStateFailed, statusUpdater.GetLastUpdatedMCPServer().Status.State)
+	result := r.Reconcile(context.Background(), ReconcileRequest{Type: ResourceTypeMCPServer, Name: "github", Namespace: "team-a", Attempt: 1})
+	require.NoError(t, result.Error)
+	assert.True(t, orchAPI.StartedServices["team-a/github"])
 }
 
 // TestStateChangeOfATenantServiceReconcilesItsObject: a state change of the

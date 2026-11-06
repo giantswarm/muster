@@ -116,7 +116,7 @@ muster-integration-test: build ## Run the muster integration suite (./muster tes
 test-envtest: ## Run the envtest-backed tests: the RBAC integration tests and the Kubernetes-mode scenarios (downloads a kube-apiserver via setup-envtest).
 	@echo "Running envtest-backed tests..."
 	KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)" \
-		go test -tags envtest ./internal/mcpserver/ ./internal/workflow/ ./internal/testing/ -run Envtest -count=1 -v
+		go test -tags envtest ./internal/mcpserver/ ./internal/reconciler/ ./internal/workflow/ ./internal/testing/ -run Envtest -count=1 -v
 	@echo "Running the Kubernetes-mode scenarios (mode: kubernetes) against envtest..."
 	go build -tags envtest -o $(APPLICATION)-envtest .
 	KUBEBUILDER_ASSETS="$$(go run sigs.k8s.io/controller-runtime/tools/setup-envtest@release-0.24 use -p path)" \

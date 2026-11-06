@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
@@ -22,12 +23,15 @@ import (
 	"github.com/giantswarm/muster/v5/internal/server"
 )
 
+// organizationLabel selects the organization namespaces in the envtest.
+const organizationLabel = "example.com/organization"
+
 // TestListsServersAsTheCallerEnvtest runs agent-permissions D9 against a real
 // kube-apiserver with RBAC, in Kubernetes mode with two organization
-// namespaces next to muster's own: muster lists the servers with each
-// caller's token, and a caller sees exactly the servers of the namespaces
-// where RBAC lets them list mcpservers. A namespace that is not an
-// organization namespace is never served. A token the API server rejects, or
+// namespaces, selected by their label, next to muster's own: muster lists the
+// servers with each caller's token, and a caller sees exactly the servers of
+// the namespaces where RBAC lets them list mcpservers. A namespace the
+// selector does not select is never served. A token the API server rejects, or
 // no token, sees no server and is told to sign in again.
 //
 // Requires envtest binaries: run via `make test-envtest`. Skipped otherwise.
@@ -77,7 +81,11 @@ func TestListsServersAsTheCallerEnvtest(t *testing.T) {
 	ctx := context.Background()
 
 	for _, ns := range []string{musterNS, "org-a", "org-b", "team-x"} {
-		if err := saClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
+		nsLabels := map[string]string{}
+		if strings.HasPrefix(ns, "org-") {
+			nsLabels[organizationLabel] = strings.TrimPrefix(ns, "org-")
+		}
+		if err := saClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns, Labels: nsLabels}}); err != nil {
 			t.Fatalf("create namespace %s: %v", ns, err)
 		}
 		srv := &musterv1alpha1.MCPServer{
@@ -125,8 +133,12 @@ func TestListsServersAsTheCallerEnvtest(t *testing.T) {
 	}
 
 	adapter := NewAdapterWithClient(saClient, musterNS)
-	adapter.ServeAllNamespaces()
-	api.RegisterMCPServerVisibility(NewVisibility(saClient, callerwrite.NewKubernetesClientFactory(adminCfg), "", musterNS))
+	organizations, err := labels.Parse(organizationLabel)
+	if err != nil {
+		t.Fatalf("parse selector: %v", err)
+	}
+	adapter.SetScope(Scope{Namespaces: organizations})
+	api.RegisterMCPServerVisibility(NewVisibility(adapter, callerwrite.NewKubernetesClientFactory(adminCfg), "", musterNS))
 	t.Cleanup(func() { api.RegisterMCPServerVisibility(nil) })
 
 	listed := func(t *testing.T, callerCtx context.Context) ([]string, string) {
