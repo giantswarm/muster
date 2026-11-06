@@ -804,6 +804,18 @@ type MCPServerStatus struct {
 	// differ (spec-is-desired / status-is-observed idiom, issue #1055).
 	LastRestartedAt *metav1.Time `json:"lastRestartedAt,omitempty" yaml:"lastRestartedAt,omitempty"`
 
+	// Icon is the icon the server declares in its initialize result,
+	// otherwise a built-in brand icon when spec.url is on a known brand
+	// domain. It is a data: URI (data:<mime>;base64,...) of type
+	// image/svg+xml, image/png, image/jpeg or image/webp; the whole data: URI
+	// is at most 65536 characters. SVG icons are sanitised (allowlist) before
+	// they are stored. Absent when there is neither.
+	// Render only as an image (e.g. <img src>); never inline the markup.
+	// +optional
+	// +kubebuilder:validation:MaxLength=65536
+	// +kubebuilder:validation:Pattern=`^data:image/(svg\+xml|png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$`
+	Icon string `json:"icon,omitempty" yaml:"icon,omitempty"`
+
 	// Conditions represent the latest available observations of the MCPServer's current state.
 	// Standard condition types:
 	//   - Ready: True while the server is reachable (Running, Connected, Auth

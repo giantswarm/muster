@@ -11,6 +11,7 @@ import (
 	"time"
 
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/servericon"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/events"
@@ -191,6 +192,7 @@ func establishConnection(
 		_ = client.Close()
 		return nil, fmt.Errorf("failed to initialize connection: %w", err)
 	}
+	servericon.RecordClient(serverName, client)
 
 	// Fetch tools from the server
 	tools, err := client.ListTools(ctx)
@@ -437,6 +439,7 @@ func EstablishConnectionWithTokenForwarding(
 
 		return nil, fmt.Errorf("ID token forwarding failed: %w (%s)", err, diagnostic)
 	}
+	servericon.RecordClient(serverInfo.Name, client)
 
 	// Token forwarding succeeded - emit success event
 	logging.Info("Connection", "ID token forwarding succeeded for user %s to server %s",
@@ -762,6 +765,7 @@ func EstablishConnectionWithTokenExchange(
 
 		return nil, transportUnlessAuth(fmt.Errorf("connection with exchanged token failed: %w", err))
 	}
+	servericon.RecordClient(serverInfo.Name, client)
 
 	// Fetch tools from the server
 	tools, err := client.ListTools(ctx)
