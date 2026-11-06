@@ -26,7 +26,7 @@ func TestMintSignedJWT_VerifiesAgainstPublicJWKS(t *testing.T) {
 	require.Len(t, jwks.Keys, 1)
 	require.IsType(t, &ecdsa.PublicKey{}, jwks.Keys[0].Key)
 
-	parsed, err := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256})
+	parsed, err := jose.ParseSignedCompact(token, []jose.SignatureAlgorithm{jose.ES256})
 	require.NoError(t, err)
 
 	payload, err := parsed.Verify(jwks.Keys[0])
@@ -47,13 +47,13 @@ func TestMintSignedJWT_SetsTypHeader(t *testing.T) {
 
 	withTyp, err := srv.MintSignedJWT(map[string]any{"sub": "u"}, "at+jwt")
 	require.NoError(t, err)
-	parsed, err := jose.ParseSigned(withTyp, []jose.SignatureAlgorithm{jose.ES256})
+	parsed, err := jose.ParseSignedCompact(withTyp, []jose.SignatureAlgorithm{jose.ES256})
 	require.NoError(t, err)
 	require.Equal(t, "at+jwt", parsed.Signatures[0].Header.ExtraHeaders[jose.HeaderType])
 
 	noTyp, err := srv.MintSignedJWT(map[string]any{"sub": "u"}, "")
 	require.NoError(t, err)
-	parsedNoTyp, err := jose.ParseSigned(noTyp, []jose.SignatureAlgorithm{jose.ES256})
+	parsedNoTyp, err := jose.ParseSignedCompact(noTyp, []jose.SignatureAlgorithm{jose.ES256})
 	require.NoError(t, err)
 	_, hasTyp := parsedNoTyp.Signatures[0].Header.ExtraHeaders[jose.HeaderType]
 	require.False(t, hasTyp, "empty typ must omit the header (Dex ID-token shape)")
