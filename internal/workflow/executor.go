@@ -142,6 +142,10 @@ func NewWorkflowExecutor(toolCaller ToolCaller, eventCallback EventCallback) *Wo
 
 // ExecuteWorkflow executes a workflow with the given arguments
 func (we *WorkflowExecutor) ExecuteWorkflow(ctx context.Context, workflow *api.Workflow, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	if args == nil {
+		args = make(map[string]interface{})
+	}
+
 	// Log required args for debugging. Argument values are user data and can
 	// carry credentials, so only the names are logged.
 	var requiredArgs []string
