@@ -72,17 +72,13 @@ func (a *Adapter) lifecycleTarget(ctx context.Context, name string) (*musterv1al
 	// to the caller's identity, same as create/update/delete. name is the
 	// server's key: "<namespace>/<name>" for a server outside muster's
 	// namespace.
-	namespace, objectName, ok := a.object(name)
-	if !ok {
-		return nil, api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to look up MCP server"), true
-	}
-	existing, err := a.client.GetMCPServer(ctx, objectName, namespace)
+	existing, err := a.getServed(ctx, name)
 	if err != nil {
 		// Fail closed on every lookup error, NotFound included: MCPServer and
 		// unknown names must not reach the imperative path with muster's
 		// privilege, even during an apiserver hiccup.
-		if errors.IsNotFound(err) {
-			return nil, api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to look up MCP server"), true
+		if api.IsNotFound(err) {
+			return nil, api.HandleErrorWithPrefix(err, "Failed to look up MCP server"), true
 		}
 		result, _ := simpleError(fmt.Sprintf("Failed to look up MCP server '%s': %v", name, err))
 		return nil, result, true

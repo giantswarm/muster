@@ -22,7 +22,6 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/callerwrite"
-	"github.com/giantswarm/muster/v5/internal/client"
 )
 
 // visibilityTTL is how long the answer for one caller token is reused. A
@@ -47,7 +46,7 @@ const visibilityListConcurrency = 8
 // ServiceAccount gets no new right and muster keeps no copy of the claim
 // mapping: RBAC answers.
 type Visibility struct {
-	servers         client.MusterClient
+	servers         servedMCPServers
 	factory         callerwrite.ClientFactory
 	audience        string
 	musterNamespace string
@@ -81,11 +80,17 @@ type cachedVisibility struct {
 	expires time.Time
 }
 
-// NewVisibility returns the visibility handler. servers reads the MCPServer
-// objects of every namespace as muster (to learn which namespaces hold
-// servers); factory builds a client with the caller's token; audience is the
-// audience the API server needs on that token (empty: the default).
-func NewVisibility(servers client.MusterClient, factory callerwrite.ClientFactory, audience, musterNamespace string) *Visibility {
+// servedMCPServers lists the MCPServers muster serves, of every selected
+// namespace (Adapter.ListMCPServers).
+type servedMCPServers interface {
+	ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error)
+}
+
+// NewVisibility returns the visibility handler. servers lists the served
+// MCPServers as muster (to learn which namespaces hold servers); factory
+// builds a client with the caller's token; audience is the audience the API
+// server needs on that token (empty: the default).
+func NewVisibility(servers servedMCPServers, factory callerwrite.ClientFactory, audience, musterNamespace string) *Visibility {
 	if audience == "" {
 		audience = callerwrite.DefaultKubernetesAudience
 	}
@@ -235,13 +240,13 @@ func (v *Visibility) namespacesWithServers(ctx context.Context) (namespaces []st
 		set := map[string]bool{v.musterNamespace: true}
 		ok := true
 		if v.servers != nil {
-			servers, err := v.servers.ListMCPServers(ctx, "")
+			servers, err := v.servers.ListMCPServers(ctx)
 			if err != nil {
 				ok = false
 				logging.Warn("MCPServerVisibility", "Cannot list the namespaces that hold MCP servers: %v", err)
 			}
 			for i := range servers {
-				if api.ServedNamespace(servers[i].Namespace, v.musterNamespace) {
+				if servers[i].Namespace != "" {
 					set[servers[i].Namespace] = true
 				}
 			}

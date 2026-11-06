@@ -186,8 +186,13 @@ data:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- end }}
-    {{- if .Values.muster.mcpServersInAllNamespaces }}
-    mcpServersInAllNamespaces: true
+    {{- if not (kindIs "invalid" .Values.muster.mcpServerNamespaceSelector) }}
+    mcpServerNamespaceSelector:
+      {{- toYaml .Values.muster.mcpServerNamespaceSelector | nindent 6 }}
+    {{- end }}
+    {{- if not (kindIs "invalid" .Values.muster.mcpServerSelector) }}
+    mcpServerSelector:
+      {{- toYaml .Values.muster.mcpServerSelector | nindent 6 }}
     {{- end }}
     {{- $protectedSecrets := include "muster.protectedSecrets" . | fromJsonArray }}
     {{- if or .Values.mcpServerSecretReferences.enabled $protectedSecrets }}

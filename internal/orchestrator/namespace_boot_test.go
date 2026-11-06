@@ -39,17 +39,21 @@ func TestBootRefusesWhatTheReconcilerRefuses(t *testing.T) {
 		},
 	}
 	for _, tt := range []struct {
-		name string
-		info api.MCPServerInfo
-		want error
+		name   string
+		info   api.MCPServerInfo
+		shadow *api.MCPServerInfo
+		want   error
 	}{
 		{name: "Secret of muster's namespace", info: tenantServerInfo(pin), want: api.ErrSecretOutsideNamespace},
 		{name: "forwardToken", info: tenantServerInfo(&api.MCPServerAuth{ForwardToken: true}), want: api.ErrIdentityOutsideNamespace},
-		{name: "org- name in muster's namespace", info: api.MCPServerInfo{Name: "org-a", Namespace: "agent-platform", Type: "streamable-http", URL: "https://mcp.example.invalid/mcp", AutoStart: true}, want: api.ErrReservedServerName},
+		{name: "shadowed by a server of muster's namespace", info: tenantServerInfo(nil), shadow: &api.MCPServerInfo{Name: "org-a", Namespace: "agent-platform", Type: "streamable-http", URL: "https://mcp.example.invalid/mcp"}, want: api.ErrShadowedServer},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			key := tt.info.ServerKey()
 			manager := &mockMCPServerManager{servers: map[string]api.MCPServerInfo{key: tt.info}}
+			if tt.shadow != nil {
+				manager.servers[tt.shadow.Name] = *tt.shadow
+			}
 			api.RegisterMCPServerManager(manager)
 			t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
 

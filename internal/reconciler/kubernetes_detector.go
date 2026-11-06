@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -38,8 +40,21 @@ type KubernetesDetector struct {
 	namespace string
 
 	// mcpServersInAllNamespaces widens the watch of MCPServer objects to every
-	// namespace; the other types stay in namespace.
+	// namespace; the other types stay in namespace. It is set with
+	// mcpServerNamespaces (WatchMCPServerScope).
 	mcpServersInAllNamespaces bool
+
+	// mcpServerNamespaces selects the namespaces besides namespace whose
+	// servers are served; nil, none.
+	mcpServerNamespaces labels.Selector
+
+	// mcpServerSelector selects the served MCPServer objects by their labels;
+	// nil, every one.
+	mcpServerSelector labels.Selector
+
+	// synced is set once the cache has synced: the initial listing already
+	// reconciles every server, so only later changes reconcile a namespace.
+	synced atomic.Bool
 
 	// cache is the controller-runtime cache for watching resources
 	cache cache.Cache
@@ -141,6 +156,12 @@ func (d *KubernetesDetector) Start(ctx context.Context, changes chan<- ChangeEve
 		d.mu.Unlock()
 		return fmt.Errorf("failed to setup informers: %w", err)
 	}
+	if err := d.setupScopeInformers(); err != nil {
+		d.mu.Lock()
+		d.running = false
+		d.mu.Unlock()
+		return fmt.Errorf("failed to setup informers: %w", err)
+	}
 
 	// Start the cache in a goroutine
 	go func() {
@@ -156,21 +177,13 @@ func (d *KubernetesDetector) Start(ctx context.Context, changes chan<- ChangeEve
 		d.mu.Unlock()
 		return fmt.Errorf("failed to sync cache")
 	}
+	d.synced.Store(true)
 
 	d.mu.RLock()
 	informers := len(d.informerRegistrations)
 	d.mu.RUnlock()
 	logging.Info("KubernetesDetector", "Started watching Kubernetes resources in namespace: %s (%d informers)", d.namespaceDisplay(), informers)
 	return nil
-}
-
-// WatchMCPServersInAllNamespaces widens the watch of MCPServer objects to
-// every namespace. Workflow objects stay in the detector's namespace. Call it
-// before Start.
-func (d *KubernetesDetector) WatchMCPServersInAllNamespaces() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.mcpServersInAllNamespaces = true
 }
 
 // cacheOptions scopes the watch per resource type: every type to the
@@ -316,6 +329,9 @@ func (d *KubernetesDetector) handleAdd(resourceType ResourceType, obj interface{
 	}
 
 	d.sendChangeEvent(changeEvent)
+	if resourceType == ResourceTypeMCPServer {
+		d.reconcileShadowedNamespaces(clientObj)
+	}
 }
 
 // handleUpdate processes an update event from the informer.
@@ -325,9 +341,9 @@ func (d *KubernetesDetector) handleAdd(resourceType ResourceType, obj interface{
 // are filtered out to prevent reconciliation loops where syncStatus
 // triggers informer events that re-trigger reconciliation.
 //
-// Note: metadata-only changes (labels, annotations) also do not increment
-// generation and are intentionally filtered. The reconciler only acts on
-// spec changes, so this is the desired behavior.
+// Metadata-only changes (labels, annotations) do not increment generation
+// either and are filtered, except a label change that moves an MCPServer in
+// or out of the server selector (WatchMCPServerScope).
 func (d *KubernetesDetector) handleUpdate(resourceType ResourceType, oldObj, newObj interface{}) {
 	oldClientObj, oldOk := oldObj.(client.Object)
 	newClientObj, newOk := newObj.(client.Object)
@@ -336,7 +352,8 @@ func (d *KubernetesDetector) handleUpdate(resourceType ResourceType, oldObj, new
 		return
 	}
 
-	if oldClientObj.GetGeneration() == newClientObj.GetGeneration() {
+	selectionChanged := resourceType == ResourceTypeMCPServer && d.selectionChanged(oldClientObj, newClientObj)
+	if oldClientObj.GetGeneration() == newClientObj.GetGeneration() && !selectionChanged {
 		logging.Debug("KubernetesDetector", "Skipping status-only update for %s/%s/%s (generation %d)",
 			resourceType, newClientObj.GetNamespace(), newClientObj.GetName(), newClientObj.GetGeneration())
 		return
@@ -352,6 +369,9 @@ func (d *KubernetesDetector) handleUpdate(resourceType ResourceType, oldObj, new
 	}
 
 	d.sendChangeEvent(changeEvent)
+	if resourceType == ResourceTypeMCPServer {
+		d.reconcileShadowedNamespaces(oldClientObj, newClientObj)
+	}
 }
 
 // handleDelete processes a delete event from the informer.
@@ -377,6 +397,9 @@ func (d *KubernetesDetector) handleDelete(resourceType ResourceType, obj interfa
 	}
 
 	d.sendChangeEvent(changeEvent)
+	if resourceType == ResourceTypeMCPServer {
+		d.reconcileShadowedNamespaces(clientObj)
+	}
 }
 
 // sendChangeEvent sends a change event to the output channel, waiting while

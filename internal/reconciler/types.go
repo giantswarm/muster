@@ -8,6 +8,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/util/retry"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
@@ -214,9 +215,15 @@ type ManagerConfig struct {
 	// Only used when Mode is WatchModeKubernetes.
 	Namespace string
 
-	// MCPServersInAllNamespaces widens the watch of MCPServer objects to every
-	// namespace. Workflow objects stay in Namespace.
-	MCPServersInAllNamespaces bool
+	// MCPServerNamespaceSelector selects the namespaces besides Namespace
+	// whose MCPServer objects are served; nil, none. Set, the watch of
+	// MCPServer objects covers every namespace. Workflow objects stay in
+	// Namespace.
+	MCPServerNamespaceSelector labels.Selector
+
+	// MCPServerSelector selects the served MCPServer objects by their labels;
+	// nil, every one.
+	MCPServerSelector labels.Selector
 
 	// Synced, when set, is closed once the change detector has started:
 	// its informers have synced the watched objects.

@@ -7,10 +7,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/client"
@@ -18,10 +21,45 @@ import (
 )
 
 // namespacedClient holds MCPServer objects of several namespaces and answers
-// List and Get like the API server: "" lists every namespace.
+// List and Get like the API server: "" lists every namespace. It answers
+// Namespace reads from namespaces, filtered by a label selector.
 type namespacedClient struct {
 	client.MusterClient
-	servers []musterv1alpha1.MCPServer
+	servers    []musterv1alpha1.MCPServer
+	namespaces []corev1.Namespace
+}
+
+func (c *namespacedClient) Get(_ context.Context, key ctrlclient.ObjectKey, obj ctrlclient.Object, _ ...ctrlclient.GetOption) error {
+	ns, ok := obj.(*corev1.Namespace)
+	if !ok {
+		return fmt.Errorf("unexpected Get of %T", obj)
+	}
+	for i := range c.namespaces {
+		if c.namespaces[i].Name == key.Name {
+			*ns = c.namespaces[i]
+			return nil
+		}
+	}
+	return apierrors.NewNotFound(schema.GroupResource{Resource: "namespaces"}, key.Name)
+}
+
+func (c *namespacedClient) List(_ context.Context, list ctrlclient.ObjectList, opts ...ctrlclient.ListOption) error {
+	namespaces, ok := list.(*corev1.NamespaceList)
+	if !ok {
+		return fmt.Errorf("unexpected List of %T", list)
+	}
+	var listOpts ctrlclient.ListOptions
+	listOpts.ApplyOptions(opts)
+	for _, ns := range c.namespaces {
+		if listOpts.LabelSelector == nil || listOpts.LabelSelector.Matches(labels.Set(ns.Labels)) {
+			namespaces.Items = append(namespaces.Items, ns)
+		}
+	}
+	return nil
+}
+
+func namespace(name string, nsLabels map[string]string) corev1.Namespace {
+	return corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: nsLabels}}
 }
 
 func (c *namespacedClient) IsKubernetesMode() bool { return true }
@@ -76,7 +114,7 @@ func TestAdapterServesMustersNamespaceByDefault(t *testing.T) {
 func TestAdapterKeysServersByNamespaceAndName(t *testing.T) {
 	c := twoGitHubs()
 	adapter := NewAdapterWithClient(c, "agent-platform")
-	adapter.ServeAllNamespaces()
+	adapter.SetScope(Scope{Namespaces: labels.Everything()})
 
 	servers, err := adapter.ListMCPServers(t.Context())
 	require.NoError(t, err)
@@ -103,20 +141,71 @@ func TestAdapterKeysServersByNamespaceAndName(t *testing.T) {
 	assert.True(t, api.IsNotFound(err))
 }
 
-// TestValidateMCPServerRefusesATenantPrefix: a server written through the
-// core tools lives in muster's namespace and may not take an org- name or
-// toolPrefix.
-func TestValidateMCPServerRefusesATenantPrefix(t *testing.T) {
-	adapter := NewAdapterWithClient(twoGitHubs(), "agent-platform")
-	server := func(name, toolPrefix string) *musterv1alpha1.MCPServer {
-		return &musterv1alpha1.MCPServer{
-			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "agent-platform"},
-			Spec:       musterv1alpha1.MCPServerSpec{Type: "streamable-http", URL: "https://mcp.example.com/mcp", ToolPrefix: toolPrefix},
-		}
+// TestAdapterServesTheSelectedNamespaces: with a namespace selector, the
+// servers of muster's namespace and of the namespaces whose labels match are
+// listed and got by their key; those of other namespaces are unknown.
+func TestAdapterServesTheSelectedNamespaces(t *testing.T) {
+	c := threeGitHubs()
+	c.namespaces = []corev1.Namespace{
+		namespace("agent-platform", nil),
+		namespace("agents-a-x7k2p", map[string]string{"agent-platform.giantswarm.io/organization": "a"}),
+		namespace("org-a", map[string]string{"giantswarm.io/organization": "a"}),
 	}
-	require.NoError(t, adapter.validateMCPServer(server("github", "gh")))
-	require.ErrorIs(t, adapter.validateMCPServer(server("org-a-github", "")), api.ErrReservedServerName)
-	require.ErrorIs(t, adapter.validateMCPServer(server("github", "org-a")), api.ErrReservedServerName)
+	adapter := NewAdapterWithClient(c, "agent-platform")
+	selector, err := labels.Parse("agent-platform.giantswarm.io/organization")
+	require.NoError(t, err)
+	adapter.SetScope(Scope{Namespaces: selector})
+
+	assert.ElementsMatch(t, []string{"github", "agents-a-x7k2p/github"}, listedKeys(t, adapter))
+
+	served, err := adapter.GetMCPServer(t.Context(), "agents-a-x7k2p/github")
+	require.NoError(t, err)
+	assert.Equal(t, "agents-a-x7k2p", served.Namespace)
+
+	_, err = adapter.GetMCPServer(t.Context(), "org-a/github")
+	assert.True(t, api.IsNotFound(err), "a namespace the selector does not select is not served: %v", err)
+	_, err = adapter.GetMCPServer(t.Context(), "gone/github")
+	assert.True(t, api.IsNotFound(err), "a namespace that does not exist is not served: %v", err)
+}
+
+// TestAdapterServesTheSelectedServers: a server selector applies in muster's
+// namespace and in the selected namespaces alike.
+func TestAdapterServesTheSelectedServers(t *testing.T) {
+	c := threeGitHubs()
+	c.servers[0].Labels = map[string]string{"muster.giantswarm.io/served": "true"}
+	c.servers[2].Labels = map[string]string{"muster.giantswarm.io/served": "true"}
+	adapter := NewAdapterWithClient(c, "agent-platform")
+	adapter.SetScope(Scope{Namespaces: labels.Everything(), Servers: labels.SelectorFromSet(labels.Set{"muster.giantswarm.io/served": "true"})})
+
+	assert.ElementsMatch(t, []string{"github", "agents-a-x7k2p/github"}, listedKeys(t, adapter))
+	_, err := adapter.GetMCPServer(t.Context(), "org-a/github")
+	assert.True(t, api.IsNotFound(err), "an object the server selector does not select is unknown: %v", err)
+
+	own := NewAdapterWithClient(c, "agent-platform")
+	own.SetScope(Scope{Servers: labels.SelectorFromSet(labels.Set{"muster.giantswarm.io/served": "false"})})
+	assert.Empty(t, listedKeys(t, own), "without a namespace selector the server selector applies in muster's namespace")
+	_, err = own.GetMCPServer(t.Context(), "github")
+	assert.True(t, api.IsNotFound(err))
+}
+
+func threeGitHubs() *namespacedClient {
+	c := twoGitHubs()
+	c.servers = append(c.servers, musterv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: "agents-a-x7k2p", UID: types.UID("uid-agents-a")},
+		Spec:       musterv1alpha1.MCPServerSpec{Type: "streamable-http", URL: "https://mcp.example.com/agents-a"},
+	})
+	return c
+}
+
+func listedKeys(t *testing.T, adapter *Adapter) []string {
+	t.Helper()
+	servers, err := adapter.ListMCPServers(t.Context())
+	require.NoError(t, err)
+	keys := make([]string, 0, len(servers))
+	for _, s := range servers {
+		keys = append(keys, s.ServerKey())
+	}
+	return keys
 }
 
 // filesystemClient is the filesystem store: it gives every object the

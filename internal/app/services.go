@@ -140,9 +140,21 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		namespace = "default"
 	}
 
-	// MCPServer objects of every namespace are served only in Kubernetes
-	// mode and only when the setting asks for it.
-	mcpServersInAllNamespaces := musterClient.IsKubernetesMode() && cfg.MusterConfig.MCPServersInAllNamespaces
+	// The selectors apply in Kubernetes mode only: filesystem mode has no
+	// namespaces and serves every definition it reads.
+	var scope mcpserverPkg.Scope
+	if musterClient.IsKubernetesMode() {
+		var err error
+		if scope.Namespaces, err = cfg.MusterConfig.MCPServerNamespaceSelector.Selector(); err != nil {
+			return nil, fmt.Errorf("mcpServerNamespaceSelector: %w", err)
+		}
+		if scope.Servers, err = cfg.MusterConfig.MCPServerSelector.Selector(); err != nil {
+			return nil, fmt.Errorf("mcpServerSelector: %w", err)
+		}
+	}
+	// MCPServer objects of other namespaces are served only when a namespace
+	// selector is set.
+	mcpServersInAllNamespaces := scope.Namespaces != nil
 
 	orchConfig := orchestrator.Config{
 		Aggregator:     cfg.MusterConfig.Aggregator,
@@ -202,9 +214,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 
 	// Initialize and register MCPServer adapter using the muster client
 	mcpServerAdapter := mcpserverPkg.NewAdapterWithClient(musterClient, namespace)
-	if mcpServersInAllNamespaces {
-		mcpServerAdapter.ServeAllNamespaces()
-	}
+	mcpServerAdapter.SetScope(scope)
 	if musterClient.IsKubernetesMode() {
 		mcpServerAdapter.EnableWritesAsCaller(callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience)
 	}
@@ -217,7 +227,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		if err := validateListsAsCaller(mergeOAuthServerConfig(cfg)); err != nil {
 			return nil, err
 		}
-		api.RegisterMCPServerVisibility(mcpserverPkg.NewVisibility(musterClient, callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience, namespace))
+		api.RegisterMCPServerVisibility(mcpserverPkg.NewVisibility(mcpServerAdapter, callerFactory, cfg.MusterConfig.WritesAsCaller.KubernetesAudience, namespace))
 	}
 
 	// Initialize and register credentials adapter for loading OAuth client
@@ -359,11 +369,12 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			Namespace:      namespace,
 			// MCPServer objects in all namespaces when the setting is on;
 			// Workflow objects stay in muster's namespace.
-			MCPServersInAllNamespaces: mcpServersInAllNamespaces,
-			Synced:                    mcpServersListed,
-			WorkerCount:               2,
-			MaxRetries:                5,
-			Debug:                     cfg.Debug,
+			MCPServerNamespaceSelector: scope.Namespaces,
+			MCPServerSelector:          scope.Servers,
+			Synced:                     mcpServersListed,
+			WorkerCount:                2,
+			MaxRetries:                 5,
+			Debug:                      cfg.Debug,
 		}
 
 		reconcileManager = reconciler.NewManager(reconcileConfig)
@@ -490,13 +501,13 @@ func mergeOAuthServerConfig(cfg *Config) config.OAuthServerConfig {
 
 // Note: MCPServer service creation moved to orchestrator for proper dependency management
 
-// validateListsAsCaller refuses mcpServersInAllNamespaces without muster's
+// validateListsAsCaller refuses mcpServerNamespaceSelector without muster's
 // OAuth server on Dex: muster lists servers with the session's Dex ID token,
 // and the Kubernetes API accepts no other (a Google token, or no token at
 // all, would show every person no server).
 func validateListsAsCaller(serverCfg config.OAuthServerConfig) error {
 	if !serverCfg.Enabled || serverCfg.Provider != "dex" {
-		return fmt.Errorf("mcpServersInAllNamespaces needs muster's OAuth server with the dex provider (aggregator.oauth.server.enabled and provider: dex): muster lists MCP servers with the session's Dex ID token")
+		return fmt.Errorf("mcpServerNamespaceSelector needs muster's OAuth server with the dex provider (aggregator.oauth.server.enabled and provider: dex): muster lists MCP servers with the session's Dex ID token")
 	}
 	return nil
 }

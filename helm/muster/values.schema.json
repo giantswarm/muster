@@ -328,8 +328,19 @@
                         }
                     }
                 },
-                "mcpServersInAllNamespaces": {
-                    "type": "boolean"
+                "mcpServerNamespaceSelector": {
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "additionalProperties": true
+                },
+                "mcpServerSelector": {
+                    "type": [
+                        "object",
+                        "null"
+                    ],
+                    "additionalProperties": true
                 },
                 "namespace": {
                     "type": "string"
