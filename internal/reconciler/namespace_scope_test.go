@@ -160,6 +160,31 @@ func TestReconcileRefusesAShadowedServer(t *testing.T) {
 	}
 }
 
+// TestReconcileClearsTheRefusalOnceTheShadowGoes: a server that was refused
+// while a server of muster's namespace shadowed it, and is not started
+// (autoStart false), drops the refusal from its status once the shadow goes.
+func TestReconcileClearsTheRefusalOnceTheShadowGoes(t *testing.T) {
+	shadow := &api.MCPServerInfo{Name: "team-a", Type: "streamable-http", URL: "https://mcp.example.com/mcp"}
+	r, _, statusUpdater := namespacedFixture(t, map[string]*api.MCPServerInfo{
+		testMusterNamespace: shadow,
+		"team-a":            {Name: "github", Type: "streamable-http", URL: "https://mcp.example.com/mcp"},
+	})
+	request := ReconcileRequest{Type: ResourceTypeMCPServer, Name: "github", Namespace: "team-a", Attempt: 1}
+	require.ErrorIs(t, r.Reconcile(context.Background(), request).Error, api.ErrShadowedServer)
+	require.NotEmpty(t, statusUpdater.GetLastUpdatedMCPServer().Status.LastError)
+
+	mgr := r.mcpServerManager.(*MockMCPServerManager)
+	mgr.RemoveMCPServer("team-a")
+	server, err := mgr.GetMCPServer(context.Background(), "team-a/github")
+	require.NoError(t, err)
+	server.AutoStart = false
+
+	require.NoError(t, r.Reconcile(context.Background(), request).Error)
+	synced := statusUpdater.GetLastUpdatedMCPServer()
+	assert.NotEqual(t, musterv1alpha1.MCPServerStateFailed, synced.Status.State)
+	assert.Empty(t, synced.Status.LastError, "the refusal is gone from the status")
+}
+
 // TestReconcileRunsAServerBesideAnUnrelatedPrefix: a server of muster's
 // namespace whose prefix only starts like the namespace's name shares no
 // exposed name with it ("team_x" against "team-a_..."), so both run.

@@ -357,6 +357,8 @@ func (r *MCPServerReconciler) applyStatusFromService(server *musterv1alpha1.MCPS
 	} else if reconcileErr != nil {
 		// Sanitize error message to remove sensitive data before CRD exposure
 		server.Status.LastError = SanitizeErrorMessage(reconcileErr.Error())
+	} else {
+		server.Status.LastError = ""
 	}
 
 	applyReadyCondition(server, service, exists)
