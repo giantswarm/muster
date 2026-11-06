@@ -643,6 +643,10 @@ type TokenExchangeBrokerConfig struct {
 	// Config.TokenExchangeClientAudiences.
 	ClientAudiences map[string][]string `yaml:"clientAudiences,omitempty"`
 
+	// ClientSubjectPolicies narrows the identity issuers and token audiences
+	// accepted from each confidential broker client.
+	ClientSubjectPolicies map[string][]BrokerSubjectPolicy `yaml:"clientSubjectPolicies,omitempty"`
+
 	// BrokerClients declaratively seeds confidential broker clients at startup
 	// from mounted Kubernetes Secrets, keyed by client ID. mcp-oauth stores a
 	// broker client's record (id -> bcrypt secret hash) only in its backing
@@ -667,6 +671,13 @@ type TokenExchangeBrokerConfig struct {
 	// secret refs that do not set an explicit namespace. Populated from the
 	// muster namespace by the serve command; not user-facing config.
 	DefaultSecretNamespace string `yaml:"-"`
+}
+
+// BrokerSubjectPolicy pairs a verified identity issuer with accepted
+// subject-token audiences for a confidential broker client.
+type BrokerSubjectPolicy struct {
+	Issuer    string   `yaml:"issuer"`
+	Audiences []string `yaml:"audiences"`
 }
 
 // Enabled reports whether brokered token exchange is configured.

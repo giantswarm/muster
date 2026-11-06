@@ -162,6 +162,22 @@ func TestNewOAuthServerConfig_MapsTokenExchangeClientAudiences(t *testing.T) {
 	require.Equal(t, allowlist, got.TokenExchangeClientAudiences)
 }
 
+func TestNewOAuthServerConfig_MapsBrokerSubjectPolicies(t *testing.T) {
+	t.Parallel()
+	configuration := config.OAuthServerConfig{BaseURL: "https://muster.example.com", TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+		ClientAudiences: map[string][]string{"manager": {"manager-github"}},
+		ClientSubjectPolicies: map[string][]config.BrokerSubjectPolicy{
+			"manager": {{Issuer: "https://dex.example.com", Audiences: []string{"agent-manager"}}},
+		},
+	}}
+	result := newOAuthServerConfig(configuration, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
+	require.Equal(t, map[string][]oauthserver.BrokerSubjectPolicy{"manager": {{Issuer: "https://dex.example.com", Audiences: []string{"agent-manager"}}}}, result.TokenExchangeClientSubjectPolicies)
+	require.NoError(t, result.Validate())
+	configuration.TokenExchangeBroker.ClientSubjectPolicies["manager"] = nil
+	result = newOAuthServerConfig(configuration, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
+	require.Error(t, result.Validate())
+}
+
 func TestNewOAuthServerConfig_LocksSelfIssuedExchangeToOwnResource(t *testing.T) {
 	t.Parallel()
 

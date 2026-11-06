@@ -94,7 +94,8 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
-		TokenExchangeClientAudiences: cfg.TokenExchangeBroker.ClientAudiences,
+		TokenExchangeClientAudiences:       cfg.TokenExchangeBroker.ClientAudiences,
+		TokenExchangeClientSubjectPolicies: brokerSubjectPolicies(cfg.TokenExchangeBroker.ClientSubjectPolicies),
 		// A forwarded or trusted-issuer bearer without a refresh-token family
 		// keys its session on the principal (iss, sub, azp or aud, the act
 		// chain), not the token bytes: a gateway's refreshed on-behalf-of
@@ -118,6 +119,20 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 	// should mcp-oauth ever relax that requirement.
 	result.TokenExchangeAllowedResources = []string{result.GetResourceIdentifier()}
 	return result
+}
+
+func brokerSubjectPolicies(configured map[string][]config.BrokerSubjectPolicy) map[string][]oauthserver.BrokerSubjectPolicy {
+	if configured == nil {
+		return nil
+	}
+	policies := make(map[string][]oauthserver.BrokerSubjectPolicy, len(configured))
+	for clientID, entries := range configured {
+		policies[clientID] = make([]oauthserver.BrokerSubjectPolicy, 0, len(entries))
+		for _, entry := range entries {
+			policies[clientID] = append(policies[clientID], oauthserver.BrokerSubjectPolicy{Issuer: entry.Issuer, Audiences: entry.Audiences})
+		}
+	}
+	return policies
 }
 
 // newOAuthInstrumentation builds the one mcp-oauth instrumentation the OAuth
