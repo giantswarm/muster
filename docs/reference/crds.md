@@ -236,7 +236,7 @@ spec:
 | `enabled` | `boolean` | No | Enable token exchange | Default: `false` |
 | `dexTokenEndpoint` | `string` | Yes* | URL to access Dex's token endpoint (may be via proxy) | Must be HTTPS, required when enabled |
 | `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
-| `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
+| `connectorId` | `string` | No | ID of OIDC connector on remote Dex | Required for a person's exchange, which is refused without it. A delegated caller's exchange sends no `connector_id` ([Delegated callers](configuration.md#delegated-callers-delegation)), so a server only delegated callers reach may omit it |
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
 | `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below; its writer must be able to `get` it ([Secret references](#secret-references)) |
 

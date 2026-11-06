@@ -348,8 +348,9 @@ type TokenExchangeConfig struct {
 	ExpectedIssuer string `yaml:"expectedIssuer,omitempty" json:"expectedIssuer,omitempty"`
 
 	// ConnectorID is the ID of the OIDC connector on the remote Dex that
-	// trusts the local cluster's Dex.
-	// Required when Enabled is true.
+	// trusts the local cluster's Dex, sent as connector_id. Required for a
+	// person's exchange. A delegated caller's exchange sends none: it goes to
+	// the Dex that issued the delegated token, which verifies it itself.
 	// Example: "cluster-a-dex"
 	ConnectorID string `yaml:"connectorId,omitempty" json:"connectorId,omitempty"`
 
@@ -370,6 +371,21 @@ type TokenExchangeConfig struct {
 	// ClientSecret is the resolved client secret from the secret (populated at runtime).
 	// This field is not persisted and is populated when loading credentials.
 	ClientSecret string `yaml:"-" json:"-"`
+	// Delegation, set at runtime for a delegated caller, makes the exchange
+	// an RFC 8693 delegation with muster as the actor. Not persisted.
+	Delegation *TokenExchangeDelegation `yaml:"-" json:"-"`
+}
+
+// TokenExchangeDelegation is the runtime part of a token exchange for a
+// delegated caller. The subject token is the caller's delegated access token,
+// issued by the Dex the exchange goes to, so no connector_id is sent (RFC 8693
+// §2.1 parameters only).
+type TokenExchangeDelegation struct {
+	// ActorToken is muster's own workload token, sent as actor_token.
+	ActorToken string
+	// Audience is the Dex client ID of the backend, sent as audience. Empty
+	// sends none.
+	Audience string
 }
 
 // ClientCredentialsSecretRef references a Kubernetes Secret containing

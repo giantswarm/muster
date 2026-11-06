@@ -3,7 +3,10 @@ package mcpserver
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +18,7 @@ import (
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/callerwrite"
@@ -59,6 +63,16 @@ type Visibility struct {
 	// flights coalesces the rounds of lists of one token, and the read of
 	// the namespaces, across concurrent requests.
 	flights singleflight.Group
+
+	// delegated holds the token exchanged for a delegated caller, per
+	// session and audience, until it expires.
+	delegatedMu sync.Mutex
+	delegated   map[string]exchangedToken
+}
+
+type exchangedToken struct {
+	token   string
+	expires time.Time
 }
 
 type cachedVisibility struct {
@@ -101,6 +115,13 @@ func (v *Visibility) LoginAudience() string {
 // the servers of muster's namespace, and is told to sign in again.
 func (v *Visibility) CallerVisibility(ctx context.Context) api.ServerVisibility {
 	token := callerwrite.TokenFromContext(ctx)
+	if caller, ok := api.DelegatedCallerFromContext(ctx); ok {
+		exchanged, err := v.delegatedToken(ctx, caller)
+		if err != nil {
+			return api.NoServerVisible("muster could not obtain a Kubernetes token for this delegated session, so it cannot tell which MCP servers it may see: " + err.Error())
+		}
+		token = exchanged
+	}
 	if token == "" {
 		return api.NoServerVisible(callerwrite.ReloginError("Your session carries no ID token, so muster cannot tell which MCP servers you may see."))
 	}
@@ -252,3 +273,70 @@ type namespaceRead struct {
 }
 
 var _ api.MCPServerVisibilityHandler = (*Visibility)(nil)
+
+// delegatedToken is the token a delegated caller's servers are listed with: an
+// RFC 8693 delegation of the caller's token at muster's Dex, with muster's
+// workload token as actor and the API server's audience. The delegated token
+// itself never reaches the API server. The exchange is cached per session and
+// audience until the exchanged token expires.
+func (v *Visibility) delegatedToken(ctx context.Context, caller api.DelegatedCaller) (string, error) {
+	exchange := api.GetDelegationExchange()
+	if exchange == nil {
+		return "", errors.New("delegated token exchange is not configured")
+	}
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return "", errors.New("the OAuth handler is not available")
+	}
+	sessionID := api.GetSessionIDFromContext(ctx)
+	cacheKey := "delegated/" + sessionID + "/visibility/" + v.audience
+	now := v.now()
+	v.delegatedMu.Lock()
+	if cached, ok := v.delegated[cacheKey]; ok && now.Before(cached.expires) {
+		v.delegatedMu.Unlock()
+		return cached.token, nil
+	}
+	v.delegatedMu.Unlock()
+
+	cfg, err := exchange.DelegationExchangeConfig(caller)
+	var token string
+	if err == nil {
+		cfg.Delegation.Audience = v.audience
+		token, err = oauthHandler.ExchangeTokenForRemoteCluster(ctx, caller.Token, cacheKey, &cfg)
+	}
+	auditDelegatedVisibilityExchange(caller, sessionID, v.audience, err)
+	if err != nil {
+		return "", err
+	}
+	if expires, expErr := pkgoauth.Expiry(token); expErr == nil {
+		v.delegatedMu.Lock()
+		if v.delegated == nil {
+			v.delegated = map[string]exchangedToken{}
+		}
+		for key, cached := range v.delegated {
+			if !now.Before(cached.expires) {
+				delete(v.delegated, key)
+			}
+		}
+		v.delegated[cacheKey] = exchangedToken{token: token, expires: expires.Add(-pkgoauth.DefaultExpiryMargin)}
+		v.delegatedMu.Unlock()
+	}
+	return token, nil
+}
+
+// auditDelegatedVisibilityExchange records an exchange of a delegated
+// caller's token for the API server's audience, in the shape of a backend's
+// delegated_token_exchange. It never records a token.
+func auditDelegatedVisibilityExchange(caller api.DelegatedCaller, sessionID, audience string, err error) {
+	event := logging.AuditEvent{
+		Action:  "delegated_token_exchange",
+		Outcome: "success",
+		Subject: logging.TruncateIdentifier(caller.Subject),
+		Target:  audience,
+		Details: fmt.Sprintf("session=%s actors=[%s] purpose=visibility", logging.TruncateIdentifier(sessionID), strings.Join(caller.ActorChain, ",")),
+	}
+	if err != nil {
+		event.Outcome, event.Error = "failure", err.Error()
+	}
+	logging.Audit(event)
+}

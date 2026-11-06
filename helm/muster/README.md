@@ -167,6 +167,9 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.allowPrivateIPRedirectURIs | bool | `false` |  |
 | muster.oauth.server.trustedAudiences | list | `[]` | ------------------------------------------------------------------------- OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer tokens without the client completing muster's own OAuth flow.  The token's aud claim must match one of these values and the signature must validate against the provider's JWKS. SECURITY: only list client IDs you fully trust. |
 | muster.oauth.server.trustedIssuers | list | `[]` |  |
+| muster.oauth.server.delegation.actorToken.enabled | bool | `false` |  |
+| muster.oauth.server.delegation.actorToken.audience | string | `""` |  |
+| muster.oauth.server.delegation.actorToken.expirationSeconds | int | `3600` |  |
 | muster.oauth.server.tokenExchangeBroker | object | `{}` |  |
 | muster.oauth.server.trustedProxyCIDRs | list | `[]` |  |
 | muster.oauth.server.resourceIdentifier | string | `""` |  |

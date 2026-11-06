@@ -215,10 +215,10 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 
 // ExecuteTool executes a tool by name.
 func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (*api.CallToolResult, error) {
-	// A service of an MCP server the caller may not see is absent: the
-	// lifecycle tools and the status answer as for a missing service.
+	// A service the caller is not shown is absent: the lifecycle tools and
+	// the status answer as for a missing service.
 	if name, ok := args["name"].(string); ok && toolName != "service_list" {
-		if view := api.CallerVisibility(ctx); a.hiddenMCPServer(view, name) {
+		if view := api.CallerVisibility(ctx); a.hiddenService(ctx, view, name) {
 			msg := fmt.Sprintf("service %s not found", name)
 			if view.Reason != "" {
 				msg += ". " + view.Reason
@@ -245,9 +245,14 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 func (a *Adapter) handleServiceList(ctx context.Context) (*api.CallToolResult, error) {
 	all := a.GetAllServices()
 	view := api.CallerVisibility(ctx)
+	shows, _ := api.ToolsetShows(ctx)
+	showsCore := api.ToolsetShowsCore(ctx)
 	svcs := make([]api.ServiceStatus, 0, len(all))
 	for _, svc := range all {
-		if svc.ServiceType == string(services.TypeMCPServer) && !view.Sees(svc.Name) {
+		if svc.ServiceType == string(services.TypeMCPServer) && (!view.Sees(svc.Name) || !shows(svc.Name)) {
+			continue
+		}
+		if svc.ServiceType != string(services.TypeMCPServer) && !showsCore {
 			continue
 		}
 		svcs = append(svcs, svc)
@@ -405,13 +410,22 @@ func (a *Adapter) handleServiceStatus(args map[string]interface{}) (*api.CallToo
 	}, nil
 }
 
-// hiddenMCPServer reports whether name is the service of an MCP server the
-// caller may not see. A name that is not a registered service may be an
-// MCPServer definition not started yet, so it counts as one.
-func (a *Adapter) hiddenMCPServer(view api.ServerVisibility, name string) bool {
-	if view.Sees(name) {
+// hiddenService reports whether name is a service the caller is not shown:
+// the service of an MCP server the caller may not see or the toolsets
+// bounding the request do not admit, or one of muster's own services when
+// those toolsets resolve none of its core tools. A name that is not a
+// registered service may be an MCPServer definition not started yet, so it
+// counts as one.
+func (a *Adapter) hiddenService(ctx context.Context, view api.ServerVisibility, name string) bool {
+	shows, _ := api.ToolsetShows(ctx)
+	shownAsServer := view.Sees(name) && shows(name)
+	showsCore := api.ToolsetShowsCore(ctx)
+	if shownAsServer && showsCore {
 		return false
 	}
 	service, exists := a.orchestrator.registry.Get(name)
-	return !exists || service.GetType() == services.TypeMCPServer
+	if exists && service.GetType() != services.TypeMCPServer {
+		return !showsCore
+	}
+	return !shownAsServer
 }

@@ -167,8 +167,12 @@ const LoginIDTokenScope = "urn:muster:login-id-token" //nolint:gosec // G101: a 
 // (userID set) is also indexed by its token, so a bind request bearing it
 // names the session; an actor session's copy of a login is not, whoever it
 // is filed for. A forwarded session never takes the record from a login
-// family that filed the same token.
+// family that filed the same token. A delegated token (one carrying act) is
+// never a login: it is neither filed nor indexed.
 func (a *Adapter) StoreLoginIDToken(sessionID, userID, issuer, idToken string, expiresAt time.Time) {
+	if delegated, err := pkgoauth.HasActor(idToken); err == nil && delegated {
+		return
+	}
 	a.manager.StoreToken(sessionID, userID, issuer, &pkgoauth.Token{
 		IDToken:   idToken,
 		ExpiresAt: expiresAt,

@@ -165,6 +165,11 @@ spec:
               mountPath: /etc/muster/secrets
               readOnly: true
             {{- end }}
+            {{- if and .Values.muster.oauth.server.enabled .Values.muster.oauth.server.delegation.actorToken.enabled }}
+            - name: delegation-actor-token
+              mountPath: /var/run/secrets/muster/delegation
+              readOnly: true
+            {{- end }}
             {{- if .Values.muster.extraCaFile.secret.name }}
             - name: extra-ca
               mountPath: {{ dir .Values.muster.extraCaFile.path }}
@@ -238,6 +243,17 @@ spec:
                     - path: namespace
                       fieldRef:
                         fieldPath: metadata.namespace
+        {{- if and .Values.muster.oauth.server.enabled .Values.muster.oauth.server.delegation.actorToken.enabled }}
+        # muster's workload token, the actor_token of a delegated caller's
+        # token exchange. The audience is the one Dex's actor connector expects.
+        - name: delegation-actor-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: {{ required "muster.oauth.server.delegation.actorToken.audience is required when the actor token is enabled" .Values.muster.oauth.server.delegation.actorToken.audience | quote }}
+                  expirationSeconds: {{ .Values.muster.oauth.server.delegation.actorToken.expirationSeconds }}
+                  path: token
+        {{- end }}
         {{- if .Values.muster.extraCaFile.secret.name }}
         - name: extra-ca
           secret:

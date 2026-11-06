@@ -872,7 +872,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 						},
 						"connectorId": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
-							api.SchemaKeyDescription: "ID of the OIDC connector on the remote Dex that trusts the local Dex (required when enabled)",
+							api.SchemaKeyDescription: "ID of the OIDC connector on the remote Dex that trusts the local Dex; required for a person's exchange, a delegated caller's exchange sends none",
 						},
 						"scopes": map[string]interface{}{
 							api.SchemaKeyType:        string(api.ArgTypeString),
@@ -1023,9 +1023,12 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 	var filteredServers []api.MCPServerInfo
 	failedCount := 0
 	view := api.CallerVisibility(ctx)
+	// A server outside the toolsets bounding the request is absent too, and
+	// a toolset that cannot be resolved admits none.
+	shows, _ := api.ToolsetShows(ctx)
 	for _, server := range allServers {
 		// A server the caller may not list in its namespace is absent.
-		if !view.Sees(server.ServerKey()) {
+		if !view.Sees(server.ServerKey()) || !shows(server.ServerKey()) {
 			continue
 		}
 		// Adjust server for display (hide raw errors in non-verbose mode)
@@ -1089,6 +1092,9 @@ func (a *Adapter) handleMCPServerGet(ctx context.Context, args map[string]interf
 			result.Content = append(result.Content, view.Reason)
 		}
 		return result, nil
+	}
+	if shows, _ := api.ToolsetShows(ctx); !shows(name) {
+		return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to get MCP server"), nil
 	}
 
 	mcpServer, err := a.GetMCPServer(ctx, name)

@@ -833,6 +833,34 @@ muster:
       #     acceptedTypHeaders: [""]
       #     subjectClaim: email
       trustedIssuers: []
+      # A trusted issuer whose tokens may name an acting party in the act claim
+      # (RFC 8693 §4.1, a delegated token: sub = person, act = the agent's
+      # workload) lists the accepted issuers of the current actor:
+      #   - issuer: https://dex.example.com
+      #     ...
+      #     delegation:
+      #       actorIssuers: ["https://idp.ate-system.svc"]
+      #       # Optional, per actor issuer: a glob the actor's sub must match.
+      #       # Needed for an issuer that also signs other workloads' tokens.
+      #       actorSubjects:
+      #         "https://idp.ate-system.svc": "actor/*"
+      # A token carrying act from an issuer it does not list is refused; an
+      # issuer without a delegation block keeps today's on-behalf-of path
+      # (act unchecked, token forwarded). A delegated call is served as the person,
+      # with the toolset the token's scope grants, and its token is never
+      # forwarded to an MCP server.
+
+      # Delegated callers reach token-exchange MCP servers through an RFC 8693
+      # delegation at the issuer of their token, with muster's own projected
+      # ServiceAccount token as actor_token. The audience is the client ID the
+      # Dex actor connector for muster's workload identity expects (muster's
+      # exchange client ID). Off: delegated callers reach no token-exchange
+      # server.
+      delegation:
+        actorToken:
+          enabled: false
+          audience: ""
+          expirationSeconds: 3600  # @schema minimum: 600
 
       # Brokered RFC 8693 token exchange: muster as a shared token broker.
       # An external confidential client POSTs a token-exchange request with an
