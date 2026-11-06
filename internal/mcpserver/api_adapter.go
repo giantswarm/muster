@@ -216,8 +216,11 @@ type Adapter struct {
 	namespace string
 
 	// allNamespaces makes the adapter list and get MCPServer objects of every
-	// namespace, not only of namespace.
+	// namespace, not only of namespace: scope.Namespaces is set.
 	allNamespaces bool
+
+	// scope selects the served objects (SetScope).
+	scope Scope
 
 	// unserved records the objects of unserved namespaces already logged.
 	unserved sync.Map
@@ -250,13 +253,16 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 	}
 }
 
-// ServeAllNamespaces makes the adapter list MCPServer objects of every
-// namespace, and get a server outside muster's namespace by its key
-// ("<namespace>/<name>", api.MCPServerKey). core_mcpserver_create, update and
-// delete still write in muster's namespace only; the lifecycle tools
-// (core_service_start, stop, restart) write on the server's own object.
-func (a *Adapter) ServeAllNamespaces() {
-	a.allNamespaces = true
+// SetScope sets the MCPServer objects the adapter serves. With
+// scope.Namespaces set it lists MCPServer objects of every namespace, serves
+// those of the selected namespaces, and gets a server outside muster's
+// namespace by its key ("<namespace>/<name>", api.MCPServerKey).
+// core_mcpserver_create, update and delete still write in muster's namespace
+// only; the lifecycle tools (core_service_start, stop, restart) write on the
+// server's own object. An object scope.Servers does not select is unknown.
+func (a *Adapter) SetScope(scope Scope) {
+	a.scope = scope
+	a.allNamespaces = scope.Namespaces != nil
 }
 
 // listNamespace is the namespace ListMCPServers reads: muster's, or every
@@ -269,11 +275,38 @@ func (a *Adapter) listNamespace() string {
 }
 
 // object returns the namespace and name of the MCPServer object a key names.
-// ok is false for a key outside muster's namespace when the adapter does not
-// serve all namespaces: such a server is unknown to muster.
-func (a *Adapter) object(key string) (namespace, name string, ok bool) {
+// ok is false for a key of a namespace the scope does not select: such a
+// server is unknown to muster.
+func (a *Adapter) object(ctx context.Context, key string) (namespace, name string, ok bool, err error) {
 	namespace, name = api.MCPServerObject(key, a.namespace)
-	return namespace, name, namespace == a.namespace || (a.allNamespaces && api.ServedNamespace(namespace, a.namespace))
+	if !a.allNamespaces {
+		return namespace, name, namespace == a.namespace, nil
+	}
+	ok, err = a.scope.servedNamespace(ctx, a.client, namespace, a.namespace)
+	return namespace, name, ok, err
+}
+
+// getServed reads the object a key names, NotFound for one the scope does
+// not select.
+func (a *Adapter) getServed(ctx context.Context, key string) (*musterv1alpha1.MCPServer, error) {
+	namespace, name, ok, err := a.object(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, api.NewMCPServerNotFoundError(key)
+	}
+	server, err := a.client.GetMCPServer(ctx, name, namespace)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			return nil, api.NewMCPServerNotFoundError(key)
+		}
+		return nil, err
+	}
+	if !a.scope.servesObject(server) {
+		return nil, api.NewMCPServerNotFoundError(key)
+	}
+	return server, nil
 }
 
 // toInfo converts an MCPServer object into the API view, with the key of a
@@ -291,14 +324,14 @@ func (a *Adapter) toInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 	return info
 }
 
-// logUnservedOnce says once per object that muster ignores an MCPServer in a
-// namespace it does not serve (api.ServedNamespace).
+// logUnservedOnce says once per object that muster ignores an MCPServer of a
+// namespace mcpServerNamespaceSelector does not select.
 func (a *Adapter) logUnservedOnce(namespace, name string) {
 	if _, seen := a.unserved.LoadOrStore(namespace+"/"+name, struct{}{}); seen {
 		return
 	}
-	logging.Warn("MCPServer", "Ignoring MCPServer %s/%s: outside muster's namespace %q only organization namespaces (names starting with %q) are served",
-		namespace, name, a.namespace, api.TenantNamePrefix)
+	logging.Warn("MCPServer", "Ignoring MCPServer %s/%s: mcpServerNamespaceSelector does not select its namespace (muster's namespace is %q)",
+		namespace, name, a.namespace)
 }
 
 // refuseTenantKey answers a core_mcpserver_* write that names a server outside
@@ -369,12 +402,20 @@ func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, erro
 		return nil, fmt.Errorf("failed to list MCPServers: %w", err)
 	}
 
+	served := func(string) bool { return true }
+	if a.allNamespaces {
+		served, err = a.scope.servedNamespaces(ctx, a.client, a.namespace)
+		if err != nil {
+			return nil, err
+		}
+	}
 	result := make([]api.MCPServerInfo, 0, len(servers))
 	for i := range servers {
-		// Outside muster's namespace only organization namespaces are
-		// served (api.ServedNamespace). Filesystem mode has no namespaces.
-		if a.client.IsKubernetesMode() && !api.ServedNamespace(servers[i].Namespace, a.namespace) {
+		if !served(servers[i].Namespace) {
 			a.logUnservedOnce(servers[i].Namespace, servers[i].Name)
+			continue
+		}
+		if !a.scope.servesObject(&servers[i]) {
 			continue
 		}
 		result = append(result, a.toInfo(&servers[i]))
@@ -409,14 +450,10 @@ func serviceProtocolVersion(name string) string {
 // server's key (api.MCPServerKey): its name in muster's namespace,
 // "<namespace>/<name>" outside it.
 func (a *Adapter) GetMCPServer(ctx context.Context, key string) (*api.MCPServerInfo, error) {
-	namespace, name, ok := a.object(key)
-	if !ok {
-		return nil, api.NewMCPServerNotFoundError(key)
-	}
-	server, err := a.client.GetMCPServer(ctx, name, namespace)
+	server, err := a.getServed(ctx, key)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			return nil, api.NewMCPServerNotFoundError(key)
+		if api.IsNotFound(err) {
+			return nil, err
 		}
 		return nil, fmt.Errorf("failed to get MCPServer %s: %w", key, err)
 	}
@@ -750,9 +787,12 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 	var filteredServers []api.MCPServerInfo
 	failedCount := 0
 	view := api.CallerVisibility(ctx)
+	// A server outside the toolsets bounding the request is absent too, and
+	// a toolset that cannot be resolved admits none.
+	shows, _ := api.ToolsetShows(ctx)
 	for _, server := range allServers {
 		// A server the caller may not list in its namespace is absent.
-		if !view.Sees(server.ServerKey()) {
+		if !view.Sees(server.ServerKey()) || !shows(server.ServerKey()) {
 			continue
 		}
 		// Adjust server for display (hide raw errors in non-verbose mode)
@@ -816,6 +856,9 @@ func (a *Adapter) handleMCPServerGet(ctx context.Context, args map[string]interf
 			result.Content = append(result.Content, view.Reason)
 		}
 		return result, nil
+	}
+	if shows, _ := api.ToolsetShows(ctx); !shows(name) {
+		return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to get MCP server"), nil
 	}
 
 	mcpServer, err := a.GetMCPServer(ctx, name)
@@ -1161,7 +1204,7 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	if a.client != nil && a.client.IsKubernetesMode() {
 		serverNamespace = server.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, server.Name, server.Spec.ToolPrefix, convertCRDFamilyToAPI(server.Spec.Family), auth, server.Spec.URLElicitation); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, a.namespace, convertCRDFamilyToAPI(server.Spec.Family), auth, server.Spec.URLElicitation); err != nil {
 		return err
 	}
 	if err := api.ValidateSecretNamespaces(serverNamespace, a.namespace, auth); err != nil {

@@ -268,7 +268,7 @@
                       "type": "object"
                     },
                     "connectorId": {
-                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex (required when enabled)",
+                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex; required for a person's exchange, a delegated caller's exchange sends none",
                       "type": "string"
                     },
                     "dexTokenEndpoint": {
@@ -677,7 +677,7 @@
                       "type": "object"
                     },
                     "connectorId": {
-                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex (required when enabled)",
+                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex; required for a person's exchange, a delegated caller's exchange sends none",
                       "type": "string"
                     },
                     "dexTokenEndpoint": {
@@ -1032,7 +1032,7 @@
                       "type": "object"
                     },
                     "connectorId": {
-                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex (required when enabled)",
+                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex; required for a person's exchange, a delegated caller's exchange sends none",
                       "type": "string"
                     },
                     "dexTokenEndpoint": {

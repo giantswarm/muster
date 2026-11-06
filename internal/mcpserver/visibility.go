@@ -3,7 +3,10 @@ package mcpserver
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,10 +18,10 @@ import (
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/callerwrite"
-	"github.com/giantswarm/muster/v5/internal/client"
 )
 
 // visibilityTTL is how long the answer for one caller token is reused. A
@@ -43,7 +46,7 @@ const visibilityListConcurrency = 8
 // ServiceAccount gets no new right and muster keeps no copy of the claim
 // mapping: RBAC answers.
 type Visibility struct {
-	servers         client.MusterClient
+	servers         servedMCPServers
 	factory         callerwrite.ClientFactory
 	audience        string
 	musterNamespace string
@@ -60,6 +63,16 @@ type Visibility struct {
 	// flights coalesces the rounds of lists of one token, and the read of
 	// the namespaces, across concurrent requests.
 	flights singleflight.Group
+
+	// delegated holds the token exchanged for a delegated caller, per
+	// session and audience, until it expires.
+	delegatedMu sync.Mutex
+	delegated   map[string]exchangedToken
+}
+
+type exchangedToken struct {
+	token   string
+	expires time.Time
 }
 
 type cachedVisibility struct {
@@ -67,11 +80,17 @@ type cachedVisibility struct {
 	expires time.Time
 }
 
-// NewVisibility returns the visibility handler. servers reads the MCPServer
-// objects of every namespace as muster (to learn which namespaces hold
-// servers); factory builds a client with the caller's token; audience is the
-// audience the API server needs on that token (empty: the default).
-func NewVisibility(servers client.MusterClient, factory callerwrite.ClientFactory, audience, musterNamespace string) *Visibility {
+// servedMCPServers lists the MCPServers muster serves, of every selected
+// namespace (Adapter.ListMCPServers).
+type servedMCPServers interface {
+	ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error)
+}
+
+// NewVisibility returns the visibility handler. servers lists the served
+// MCPServers as muster (to learn which namespaces hold servers); factory
+// builds a client with the caller's token; audience is the audience the API
+// server needs on that token (empty: the default).
+func NewVisibility(servers servedMCPServers, factory callerwrite.ClientFactory, audience, musterNamespace string) *Visibility {
 	if audience == "" {
 		audience = callerwrite.DefaultKubernetesAudience
 	}
@@ -96,6 +115,13 @@ func (v *Visibility) LoginAudience() string {
 // the servers of muster's namespace, and is told to sign in again.
 func (v *Visibility) CallerVisibility(ctx context.Context) api.ServerVisibility {
 	token := callerwrite.TokenFromContext(ctx)
+	if caller, ok := api.DelegatedCallerFromContext(ctx); ok {
+		exchanged, err := v.delegatedToken(ctx, caller)
+		if err != nil {
+			return api.NoServerVisible("muster could not obtain a Kubernetes token for this delegated session, so it cannot tell which MCP servers it may see: " + err.Error())
+		}
+		token = exchanged
+	}
 	if token == "" {
 		return api.NoServerVisible(callerwrite.ReloginError("Your session carries no ID token, so muster cannot tell which MCP servers you may see."))
 	}
@@ -214,13 +240,13 @@ func (v *Visibility) namespacesWithServers(ctx context.Context) (namespaces []st
 		set := map[string]bool{v.musterNamespace: true}
 		ok := true
 		if v.servers != nil {
-			servers, err := v.servers.ListMCPServers(ctx, "")
+			servers, err := v.servers.ListMCPServers(ctx)
 			if err != nil {
 				ok = false
 				logging.Warn("MCPServerVisibility", "Cannot list the namespaces that hold MCP servers: %v", err)
 			}
 			for i := range servers {
-				if api.ServedNamespace(servers[i].Namespace, v.musterNamespace) {
+				if servers[i].Namespace != "" {
 					set[servers[i].Namespace] = true
 				}
 			}
@@ -247,3 +273,70 @@ type namespaceRead struct {
 }
 
 var _ api.MCPServerVisibilityHandler = (*Visibility)(nil)
+
+// delegatedToken is the token a delegated caller's servers are listed with: an
+// RFC 8693 delegation of the caller's token at muster's Dex, with muster's
+// workload token as actor and the API server's audience. The delegated token
+// itself never reaches the API server. The exchange is cached per session and
+// audience until the exchanged token expires.
+func (v *Visibility) delegatedToken(ctx context.Context, caller api.DelegatedCaller) (string, error) {
+	exchange := api.GetDelegationExchange()
+	if exchange == nil {
+		return "", errors.New("delegated token exchange is not configured")
+	}
+	oauthHandler := api.GetOAuthHandler()
+	if oauthHandler == nil || !oauthHandler.IsEnabled() {
+		return "", errors.New("the OAuth handler is not available")
+	}
+	sessionID := api.GetSessionIDFromContext(ctx)
+	cacheKey := "delegated/" + sessionID + "/visibility/" + v.audience
+	now := v.now()
+	v.delegatedMu.Lock()
+	if cached, ok := v.delegated[cacheKey]; ok && now.Before(cached.expires) {
+		v.delegatedMu.Unlock()
+		return cached.token, nil
+	}
+	v.delegatedMu.Unlock()
+
+	cfg, err := exchange.DelegationExchangeConfig(caller)
+	var token string
+	if err == nil {
+		cfg.Delegation.Audience = v.audience
+		token, err = oauthHandler.ExchangeTokenForRemoteCluster(ctx, caller.Token, cacheKey, &cfg)
+	}
+	auditDelegatedVisibilityExchange(caller, sessionID, v.audience, err)
+	if err != nil {
+		return "", err
+	}
+	if expires, expErr := pkgoauth.Expiry(token); expErr == nil {
+		v.delegatedMu.Lock()
+		if v.delegated == nil {
+			v.delegated = map[string]exchangedToken{}
+		}
+		for key, cached := range v.delegated {
+			if !now.Before(cached.expires) {
+				delete(v.delegated, key)
+			}
+		}
+		v.delegated[cacheKey] = exchangedToken{token: token, expires: expires.Add(-pkgoauth.DefaultExpiryMargin)}
+		v.delegatedMu.Unlock()
+	}
+	return token, nil
+}
+
+// auditDelegatedVisibilityExchange records an exchange of a delegated
+// caller's token for the API server's audience, in the shape of a backend's
+// delegated_token_exchange. It never records a token.
+func auditDelegatedVisibilityExchange(caller api.DelegatedCaller, sessionID, audience string, err error) {
+	event := logging.AuditEvent{
+		Action:  "delegated_token_exchange",
+		Outcome: "success",
+		Subject: logging.TruncateIdentifier(caller.Subject),
+		Target:  audience,
+		Details: fmt.Sprintf("session=%s actors=[%s] purpose=visibility", logging.TruncateIdentifier(sessionID), strings.Join(caller.ActorChain, ",")),
+	}
+	if err != nil {
+		event.Outcome, event.Error = "failure", err.Error()
+	}
+	logging.Audit(event)
+}

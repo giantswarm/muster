@@ -591,8 +591,11 @@ type TokenExchangeConfig struct {
 	ExpectedIssuer string `json:"expectedIssuer,omitempty" yaml:"expectedIssuer,omitempty"`
 
 	// ConnectorID is the ID of the OIDC connector on the remote Dex that
-	// trusts the local cluster's Dex.
-	// Required when Enabled is true.
+	// trusts the local cluster's Dex, sent as Dex's connector_id parameter.
+	// Required for a person's exchange. A delegated caller's exchange sends
+	// none: it goes to the Dex that issued the delegated token, which verifies
+	// it with its own keys, so a server only delegated callers reach may leave
+	// it empty.
 	// Example: "cluster-a-dex"
 	// +kubebuilder:validation:Pattern="^[a-zA-Z][a-zA-Z0-9_-]*$"
 	ConnectorID string `json:"connectorId,omitempty" yaml:"connectorId,omitempty"`

@@ -139,7 +139,7 @@ the MCP server as its own workload and register it with `streamable-http` or
 | Field | Type | Required | Description | Constraints |
 |-------|------|----------|-------------|-------------|
 | `type` | `string` | Yes | Execution method for the MCP server | Must be `stdio`, `streamable-http`, or `sse`; `stdio` is rejected in Kubernetes mode (see below) |
-| `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset. A server outside muster's namespace gets its namespace in front: `<namespace>_<toolPrefix or name>` | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$`; in muster's namespace, neither it nor the name may start with `org-` |
+| `toolPrefix` | `string` | No | Per-server tool prefix used when `family` is unset. A server outside muster's namespace gets its namespace in front: `<namespace>_<toolPrefix or name>` | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$`; in muster's namespace, a value that is a served namespace's name, or starts with it followed by `_`, makes that namespace's servers read `Failed` |
 | `family` | `object` | No | Family grouping for equivalent servers under a shared tool surface; a tool groups by name and input schema, never by description | `name` and `instanceArg` both required when set |
 | `family.name` | `string` | Yes (in `family`) | Family identifier | Pattern: `^[a-zA-Z][a-zA-Z0-9_-]*$` |
 | `family.instanceArg` | `string` | Yes (in `family`) | Name of the required parameter the LLM uses to select an instance (e.g. `management_cluster`, `country`, `model`) | Pattern: `^[a-zA-Z][a-zA-Z0-9_]*$` |
@@ -238,7 +238,7 @@ spec:
 | `enabled` | `boolean` | No | Enable token exchange | Default: `false` |
 | `dexTokenEndpoint` | `string` | Yes* | URL to access Dex's token endpoint (may be via proxy) | Must be HTTPS, required when enabled |
 | `expectedIssuer` | `string` | No | Expected issuer URL in exchanged token's `iss` claim | Must be HTTPS if specified. Default: derived from `dexTokenEndpoint` by removing `/token` suffix |
-| `connectorId` | `string` | Yes* | ID of OIDC connector on remote Dex | Required when enabled |
+| `connectorId` | `string` | No | ID of OIDC connector on remote Dex | Required for a person's exchange, which is refused without it. A delegated caller's exchange sends no `connector_id` ([Delegated callers](configuration.md#delegated-callers-delegation)), so a server only delegated callers reach may omit it |
 | `scopes` | `string` | No | Scopes to request for exchanged token | Default: `openid profile email groups` |
 | `clientCredentialsSecretRef` | `ClientCredentialsSecretRef` | No | Reference to secret containing OAuth client credentials | See below; its writer must be able to `get` it ([Secret references](#secret-references)) |
 
@@ -1135,9 +1135,6 @@ kind: WorkflowExecution
 metadata:
   name: <execution-uuid>
   namespace: <namespace>
-  labels:
-    muster.giantswarm.io/workflow: <workflow-name>  # set by muster, used for list filtering
-    muster.giantswarm.io/status: <status>           # set by muster, used for list filtering
 spec:
   workflowName: <workflow-name>
   status: inprogress|completed|failed
@@ -1165,8 +1162,8 @@ spec:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `spec.workflowName` | string (required) | Name of the workflow that was executed |
-| `spec.status` | enum | `inprogress`, `completed`, or `failed` |
+| `spec.workflowName` | string (required) | Name of the workflow that was executed; a selectable field |
+| `spec.status` | enum | `inprogress`, `completed`, or `failed`; a selectable field |
 | `spec.startedAt` | timestamp (required) | When the execution began |
 | `spec.completedAt` | timestamp | When the execution finished (unset while in progress) |
 | `spec.durationMs` | int64 | Total execution duration in milliseconds |
@@ -1188,9 +1185,9 @@ kubectl get workflowexecutions
 # or using short name
 kubectl get wfe
 
-# Filter by workflow or status via labels
-kubectl get wfe -l muster.giantswarm.io/workflow=deploy-application
-kubectl get wfe -l muster.giantswarm.io/status=failed
+# Filter by workflow or status (selectable fields, Kubernetes 1.31 or later)
+kubectl get wfe --field-selector spec.workflowName=deploy-application
+kubectl get wfe --field-selector spec.status=failed
 
 # Inspect a single run
 kubectl describe wfe <execution-uuid>

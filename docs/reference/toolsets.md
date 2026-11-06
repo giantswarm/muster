@@ -213,6 +213,21 @@ fills the workflow tool's `readOnlyHint` annotation slot, so `describe_tool` sho
 - `servers_requiring_auth` (`list_tools`; `filter_tools` for the servers its `pattern` could
   match) is neither narrowed by the toolset nor paged: it tells the caller which sign-in would
   make more of the toolset resolve.
+- Core tools are tools like any other: a toolset bounds them too. `server:<name>` selects that
+  server's tools only, so an agent whose toolset is `server:mcp-kubernetes` can call no
+  `core_*` tool. It needs each core tool it uses named (`tool:core_mcpserver_list`; inline
+  selectors take exact names, there is no inline glob) or a preset that includes them
+  (`read-only` for the read-only core tools, `full`, or a configured preset with
+  `pattern: core_*`).
+- Server listings follow the toolset as `list_tools` does. `core_mcpserver_list`,
+  `core_service_list`, `core_events` (and its follow stream) and `auth://status` keep a server
+  only when every toolset bounding the request selects at least one of its tools, names it with
+  `server:<name>`, or could select one of its tools once the session signs in to it (the servers
+  `servers_requiring_auth` reports); `core_mcpserver_get`, `core_service_status`, `_start`,
+  `_stop`, `_restart` and `core_auth_login` answer for any other server as for a missing one.
+  muster's own service (`mcp-aggregator`) is shown only when the toolsets select at least one
+  core tool. A toolset that cannot be resolved shows no server; a request without a toolset is
+  unchanged.
 - `tools/list` — the meta-tools themselves — is unchanged.
 
 ### `filter_tools` and toolsets

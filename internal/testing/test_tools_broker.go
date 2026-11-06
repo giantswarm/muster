@@ -347,7 +347,7 @@ func (h *TestToolsHandler) handleCallProtectedMCP(ctx context.Context, args map[
 // verifyAgainstMusterJWKS fetches muster's JWKS, verifies the token signature and
 // returns the decoded claims.
 func (h *TestToolsHandler) verifyAgainstMusterJWKS(ctx context.Context, baseURL, token string) (map[string]interface{}, error) {
-	parsed, err := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256, jose.RS256})
+	parsed, err := jose.ParseSignedCompact(token, []jose.SignatureAlgorithm{jose.ES256, jose.RS256})
 	if err != nil {
 		return nil, fmt.Errorf("parsing minted JWT: %w", err)
 	}

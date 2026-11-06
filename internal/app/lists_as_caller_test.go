@@ -7,7 +7,7 @@ import (
 )
 
 // muster lists MCP servers with the session's Dex ID token, so
-// mcpServersInAllNamespaces needs the OAuth server on Dex (agent-permissions
+// mcpServerNamespaceSelector needs the OAuth server on Dex (agent-permissions
 // D9, Q13): with Google, or without the OAuth server, muster refuses to start
 // instead of showing every person no server.
 func TestValidateListsAsCaller(t *testing.T) {

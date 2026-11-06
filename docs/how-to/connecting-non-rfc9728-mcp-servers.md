@@ -343,8 +343,8 @@ server as much as a `forwardToken` backend. See the
 
 ## Servers outside muster's namespace
 
-With `mcpServersInAllNamespaces`, a server can live in an organization's
-namespace. Its sign-in stays in that namespace: muster files its tokens, its
+With `mcpServerNamespaceSelector`, a server can live in a namespace the
+selector selects. Its sign-in stays in that namespace: muster files its tokens, its
 subject grants, its pin and its client registration under the namespace and the
 issuer, so it shares nothing with the servers in muster's namespace or with
 another namespace that names the same issuer. A server in muster's namespace
@@ -368,7 +368,7 @@ keeps its stored sign-ins.
   `<publicURL>/oauth/proxy/callback` for an app of muster's namespace, never a
   host root or a prefix: an authorization server that matches redirect URIs by
   prefix would otherwise accept a namespace's callback for it. With
-  `mcpServersInAllNamespaces` on, muster refuses to start when
+  `mcpServerNamespaceSelector` set, muster refuses to start when
   `oauth.mcpClient.callbackPath` is a prefix of `/oauth/ns/` or starts with it.
 - **Its resource.** muster always checks that the resource the server declares is
   on the server's own origin, whatever document declares it; otherwise it uses the

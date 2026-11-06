@@ -97,6 +97,19 @@ func TestTokenExchanger_Exchange_Validation(t *testing.T) {
 		assert.Contains(t, err.Error(), "connector ID is required")
 	})
 
+	t.Run("a delegated exchange needs no connector ID", func(t *testing.T) {
+		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
+			Config: &api.TokenExchangeConfig{
+				Enabled:          true,
+				DexTokenEndpoint: "https://dex.example.com/token",
+				Delegation:       &api.TokenExchangeDelegation{ActorToken: "actor-token"},
+			},
+			SubjectToken: "test-token",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user ID is required", "validation goes past the connector")
+	})
+
 	t.Run("returns error for missing user ID", func(t *testing.T) {
 		_, err := exchanger.Exchange(context.Background(), &ExchangeRequest{
 			Config: &api.TokenExchangeConfig{

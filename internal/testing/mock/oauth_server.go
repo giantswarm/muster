@@ -1359,7 +1359,7 @@ func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request
 	// Check if we have a trusted issuer for this connector_id
 	trustedIssuer, ok := s.config.TrustedIssuers[audience]
 	if !ok {
-		s.tokenExchangeError(w, "invalid_target", fmt.Sprintf("no trusted issuer configured for connector_id: %s", audience))
+		s.tokenExchangeError(w, "invalid_request", "Requested connector does not exist.")
 		return
 	}
 

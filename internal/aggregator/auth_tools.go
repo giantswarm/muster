@@ -166,7 +166,10 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	// Get server info from registry
 	serverInfo, exists := p.aggregator.registry.GetServerInfo(serverName)
 	view := api.CallerVisibility(ctx)
-	if !exists && view.Sees(serverName) {
+	// A server outside the toolsets bounding the request is as absent as one
+	// the caller may not see.
+	shows, _ := api.ToolsetShows(ctx)
+	if !exists && view.Sees(serverName) && shows(serverName) {
 		// Listed (its definition exists) but not registered, not yet or no
 		// longer (a refused sign-in): say why rather than "not found".
 		if reason := definedSignInNotReady(ctx, serverName); reason != nil {
@@ -176,7 +179,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 			return &api.CallToolResult{Content: []any{signInNotReadyMessage(serverName, reason)}, IsError: true}
 		}
 	}
-	if !exists || !view.Sees(serverName) {
+	if !exists || !view.Sees(serverName) || !shows(serverName) {
 		// A server the caller may not see gets the answer of a missing one.
 		return &api.CallToolResult{
 			Content: []any{unseenError(view, fmt.Sprintf("Server '%s' not found. Use list_tools to see available servers.", serverName)).Error()},

@@ -194,3 +194,28 @@ func TestSSOPoolMissNeedingInitOf_SkipsServersTheCallerMayNotSee(t *testing.T) {
 
 	assert.True(t, a.ssoPoolMissNeedingInitOf("alice", "s1", nil), "setting off: the pool miss starts the re-init")
 }
+
+// A delegated session's fan-out connects token-exchange servers and leaves out
+// servers that would receive the caller's token as is.
+func TestPlanSessionBootstrap_DelegatedCaller(t *testing.T) {
+	a := &AggregatorServer{registry: NewServerRegistry("x")}
+	for name, auth := range map[string]*api.MCPServerAuth{
+		"forwarding": {Type: api.MCPServerAuthTypeOAuth, ForwardToken: true},
+		"exchange":   {Type: api.MCPServerAuthTypeOAuth, TokenExchange: &api.TokenExchangeConfig{Enabled: true, DexTokenEndpoint: "https://dex.example.com/token", ConnectorID: "local"}},
+	} {
+		require.NoError(t, a.registry.RegisterPendingAuth(PendingAuthRegistration{
+			ServerRegistration: ServerRegistration{Name: name, ToolPrefix: name},
+			URL:                "http://127.0.0.1:1/mcp",
+			AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
+			AuthConfig:         auth,
+		}))
+	}
+	sso := ssoSession{userID: "alice", sessionID: "ext-d", delegated: &api.DelegatedCaller{Token: "delegated-token"}}
+
+	plan := a.planSessionBootstrap(sso)
+	require.Len(t, plan.sso, 1)
+	require.Equal(t, "exchange", plan.sso[0].Name)
+
+	person := ssoSession{userID: "alice", sessionID: "s1", tokens: server.CallerTokens{IDToken: "id-token"}}
+	require.Len(t, a.planSessionBootstrap(person).sso, 2, "a person's session still connects both")
+}

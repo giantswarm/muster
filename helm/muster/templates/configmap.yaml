@@ -170,6 +170,10 @@ data:
           trustedIssuers:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- if .Values.muster.oauth.server.delegation.actorToken.enabled }}
+          delegation:
+            actorTokenFile: /var/run/secrets/muster/delegation/token
+          {{- end }}
           {{- with .Values.muster.oauth.server.trustedProxyCIDRs }}
           trustedProxyCIDRs:
             {{- toYaml . | nindent 12 }}
@@ -182,8 +186,13 @@ data:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- end }}
-    {{- if .Values.muster.mcpServersInAllNamespaces }}
-    mcpServersInAllNamespaces: true
+    {{- if not (kindIs "invalid" .Values.muster.mcpServerNamespaceSelector) }}
+    mcpServerNamespaceSelector:
+      {{- toYaml .Values.muster.mcpServerNamespaceSelector | nindent 6 }}
+    {{- end }}
+    {{- if not (kindIs "invalid" .Values.muster.mcpServerSelector) }}
+    mcpServerSelector:
+      {{- toYaml .Values.muster.mcpServerSelector | nindent 6 }}
     {{- end }}
     {{- $protectedSecrets := include "muster.protectedSecrets" . | fromJsonArray }}
     {{- if or .Values.mcpServerSecretReferences.enabled $protectedSecrets }}

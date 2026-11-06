@@ -228,19 +228,34 @@ tests:
           path: data["config.yaml"]
           pattern: "writesAsCaller:\n  kubernetesAudience: \"custom-audience\""
 
-  - it: omits mcpServersInAllNamespaces by default (muster serves its own namespace only)
+  - it: omits the MCPServer selectors by default (muster serves its own namespace only)
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]
-          pattern: "mcpServersInAllNamespaces"
+          pattern: "mcpServerNamespaceSelector|mcpServerSelector"
 
-  - it: renders mcpServersInAllNamespaces when switched on
+  - it: renders an empty namespace selector, which selects every namespace
     set:
-      muster.mcpServersInAllNamespaces: true
+      muster.mcpServerNamespaceSelector: {}
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "\nmcpServersInAllNamespaces: true\n"
+          pattern: "\nmcpServerNamespaceSelector:\n  \\{\\}\n"
+
+  - it: renders the namespace and server selectors
+    set:
+      muster.mcpServerNamespaceSelector:
+        matchLabels:
+          agent-platform.giantswarm.io/organization: acme
+      muster.mcpServerSelector:
+        matchExpressions:
+          - key: tier
+            operator: In
+            values: [gold]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\nmcpServerNamespaceSelector:\n  matchLabels:\n    agent-platform.giantswarm.io/organization: acme\nmcpServerSelector:\n  matchExpressions:\n  - key: tier\n    operator: In\n    values:\n    - gold\n"
 
   - it: names the admission policy binding muster requires
     asserts:

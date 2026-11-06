@@ -497,3 +497,33 @@ func TestListToolsForContext_ShowsToolsOfTheSubjectGrant(t *testing.T) {
 	require.Len(t, a.ListServersRequiringAuth(bobCtx), 1)
 	assert.Equal(t, "github", a.ListServersRequiringAuth(bobCtx)[0].Name)
 }
+
+// A delegated caller is served as the person in sub: its session adopts the
+// grant the person completed in another session, on the tool call and in the
+// session's fan-out, and the backend gets the grant, never the delegated
+// token.
+func TestDelegatedCaller_AdoptsThePersonsSubjectGrant(t *testing.T) {
+	backend, initializes := newGrantBackend(t, subjectGrantToken)
+	a := newTestAggregatorWithPool(t)
+	registerSubjectGrantServer(t, a, backend.URL, api.GrantScopeSubject)
+
+	handler := newSubjectGrantMockHandler()
+	handler.grant("alice", subjectGrantIssuerURL, subjectGrantToken)
+	api.RegisterOAuthHandler(handler)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+
+	caller := api.DelegatedCaller{Token: "delegated-token", Issuer: "https://dex.example.com", Subject: "alice", ActorChain: []string{"actor/kagent/a"}}
+	sso := ssoSession{userID: "alice", sessionID: "ext-delegated", delegated: &caller}
+	plan := a.planSessionBootstrap(sso)
+	require.Len(t, plan.grants, 1, "the fan-out adopts the person's grant")
+	require.Equal(t, "github", plan.grants[0].Name)
+
+	ctx := api.WithDelegatedCaller(sessionContext("ext-delegated", "alice"), caller)
+	client, cleanup, err := a.getOrCreateClientForToolCall(ctx, "github", "ext-delegated", "alice")
+	require.NoError(t, err, "the person's grant serves the delegated session")
+	defer cleanup()
+	result, err := client.CallTool(ctx, "get_me", nil)
+	require.NoError(t, err)
+	assert.Contains(t, result.Content[0].(mcp.TextContent).Text, "alice")
+	assert.Equal(t, int32(1), initializes.Load(), "the backend accepted the grant, the only token it accepts")
+}

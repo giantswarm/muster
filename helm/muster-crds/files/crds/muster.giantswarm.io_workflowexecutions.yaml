@@ -171,6 +171,9 @@ spec:
             - workflowName
             type: object
         type: object
+    selectableFields:
+    - jsonPath: .spec.workflowName
+    - jsonPath: .spec.status
     served: true
     storage: true
     subresources: {}

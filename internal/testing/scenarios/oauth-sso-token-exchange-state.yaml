@@ -163,7 +163,7 @@ steps:
         name: "remote-exchange-badconnector"
         state: "failed"
       contains:
-        - "no trusted issuer configured for connector_id: no-such-connector"
+        - "Requested connector does not exist."
         - "TokenExchangeConnector"
       not_contains:
         - "nextRetryAfter"

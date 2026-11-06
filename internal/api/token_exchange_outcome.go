@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
+
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -97,14 +99,11 @@ type TokenEndpointProber interface {
 // ClassifyTokenExchangeError decides whether a failed token exchange is the
 // server's (every caller fails the same way) or the caller's.
 //
-// The authorization server's answer arrives as text -- the OAuth error code
-// and description are formatted into the error by the exchange client -- so
-// the codes are matched in it. invalid_client is RFC 6749's answer to wrong
-// client credentials; an unknown connector is answered as invalid_request
-// with a description naming the connector (Dex: "Requested connector does not
-// exist"), and the exchange client's own connector validation names it the
-// same way. Anything else the authorization server says about the request is
-// about the subject token, which is the caller's.
+// A refusal by the token endpoint (oidc.TokenExchangeError) is classified by
+// its status and OAuth error code. Other errors come from before the request
+// left muster, such as the exchange client's own connector validation, and are
+// matched by their text. Anything else the authorization server says about the
+// request is about the subject token, which is the caller's.
 func ClassifyTokenExchangeError(err error) TokenExchangeFailureClass {
 	if err == nil {
 		return TokenExchangeFailureNone
@@ -118,6 +117,11 @@ func ClassifyTokenExchangeError(err error) TokenExchangeFailureClass {
 	var unavailableErr *TokenEndpointUnavailableError
 	if errors.As(err, &unavailableErr) {
 		return TokenExchangeFailureEndpoint
+	}
+
+	var refusal *oidc.TokenExchangeError
+	if errors.As(err, &refusal) {
+		return classifyTokenEndpointRefusal(refusal)
 	}
 
 	var urlErr *url.Error
@@ -134,6 +138,32 @@ func ClassifyTokenExchangeError(err error) TokenExchangeFailureClass {
 		return TokenExchangeFailureConnector
 	case isTokenEndpointServerError(text):
 		return TokenExchangeFailureEndpoint
+	default:
+		return TokenExchangeFailureNone
+	}
+}
+
+// Dex answers a connector_id it does not know with invalid_request and one it
+// does not allow for the client with invalid_grant. OAuth has no error code for
+// either, so these two Dex descriptions are the only ones muster matches.
+const (
+	dexUnknownConnectorDescription    = "Requested connector does not exist."
+	dexConnectorNotAllowedDescription = "Connector not allowed for this client."
+)
+
+// classifyTokenEndpointRefusal classifies a token endpoint's refusal by its
+// HTTP status and OAuth error code (RFC 6749 §5.2), never by the human-readable
+// description, except Dex's unknown-connector answer, which has no code of its
+// own.
+func classifyTokenEndpointRefusal(refusal *oidc.TokenExchangeError) TokenExchangeFailureClass {
+	switch {
+	case refusal.StatusCode >= 500:
+		return TokenExchangeFailureEndpoint
+	case refusal.Code == "invalid_client":
+		return TokenExchangeFailureCredentials
+	case refusal.Code == "invalid_request" && refusal.Description == dexUnknownConnectorDescription,
+		refusal.Code == "invalid_grant" && refusal.Description == dexConnectorNotAllowedDescription:
+		return TokenExchangeFailureConnector
 	default:
 		return TokenExchangeFailureNone
 	}
