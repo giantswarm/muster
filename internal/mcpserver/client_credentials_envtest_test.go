@@ -27,16 +27,17 @@ import (
 	"github.com/giantswarm/muster/v5/internal/server"
 )
 
-// chartSecretReferencePolicy renders the chart's mcpserver-secret-references
-// template for muster's namespace: the policy and its binding as the chart
-// ships them, so the test runs the chart's own CEL.
-func chartSecretReferencePolicy(t *testing.T, namespace string) (*admissionregistrationv1.ValidatingAdmissionPolicy, *admissionregistrationv1.ValidatingAdmissionPolicyBinding) {
+// chartAdmissionPolicy renders one of the chart's admission policy templates
+// (file, under helm/muster/templates) for muster's namespace: the policy and
+// its binding as the chart ships them, named name, so the test runs the
+// chart's own CEL.
+func chartAdmissionPolicy(t *testing.T, file, name, namespace string) (*admissionregistrationv1.ValidatingAdmissionPolicy, *admissionregistrationv1.ValidatingAdmissionPolicyBinding) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "helm", "muster", "templates", "mcpserver-secret-references.yaml"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "helm", "muster", "templates", file))
 	require.NoError(t, err)
 	text := regexp.MustCompile(`(?s)\{\{/\*.*?\*/\}\}`).ReplaceAllString(string(raw), "")
 	text = regexp.MustCompile(`(?m)^\s*\{\{-.*\}\}\s*$\n?`).ReplaceAllString(text, "")
-	text = strings.ReplaceAll(text, "{{ $name }}", "muster-mcpserver-secret-references")
+	text = strings.ReplaceAll(text, "{{ $name }}", name)
 	text = strings.ReplaceAll(text, "{{ $namespace }}", namespace)
 	require.NotContains(t, text, "{{", "a template directive the test does not render")
 	docs := strings.Split(text, "\n---\n")
@@ -49,17 +50,20 @@ func chartSecretReferencePolicy(t *testing.T, namespace string) (*admissionregis
 }
 
 // TestClientCredentialsEnvtest runs clientCredentials against a real
-// kube-apiserver with RBAC and the chart's admission policy: an editor who
+// kube-apiserver with RBAC and the chart's admission policies: an editor who
 // may create Secrets but not get them creates a server with its client and
-// replaces the client, the policy admits only the generated reference, and
-// an editor who may not create Secrets is told so and leaves no server.
+// replaces the client, the reference policy admits only the generated
+// reference, the client-secrets policy lets the editor create only such a
+// Secret, and an editor who may not create Secrets is told so and leaves no
+// server. muster's namespace is not "default", so a namespace the code
+// defaults to would show.
 //
 // Requires envtest binaries: run via `make test-envtest`. Skipped otherwise.
 func TestClientCredentialsEnvtest(t *testing.T) {
 	if os.Getenv("KUBEBUILDER_ASSETS") == "" {
 		t.Skip("KUBEBUILDER_ASSETS not set; run via `make test-envtest`")
 	}
-	const ns = "default"
+	const ns = "muster"
 
 	editorToken := testJWT(t, callerwrite.DefaultKubernetesAudience)
 	noSecretsToken := testJWT(t, []string{callerwrite.DefaultKubernetesAudience, "muster"})
@@ -84,6 +88,13 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 	t.Cleanup(func() { _ = saClient.Close() })
 	ctx := context.Background()
 
+	// muster's namespace. The API server labels it with its name, which the
+	// client-secrets policy selects by.
+	require.NoError(t, saClient.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}))
+	namespace := &corev1.Namespace{}
+	require.NoError(t, saClient.Get(ctx, ctrlclient.ObjectKey{Name: ns}, namespace))
+	require.Equal(t, ns, namespace.Labels["kubernetes.io/metadata.name"])
+
 	// The chart's mcpserver-editor Role, and one without Secrets.
 	editorRules := []rbacv1.PolicyRule{
 		{APIGroups: []string{"muster.giantswarm.io"}, Resources: []string{"mcpservers"}, Verbs: []string{"create", "update", "patch", "delete"}},
@@ -97,14 +108,22 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 			RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "Role", Name: user},
 		}))
 	}
-	policy, binding := chartSecretReferencePolicy(t, ns)
-	require.NoError(t, saClient.Create(ctx, policy))
-	require.NoError(t, saClient.Create(ctx, binding))
+	for file, name := range map[string]string{
+		"mcpserver-secret-references.yaml": "muster-mcpserver-secret-references",
+		"mcpserver-client-secrets.yaml":    "muster-mcpserver-client-secrets",
+	} {
+		policy, binding := chartAdmissionPolicy(t, file, name, ns)
+		require.NoError(t, saClient.Create(ctx, policy))
+		require.NoError(t, saClient.Create(ctx, binding))
+	}
 
 	adapter := NewAdapterWithClient(saClient, ns)
 	adapter.EnableWritesAsCaller(callerwrite.NewKubernetesClientFactory(adminCfg), "")
 	editorCtx := server.ContextWithIDToken(ctx, editorToken)
 	noSecretsCtx := server.ContextWithIDToken(ctx, noSecretsToken)
+	// The editor straight at the API server, as kubectl would write.
+	editorDirect, err := callerwrite.NewKubernetesClientFactory(adminCfg)(editorToken)
+	require.NoError(t, err)
 
 	call := func(ctx context.Context, tool string, args map[string]interface{}) (string, bool) {
 		t.Helper()
@@ -137,6 +156,18 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 		}
 		return isErr
 	}, 30*time.Second, 200*time.Millisecond, "admission policy never took effect")
+	// The client-secrets policy is in force once it refuses the editor a
+	// Secret with another name.
+	probe = 0
+	require.Eventually(t, func() bool {
+		probe++
+		secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("probe-secret-%d", probe), Namespace: ns}}
+		err := editorDirect.Create(ctx, secret)
+		if err == nil {
+			_ = saClient.Delete(ctx, secret)
+		}
+		return apierrors.IsForbidden(err)
+	}, 30*time.Second, 200*time.Millisecond, "client-secrets policy never took effect")
 
 	secretOf := func(name string) *corev1.Secret {
 		t.Helper()
@@ -248,10 +279,32 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 		secretOf(ref)
 	})
 
+	t.Run("editor creates only connector clients", func(t *testing.T) {
+		secret := func(name string, kind corev1.SecretType) *corev1.Secret {
+			return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}, Type: kind,
+				Data: map[string][]byte{"client-id": []byte("id"), "client-secret": []byte("shh")}}
+		}
+		token := secret("hubspot-muster-client-0123456789", corev1.SecretTypeServiceAccountToken)
+		token.Annotations = map[string]string{corev1.ServiceAccountNameKey: "muster"}
+		token.Data = nil
+		for name, s := range map[string]*corev1.Secret{
+			"another name":                secret("mine", corev1.SecretTypeOpaque),
+			"a name of muster's own":      secret("muster-oauth", corev1.SecretTypeOpaque),
+			"a token under a client name": token,
+		} {
+			err := editorDirect.Create(ctx, s)
+			require.Error(t, err, name)
+			assert.True(t, apierrors.IsForbidden(err), "%s: %v", name, err)
+			assert.Contains(t, err.Error(), "creates only a connector client", name)
+		}
+		require.NoError(t, editorDirect.Create(ctx, secret("thief-muster-client-0123456789", corev1.SecretTypeOpaque)), "a client Secret")
+		require.NoError(t, saClient.Create(ctx, secret("anything", corev1.SecretTypeOpaque)), "a writer who may get Secrets")
+	})
+
 	t.Run("editor without create on secrets", func(t *testing.T) {
 		text, isErr := call(noSecretsCtx, "mcpserver_create", args("denied", issuer, true))
 		require.True(t, isErr)
-		for _, want := range []string{"so it was not created", "Permission denied", "may not create Secret", "(secrets)", `"default"`} {
+		for _, want := range []string{"so it was not created", "Permission denied", "may not create Secret", "(secrets)", fmt.Sprintf("%q", ns)} {
 			assert.Contains(t, text, want)
 		}
 		assert.NotContains(t, text, testClientSecret)
