@@ -75,7 +75,7 @@ var errTokenExpired = errors.New("token expired")
 // validate verifies the token signature against the JWKS and checks exp, audience
 // and (when configured) issuer. It returns the decoded claims on success.
 func (v *jwksValidator) validate(ctx context.Context, token string) (*tokenClaims, error) {
-	parsed, err := jose.ParseSigned(token, []jose.SignatureAlgorithm{jose.ES256, jose.RS256})
+	parsed, err := jose.ParseSignedCompact(token, []jose.SignatureAlgorithm{jose.ES256, jose.RS256})
 	if err != nil {
 		return nil, fmt.Errorf("parsing JWT: %w", err)
 	}
