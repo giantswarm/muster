@@ -223,9 +223,7 @@ func (m *Manager) setupChangeDetector() error {
 		if err != nil {
 			return fmt.Errorf("failed to create Kubernetes detector: %w", err)
 		}
-		if m.config.MCPServersInAllNamespaces {
-			detector.WatchMCPServersInAllNamespaces()
-		}
+		detector.WatchMCPServerScope(m.config.MCPServerNamespaceSelector, m.config.MCPServerSelector)
 		m.changeDetector = detector
 
 	default:

@@ -17,6 +17,31 @@ const (
 	configFileName = "config.yaml"
 )
 
+// ErrRemovedConfigKey reports a configuration key muster no longer reads.
+var ErrRemovedConfigKey = errors.New("removed configuration key")
+
+// removedKeys maps each removed top-level key to what replaces it. The
+// decoder ignores unknown keys, so without this check a removed setting
+// would be dropped silently.
+var removedKeys = map[string]string{
+	"mcpServersInAllNamespaces": "set mcpServerNamespaceSelector to a label selector that matches the namespaces whose MCPServers muster serves",
+}
+
+// refuseRemovedKeys returns ErrRemovedConfigKey for the first removed
+// top-level key data sets.
+func refuseRemovedKeys(data []byte) error {
+	var top map[string]yaml.Node
+	if err := yaml.Unmarshal(data, &top); err != nil {
+		return err
+	}
+	for key, replacement := range removedKeys {
+		if _, ok := top[key]; ok {
+			return fmt.Errorf("%w %q: %s", ErrRemovedConfigKey, key, replacement)
+		}
+	}
+	return nil
+}
+
 // DefaultConfigPath returns the default configuration directory,
 // ~/.config/muster. Without a home directory (HOME unset) it returns an error
 // that tells the caller to pass --config-path.
@@ -75,6 +100,9 @@ func LoadConfig(configPath string) (MusterConfig, error) {
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		// config malformed
+		return MusterConfig{}, fmt.Errorf("error loading config from %s: %w", configFilePath, err)
+	}
+	if err := refuseRemovedKeys(data); err != nil {
 		return MusterConfig{}, fmt.Errorf("error loading config from %s: %w", configFilePath, err)
 	}
 	logging.Info("ConfigLoader", "Loaded configuration from %s", configFilePath)

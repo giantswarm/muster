@@ -12,12 +12,17 @@ type MusterConfig struct {
 	Namespace      string               `yaml:"namespace,omitempty"`      // Namespace for MCPServer and Workflow discovery
 	Kubernetes     bool                 `yaml:"kubernetes,omitempty"`     // Enable Kubernetes CRD mode (uses CRDs instead of filesystem)
 	WritesAsCaller WritesAsCallerConfig `yaml:"writesAsCaller,omitempty"` // Caller-identity writes: kubernetesAudience override
-	// MCPServersInAllNamespaces makes muster watch and serve MCPServer objects
-	// of every namespace in Kubernetes mode, not only of Namespace. Workflow
-	// objects, events and the broker's default Secret namespace stay in
-	// Namespace. A server outside Namespace is keyed and exposed with its
-	// namespace and gets no identity from muster. Off by default.
-	MCPServersInAllNamespaces bool `yaml:"mcpServersInAllNamespaces,omitempty"`
+	// MCPServerNamespaceSelector selects, in Kubernetes mode, the namespaces
+	// besides Namespace whose MCPServer objects muster serves: unset, none;
+	// empty ({}), every namespace; otherwise the namespaces whose labels
+	// match. Workflow objects, events and the broker's default Secret
+	// namespace stay in Namespace. A server outside Namespace is keyed and
+	// exposed with its namespace and gets no identity from muster.
+	MCPServerNamespaceSelector *LabelSelector `yaml:"mcpServerNamespaceSelector,omitempty"`
+	// MCPServerSelector selects, by their labels, the MCPServer objects
+	// muster serves in Namespace and in the selected namespaces: unset, every
+	// one.
+	MCPServerSelector *LabelSelector `yaml:"mcpServerSelector,omitempty"`
 	// ToolsetPresets are the installation's toolset presets (chart value
 	// muster.toolsetPresets): named selections of the catalogue an agent's
 	// X-Muster-Toolset header can reference as preset:<name>. read-only, none
@@ -356,7 +361,7 @@ type OAuthMCPClientConfig struct {
 	ExtraCAFile string `yaml:"-"`
 
 	// ServesOtherNamespaces is set when muster serves MCPServer objects of
-	// other namespaces (mcpServersInAllNamespaces in Kubernetes mode): their
+	// other namespaces (mcpServerNamespaceSelector in Kubernetes mode): their
 	// servers sign in through the namespace callbacks. Populated at wiring
 	// time, never from YAML.
 	ServesOtherNamespaces bool `yaml:"-"`

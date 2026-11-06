@@ -74,7 +74,7 @@ func (v ServerVisibility) Restricted() bool {
 
 // MCPServerVisibilityHandler answers which MCP servers the caller of a
 // request may see. It is registered only when muster serves MCPServer objects
-// of every namespace (mcpServersInAllNamespaces); without it every caller
+// of every namespace (mcpServerNamespaceSelector); without it every caller
 // sees every server, as before.
 type MCPServerVisibilityHandler interface {
 	// CallerVisibility returns the view of the caller whose ID token ctx

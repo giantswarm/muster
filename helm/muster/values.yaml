@@ -323,15 +323,21 @@ muster:
     # ("dex-k8s-authenticator").
     kubernetesAudience: ""
 
-  # Serve the MCPServer objects of the organization namespaces (names that
-  # start with org-) next to those of muster's namespace (agent-permissions
-  # D9). A person then sees a server only
-  # when Kubernetes RBAC lets them list mcpservers in its namespace, and muster
-  # lists them with the person's own Dex ID token, so muster's login asks for
+  # The namespaces besides muster's whose MCPServer objects muster serves, as
+  # a label selector (matchLabels, matchExpressions), like prometheus-operator's
+  # serviceMonitorNamespaceSelector: null, none; {}, every namespace;
+  # otherwise the namespaces whose labels match (muster then reads Namespace
+  # objects). A person then sees a server only when Kubernetes RBAC lets them
+  # list mcpservers in its namespace, and muster lists them with the person's
+  # own Dex ID token, so muster's login asks for
   # writesAsCaller.kubernetesAudience. Needs muster.oauth.server with the dex
-  # provider. Before you switch it on, bind list on mcpservers in muster's
-  # namespace to every person who must keep seeing the servers for everyone.
-  mcpServersInAllNamespaces: false
+  # provider. Before you set it, bind list on mcpservers in muster's namespace
+  # to every person who must keep seeing the servers for everyone.
+  mcpServerNamespaceSelector: null  # @schema type: [object, null] ; additionalProperties: true
+
+  # The MCPServer objects muster serves, in its namespace and in the selected
+  # ones, as a label selector on their labels: null, every one.
+  mcpServerSelector: null  # @schema type: [object, null] ; additionalProperties: true
 
   # Secrets muster never reads for an MCPServer (spec.headersFrom and the
   # clientCredentialsSecretRef of spec.auth), whoever writes it. Which

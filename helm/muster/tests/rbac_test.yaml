@@ -179,3 +179,54 @@ tests:
           path: subjects[0].name
           value: RELEASE-NAME-muster
         documentIndex: 1
+
+  - it: reads no Namespace objects without an MCPServer namespace selector
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["namespaces"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0
+
+  - it: reads no Namespace objects with a selector of every namespace
+    set:
+      muster.mcpServerNamespaceSelector: {}
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["namespaces"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0
+
+  - it: reads Namespace objects with a matchExpressions selector
+    set:
+      muster.mcpServerNamespaceSelector:
+        matchExpressions:
+          - key: agent-platform.giantswarm.io/organization
+            operator: Exists
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["namespaces"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0
+
+  - it: reads Namespace objects with an MCPServer namespace selector
+    set:
+      muster.mcpServerNamespaceSelector:
+        matchLabels:
+          agent-platform.giantswarm.io/organization: acme
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: ["namespaces"]
+            verbs: ["get", "list", "watch"]
+        documentIndex: 0

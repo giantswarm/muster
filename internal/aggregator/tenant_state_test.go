@@ -219,7 +219,7 @@ func TestTenantSignIns_StayWithTheirServers(t *testing.T) {
 	}
 }
 
-// With mcpServersInAllNamespaces off every server is in muster's namespace
+// Without mcpServerNamespaceSelector every server is in muster's namespace
 // (a bare key): deleting and creating one again keeps everyone's sign-in,
 // as before.
 func TestTenantSignIns_MustersNamespaceUnchanged(t *testing.T) {

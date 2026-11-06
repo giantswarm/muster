@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
@@ -148,4 +149,13 @@ func TestDefaultConfigPathWithHome(t *testing.T) {
 	resolved, err := ResolveConfigPath("")
 	assert.NoError(t, err)
 	assert.Equal(t, path, resolved)
+}
+
+func TestLoadConfigRefusesARemovedKey(t *testing.T) {
+	tempDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, configFileName), []byte("namespace: muster\nmcpServersInAllNamespaces: true\n"), 0o600))
+
+	_, err := LoadConfig(tempDir)
+	require.ErrorIs(t, err, ErrRemovedConfigKey)
+	require.ErrorContains(t, err, "mcpServerNamespaceSelector")
 }
