@@ -44,7 +44,6 @@ pre_configuration:
   muster_broker:
     trusted_issuers:
       - oauth_server_ref: "muster-idp"
-        accepted_typ_headers: [""]
         subject_claim: "email"
 
   mcp_servers:
@@ -74,7 +73,7 @@ steps:
   - id: mint-alice
     description: "Alice's portal token, issued through the azure-ad connector"
     tool: "test_mint_token"
-    args: {server: "muster-idp", name: "alice", sub: "CgVhbGljZRIIYXp1cmUtYWQ", email: "alice@example.com", email_verified: true, azp: "portal"}
+    args: {typ: "at+jwt", server: "muster-idp", name: "alice", sub: "CgVhbGljZRIIYXp1cmUtYWQ", email: "alice@example.com", email_verified: true, azp: "portal"}
     expected: {success: true}
 
   - id: alice-connects

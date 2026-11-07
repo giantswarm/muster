@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 // Implementations must be safe for concurrent use.
 type StateStorer interface {
 	// GenerateState creates a new OAuth state, stores it, and returns the
-	// base64-encoded state string the start endpoint resolves. When
+	// opaque state handle the start endpoint resolves. When
 	// buildAuthorizationURL is non-nil it is called with the encoded state
 	// and its result is stored as the flow's upstream authorization URL, so
 	// state and URL land in a single write; an error aborts without storing.
@@ -137,6 +138,9 @@ const completionGrace = 2 * time.Minute
 
 // decodeStateNonce extracts the nonce from an encoded state parameter.
 func decodeStateNonce(encodedState string) (string, error) {
+	if nonce, err := base64.URLEncoding.Strict().DecodeString(encodedState); err == nil && len(nonce) == 32 {
+		return encodedState, nil
+	}
 	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
 	if err != nil {
 		return "", err
@@ -144,6 +148,9 @@ func decodeStateNonce(encodedState string) (string, error) {
 	var state OAuthState
 	if err := json.Unmarshal(stateJSON, &state); err != nil {
 		return "", err
+	}
+	if state.Nonce == "" {
+		return "", errors.New("state has no nonce")
 	}
 	return state.Nonce, nil
 }
@@ -195,8 +202,7 @@ func NewStateStore() *StateStore {
 }
 
 // GenerateState creates a new OAuth state parameter and stores it.
-// Returns the encoded state string to include in the authorization URL.
-// The nonce is embedded within the encoded state and used for server-side lookup.
+// Returns an opaque handle; flow context stays in the server-side store.
 func (ss *StateStore) GenerateState(params StateParams,
 	buildAuthorizationURL func(encodedState string) (string, error)) (encodedState string, err error) {
 	nonceBytes := make([]byte, 32)
@@ -207,12 +213,7 @@ func (ss *StateStore) GenerateState(params StateParams,
 	nonce := base64.URLEncoding.EncodeToString(nonceBytes)
 	state := newOAuthState(params, nonce)
 
-	stateJSON, err := json.Marshal(state)
-	if err != nil {
-		return "", err
-	}
-
-	encodedState = base64.URLEncoding.EncodeToString(stateJSON)
+	encodedState = nonce
 
 	if buildAuthorizationURL != nil {
 		state.AuthorizationURL, err = buildAuthorizationURL(encodedState)
@@ -233,38 +234,26 @@ func (ss *StateStore) GenerateState(params StateParams,
 // ValidateState validates an OAuth state parameter from a callback.
 // Returns the original state data if valid, nil if invalid or expired.
 func (ss *StateStore) ValidateState(encodedState string) *OAuthState {
-	// Decode the state
-	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
+	nonce, err := decodeStateNonce(encodedState)
 	if err != nil {
 		logging.Warn("OAuth", "Failed to decode state: %v", err)
 		return nil
 	}
 
-	var state OAuthState
-	if err := json.Unmarshal(stateJSON, &state); err != nil {
-		logging.Warn("OAuth", "Failed to unmarshal state: %v", err)
-		return nil
-	}
-
-	// Look up the stored state by nonce
-	ss.mu.RLock()
-	storedState, exists := ss.states[state.Nonce]
-	ss.mu.RUnlock()
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	storedState, exists := ss.states[nonce]
 
 	if !exists {
-		logging.Warn("OAuth", "State not found in store: nonce=%s", state.Nonce)
+		logging.Warn("OAuth", "State not found in store")
 		return nil
 	}
 
-	// Check expiration
+	delete(ss.states, nonce)
 	if time.Since(storedState.CreatedAt) > ss.stateExpiry {
-		logging.Warn("OAuth", "State expired: nonce=%s age=%v", state.Nonce, time.Since(storedState.CreatedAt))
-		ss.Delete(state.Nonce)
+		logging.Warn("OAuth", "State expired: age=%v", time.Since(storedState.CreatedAt))
 		return nil
 	}
-
-	// State is valid - delete it to prevent replay
-	ss.Delete(state.Nonce)
 
 	return storedState
 }
@@ -273,29 +262,23 @@ func (ss *StateStore) ValidateState(encodedState string) *OAuthState {
 // Returns a copy of the updated state, or nil if the state is invalid,
 // expired, or absent.
 func (ss *StateStore) Update(encodedState string, mutate func(*OAuthState)) *OAuthState {
-	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
+	nonce, err := decodeStateNonce(encodedState)
 	if err != nil {
 		logging.Warn("OAuth", "Failed to decode state for update: %v", err)
-		return nil
-	}
-
-	var state OAuthState
-	if err := json.Unmarshal(stateJSON, &state); err != nil {
-		logging.Warn("OAuth", "Failed to unmarshal state for update: %v", err)
 		return nil
 	}
 
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 
-	storedState, exists := ss.states[state.Nonce]
+	storedState, exists := ss.states[nonce]
 	if !exists {
-		logging.Warn("OAuth", "State not found for update: nonce=%s", state.Nonce)
+		logging.Warn("OAuth", "State not found for update")
 		return nil
 	}
 	if time.Since(storedState.CreatedAt) > ss.stateExpiry {
-		logging.Warn("OAuth", "State expired on update: nonce=%s", state.Nonce)
-		delete(ss.states, state.Nonce)
+		logging.Warn("OAuth", "State expired on update")
+		delete(ss.states, nonce)
 		return nil
 	}
 

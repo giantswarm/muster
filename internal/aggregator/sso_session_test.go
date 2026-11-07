@@ -34,7 +34,7 @@ func TestCanBootstrapSSO(t *testing.T) {
 	}{
 		{"no tokens", server.CallerTokens{}, false},
 		{"ID token only", server.CallerTokens{IDToken: "id"}, true},
-		{"forwardable JWT bearer only", server.CallerTokens{Bearer: jwtBearer}, true},
+		{"resource JWT bearer only", server.CallerTokens{Bearer: jwtBearer}, false},
 		// An opaque bearer cannot be forwarded downstream: a session holding
 		// only one has lost its upstream credential, and counting it would
 		// make the broken-refresh-chain eviction in onAuthenticated

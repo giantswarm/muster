@@ -29,24 +29,16 @@ func (a *AggregatorServer) requireSessionAuth(ctx context.Context, serverInfo *S
 		authenticated, _ = a.authStore.IsAuthenticated(ctx, sessionID, serverName)
 	}
 	if !authenticated {
-		// Token-forwarding servers need no per-server auth entry when the
-		// request itself carries a forwardable validated bearer: that bearer
-		// is the credential the connection forwards. Without this, a
-		// stale-token eviction that revoked the entry makes calls fail until
-		// the asynchronous SSO re-init completes, even though the caller
-		// presents a fresh token.
-		if !ShouldUseTokenForwarding(serverInfo) || forwardableBearer(ctx) == "" {
-			// A subject-scoped grant (GitHub-style connectors) belongs to the
-			// person, so a session that never called core_auth_login for the
-			// server still holds the consent: connect it now instead of
-			// sending the caller back to a login it already completed.
-			adopted, adoptErr := a.adoptSubjectGrant(ctx, serverInfo, sessionID, sub)
-			if adoptErr != nil {
-				return &sessionNotAuthenticatedError{server: serverName, cause: adoptErr}
-			}
-			if !adopted {
-				return &sessionNotAuthenticatedError{server: serverName}
-			}
+		// A subject-scoped grant (GitHub-style connectors) belongs to the
+		// person, so a session that never called core_auth_login for the
+		// server still holds the consent: connect it now instead of
+		// sending the caller back to a login it already completed.
+		adopted, adoptErr := a.adoptSubjectGrant(ctx, serverInfo, sessionID, sub)
+		if adoptErr != nil {
+			return &sessionNotAuthenticatedError{server: serverName, cause: adoptErr}
+		}
+		if !adopted {
+			return &sessionNotAuthenticatedError{server: serverName}
 		}
 	}
 

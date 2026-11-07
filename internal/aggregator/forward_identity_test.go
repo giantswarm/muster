@@ -143,7 +143,7 @@ func TestIdentityHeaderFunc_ResolvesTheTokenOnEveryRequest(t *testing.T) {
 		headerFunc := a.identityHeaderFunc(identityTestSession, pinnedServerInfo(true))
 
 		ctx := server.ContextWithBearerToken(context.Background(), identityTokenAfter)
-		assert.Equal(t, map[string]string{pkgoauth.HeaderMusterIDToken: identityTokenAfter}, headerFunc(ctx))
+		assert.Equal(t, map[string]string{pkgoauth.HeaderMusterIDToken: identityTokenBefore}, headerFunc(ctx))
 	})
 
 	t.Run("no header for a session without an upstream ID token", func(t *testing.T) {

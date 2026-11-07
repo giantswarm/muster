@@ -19,7 +19,7 @@ timeout: "6m"
 #        initialize four seconds late (a slow installation), so a fan-out that
 #        holds a session's first request is visible.
 # When:  the harness session lists tools; eight people open a session each with
-#        a fleet-issued token (every forwarded bearer is a session) and their
+#        a browser-issued muster access token and their
 #        fan-outs connect the 84 servers; one of them makes warm meta-tool
 #        calls; a ninth person opens a session.
 # Then:  list_tools' default page is under 40 KB; the store holds 18 documents
@@ -70,10 +70,10 @@ steps:
       contains: ["total", "workflow_", "core_workflow_list"]
       not_contains: ["inputSchema"]
 
-  # ---- eight sessions, one per forwarded bearer ------------------------------
+  # ---- eight authorized browser sessions ------------------------------
   - id: "mint-person-1"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-1", sub: "person-001@people.fixture.invalid", email: "person-001@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-1", subject: "person-001@people.fixture.invalid" }
     expected: { success: true }
   - id: "session-person-1"
     tool: "test_reconnect_with_token"
@@ -81,8 +81,8 @@ steps:
     expected: { success: true }
 
   - id: "mint-person-2"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-2", sub: "person-002@people.fixture.invalid", email: "person-002@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-2", subject: "person-002@people.fixture.invalid" }
     expected: { success: true }
   - id: "session-person-2"
     tool: "test_reconnect_with_token"
@@ -90,8 +90,8 @@ steps:
     expected: { success: true }
 
   - id: "mint-person-3"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-3", sub: "person-003@people.fixture.invalid", email: "person-003@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-3", subject: "person-003@people.fixture.invalid" }
     expected: { success: true }
   - id: "session-person-3"
     tool: "test_reconnect_with_token"
@@ -99,8 +99,8 @@ steps:
     expected: { success: true }
 
   - id: "mint-person-4"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-4", sub: "person-004@people.fixture.invalid", email: "person-004@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-4", subject: "person-004@people.fixture.invalid" }
     expected: { success: true }
   - id: "session-person-4"
     tool: "test_reconnect_with_token"
@@ -108,8 +108,8 @@ steps:
     expected: { success: true }
 
   - id: "mint-person-5"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-5", sub: "person-005@people.fixture.invalid", email: "person-005@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-5", subject: "person-005@people.fixture.invalid" }
     expected: { success: true }
   - id: "session-person-5"
     tool: "test_reconnect_with_token"
@@ -117,8 +117,8 @@ steps:
     expected: { success: true }
 
   - id: "mint-person-6"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-6", sub: "person-006@people.fixture.invalid", email: "person-006@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-6", subject: "person-006@people.fixture.invalid" }
     expected: { success: true }
   - id: "session-person-6"
     tool: "test_reconnect_with_token"
@@ -126,8 +126,8 @@ steps:
     expected: { success: true }
 
   - id: "mint-person-7"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-7", sub: "person-007@people.fixture.invalid", email: "person-007@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-7", subject: "person-007@people.fixture.invalid" }
     expected: { success: true }
   - id: "session-person-7"
     tool: "test_reconnect_with_token"
@@ -135,8 +135,8 @@ steps:
     expected: { success: true }
 
   - id: "mint-person-8"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-8", sub: "person-008@people.fixture.invalid", email: "person-008@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-8", subject: "person-008@people.fixture.invalid" }
     expected: { success: true }
   - id: "session-person-8"
     tool: "test_reconnect_with_token"
@@ -238,8 +238,8 @@ steps:
 
   # ---- a new session's first request (#1226) --------------------------------
   - id: "mint-person-9"
-    tool: "test_mint_token"
-    args: { server: "fleet-idp", name: "person-9", sub: "person-009@people.fixture.invalid", email: "person-009@people.fixture.invalid", email_verified: true }
+    tool: "test_muster_auth_login"
+    args: { name: "person-9", subject: "person-009@people.fixture.invalid" }
     expected: { success: true }
 
   - id: "new-session-first-request-not-held-by-the-fan-out"

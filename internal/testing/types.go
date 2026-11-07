@@ -365,6 +365,7 @@ type MusterInstance struct {
 	// This is set when a mock OAuth server is configured with UseAsMusterOAuthServer=true.
 	// The test framework uses this token to authenticate with muster without a browser flow.
 	MusterOAuthAccessToken string
+	MusterOAuthSubject     string
 	// MusterOAuthRefreshToken is the refresh token from the last OAuth code exchange.
 	// Used by handleSimulateMusterReauth to obtain a new access token without re-registering.
 	MusterOAuthRefreshToken string

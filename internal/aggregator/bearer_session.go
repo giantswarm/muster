@@ -9,30 +9,12 @@ import (
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
-// Sessions whose authority is a forwarded bearer.
-//
-// A caller that presents an IdP-issued JWT -- an agent's on-behalf-of token,
-// a workload token accepted through trustedIssuers -- gets a session keyed by
-// that very token: mcp-oauth derives the session ID ("ext-<digest>") from it,
-// and muster issues only opaque tokens, so a decodable bearer is always such
-// a token. The session has no refresh chain. The bearer is its only
-// credential, a request presenting it after its exp is refused before it
-// reaches muster's handlers, and the caller's next token opens another
-// session. The session's authority therefore ends at the bearer's exp, an
-// instant muster reads from the token the moment it arrives.
-//
-// bearerSessions ends such a session at that instant, once: its pooled
-// backend connections are closed, which stops their listen streams and takes
-// them out of the capability poll, its auth marks and capability entries are
-// dropped, and a server whose last connection it was goes back to Awaiting
-// Session. Left alone, the connections would keep sending the expired token --
-// on every poll and every listen-stream reconnect -- until three rejections
-// evicted each of them.
-//
-// exp is wall time, like every JWT check, so the timers run on the system
-// clock, not the process clock the test harness advances.
+// JWT resource access tokens bound the lifetime of their authenticated session.
+// Their backend grants are independent; closing pooled connections at expiry
+// prevents a backend grant from outliving the caller's session authority.
+// JWT expiry uses wall time, independently of the harness process clock.
 
-// bearerSessions tracks the sessions bound to a forwarded bearer and ends
+// bearerSessions tracks the sessions bound to a resource bearer and ends
 // each when its bearer expires. The zero value is not usable; see
 // newBearerSessions. Safe for concurrent use.
 type bearerSessions struct {
@@ -90,7 +72,7 @@ func (b *bearerSessions) expired(sessionID string, now time.Time) bool {
 
 // release forgets sessionID when its bearer has expired at now and returns
 // the exp, so exactly one of the paths that notice the expiry (the timer, the
-// capability poll, a connection's header func) ends the session.
+// capability poll) ends the session.
 func (b *bearerSessions) release(sessionID string, now time.Time) (time.Time, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -115,12 +97,10 @@ func (b *bearerSessions) stop() {
 	}
 }
 
-// bindBearerSession binds a session authenticated with a forwarded bearer to
-// that bearer's exp. A session without one (opaque-token human sessions,
-// which refresh through their token family) and a bearer without a parseable
-// exp are left to the header func's strike counter.
+// bindBearerSession bounds a JWT-authenticated session by its resource token's
+// expiry. Opaque access tokens use the authorization server's session lifecycle.
 func (a *AggregatorServer) bindBearerSession(sso ssoSession) {
-	if a.bearerSessions == nil || sso.sessionID == "" || !isForwardableToken(sso.tokens.Bearer) {
+	if a.bearerSessions == nil || sso.sessionID == "" || !isJWTBearer(sso.tokens.Bearer) {
 		return
 	}
 	if a.bearerSessions.bound(sso.sessionID) {
@@ -128,7 +108,7 @@ func (a *AggregatorServer) bindBearerSession(sso ssoSession) {
 	}
 	exp, err := pkgoauth.Expiry(sso.tokens.Bearer)
 	if err != nil {
-		logging.Debug("Aggregator", "Session %s: forwarded bearer has no parseable exp, not bound to it: %v",
+		logging.Debug("Aggregator", "Session %s: resource bearer has no parseable exp, not bound to it: %v",
 			logging.TruncateIdentifier(sso.sessionID), err)
 		return
 	}
@@ -147,7 +127,7 @@ func (a *AggregatorServer) endExpiredBearerSession(sessionID string) bool {
 	return true
 }
 
-// endBearerSession ends a session whose forwarded bearer has expired, once:
+// endBearerSession ends a session whose resource bearer has expired, once:
 // see bearerSessions. A call before the exp, or after another path ended the
 // session, does nothing.
 func (a *AggregatorServer) endBearerSession(sessionID string) {
@@ -169,7 +149,7 @@ func (a *AggregatorServer) endBearerSession(sessionID string) {
 	if len(servers) > 0 {
 		log = logging.Info
 	}
-	log("Aggregator", "Session %s ended: its forwarded bearer expired at %s; closed %d backend connections",
+	log("Aggregator", "Session %s ended: its resource bearer expired at %s; closed %d backend connections",
 		logging.TruncateIdentifier(sessionID), exp.UTC().Format(time.RFC3339), len(servers))
 
 	a.tearDownSession(context.Background(), sessionID)
@@ -179,6 +159,6 @@ func (a *AggregatorServer) endBearerSession(sessionID string) {
 			// server-level state remains whatever that connection proves.
 			continue
 		}
-		a.notifyMCPServerAuthRequired(name, "the forwarded bearer of its last session expired")
+		a.notifyMCPServerAuthRequired(name, "the resource bearer of its last session expired")
 	}
 }

@@ -383,7 +383,7 @@ func TestProviderApps_BothTokensOnOneCall(t *testing.T) {
 	backend := newPostRecorder(t)
 	f.wm.URL = backend.URL
 
-	ctx := server.ContextWithBearerToken(context.Background(), identityTokenBefore)
+	ctx := server.ContextWithIDToken(context.Background(), identityTokenBefore)
 	client, _, err := f.agg.newTokenForwardingClient(ctx, appSession, appSubject, identityTestIssuer, f.wm, func() {})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Close() })

@@ -305,7 +305,8 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 // (if set) to trigger on-demand SSO connections for any uncached SSO servers.
 func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
+		ctx := ContextWithCallerTokens(r.Context(), CallerTokens{})
+		r = r.WithContext(ctx)
 
 		// Get user info from context (set by ValidateToken middleware)
 		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
@@ -314,14 +315,6 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			return
 		}
 
-		// Surface the raw inbound bearer for downstream token forwarding: the
-		// aggregator forwards this validated token to backends. It is
-		// request-scoped and read per call by the forwarding header func, so
-		// inject it before any branch returns and rebind r.
-		if bearer := extractBearerToken(r); bearer != "" {
-			ctx = ContextWithBearerToken(ctx, bearer)
-		}
-		r = r.WithContext(ctx)
 		if !ok || userInfo == nil {
 			if s.debug {
 				logging.Debug("OAuth", "No user info in context, proceeding without token injection")
@@ -329,6 +322,7 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 			next.ServeHTTP(w, r)
 			return
 		}
+		ctx = ContextWithBearerToken(ctx, extractBearerToken(r))
 
 		// Always propagate session ID early so onAuthenticated callbacks can
 		// detect sessions with broken refresh chains even when the ID token
@@ -338,6 +332,10 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		}
 		ctx = api.WithSignInIdentity(ctx, s.signInIdentity(userInfo))
 		r = r.WithContext(ctx)
+		if userInfo.TokenSource == providers.TokenSourceTrustedIssuer {
+			s.serveTrustedIssuer(w, r, userInfo, next)
+			return
+		}
 
 		if userInfo.Email == "" {
 			// An emailless identity can still be a valid forwarded ID token

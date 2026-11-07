@@ -650,7 +650,7 @@ func TestHeaderFunc_RateLimitsWarning(t *testing.T) {
 	// No OAuth handler registered means getIDTokenForForwarding always returns "".
 	api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, nil)
 
 	// First call: should produce a WARN (interval has not been hit yet).
 	logBuf.Reset()
@@ -712,7 +712,7 @@ func TestHeaderFunc_EvictsAfterConsecutiveFailures(t *testing.T) {
 		}
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken)
 
 	// Call fewer than maxConsecutiveTokenFailures times — callback should NOT fire.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -759,7 +759,7 @@ func TestHeaderFunc_ResetsFailureCountOnRecovery(t *testing.T) {
 		evictCount.Add(1)
 	}
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverName, fallbackToken, nil, onStaleToken)
 
 	// Accumulate failures just below the threshold.
 	for i := 0; i < maxConsecutiveTokenFailures-1; i++ {
@@ -794,7 +794,7 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 	api.RegisterOAuthHandler(nil)
 	defer api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc("s", "iss", "srv", "tok", nil, nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "iss", "srv", "tok", nil, nil)
 
 	// Should not panic even after many failures with nil callback.
 	for i := 0; i < maxConsecutiveTokenFailures+5; i++ {
@@ -806,7 +806,7 @@ func TestHeaderFunc_NilCallback(t *testing.T) {
 // TestHeaderFunc_ForwardsRequestBearer pins per-request forwarding: a request
 // context carrying a validated bearer wins over the OAuth-store ID token and
 // is forwarded byte-identical.
-func TestHeaderFunc_ForwardsRequestBearer(t *testing.T) {
+func TestHeaderFunc_DoesNotForwardRequestBearer(t *testing.T) {
 	var logBuf bytes.Buffer
 	logging.InitForCLI(logging.LevelDebug, &logBuf)
 
@@ -823,12 +823,12 @@ func TestHeaderFunc_ForwardsRequestBearer(t *testing.T) {
 		"act": map[string]any{"sub": "agent:sre-agent"},
 		"exp": time.Now().Add(time.Hour).Unix(),
 	})
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil)
 
 	ctx := server.ContextWithBearerToken(context.Background(), oboToken)
 	headers := headerFunc(ctx)
-	require.Equal(t, "Bearer "+oboToken, headers["Authorization"],
-		"request bearer must be forwarded byte-identical, not the store token")
+	require.Equal(t, "Bearer "+storeToken, headers["Authorization"])
+	require.NotEqual(t, "Bearer "+oboToken, headers["Authorization"])
 
 	// Without a request bearer (listen stream) the store token applies.
 	headers = headerFunc(context.Background())
@@ -850,7 +850,7 @@ func TestHeaderFunc_OpaqueBearerIgnored(t *testing.T) {
 	api.RegisterOAuthHandler(mock)
 	defer api.RegisterOAuthHandler(nil)
 
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", "fallback", nil, nil)
 
 	ctx := server.ContextWithBearerToken(context.Background(), "opaque-access-token")
 	headers := headerFunc(ctx)
@@ -872,7 +872,7 @@ func TestHeaderFunc_ValidFallbackIsNotAFailure(t *testing.T) {
 	onStaleToken := func() { evictCount.Add(1) }
 
 	fallback := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(time.Hour).Unix()})
-	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", fallback, nil, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", fallback, nil, onStaleToken)
 
 	logBuf.Reset()
 	for i := 0; i < maxConsecutiveTokenFailures+2; i++ {
@@ -903,7 +903,7 @@ func TestHeaderFunc_ExpiredFallbackEvicts(t *testing.T) {
 	}
 
 	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
-	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, nil, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, nil, onStaleToken)
 
 	for i := 0; i < maxConsecutiveTokenFailures; i++ {
 		headerFunc(context.Background())
@@ -939,7 +939,7 @@ func TestHeaderFunc_ExpiredFallbackRefreshesInPlace(t *testing.T) {
 	onStaleToken := func() { evictCount.Add(1) }
 
 	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
-	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", expired, refresher, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc(sessionID, musterIssuer, "srv", expired, refresher, onStaleToken)
 
 	headers := headerFunc(context.Background())
 	require.Equal(t, "Bearer "+refreshedToken, headers["Authorization"],
@@ -978,7 +978,7 @@ func TestHeaderFunc_RefresherFailureStillEvicts(t *testing.T) {
 	}
 
 	expired := unsignedJWT(t, map[string]any{"sub": "alice", "exp": time.Now().Add(-time.Hour).Unix()})
-	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, refresher, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc("s", "https://muster.example.com", "srv", expired, refresher, onStaleToken)
 
 	for i := 0; i < maxConsecutiveTokenFailures; i++ {
 		headerFunc(context.Background())
@@ -1004,7 +1004,7 @@ func TestForwardableBearer(t *testing.T) {
 			if tc.bearer != "" {
 				ctx = server.ContextWithBearerToken(ctx, tc.bearer)
 			}
-			require.Equal(t, tc.want, forwardableBearer(ctx))
+			require.Equal(t, tc.want, resourceJWTBearer(ctx))
 		})
 	}
 }
@@ -1039,7 +1039,7 @@ func TestMakeTokenForwardingHeaderFunc_ConcurrentCalls(t *testing.T) {
 
 	// No OAuth handler → getIDTokenForForwarding returns "" → the fallback path
 	// drives consecutiveFailures/staleEvicted/hadToken/lastWarnTime on every call.
-	headerFunc := makeTokenForwardingHeaderFunc("session", "https://dex.example.com", "server", "fallback-token", nil, onStaleToken, nil)
+	headerFunc := makeTokenForwardingHeaderFunc("session", "https://dex.example.com", "server", "fallback-token", nil, onStaleToken)
 
 	const goroutines = 16
 	const perGoroutine = 50
@@ -1484,12 +1484,7 @@ func TestExchangeTokenAndCreateClient_RefreshUsesResolvedConfig(t *testing.T) {
 	assert.Equal(t, "openid profile email groups", shared.Scopes)
 }
 
-// TestNewTokenForwardingClient_BearerWinsOverExpiredContextIDToken pins the
-// connect-time resolution order: a valid forwardable bearer on the request
-// context wins over an expired ctx ID token (which the middleware injects
-// without an expiry check), so a pool-miss connect succeeds with the same
-// token every per-request header resolution would forward.
-func TestNewTokenForwardingClient_BearerWinsOverExpiredContextIDToken(t *testing.T) {
+func TestNewTokenForwardingClient_ResourceBearerCannotReplaceProviderCredential(t *testing.T) {
 	api.RegisterOAuthHandler(nil)
 	defer api.RegisterOAuthHandler(nil)
 
@@ -1500,15 +1495,10 @@ func TestNewTokenForwardingClient_BearerWinsOverExpiredContextIDToken(t *testing
 
 	client, resolvedToken, err := a.newTokenForwardingClient(ctx, "session-1", "alice", "https://muster.example.com",
 		&ServerInfo{Name: "srv", URL: "http://127.0.0.1:0"}, nil)
-	require.NoError(t, err,
-		"a valid forwardable bearer must win over the expired ctx ID token")
-	require.NotNil(t, client)
-	require.Equal(t, bearer, resolvedToken,
-		"the returned token must be the one the connection forwards")
-	_ = client.Close()
+	require.ErrorContains(t, err, "expired")
+	require.Nil(t, client)
+	require.Empty(t, resolvedToken)
 
-	// Without a forwardable bearer the expired ctx ID token is resolved and
-	// correctly refused.
 	ctx = server.ContextWithCallerTokens(context.Background(), server.CallerTokens{IDToken: expiredID, Bearer: "opaque"})
 	_, _, err = a.newTokenForwardingClient(ctx, "session-1", "alice", "https://muster.example.com",
 		&ServerInfo{Name: "srv", URL: "http://127.0.0.1:0"}, nil)

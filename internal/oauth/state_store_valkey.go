@@ -128,17 +128,14 @@ func (s *ValkeyStateStore) GenerateState(params StateParams,
 
 	state := newOAuthState(params, nonce)
 
-	stateJSON, err := json.Marshal(state)
-	if err != nil {
-		return "", err
-	}
-	encodedState := base64.URLEncoding.EncodeToString(stateJSON)
+	encodedState := nonce
 
 	if buildAuthorizationURL != nil {
-		state.AuthorizationURL, err = buildAuthorizationURL(encodedState)
+		authorizationURL, err := buildAuthorizationURL(encodedState)
 		if err != nil {
 			return "", err
 		}
+		state.AuthorizationURL = authorizationURL
 	}
 
 	entryData, err := json.Marshal(stateToEntry(state))
@@ -164,27 +161,21 @@ func (s *ValkeyStateStore) GenerateState(params StateParams,
 }
 
 func (s *ValkeyStateStore) ValidateState(encodedState string) *OAuthState {
-	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
+	nonce, err := decodeStateNonce(encodedState)
 	if err != nil {
 		logging.Warn("OAuth", "ValkeyStateStore: failed to decode state: %v", err)
 		return nil
 	}
 
-	var state OAuthState
-	if err := json.Unmarshal(stateJSON, &state); err != nil {
-		logging.Warn("OAuth", "ValkeyStateStore: failed to unmarshal state: %v", err)
-		return nil
-	}
-
 	ctx := context.Background()
-	key := s.stateKey(state.Nonce)
+	key := s.stateKey(nonce)
 
 	// GET + DEL atomically: retrieve and consume in one round-trip via GETDEL.
 	cmd := s.client.B().Getdel().Key(key).Build()
 	result := s.client.Do(ctx, cmd)
 	if err := result.Error(); err != nil {
 		if valkey.IsValkeyNil(err) {
-			logging.Warn("OAuth", "ValkeyStateStore: state not found: nonce=%s", state.Nonce)
+			logging.Warn("OAuth", "ValkeyStateStore: state not found")
 		} else {
 			logging.Warn("OAuth", "ValkeyStateStore: GETDEL failed: %v", err)
 		}
@@ -214,8 +205,7 @@ func (s *ValkeyStateStore) ValidateState(encodedState string) *OAuthState {
 	// validating it. Clocks should be NTP-synchronized; with significant skew
 	// (>10 min) legitimate states may be rejected.
 	if time.Since(entry.CreatedAt) > s.stateExpiry {
-		logging.Warn("OAuth", "ValkeyStateStore: state expired: nonce=%s age=%v",
-			state.Nonce, time.Since(entry.CreatedAt))
+		logging.Warn("OAuth", "ValkeyStateStore: state expired: age=%v", time.Since(entry.CreatedAt))
 		return nil
 	}
 
@@ -226,25 +216,19 @@ func (s *ValkeyStateStore) ValidateState(encodedState string) *OAuthState {
 // Returns the updated state, or nil if the state is invalid, expired, or
 // absent. The key's TTL is preserved.
 func (s *ValkeyStateStore) Update(encodedState string, mutate func(*OAuthState)) *OAuthState {
-	stateJSON, err := base64.URLEncoding.DecodeString(encodedState)
+	nonce, err := decodeStateNonce(encodedState)
 	if err != nil {
 		logging.Warn("OAuth", "ValkeyStateStore: failed to decode state for update: %v", err)
 		return nil
 	}
 
-	var state OAuthState
-	if err := json.Unmarshal(stateJSON, &state); err != nil {
-		logging.Warn("OAuth", "ValkeyStateStore: failed to unmarshal state for update: %v", err)
-		return nil
-	}
-
 	ctx := context.Background()
-	key := s.stateKey(state.Nonce)
+	key := s.stateKey(nonce)
 
 	result := s.client.Do(ctx, s.client.B().Get().Key(key).Build())
 	if err := result.Error(); err != nil {
 		if valkey.IsValkeyNil(err) {
-			logging.Warn("OAuth", "ValkeyStateStore: state not found for update: nonce=%s", state.Nonce)
+			logging.Warn("OAuth", "ValkeyStateStore: state not found for update")
 		} else {
 			logging.Warn("OAuth", "ValkeyStateStore: GET for update failed: %v", err)
 		}
@@ -288,7 +272,7 @@ func (s *ValkeyStateStore) Update(encodedState string, mutate func(*OAuthState))
 	cmd := s.client.B().Set().Key(key).Value(value).Xx().Keepttl().Build()
 	if err := s.client.Do(ctx, cmd).Error(); err != nil {
 		if valkey.IsValkeyNil(err) {
-			logging.Warn("OAuth", "ValkeyStateStore: state consumed during update: nonce=%s", state.Nonce)
+			logging.Warn("OAuth", "ValkeyStateStore: state consumed during update")
 		} else {
 			logging.Warn("OAuth", "ValkeyStateStore: SET on update failed: %v", err)
 		}
