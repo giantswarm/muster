@@ -4,6 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/security"
@@ -29,17 +31,20 @@ import (
 // resource bearer: it accepts a trusted-issuer JWT only with muster's resource
 // identifier in aud and an at+jwt typ, which a Dex ID token never carries.
 // Every other bearer -- muster's opaque access tokens, a JWT neither path
-// accepts -- goes to mcp-oauth's middleware unchanged, so its validation,
-// rejection responses and audit events stay the single path for them.
+// accepts, a sender-constrained JWT (cnf), whose DPoP proof only mcp-oauth's
+// middleware checks -- goes to mcp-oauth's middleware unchanged, so its
+// validation, rejection responses and audit events stay the single path for
+// them.
 func (s *OAuthHTTPServer) authenticateForwardedBearer(validated http.Handler, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := extractBearerToken(r)
-		if bearer == "" || !isJWT(bearer) || s.ipRateLimited(r) {
+		claims, ok := forwardedBearerClaims(bearer)
+		if !ok || claims.Cnf != nil || s.ipRateLimited(r) {
 			validated.ServeHTTP(w, r)
 			return
 		}
 
-		acceptance, err := s.acceptForwardedBearer(r, bearer)
+		acceptance, err := s.acceptForwardedBearer(r, bearer, claims.Act != nil)
 		switch {
 		case isUnavailable(err):
 			// The issuer's keys could not be read, so the token was not
@@ -71,14 +76,20 @@ func (s *OAuthHTTPServer) authenticateForwardedBearer(validated http.Handler, ne
 // acceptForwardedBearer authenticates bearer through trustedAudiences, then
 // trustedIssuers. The token's own aud decides the path: an ID token issued to
 // a trusted client is identity muster forwards; any other token of a trusted
-// issuer is a resource bearer that stays with muster.
-func (s *OAuthHTTPServer) acceptForwardedBearer(r *http.Request, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
-	acceptance, forwardedErr := acceptForwardedIDToken(s.oauthServer, r.Context(), bearer)
-	if forwardedErr == nil {
-		return acceptance, nil
-	}
-	if isUnavailable(forwardedErr) {
-		return nil, forwardedErr
+// issuer is a resource bearer that stays with muster. A delegated token (an
+// act claim) is accepted only through trustedIssuers, whose delegation policy
+// decides the acting party; the trustedAudiences path checks no actor.
+func (s *OAuthHTTPServer) acceptForwardedBearer(r *http.Request, bearer string, delegated bool) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+	forwardedErr := errors.New("delegated token: trustedAudiences checks no actor")
+	if !delegated {
+		var acceptance *oauthserver.ForwardedIDTokenAcceptance
+		acceptance, forwardedErr = acceptForwardedIDToken(s.oauthServer, r.Context(), bearer)
+		if forwardedErr == nil {
+			return acceptance, nil
+		}
+		if isUnavailable(forwardedErr) {
+			return nil, forwardedErr
+		}
 	}
 	acceptance, err := acceptTrustedIssuerToken(s.oauthServer, r.Context(), bearer)
 	if err == nil {
@@ -103,6 +114,28 @@ func trustedIssuerUserInfo(acceptance *oauthserver.ForwardedIDTokenAcceptance) *
 	}
 	info.TokenSource = providers.TokenSourceTrustedIssuer
 	return &info
+}
+
+// bearerBindingClaims are the claims that decide which path may accept a JWT
+// bearer: cnf binds it to a DPoP key, act names an acting party.
+type bearerBindingClaims struct {
+	jwt.RegisteredClaims
+	Cnf map[string]any `json:"cnf,omitempty"`
+	Act map[string]any `json:"act,omitempty"`
+}
+
+// forwardedBearerClaims decodes a JWT bearer's binding claims without
+// verifying it: they only narrow which path validates the token. ok is false
+// for an empty or non-JWT bearer (muster's opaque access tokens).
+func forwardedBearerClaims(bearer string) (bearerBindingClaims, bool) {
+	var claims bearerBindingClaims
+	if bearer == "" {
+		return claims, false
+	}
+	if _, _, err := jwt.NewParser(jwt.WithPaddingAllowed()).ParseUnverified(bearer, &claims); err != nil {
+		return claims, false
+	}
+	return claims, true
 }
 
 func isUnavailable(err error) bool {

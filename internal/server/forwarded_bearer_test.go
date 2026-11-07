@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"encoding/pem"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -79,8 +80,9 @@ func startSigningDex(t *testing.T) *signingDex {
 	return &signingDex{issuer: issuer, caFile: caFile, key: key}
 }
 
-// idToken signs a Dex ID token for subject, issued to the client audience.
-func (d *signingDex) idToken(t *testing.T, audience string, expiry time.Time) string {
+// idToken signs a Dex ID token issued to the client audience; extra adds or
+// overrides claims.
+func (d *signingDex) idToken(t *testing.T, audience string, expiry time.Time, extra ...map[string]any) string {
 	t.Helper()
 	signer, err := jose.NewSigner(
 		jose.SigningKey{Algorithm: jose.RS256, Key: jose.JSONWebKey{Key: d.key, KeyID: "dex-key"}},
@@ -88,7 +90,7 @@ func (d *signingDex) idToken(t *testing.T, audience string, expiry time.Time) st
 	)
 	require.NoError(t, err)
 	now := time.Now()
-	token, err := jwt.Signed(signer).Claims(map[string]any{
+	claims := map[string]any{
 		"iss":            d.issuer,
 		"sub":            "CiQwOGE4Njg0Yi1kYjg4LTRiNzMtOTBhOS0zY2QxNjYxZjU0NjYSBWxvY2Fs",
 		"aud":            audience,
@@ -99,7 +101,11 @@ func (d *signingDex) idToken(t *testing.T, audience string, expiry time.Time) st
 		"email_verified": true,
 		"name":           "Alice",
 		"groups":         []string{"giantswarm-admins"},
-	}).Serialize()
+	}
+	for _, e := range extra {
+		maps.Copy(claims, e)
+	}
+	token, err := jwt.Signed(signer).Claims(claims).Serialize()
 	require.NoError(t, err)
 	return token
 }
@@ -176,7 +182,18 @@ func TestMCPAcceptsAgentgatewayForwardedDexToken(t *testing.T) {
 		require.NotEmpty(t, seenSubject)
 	})
 
+	t.Run("delegated token only through the trusted issuer's policy", func(t *testing.T) {
+		act := map[string]any{"act": map[string]any{"sub": "agent:sre-agent"}}
+		response := call(t, "/mcp", dexServer.idToken(t, "kagent", time.Now().Add(10*time.Minute), act))
+		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		require.Equal(t, providers.TokenSourceTrustedIssuer, seen.TokenSource)
+	})
+
 	for name, bearer := range map[string]string{
+		"delegated token for a trusted audience": dexServer.idToken(t, "agent-platform", time.Now().Add(10*time.Minute),
+			map[string]any{"act": map[string]any{"sub": "agent:sre-agent"}}),
+		"sender-constrained token without its DPoP proof": dexServer.idToken(t, "agent-platform", time.Now().Add(10*time.Minute),
+			map[string]any{"cnf": map[string]any{"jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I"}}),
 		"untrusted audience": dexServer.idToken(t, "someone-else", time.Now().Add(10*time.Minute)),
 		"expired token":      dexServer.idToken(t, "agent-platform", time.Now().Add(-10*time.Minute)),
 		"unknown opaque":     "opaque-access-token-muster-never-issued",
