@@ -82,6 +82,10 @@ All inter-package communication goes through `internal/api`. This is the most cr
 - The squash title of a merged pull request decides its release version. Never mark a commit or pull request title breaking (`fix(aggregator)!:`) and never add a `BREAKING` heading to the CHANGELOG unless a maintainer asked for a major release in that conversation: the release automation cuts the major from the title within seconds. Describe a behaviour change in the CHANGELOG entry and ask whether it warrants a major before merging.
 - Debugging a failing scenario, a CI-only failure or a race report: [docs/contributing/debugging.md](docs/contributing/debugging.md).
 
+## Platform skills
+
+- The Agent Platform's skills in [giantswarm/agent-platform `skills/`](https://github.com/giantswarm/agent-platform/tree/main/skills) describe muster's meta-tools, toolsets and auth flows. A change that alters what an agent or a person can do, see or configure through it comes with a pull request there updating the affected skills, linked from this one.
+
 ## Config Locations
 
 - Default: `~/.config/muster/config.yaml`
