@@ -289,10 +289,13 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 	// Create middleware to inject access token into context for downstream use
 	accessTokenInjector := s.createAccessTokenInjectorMiddleware(s.mcpHandler)
 
-	// Wrap MCP endpoint with OAuth middleware (ValidateToken validates and adds user info)
-	mux.Handle("/mcp", s.oauthHandler.ValidateToken(accessTokenInjector))
-	mux.Handle("/sse", s.oauthHandler.ValidateToken(accessTokenInjector))
-	mux.Handle("/message", s.oauthHandler.ValidateToken(accessTokenInjector))
+	// Wrap MCP endpoints with OAuth validation: forwarded JWT bearers through
+	// the operator's trustedAudiences and trustedIssuers, every other bearer
+	// through mcp-oauth's ValidateToken middleware.
+	protected := s.authenticateForwardedBearer(s.oauthHandler.ValidateToken(accessTokenInjector), accessTokenInjector)
+	mux.Handle("/mcp", protected)
+	mux.Handle("/sse", protected)
+	mux.Handle("/message", protected)
 
 	logging.Info("OAuth", "Protected MCP endpoints with OAuth middleware")
 }

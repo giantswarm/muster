@@ -114,7 +114,11 @@ func signIDToken(t *testing.T, key *ecdsa.PrivateKey, issuer string) string {
 	return token
 }
 
-func TestCreateHTTPMux_RejectsIDTokenBearer(t *testing.T) {
+// TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID sends one
+// MCP request with a Dex ID token issued to a trustedAudiences client, as
+// agentgateway forwards it, and an X-Request-ID through the served handler
+// chain, and reads mcp-oauth's forwarded_id_token_accepted audit lines.
+func TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID(t *testing.T) {
 	issuer, caFile, signingKey := startSigningDex(t)
 
 	var logs bytes.Buffer
@@ -161,9 +165,9 @@ func TestCreateHTTPMux_RejectsIDTokenBearer(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusUnauthorized, rec.Code, rec.Body.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.Equal(t, requestID, rec.Header().Get("X-Request-ID"))
-	require.Empty(t, openedSession)
+	require.NotEmpty(t, openedSession)
 
 	var accepted int
 	for line := range bytes.SplitSeq(logs.Bytes(), []byte("\n")) {
@@ -181,5 +185,5 @@ func TestCreateHTTPMux_RejectsIDTokenBearer(t *testing.T) {
 		require.Equal(t, requestID, entry.Audit.RequestID)
 		require.Equal(t, openedSession, entry.Audit.Details["session_id"])
 	}
-	require.Zero(t, accepted, "an ID token must not be accepted as a resource bearer")
+	require.Positive(t, accepted, "no forwarded_id_token_accepted audit line in:\n%s", logs.String())
 }
