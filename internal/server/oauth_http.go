@@ -573,7 +573,8 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauthhandler.Handler {
 // This is used for API endpoints that need to identify the user but don't need
 // the full SSO/token-injection logic of the MCP middleware chain.
 func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handler {
-	return s.oauthHandler.ValidateToken(s.withValidatedSubject(next))
+	identified := s.withValidatedSubject(next)
+	return s.authenticateForwardedBearer(s.oauthHandler.ValidateToken(identified), identified)
 }
 
 // withValidatedSubject puts the person a validated bearer was issued to into

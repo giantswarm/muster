@@ -14,7 +14,8 @@ import (
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
-// authenticateForwardedBearer guards the MCP endpoints. A JWT bearer issued by
+// authenticateForwardedBearer guards endpoints that accept forwarded identity.
+// A JWT bearer issued by
 // the operator's identity provider, as agentgateway, Backstage and agents
 // forward it, is authenticated through the trust the operator configured for
 // it:
