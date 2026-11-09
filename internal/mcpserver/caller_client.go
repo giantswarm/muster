@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
@@ -33,4 +35,18 @@ func (w *callerWriter) DeleteMCPServer(ctx context.Context, name, namespace stri
 	obj.Name = name
 	obj.Namespace = namespace
 	return w.client.Delete(ctx, obj)
+}
+
+// DeleteMCPServerUID deletes an MCPServer as the caller, only while it has
+// the given UID: a server replaced in the meantime is not deleted.
+func (w *callerWriter) DeleteMCPServerUID(ctx context.Context, name, namespace string, uid types.UID) error {
+	obj := &musterv1alpha1.MCPServer{}
+	obj.Name = name
+	obj.Namespace = namespace
+	return w.client.Delete(ctx, obj, ctrlclient.Preconditions{UID: &uid})
+}
+
+// CreateSecret creates a Secret as the caller.
+func (w *callerWriter) CreateSecret(ctx context.Context, secret *corev1.Secret) error {
+	return w.client.Create(ctx, secret)
 }

@@ -226,6 +226,15 @@
         "managementCluster": {
             "type": "string"
         },
+        "mcpServerClientSecrets": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                }
+            }
+        },
         "mcpServerSecretReferences": {
             "type": "object",
             "additionalProperties": false,

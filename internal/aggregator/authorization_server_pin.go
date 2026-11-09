@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
@@ -196,6 +198,48 @@ func (a *AggregatorServer) AuthorizationServerConflict(serverName string) error 
 	return err
 }
 
+// DescriptionConflict implements api.AuthorizationServerDescriptionChecker
+// with the pin's comparison (pinnedDescription, samePin): an MCPServer about
+// to be written with auth conflicts when another MCPServer pins a different
+// description under the same issuer key. Unlike the pin, which lets the
+// oldest MCPServer's description stand, it refuses either way: whichever is
+// older, one of the two could not sign in. An update that keeps the
+// description it had (previous) is not checked: a conflict it did not make,
+// such as a newer server's, does not block editing the owner. A new client
+// (newClient) is shared by no one: any other description under the key
+// conflicts, and an issuer a provider App owns signs in with the App's.
+func (a *AggregatorServer) DescriptionConflict(key string, previous, auth *api.MCPServerAuth, newClient bool) error {
+	as := authorizationServerOf(auth)
+	if !newClient {
+		as, _ = pinnedDescription(&ServerInfo{Name: key, AuthConfig: auth})
+	}
+	if as == nil {
+		return nil
+	}
+	issuer := namedIssuerKey(key, as)
+	if app, owned := appOwningIssuer(issuer); owned {
+		if newClient {
+			return fmt.Errorf("provider App '%s' signs in to %s with its own client: %w", app, api.IssuerURL(issuer), api.ErrAuthorizationServerConflict)
+		}
+		return nil
+	}
+	if was, wasIssuer := pinnedDescription(&ServerInfo{Name: key, AuthConfig: previous}); !newClient && was != nil && wasIssuer == issuer && samePin(was, as) {
+		return nil
+	}
+	described := a.describedServers()
+	for _, name := range slices.Sorted(maps.Keys(described)) {
+		if name == key {
+			continue
+		}
+		other, otherIssuer := pinnedDescription(described[name])
+		if otherIssuer == issuer && (newClient || !samePin(as, other)) {
+			return fmt.Errorf("MCP server '%s' signs in to %s with another client or endpoints: %w",
+				name, api.IssuerURL(issuer), api.ErrAuthorizationServerConflict)
+		}
+	}
+	return nil
+}
+
 // connectionConflict returns the error issuerPinOwner returns for a server
 // about to connect. A server whose description is the one pinned under its
 // issuer key is let through without looking at every other MCPServer.
@@ -263,7 +307,7 @@ func pinDescription(ctx context.Context, serverInfo *ServerInfo) error {
 		if secrets == nil {
 			return fmt.Errorf("server %s references client credentials but no secret handler is registered", serverInfo.Name)
 		}
-		creds, err := secrets.LoadMCPServerClientCredentials(ctx, serverInfo.SecretOwner(), api.SecretFieldAuthorizationServer, as.ClientCredentialsSecretRef)
+		creds, err := secrets.LoadMCPServerClientCredentials(ctx, serverInfo.SecretOwner().ForAuthorizationServer(as), api.SecretFieldAuthorizationServer, as.ClientCredentialsSecretRef)
 		if err != nil {
 			return fmt.Errorf("load client credentials for server %s: %w", serverInfo.Name,
 				tenantSecretReadError(serverInfo.Name, serverInfo.GetNamespace(), as.ClientCredentialsSecretRef.Name, err))
