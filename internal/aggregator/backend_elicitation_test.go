@@ -28,8 +28,9 @@ const (
 // inputBackend is a backend MCP server, served over streamable HTTP, whose
 // tools ask the person for input the way a backend following the protocol
 // does, only of a client that declared it can be asked: "create" a URL
-// elicitation, "confirm" a form elicitation. "sample" asks for sampling
-// whatever the client declared. A call that carries the answer reports the
+// elicitation, "confirm" a form elicitation. "sample" asks for sampling,
+// "push-url" a URL elicitation and "push-form" a form elicitation, whatever
+// the client declared. A call that carries the answer reports the
 // action, the requestState and the content. It records the capabilities each
 // call declared.
 type inputBackend struct {
@@ -48,18 +49,27 @@ func newInputBackend(t *testing.T, versions ...string) *inputBackend {
 			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, testBackendInputKey); answer != nil {
 				return mcp.NewToolResultText(string(answer.Action) + " " + req.Params.RequestState + " " + contentOf(answer)), nil
 			}
-			if declared.Elicitation == nil || !supported(declared.Elicitation) {
+			if !supported(declared.Elicitation) {
 				return mcp.NewToolResultText("not asked"), nil
 			}
 			return mcpserver.NewInputRequestBuilder(testBackendState).Elicit(testBackendInputKey, params).ToolResult(), nil
 		}
 	}
 	srv.AddTool(mcp.NewTool("create"), ask(
-		func(e *mcp.ElicitationCapability) bool { return e.URL != nil },
+		func(e *mcp.ElicitationCapability) bool { return e != nil && e.URL != nil },
 		mcp.ElicitationParams{Mode: mcp.ElicitationModeURL, Message: "A model key is missing.", URL: testCredentialFormURL},
 	))
 	srv.AddTool(mcp.NewTool("confirm"), ask(
-		func(e *mcp.ElicitationCapability) bool { return e.Form != nil || e.URL == nil },
+		func(e *mcp.ElicitationCapability) bool { return e != nil && (e.Form != nil || e.URL == nil) },
+		mcp.ElicitationParams{Message: "Which model?", RequestedSchema: map[string]any{
+			"type": "object", "properties": map[string]any{"model": map[string]any{"type": "string"}},
+		}},
+	))
+	always := func(*mcp.ElicitationCapability) bool { return true }
+	srv.AddTool(mcp.NewTool("push-url"), ask(always,
+		mcp.ElicitationParams{Mode: mcp.ElicitationModeURL, Message: "A model key is missing.", URL: testCredentialFormURL},
+	))
+	srv.AddTool(mcp.NewTool("push-form"), ask(always,
 		mcp.ElicitationParams{Message: "Which model?", RequestedSchema: map[string]any{
 			"type": "object", "properties": map[string]any{"model": map[string]any{"type": "string"}},
 		}},
@@ -108,7 +118,7 @@ func newInputMuster(t *testing.T, backends map[string]*inputBackend) string {
 			namespace = ""
 		}
 		require.NoError(t, a.registry.Register(t.Context(), ServerRegistration{Name: key, Namespace: namespace}, client))
-		for _, tool := range []string{"create", "confirm", "sample"} {
+		for _, tool := range []string{"create", "confirm", "sample", "push-url", "push-form"} {
 			exposed := a.registry.ExposedToolName(key, tool)
 			srv.AddTool(mcp.NewTool(key+"/"+tool), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return a.CallToolInternal(ctx, exposed, req.GetArguments())
@@ -328,6 +338,81 @@ func TestBackendInput_UndeclaredInputRequestIsRefused(t *testing.T) {
 			require.Equal(t, "[agents] The server asked for sampling/createMessage, which muster does not pass on to its client.", textOf(t, result))
 			require.Nil(t, backend.declared.Load().Sampling)
 		})
+	}
+}
+
+// A backend's elicitation in a mode the client did not declare fails the call
+// instead of reaching the client: a request without a mode is a form, and
+// `elicitation: {}` declares forms only.
+func TestBackendInput_UndeclaredElicitationModeIsRefused(t *testing.T) {
+	backend := newInputBackend(t)
+	url := newInputMuster(t, map[string]*inputBackend{testElicitingServer: backend})
+	formOnly := mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{Form: &struct{}{}}}
+	urlOnly := mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{URL: &struct{}{}}}
+	empty := mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{}}
+	none := mcp.ClientCapabilities{}
+
+	refused := []struct {
+		name         string
+		capabilities mcp.ClientCapabilities
+		tool, mode   string
+	}{
+		{"URL to a form-only client", formOnly, "push-url", "url"},
+		{"URL to a client declaring elicitation: {}", empty, "push-url", "url"},
+		{"URL to a client declaring no elicitation", none, "push-url", "url"},
+		{"form to a URL-only client", urlOnly, "push-form", "form"},
+		{"form to a client declaring no elicitation", none, "push-form", "form"},
+	}
+	accepted := []struct {
+		name         string
+		capabilities mcp.ClientCapabilities
+		tool         string
+	}{
+		{"URL to a URL-only client", urlOnly, "push-url"},
+		{"URL to a URL and form client", urlAndForm(), "push-url"},
+		{"form to a form-only client", formOnly, "push-form"},
+		{"form to a client declaring elicitation: {}", empty, "push-form"},
+		{"form to a URL and form client", urlAndForm(), "push-form"},
+	}
+
+	for version, protocol := range map[string]string{"2026-07-28": mcp.ProtocolVersion20260728, "2025-11-25": mcp.LATEST_LEGACY_PROTOCOL_VERSION} {
+		for _, tc := range refused {
+			t.Run(version+" "+tc.name+" is refused", func(t *testing.T) {
+				var answerer *formAnswerer
+				if tc.capabilities.Elicitation != nil {
+					answerer = &formAnswerer{}
+				}
+				c := connectToMuster(t, url, protocol, tc.capabilities, answerer)
+
+				result, err := call(t, c, "agents/"+tc.tool, mcp.MultiRoundTripParams{})
+
+				require.NoError(t, err)
+				require.False(t, result.NeedsInput())
+				require.True(t, result.IsError)
+				require.Equal(t, "[agents] The server asked for a "+tc.mode+" mode elicitation, which the client did not declare.", textOf(t, result))
+			})
+		}
+		for _, tc := range accepted {
+			t.Run(version+" "+tc.name+" passes", func(t *testing.T) {
+				answerer := &formAnswerer{}
+				c := connectToMuster(t, url, protocol, tc.capabilities, answerer)
+
+				result, err := call(t, c, "agents/"+tc.tool, mcp.MultiRoundTripParams{})
+
+				switch {
+				case protocol == mcp.ProtocolVersion20260728:
+					require.NoError(t, err)
+					require.True(t, result.NeedsInput())
+				case tc.tool == "push-url":
+					var required mcp.URLElicitationRequiredError
+					require.True(t, errors.As(err, &required), "err: %v", err)
+				default:
+					require.NoError(t, err)
+					require.Equal(t, "accept "+testBackendState+" opus", textOf(t, result))
+					require.Equal(t, "[agents] Which model?", answerer.asked.Load().Message)
+				}
+			})
+		}
 	}
 }
 

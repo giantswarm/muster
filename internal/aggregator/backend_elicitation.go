@@ -26,7 +26,10 @@ import (
 // reaches the same tool with the backend's own state, and with each
 // elicitation's message prefixed with that key: the client only sees muster,
 // and the person is told which server asks. An input request other than an
-// elicitation (sampling, roots), which muster did not declare, fails the call.
+// elicitation (sampling, roots), which muster did not declare, fails the call,
+// as does an elicitation in a mode the client did not declare: a request
+// without a mode is a form, and a client declaring `elicitation: {}` supports
+// forms only.
 //
 // A 2025-11-25 client is asked in the shape of its revision: a request made
 // only of URL elicitations as -32042 URLElicitationRequiredError, which the
@@ -35,8 +38,9 @@ import (
 // tool again with the answers and the requestState. The -32042 retry carries
 // no requestState, as that revision has none: the backend gets a call
 // without its state and must tell from its own records whether the pages are
-// done. mcp-go's bridge would keep the state, but it retries as soon as the
-// person agrees to open a page, before the page is done.
+// done; a backend that relies on its requestState instead asks again.
+// mcp-go's bridge would keep the state, but it retries as soon as the person
+// agrees to open a page, before the page is done.
 //
 // The answer travels like muster's own sign-in elicitation: the dispatch
 // records it in the call's context (challengeRecorder) and answers with a text
@@ -129,15 +133,22 @@ func answerBackendElicitation(ctx context.Context, serverName, tool string, resu
 
 // answerBackendInput passes on a 2026-07-28 backend's input_required answer
 // (see the top of this file) and answers the call with its text answer. An
-// answer asking for anything but elicitations, which is all muster declares,
-// fails the call.
+// answer asking for anything but elicitations in the modes the client
+// declared fails the call.
 func answerBackendInput(ctx context.Context, serverName, tool string, result *mcp.CallToolResult) *mcp.CallToolResult {
+	declared := callerCapabilities(ctx).Elicitation
 	for _, request := range result.InputRequests {
 		if request.Method != mcp.MethodElicitationCreate || request.Elicitation == nil {
 			logging.WarnWithAttrs("Aggregator", "Refusing a backend's input request muster did not declare",
 				slog.String("server", serverName),
 				slog.String("method", string(request.Method)))
 			return mcp.NewToolResultError(fmt.Sprintf("[%s] The server asked for %s, which muster does not pass on to its client.", serverName, request.Method))
+		}
+		if mode := elicitationMode(*request.Elicitation); !supportsElicitationMode(declared, mode) {
+			logging.WarnWithAttrs("Aggregator", "Refusing a backend's elicitation in a mode the client did not declare",
+				slog.String("server", serverName),
+				slog.String("mode", mode))
+			return mcp.NewToolResultError(fmt.Sprintf("[%s] The server asked for a %s mode elicitation, which the client did not declare.", serverName, mode))
 		}
 	}
 	passed := &mcp.CallToolResult{
@@ -169,6 +180,31 @@ func answerBackendInput(ctx context.Context, serverName, tool string, result *mc
 		Content:           []mcp.Content{mcp.NewTextContent(text.String())},
 		IsError:           true,
 		StructuredContent: map[string]any{backendInputMarkerKey: passed.RequestState},
+	}
+}
+
+// elicitationMode returns the elicitation's mode, form when it names none.
+func elicitationMode(elicitation mcp.ElicitationParams) string {
+	if elicitation.Mode == "" {
+		return mcp.ElicitationModeForm
+	}
+	return elicitation.Mode
+}
+
+// supportsElicitationMode reports whether a client that declared the
+// elicitation capability supports the mode. A capability naming no mode is
+// form only.
+func supportsElicitationMode(declared *mcp.ElicitationCapability, mode string) bool {
+	if declared == nil {
+		return false
+	}
+	switch mode {
+	case mcp.ElicitationModeForm:
+		return declared.Form != nil || declared.URL == nil
+	case mcp.ElicitationModeURL:
+		return declared.URL != nil
+	default:
+		return false
 	}
 }
 

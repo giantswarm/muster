@@ -246,6 +246,10 @@ elicitation capability of the client it calls for, passes the server's request
 to that client with the server's key in front of each message, and carries the
 client's answers back to the same tool on the retry (see
 [A call a server answers with an input request](../reference/mcp-tools.md#a-call-a-server-answers-with-an-input-request)).
+An elicitation in a mode the client did not declare fails the call. Only the
+first bracket of a message is muster's: a server can write a second one into
+its own message (`[org-a/x] [agent-manager] …`), so the person trusts the
+first bracket alone to name the server that asks.
 A 2025-11-25 downstream server is declared no capability and asks nothing
 through muster.
 
