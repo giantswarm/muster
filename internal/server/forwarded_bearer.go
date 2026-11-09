@@ -14,11 +14,10 @@ import (
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
-// authenticateForwardedBearer guards endpoints that accept forwarded identity.
-// A JWT bearer issued by
-// the operator's identity provider, as agentgateway, Backstage and agents
-// forward it, is authenticated through the trust the operator configured for
-// it:
+// authenticateForwardedBearer guards the endpoints that take the person's
+// bearer. A JWT bearer issued by the operator's identity provider, as
+// agentgateway, Backstage and agents forward it, is authenticated through the
+// trust the operator configured for it:
 //
 //   - trustedAudiences: an ID token issued to one of the listed clients
 //     (AcceptForwardedIDToken). The injector then forwards it as the

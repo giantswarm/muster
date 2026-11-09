@@ -1,16 +1,20 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 func TestSubjectEndpointValidatesForwardedBearer(t *testing.T) {
@@ -79,4 +83,33 @@ func TestSubjectEndpointValidatesForwardedBearer(t *testing.T) {
 			require.Equal(t, testCase.statusCode == http.StatusNoContent, called)
 		})
 	}
+}
+
+func TestSubjectEndpointAuditsDelegatedRefusal(t *testing.T) {
+	var buf bytes.Buffer
+	logging.InitForCLI(logging.LevelInfo, &buf)
+	t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, os.Stderr) })
+
+	s := &OAuthHTTPServer{config: config.OAuthServerConfig{
+		BaseURL: "https://muster.example.com",
+		TrustedIssuers: []config.TrustedIssuerConfig{
+			{Issuer: "https://dex.example.com", Delegation: &config.TrustedIssuerDelegationConfig{ActorIssuers: []string{"https://idp.ate-system.svc"}}},
+		},
+	}}
+	bearer := fakeJWT(t, map[string]interface{}{"sub": "CgdwZXJzb24xEgNkZXg", "act": map[string]any{"sub": "actor/kagent/session-1"}})
+	request := httptest.NewRequestWithContext(oauthhandler.ContextWithUserInfo(t.Context(), delegatedUserInfo()), http.MethodPut, "/session-bindings", nil)
+	request.Header.Set("Authorization", "Bearer "+bearer)
+	response := httptest.NewRecorder()
+	s.withValidatedSubject(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("a delegated token reached the handler")
+	})).ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusForbidden, response.Code)
+	require.Contains(t, response.Header().Get("WWW-Authenticate"), `error="insufficient_scope"`)
+	line := buf.String()
+	require.Contains(t, line, "action=delegated_bearer outcome=failure")
+	require.Contains(t, line, "target=PUT /session-bindings")
+	require.Contains(t, line, "actor_iss=https://idp.ate-system.svc actor=actor/kagent/session-1")
+	require.Contains(t, line, "error=a delegated token cannot act as the person on this endpoint")
+	require.NotContains(t, line, bearer)
 }

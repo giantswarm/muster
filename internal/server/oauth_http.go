@@ -568,10 +568,11 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauthhandler.Handler {
 	return s.oauthHandler
 }
 
-// ValidateTokenWithSubject wraps the given handler with OAuth token validation
-// and extracts the authenticated user's subject (sub claim) into the context.
-// This is used for API endpoints that need to identify the user but don't need
-// the full SSO/token-injection logic of the MCP middleware chain.
+// ValidateTokenWithSubject guards an endpoint that acts as the person: it
+// accepts the same bearers as the MCP endpoints (authenticateForwardedBearer,
+// then mcp-oauth's ValidateToken), refuses a delegated token with 403
+// insufficient_scope, and puts the person's subject into the context. It skips
+// the SSO and token-injection logic of the MCP middleware chain.
 func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handler {
 	identified := s.withValidatedSubject(next)
 	return s.authenticateForwardedBearer(s.oauthHandler.ValidateToken(identified), identified)

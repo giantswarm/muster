@@ -95,13 +95,13 @@ func TestSubjectRoutesAreAuthenticated(t *testing.T) {
 	a.config.CredentialProvider = credentialProviderConfig()
 	mux := http.NewServeMux()
 	var authenticated []string
-	refuse := func(http.Handler) http.Handler {
+	authenticate := func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authenticated = append(authenticated, r.Method+" "+r.URL.Path)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 		})
 	}
-	require.NoError(t, a.registerSubjectRoutes(mux, refuse))
+	require.NoError(t, a.registerSubjectRoutes(mux, authenticate))
 
 	for _, route := range []struct{ method, path string }{
 		{http.MethodPut, credprovider.BindingsPath},
