@@ -5,8 +5,9 @@ concept: "mcpserver"
 tags: ["mcpserver", "streamable-http", "redeploy", "capabilities", "recovery", "clock", "issue-494", "issue-1440"]
 timeout: "3m"
 
-# Given: a remote streamable-http MCP server without auth, Connected, with one
-#        tool. The instance runs on production intervals: the health probe
+# Given: a remote streamable-http MCP server without auth on MCP 2025-11-25,
+#        which keeps an MCP session, Connected, with one tool. (A 2026-07-28
+#        backend keeps none: mcpserver-capability-follows-redeploy-listen.) The instance runs on production intervals: the health probe
 #        every 30 s and the capability poll every 5 min, both on the
 #        controllable clock.
 # When:  the backend is redeployed with an image that offers another tool set:
@@ -27,6 +28,7 @@ pre_configuration:
     - name: "rolled-server"
       config:
         type: "streamable-http"
+        protocol_version: "2025-11-25"
         tools:
           - name: "probe"
             description: "Offered by the image before the roll"
@@ -118,7 +120,7 @@ steps:
 # server.
 instance_logs:
   contains:
-    - "recovered a lost MCP session"
+    - "met a new process"
     - "Capability refresh (recovery): updated 1 tools for rolled-server"
   not_contains:
     - "Capability refresh (poll): updated 1 tools for rolled-server"

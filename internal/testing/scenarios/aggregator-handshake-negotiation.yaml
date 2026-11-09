@@ -2,18 +2,17 @@ name: "aggregator-handshake-negotiation"
 description: |
   Pin the MCP handshake muster negotiates on both sides (issues #1029, #1030).
 
-  Outbound: muster's client must ask a downstream server for protocol version
-  2025-11-25 (api.ClientProtocolVersion), and must report the revision the
-  server answered with per backend. The old pin, 2024-11-05, predates
-  structuredContent, outputSchema, and elicitation, so a strict downstream
-  server may withhold all three. Both transports are probed because each
-  builds its own initialize request.
+  Outbound: muster's client speaks MCP 2026-07-28 to a downstream server that
+  does (#1032), declaring it on each request, and reports the revision per
+  backend. Both transports are probed because each runs its own handshake.
 
-  Down-negotiation: a backend that answers with an older revision must be
-  reported with that revision, on both core_service_status and
-  core_mcpserver_get, while muster's own ask stays 2025-11-25. The legacy
-  probes force the answer with protocol_version, because mcp-go otherwise
-  echoes whatever the client asked for and no backend would ever disagree.
+  Down-negotiation: a backend on an earlier revision does not know
+  server/discover, so muster falls back to the initialize handshake and asks
+  for 2025-11-25, the newest revision that handshake negotiates. A backend
+  that answers with an older revision must be reported with that revision, on
+  both core_service_status and core_mcpserver_get. The legacy probes force the
+  answer with protocol_version, because mcp-go otherwise echoes whatever the
+  client asked for and no backend would ever disagree.
 
   Inbound: the aggregator must not advertise resources.subscribe. mcp-go
   acknowledges resources/subscribe whenever the capability is on, and muster
@@ -101,7 +100,7 @@ steps:
       wait_for_state: "30s"
       json_path:
         state: "connected"
-        metadata.protocolVersion: "2025-11-25"
+        metadata.protocolVersion: "2026-07-28"
 
   - id: "wait-for-probe-stdio"
     description: "The stdio server is connected on the negotiated revision"
@@ -113,27 +112,27 @@ steps:
       wait_for_state: "30s"
       json_path:
         state: "running"
-        metadata.protocolVersion: "2025-11-25"
+        metadata.protocolVersion: "2026-07-28"
 
   - id: "outbound-handshake-streamable-http"
-    description: "muster asked the streamable-http server for 2025-11-25, and the call returns its content"
+    description: "muster declared 2026-07-28 on the call to the streamable-http server, and the call returns its content"
     tool: "x_probe-http_echo_tool"
     args:
       message: "handshake-payload"
     expected:
       success: true
-      contains: ["2025-11-25", "handshake-payload", "executed"]
-      not_contains: ["2024-11-05"]
+      contains: ["2026-07-28", "handshake-payload", "executed"]
+      not_contains: ["2024-11-05", "2025-11-25"]
 
   - id: "outbound-handshake-stdio"
-    description: "muster asked the stdio server for 2025-11-25, and the call returns its content"
+    description: "muster declared 2026-07-28 on the call to the stdio server, and the call returns its content"
     tool: "x_probe-stdio_echo_tool"
     args:
       message: "handshake-payload"
     expected:
       success: true
-      contains: ["2025-11-25", "handshake-payload", "executed"]
-      not_contains: ["2024-11-05"]
+      contains: ["2026-07-28", "handshake-payload", "executed"]
+      not_contains: ["2024-11-05", "2025-11-25"]
 
   - id: "mcpserver-get-reports-negotiated-revision"
     description: "core_mcpserver_get reports the revision the streamable-http backend answered with"
@@ -144,7 +143,7 @@ steps:
       success: true
       wait_for_state: "30s"
       json_path:
-        protocolVersion: "2025-11-25"
+        protocolVersion: "2026-07-28"
 
   - id: "legacy-http-negotiates-down"
     description: "A streamable-http backend answering 2024-11-05 is reported with that revision"
@@ -182,7 +181,7 @@ steps:
         protocolVersion: "2024-11-05"
 
   - id: "down-negotiation-does-not-change-the-ask"
-    description: "muster still asked the legacy backend for 2025-11-25; only the answer was older"
+    description: "muster asked the legacy backend's initialize for 2025-11-25; only the answer was older"
     tool: "x_probe-legacy-http_echo_tool"
     args:
       message: "handshake-payload"

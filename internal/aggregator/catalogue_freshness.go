@@ -30,11 +30,14 @@ import (
 // the arguments are fine and the backend refuses them.
 //
 // muster sees a redeploy without watching the backend's pods, through the
-// protocol: the new process does not know the sessions the old one issued,
-// so the next request on any connection to it meets a 404 and the client
-// re-establishes the session (internal/mcpserver, session recovery). That is
-// the sign a new process answers behind the address, for in-cluster and
-// off-cluster backends alike, and the one this file acts on. Three more signs
+// protocol. On 2025-11-25 the new process does not know the sessions the old
+// one issued, so the next request on any connection to it meets a 404 and the
+// client re-establishes the session (internal/mcpserver, session recovery).
+// On 2026-07-28 the old process's exit drops the connection's
+// subscriptions/listen stream, and the client re-lists once the new process
+// acknowledges the reopened stream (startListChangedStream). That is the sign
+// a new process answers behind the address, for in-cluster and off-cluster
+// backends alike, and the one this file acts on. Three more signs
 // stand in where no session is lost: a listing that answers differently
 // from the entry before it (a stateless backend has no session to lose), a
 // call the backend refuses as invalid params (the caller followed a stale
@@ -62,9 +65,10 @@ type sessionRecoveryObserver interface {
 }
 
 // observeSharedRecovery re-lists a shared-client server whenever its
-// connection recovers a lost MCP session: the health probe meets the new
-// process within one probe interval, so the shared catalogue follows a
-// redeploy in well under a minute. The handler runs on a goroutine of the
+// connection meets a new process (OnSessionRecovered): the health probe or
+// the reopened list-changes stream meets it within seconds to a probe
+// interval, so the shared catalogue follows a redeploy in well under a
+// minute. The handler runs on a goroutine of the
 // client's, so the re-listing is done in it, coalesced with any other in
 // flight.
 func (a *AggregatorServer) observeSharedRecovery(serverName string, client MCPClient) {
@@ -73,7 +77,7 @@ func (a *AggregatorServer) observeSharedRecovery(serverName string, client MCPCl
 		return
 	}
 	observer.OnSessionRecovered(func() {
-		logging.Info("Aggregator", "Backend of %s changed (its connection recovered a lost MCP session): re-listing", serverName)
+		logging.Info("Aggregator", "Backend of %s changed (its connection met a new process): re-listing", serverName)
 		_, _, _ = a.notifRefreshGroup.Do(nonOAuthRefreshKey(serverName), func() (any, error) {
 			a.refreshNonOAuthCapabilities(serverName, refreshByRecovery)
 			return nil, nil
@@ -82,7 +86,7 @@ func (a *AggregatorServer) observeSharedRecovery(serverName string, client MCPCl
 }
 
 // observeSessionRecovery marks a per-session server rolled whenever one of
-// its pooled connections recovers a lost MCP session, and re-lists that
+// its pooled connections meets a new process (OnSessionRecovered), and re-lists that
 // session through the recovered connection, in the handler like
 // observeSharedRecovery; every other session follows on its next read.
 func (a *AggregatorServer) observeSessionRecovery(serverName, sessionID string, client MCPClient) {
@@ -92,7 +96,7 @@ func (a *AggregatorServer) observeSessionRecovery(serverName, sessionID string, 
 	}
 	observer.OnSessionRecovered(func() {
 		if info, ok := a.registry.GetServerInfo(serverName); ok && info.MarkRolled() {
-			logging.Info("Aggregator", "Backend of %s changed (session %s recovered a lost MCP session): entries listed before are re-listed on their next read",
+			logging.Info("Aggregator", "Backend of %s changed (session %s met a new process): entries listed before are re-listed on their next read",
 				serverName, logging.TruncateIdentifier(sessionID))
 		}
 		if a.connPool == nil || !a.connPool.Holds(sessionID, serverName, client) {

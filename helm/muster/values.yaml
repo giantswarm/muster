@@ -309,11 +309,6 @@ muster:
     # Transport protocol for MCP communication
     # Options: "streamable-http", "sse"
     transport: "streamable-http"
-    # The installation's Dev Portal URL. Its origin is the only one a backend
-    # MCP server's URL elicitation (a request that the person open a page)
-    # is relayed to, and only from an MCPServer with
-    # spec.urlElicitation: Relay. Empty relays none.
-    devPortalUrl: ""
 
   # Namespace for MCPServer and Workflow discovery
   # Defaults to the release namespace if not set

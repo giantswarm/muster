@@ -3,353 +3,231 @@ package aggregator
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
-	"time"
+	"sync/atomic"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/giantswarm/muster/v5/internal/api"
-	"github.com/giantswarm/muster/v5/internal/config"
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
-// A backend MCP server may answer a tool call with a URL elicitation: the
-// request that the person open a page, -32042 URLElicitationRequiredError on
-// the protocol muster speaks to its backends (api.ClientProtocolVersion).
-// muster relays it to its own client only from a server whose MCPServer opts
-// in (spec.urlElicitation Relay) and only to a page on the origin of
-// aggregator.devPortalUrl, so no backend, an organization's own MCP server
-// included, can send people to a page of its choosing. Every other one is
-// dropped and logged with the server and the page's origin, and the call is
-// answered with a tool error that does not hold the URL.
+// A backend MCP server that needs something of the person while it handles a
+// tool call answers, from MCP 2026-07-28, with an input_required result
+// (multi round-trip requests). muster speaks that revision to every backend
+// that does (internal/mcpserver client_protocol.go), declaring on each call
+// the capabilities of the client it calls for, and passes the result to its
+// client with the backend's requestState wrapped with the server's key
+// (backendInputState), so the client's retry reaches the same server with the
+// backend's own state, and with each elicitation's message prefixed with that
+// key: the client only sees muster, and the person is told which server asks.
 //
-// A relayed elicitation travels like muster's own sign-in elicitation: the
-// dispatch records it in the call's context (challengeRecorder) and answers
-// with a text result holding the link, the answer of a client that does not
-// support URL elicitation; the urlElicitation middleware turns that answer
-// into the elicitation, in the shape of the request's protocol version.
+// A 2025-11-25 client is asked in the shape of its revision: a request made
+// only of URL elicitations as -32042 URLElicitationRequiredError, which the
+// client answers by calling the tool again once the pages are done; anything
+// else by mcp-go's bridge, which sends the server-initiated requests of that
+// revision and calls the tool again with the answers and the requestState.
 //
-// The backend tells muster when the person completed the page: it sends
-// notifications/elicitation/complete with the elicitationId on the connection
-// that received the -32042. muster keeps the backend's elicitationId when it
-// relays, records each relayed one (relayedCompletions), and on the backend's
-// notification sends the same notification to the transport sessions that
-// received the -32042, and ends the wait of a 2026-07-28 retry that accepted
-// it (awaitRelayedCompletion). The record is local to the replica that
-// relayed, as the backend connection is: a retry on another replica, or after
-// a restart, waits for nothing.
+// The answer travels like muster's own sign-in elicitation: the dispatch
+// records it in the call's context (challengeRecorder) and answers with a text
+// result holding the messages and links, which is what a workflow step sees;
+// the urlElicitation middleware turns that answer into the input request.
+// call_tool, which wraps the tool's result, passes it on this way.
+//
+// A backend that falls back to 2025-11-25 is declared no capability to ask
+// the person: its answer stays the one it gives a client that cannot be asked.
 
-// relayedElicitationInputKey prefixes the inputRequests keys of a relayed
-// backend elicitation in an input_required answer.
-const relayedElicitationInputKey = "muster_relayed_elicitation"
+// backendInputMarkerKey is the structuredContent key that holds the
+// requestState of a backend's input_required answer in its text answer.
+const backendInputMarkerKey = "inputRequired"
 
-// relayedElicitationURLKey is the structuredContent key that holds the
-// link of a relayed elicitation's text answer.
-const relayedElicitationURLKey = "elicitationUrl"
+// backendInputStatePrefix starts every requestState muster wraps a backend's
+// in, telling it apart from muster's own (signInRequestState,
+// relayedRequestState).
+const backendInputStatePrefix = "muster.backend."
 
-// relayedElicitation is a backend's URL elicitation muster relays: the
-// server it came from and the elicitations, each on the Dev Portal's origin.
-type relayedElicitation struct {
-	server       string
-	elicitations []mcp.ElicitationParams
+// backendInputState is the requestState muster answers a call with when a
+// 2026-07-28 backend answered it with input_required: the server's key and
+// the backend's own requestState, which muster does not read.
+type backendInputState struct {
+	Server string `json:"server"`
+	State  string `json:"state,omitempty"`
 }
 
-// link is the URL the relayed elicitation's text answer carries.
-func (r relayedElicitation) link() string {
-	return r.elicitations[0].URL
-}
-
-// relayedRequestState is the requestState of a relayed elicitation, echoed
-// by the client on its retry: the server, named in the answer to a declined
-// elicitation, and the backend's elicitationIds, whose completion a retry
-// that accepted waits for. Being the client's echo, it only decides what the
-// retry waits for, and only among the elicitations relayed to its own
-// session: the call is gated as any other afterwards.
-type relayedRequestState struct {
-	Relayed        string   `json:"relayed"`
-	ElicitationIDs []string `json:"elicitationIds,omitempty"`
-}
-
-func (s relayedRequestState) encode() string {
+func (s backendInputState) encode() string {
 	encoded, _ := json.Marshal(s)
-	return string(encoded)
+	return backendInputStatePrefix + base64.RawURLEncoding.EncodeToString(encoded)
 }
 
-// recordRelayedElicitation notes the backend elicitation a tool call is
-// answered with, for the URL elicitation middleware. Outside a tool call it
-// does nothing.
-func recordRelayedElicitation(ctx context.Context, relayed relayedElicitation) {
-	if recorder, ok := ctx.Value(challengeRecorderKey{}).(*challengeRecorder); ok {
-		recorder.relayed.Store(&relayed)
+// decodeBackendInputState reads a requestState muster wrapped a backend's in,
+// and reports whether it is one.
+func decodeBackendInputState(requestState string) (backendInputState, bool) {
+	encoded, ok := strings.CutPrefix(requestState, backendInputStatePrefix)
+	if !ok {
+		return backendInputState{}, false
 	}
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return backendInputState{}, false
+	}
+	var state backendInputState
+	if json.Unmarshal(raw, &state) != nil || state.Server == "" {
+		return backendInputState{}, false
+	}
+	return state, true
+}
+
+// backendInput is a 2026-07-28 backend's input_required answer as muster
+// passes it on: requestState wrapped, messages prefixed.
+type backendInput struct {
+	server string
+	result *mcp.CallToolResult
+}
+
+// recordBackendInput notes the backend input request a tool call is answered
+// with, for the URL elicitation middleware. Outside a tool call it does
+// nothing.
+func recordBackendInput(ctx context.Context, input backendInput) {
+	if recorder, ok := ctx.Value(challengeRecorderKey{}).(*challengeRecorder); ok {
+		recorder.backendInput.Store(&input)
+	}
+}
+
+// attributed prefixes a backend's message with the server's key, so the
+// person knows which server asks.
+func attributed(serverName, message string) string {
+	if message == "" {
+		return fmt.Sprintf("[%s] The server asks for your input to continue.", serverName)
+	}
+	return fmt.Sprintf("[%s] %s", serverName, message)
 }
 
 // answerBackendElicitation answers a backend tool call that the server
-// answered with a URL elicitation: relayed when the server and the page are
-// allowed (see the top of this file), dropped otherwise. Any other outcome is
-// returned as is.
-func (a *AggregatorServer) answerBackendElicitation(ctx context.Context, serverName string, result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) {
-	var required mcp.URLElicitationRequiredError
-	if err == nil || !errors.As(err, &required) {
-		return result, err
+// answered with an input_required result. Any other outcome is returned as is.
+func answerBackendElicitation(ctx context.Context, serverName string, result *mcp.CallToolResult, err error) (*mcp.CallToolResult, error) {
+	if err == nil && result.NeedsInput() {
+		return answerBackendInput(ctx, serverName, result), nil
 	}
-	if reason := a.refuseBackendElicitation(ctx, serverName, required.Elicitations); reason != "" {
-		return droppedElicitationResult(serverName, reason, required.Elicitations), nil
-	}
-
-	relayed := relayedElicitation{server: serverName}
-	for _, elicitation := range required.Elicitations {
-		relayed.elicitations = append(relayed.elicitations, mcp.ElicitationParams{
-			Mode:          mcp.ElicitationModeURL,
-			Message:       elicitation.Message,
-			URL:           elicitation.URL,
-			ElicitationID: elicitation.ElicitationID,
-		})
-	}
-	recordRelayedElicitation(ctx, relayed)
-	logging.InfoWithAttrs("Aggregator", "Relaying a backend's URL elicitation",
-		slog.String("server", serverName),
-		slog.String("origin", a.devPortalOrigin))
-	return relayedElicitationResult(relayed), nil
+	return result, err
 }
 
-// refuseBackendElicitation returns why the server's URL elicitations are
-// not relayed, or "" when they are, and logs each one it drops with the
-// server and the origin of its page. One elicitation that may not be relayed
-// drops them all.
-func (a *AggregatorServer) refuseBackendElicitation(ctx context.Context, serverName string, elicitations []mcp.ElicitationParams) string {
-	drop := func(origin, reason string) {
-		logging.WarnWithAttrs("Aggregator", "Dropped a backend's URL elicitation",
-			slog.String("server", serverName),
-			slog.String("origin", origin),
-			slog.String("reason", reason))
+// answerBackendInput passes on a 2026-07-28 backend's input_required answer
+// (see the top of this file) and answers the call with its text answer.
+func answerBackendInput(ctx context.Context, serverName string, result *mcp.CallToolResult) *mcp.CallToolResult {
+	passed := &mcp.CallToolResult{
+		Result: mcp.Result{ResultType: mcp.ResultTypeInputRequired},
+		MultiRoundTripResult: mcp.MultiRoundTripResult{
+			InputRequests: make(mcp.InputRequests, len(result.InputRequests)),
+			RequestState:  backendInputState{Server: serverName, State: result.RequestState}.encode(),
+		},
 	}
-	if len(elicitations) == 0 {
-		drop("", "the error holds no elicitation")
-		return "it holds no page to open"
-	}
-
-	reason := ""
-	switch {
-	case !serverRelaysURLElicitation(ctx, serverName):
-		reason = "its MCPServer does not set spec.urlElicitation to Relay"
-	case a.devPortalOrigin == "":
-		reason = "muster has no aggregator.devPortalUrl"
-	}
-	refused := reason
-	for _, elicitation := range elicitations {
-		origin := config.URLOrigin(elicitation.URL)
-		elicitationReason := reason
-		if elicitationReason == "" {
-			switch {
-			case elicitation.Mode != mcp.ElicitationModeURL:
-				elicitationReason = fmt.Sprintf("the elicitation's mode is %q, not url", elicitation.Mode)
-			case origin == "" || origin != a.devPortalOrigin:
-				elicitationReason = "the page is not on the Dev Portal's origin"
-			}
-		}
-		if elicitationReason != "" {
-			drop(origin, elicitationReason)
-			if refused == "" {
-				refused = elicitationReason
-			}
-		}
-	}
-	return refused
-}
-
-// serverRelaysURLElicitation reports whether the server's MCPServer sets
-// spec.urlElicitation to Relay. The field is read from the definition source,
-// as spec.suspended is (serverSuspended): the aggregator keeps no copy of it.
-// Without a manager, or for a name it does not know or cannot read, nothing is
-// relayed. Nor is anything relayed from a server outside muster's namespace,
-// whose Relay its namespace refuses (api.ValidateServerNamespace): an
-// organization cannot put its own server on the allowlist, even while a
-// refused definition is still listed.
-func serverRelaysURLElicitation(ctx context.Context, serverName string) bool {
-	if api.IsTenantMCPServerKey(serverName) {
-		return false
-	}
-	manager := api.GetMCPServerManager()
-	if manager == nil {
-		return false
-	}
-	info, err := manager.GetMCPServer(ctx, serverName)
-	if err != nil || info == nil {
-		return false
-	}
-	return info.URLElicitation == api.MCPServerURLElicitationRelay
-}
-
-// declareURLElicitation makes a session-scoped client declare URL mode
-// elicitation to its server when the server's MCPServer relays it, as the
-// client factory does for a shared client (MCPClientConfig.URLElicitation),
-// and passes the server's completions of the elicitations muster relayed on
-// (observeRelayedCompletions) for the session the client belongs to. Call it
-// before the client's Initialize.
-func (a *AggregatorServer) declareURLElicitation(ctx context.Context, serverName string, client MCPClient) {
-	declarer, ok := client.(internalmcp.URLElicitationDeclarer)
-	if !ok || !serverRelaysURLElicitation(ctx, serverName) {
-		return
-	}
-	declarer.DeclareURLElicitation()
-	a.observeRelayedCompletions(serverName, getSessionIDFromContext(ctx), client)
-}
-
-// droppedElicitationResult answers a call whose URL elicitation muster
-// dropped. It names the server and why, and carries the server's own words,
-// the elicitations' messages, with every link in them removed: never a URL.
-func droppedElicitationResult(serverName, reason string, elicitations []mcp.ElicitationParams) *mcp.CallToolResult {
-	text := fmt.Sprintf("%s answered the call with a request to open a page, which muster does not pass on: %s.", serverName, reason)
-	for _, elicitation := range elicitations {
-		if message := strings.TrimSpace(linkPattern.ReplaceAllString(elicitation.Message, droppedLinkText)); message != "" {
-			text += "\n\n" + message
-		}
-	}
-	return mcp.NewToolResultError(text)
-}
-
-// linkPattern matches what a client or a model could open as a link in a
-// dropped elicitation's message: a URL with a scheme, and a scheme-relative
-// or bare-host one (//host/path, host.tld/path).
-var linkPattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*:|//)\S+|\b[a-z0-9-]+(\.[a-z0-9-]+)+/\S*`)
-
-// droppedLinkText stands for a link removed from a dropped elicitation's
-// message.
-const droppedLinkText = "[link removed]"
-
-// relayedElicitationResult answers a call with a relayed elicitation's
-// messages and links as text: the answer of a client that does not support
-// URL elicitation. The links are on the Dev Portal's origin.
-func relayedElicitationResult(relayed relayedElicitation) *mcp.CallToolResult {
 	var text strings.Builder
-	for i, elicitation := range relayed.elicitations {
-		if i > 0 {
-			text.WriteString("\n\n")
+	for key, request := range result.InputRequests {
+		if request.Elicitation != nil {
+			elicitation := *request.Elicitation
+			elicitation.Message = attributed(serverName, elicitation.Message)
+			request.Elicitation = &elicitation
+			if text.Len() > 0 {
+				text.WriteString("\n\n")
+			}
+			text.WriteString(elicitation.Message)
+			if elicitation.Mode == mcp.ElicitationModeURL {
+				fmt.Fprintf(&text, "\nOpen %s to continue, then call the tool again.", elicitation.URL)
+			}
 		}
-		if elicitation.Message != "" {
-			text.WriteString(elicitation.Message + "\n")
-		}
-		fmt.Fprintf(&text, "Open %s to continue, then call the tool again.", elicitation.URL)
+		passed.InputRequests[key] = request
 	}
+	if text.Len() == 0 {
+		fmt.Fprintf(&text, "[%s] The server asks the client for input muster's caller can provide only through MCP.", serverName)
+	}
+	recordBackendInput(ctx, backendInput{server: serverName, result: passed})
+	logging.InfoWithAttrs("Aggregator", "Passing on a backend's input request",
+		slog.String("server", serverName),
+		slog.Int("inputRequests", len(passed.InputRequests)))
 	return &mcp.CallToolResult{
 		Content:           []mcp.Content{mcp.NewTextContent(text.String())},
 		IsError:           true,
-		StructuredContent: map[string]any{relayedElicitationURLKey: relayed.link()},
+		StructuredContent: map[string]any{backendInputMarkerKey: passed.RequestState},
 	}
 }
 
-// relayedElicitationLink returns the link a relayed elicitation's text
+// backendInputMarker returns the requestState a backend input request's text
 // answer carries in structuredContent, directly or relayed by call_tool, or "".
-func relayedElicitationLink(result *mcp.CallToolResult) string {
+func backendInputMarker(result *mcp.CallToolResult) string {
 	if result == nil {
 		return ""
 	}
 	structured, _ := result.StructuredContent.(map[string]any)
-	link, _ := structured[relayedElicitationURLKey].(string)
-	return link
+	marker, _ := structured[backendInputMarkerKey].(string)
+	return marker
 }
 
-// elicitRelayed answers a tool call with a relayed backend elicitation, in
-// the shape of the request's protocol version: an input_required result
-// from 2026-07-28, URLElicitationRequiredError (-32042) before. Each
-// elicitation that holds the backend's elicitationId is recorded, so the
-// backend's completion of it reaches this request's transport session
-// (2025-11-25) or ends the wait of the retry (2026-07-28). waitExpired says
-// that this call is a retry which waited relayedRetryWait for the completion
-// in vain: the person is told so.
-func (a *AggregatorServer) elicitRelayed(ctx context.Context, relayed relayedElicitation, waitExpired bool) (*mcp.CallToolResult, error) {
-	modern := mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx))
-	transportID := ""
-	if !modern {
-		transportID = getTransportSessionID(ctx)
-	}
-	sessionID := getSessionIDFromContext(ctx)
-	state := relayedRequestState{Relayed: relayed.server}
-	elicitations := make([]mcp.ElicitationParams, len(relayed.elicitations))
-	for i, elicitation := range relayed.elicitations {
-		if elicitation.Message == "" {
-			elicitation.Message = fmt.Sprintf("%s asks you to open a page of the Dev Portal to continue.", relayed.server)
-		}
-		if waitExpired {
-			elicitation.Message = fmt.Sprintf("muster waited %s for %s to report that its page was completed, and it did not. %s",
-				fmt.Sprintf("%d minutes", int(relayedRetryWait/time.Minute)), relayed.server, elicitation.Message)
-		}
-		if elicitation.ElicitationID != "" {
-			a.relayedCompletions.add(relayed.server, sessionID, elicitation.ElicitationID, transportID)
-			state.ElicitationIDs = append(state.ElicitationIDs, elicitation.ElicitationID)
-		}
-		elicitations[i] = elicitation
-	}
+type backendRoundTripKey struct{}
 
-	if modern {
-		builder := mcpserver.NewInputRequestBuilder(state.encode())
-		for i, elicitation := range elicitations {
-			if elicitation.ElicitationID == "" {
-				// rmcp refuses a URL elicitation without one (signInElicitationID).
-				elicitation.ElicitationID = signInElicitationID(elicitation.URL)
-			}
-			builder.Elicit(relayedElicitationKey(i), elicitation)
-		}
-		return builder.ToolResult(), nil
-	}
+// pendingBackendRoundTrip is a retry's answer to a backend's input request,
+// handed to the dispatch that calls that backend.
+type pendingBackendRoundTrip struct {
+	state     backendInputState
+	responses mcp.InputResponses
+	taken     atomic.Bool
+}
 
-	for i := range elicitations {
-		if elicitations[i].ElicitationID == "" {
-			elicitations[i].ElicitationID = rand.Text()
+// withBackendRoundTrip carries a retry's answer to a backend's input request
+// to the dispatch of the call.
+func withBackendRoundTrip(ctx context.Context, state backendInputState, responses mcp.InputResponses) context.Context {
+	return context.WithValue(ctx, backendRoundTripKey{}, &pendingBackendRoundTrip{state: state, responses: responses})
+}
+
+// prepareBackendCall returns the context a tool call to the server runs
+// under: the capabilities of the client the call is made for, and, on the
+// retry of the server's input request, its answer and the server's own
+// requestState. The answer goes to the first call to the server, once. A retry
+// whose requestState names another server than the one the call is routed
+// to is refused: the client's echo does not choose where its answer goes.
+func prepareBackendCall(ctx context.Context, serverName string) (context.Context, error) {
+	ctx = internalmcp.WithCallerCapabilities(ctx, callerCapabilities(ctx))
+	pending, ok := ctx.Value(backendRoundTripKey{}).(*pendingBackendRoundTrip)
+	if !ok || !pending.taken.CompareAndSwap(false, true) {
+		return ctx, nil
+	}
+	if pending.state.Server != serverName {
+		return ctx, fmt.Errorf("the retry answers a request of %s, but the call goes to %s: call the tool again without inputResponses", pending.state.Server, serverName)
+	}
+	return internalmcp.WithRoundTrip(ctx, mcp.MultiRoundTripParams{
+		InputResponses: pending.responses,
+		RequestState:   pending.state.State,
+	}), nil
+}
+
+// passBackendInput answers a tool call with a 2026-07-28 backend's input
+// request, in the shape of the request's protocol version. A 2026-07-28
+// client gets the input_required result. A 2025-11-25 client is asked to open
+// the pages of a request made only of URL elicitations with -32042, which it
+// answers by calling the tool again; any other request is returned as is, and
+// mcp-go asks it with the server-initiated requests of that revision and calls
+// the tool again with the answers and the requestState.
+func passBackendInput(ctx context.Context, input backendInput) (*mcp.CallToolResult, error) {
+	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
+		return input.result, nil
+	}
+	elicitations := make([]mcp.ElicitationParams, 0, len(input.result.InputRequests))
+	for _, request := range input.result.InputRequests {
+		if request.Elicitation == nil || request.Elicitation.Mode != mcp.ElicitationModeURL {
+			return input.result, nil
 		}
+		elicitation := *request.Elicitation
+		if elicitation.ElicitationID == "" {
+			elicitation.ElicitationID = rand.Text()
+		}
+		elicitations = append(elicitations, elicitation)
+	}
+	if len(elicitations) == 0 || !clientSupportsURLElicitation(ctx) {
+		return input.result, nil
 	}
 	return nil, mcp.URLElicitationRequiredError{Elicitations: elicitations}
-}
-
-// relayedElicitationKey is the inputRequests key of the i-th relayed
-// elicitation of an input_required answer.
-func relayedElicitationKey(i int) string {
-	return fmt.Sprintf("%s_%d", relayedElicitationInputKey, i)
-}
-
-// relayedElicitationAnswer returns the action of a 2026-07-28 retry that
-// answers relayed elicitations -- the first that is not accept, else accept --
-// and whether the retry answers any.
-func relayedElicitationAnswer(responses mcp.InputResponses) (mcp.ElicitationResponseAction, bool) {
-	action, answered := mcp.ElicitationResponseActionAccept, false
-	for key := range responses {
-		if !strings.HasPrefix(key, relayedElicitationInputKey+"_") {
-			continue
-		}
-		answered = true
-		answer := mcpserver.ElicitationResponse(responses, key)
-		if answer == nil || answer.Action != mcp.ElicitationResponseActionAccept {
-			action = mcp.ElicitationResponseActionDecline
-			if answer != nil {
-				action = answer.Action
-			}
-		}
-	}
-	return action, answered
-}
-
-// decodeRelayedRequestState reads a retry's requestState; an unreadable one
-// is the zero value, which waits for nothing.
-func decodeRelayedRequestState(requestState string) relayedRequestState {
-	var state relayedRequestState
-	_ = json.Unmarshal([]byte(requestState), &state)
-	return state
-}
-
-// declinedRelayedResult answers a retry whose relayed elicitation the person
-// declined or cancelled. The server is from the client's echo of requestState.
-func declinedRelayedResult(action mcp.ElicitationResponseAction, requestState string) *mcp.CallToolResult {
-	state := decodeRelayedRequestState(requestState)
-	if state.Relayed == "" {
-		return mcp.NewToolResultError(fmt.Sprintf("The tool did not run: the person answered %s to opening the page.", action))
-	}
-	return mcp.NewToolResultError(fmt.Sprintf("The tool did not run: the person answered %s to opening the page %s asked for.", action, state.Relayed))
 }

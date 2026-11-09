@@ -172,17 +172,6 @@ type MCPServerSpec struct {
 	// +optional
 	Progress *MCPServerProgress `json:"progress,omitempty" yaml:"progress,omitempty"`
 
-	// URLElicitation decides what muster does when this server answers a
-	// tool call with a URL elicitation, a request that the person open a
-	// page. Relay declares URL mode elicitation to the server and passes the
-	// request on to muster's client, but only when the page is on the
-	// origin of muster's aggregator.devPortalUrl. Unset or Drop, muster does
-	// not declare it, and drops and logs any URL elicitation the server
-	// sends: the client gets a tool error that does not hold the URL.
-	// +kubebuilder:validation:Enum=Drop;Relay
-	// +optional
-	URLElicitation string `json:"urlElicitation,omitempty" yaml:"urlElicitation,omitempty"`
-
 	// Suspended declares the desired lifecycle state of this server's service.
 	// When true, the reconciler stops the service (and refuses to start it)
 	// until the field is set back to false. This is the CR-driven replacement

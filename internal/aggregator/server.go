@@ -152,16 +152,6 @@ type AggregatorServer struct {
 	// awaiting notifications/elicitation/complete (url_elicitation.go).
 	signInElicitations signInElicitations
 
-	// relayedCompletions are the backend URL elicitations muster relayed,
-	// awaiting the backend's notifications/elicitation/complete
-	// (backend_elicitation.go).
-	relayedCompletions relayedCompletions
-
-	// devPortalOrigin is the origin of aggregator.devPortalUrl, the only one
-	// a backend's URL elicitation is relayed to; "" relays none
-	// (backend_elicitation.go).
-	devPortalOrigin string
-
 	// Per-backend tool dispatch metrics. May be nil when instrument
 	// creation failed; record() is nil-safe.
 	downstreamMetrics *downstreamMetrics
@@ -834,10 +824,6 @@ func (s *ssoTracker) CleanupExpired() {
 // Returns a configured but unstarted aggregator server ready for initialization,
 // or an error when the configured session store backend cannot be reached.
 func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorCallback func(error)) (*AggregatorServer, error) {
-	devPortalOrigin, err := config.DevPortalOrigin(aggConfig.DevPortalURL)
-	if err != nil {
-		return nil, err
-	}
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 	stores, err := createStores(ctx, aggConfig)
 	if err != nil {
@@ -859,7 +845,6 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 	}
 
 	return &AggregatorServer{
-		devPortalOrigin:   devPortalOrigin,
 		providerApps:      providerApps,
 		deviceSignIns:     newDeviceSignIns(deviceStore),
 		config:            aggConfig,
@@ -1422,7 +1407,6 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 		}
 	})
 	a.observeSharedRecovery(registration.Name, client)
-	a.observeRelayedCompletions(registration.Name, "", client)
 
 	if err := a.registry.Register(ctx, registration, client); err != nil {
 		return err
@@ -2166,8 +2150,12 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
 			start := time.Now()
 			ctx := observability.AnnotateDownstreamCall(ctx, sessionServerName, toolName, originalName)
-			res, err := a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
-			res, err = a.answerBackendElicitation(ctx, sessionServerName, res, err)
+			ctx, err := prepareBackendCall(ctx, sessionServerName)
+			var res *mcp.CallToolResult
+			if err == nil {
+				res, err = a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
+				res, err = answerBackendElicitation(ctx, sessionServerName, res, err)
+			}
 			a.finishDispatch(ctx, sessionServerName, toolName, start, res, err)
 			return res, err
 		}
@@ -2298,10 +2286,13 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 	}
 	start := time.Now()
 	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
-	// Runs before finishDispatch: a backend's URL elicitation is relayed or
-	// dropped here, where the server it came from is known.
-	defer func() { res, err = a.answerBackendElicitation(ctx, serverName, res, err) }()
+	// Runs before finishDispatch: a backend's input request is passed on
+	// here, where the server it came from is known.
+	defer func() { res, err = answerBackendElicitation(ctx, serverName, res, err) }()
 	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
+	if ctx, err = prepareBackendCall(ctx, serverName); err != nil {
+		return nil, err
+	}
 	serverInfo, exists := a.registry.GetServerInfo(serverName)
 	if !exists || serverInfo == nil {
 		if serverInfo, err = a.awaitServer(ctx, serverName); err != nil {
@@ -3365,7 +3356,6 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 		return nil, time.Time{}, "", err
 	}
 	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
-	a.declareURLElicitation(ctx, serverName, client)
 	return client, tokenExpiry, exchangedToken, nil
 }
 

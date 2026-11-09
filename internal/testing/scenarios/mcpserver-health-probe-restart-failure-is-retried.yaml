@@ -78,7 +78,7 @@ steps:
       contains: ["answers its next 1000 requests with HTTP 404"]
 
   - id: "unhealthy-detected-and-reconnect-failed-on-the-404"
-    description: "Three failed pings turn the server unhealthy; the reconnect attempt that follows runs into the 404 on initialize"
+    description: "Three failed probes turn the server unhealthy; the reconnect attempt that follows runs into the 404 on its handshake"
     tool: "core_events"
     args:
       resourceType: "MCPServer"
@@ -87,7 +87,7 @@ steps:
       success: true
       wait_for_state: "45s"
       contains:
-        - "health check failed: 3 consecutive failures: MCP ping failed"
+        - "health check failed: 3 consecutive failures: MCP tools/list failed"
         - "endpoint answered the initialize POST with HTTP 404 Not Found"
     timeout: "60s"
 

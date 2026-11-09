@@ -10,9 +10,6 @@ data:
       host: "0.0.0.0"
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
-      {{- with .Values.muster.aggregator.devPortalUrl }}
-      devPortalUrl: {{ . | quote }}
-      {{- end }}
       {{- with .Values.muster.credentialProvider }}
       {{- if .enabled }}
       {{- if not .gatewayIdentity }}{{ fail "muster.credentialProvider.gatewayIdentity is required" }}{{- end }}

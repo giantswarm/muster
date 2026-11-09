@@ -134,7 +134,8 @@ func serveGrantBackend(t *testing.T, mcpSrv *mcpgoserver.MCPServer, accept strin
 			return
 		}
 		body, _ := io.ReadAll(r.Body)
-		if bytes.Contains(body, []byte(`"initialize"`)) {
+		// The handshake of either revision: server/discover from 2026-07-28.
+		if bytes.Contains(body, []byte(`"initialize"`)) || bytes.Contains(body, []byte(`"server/discover"`)) {
 			initializes.Add(1)
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))

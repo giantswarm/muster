@@ -234,12 +234,26 @@ downstream tools the call reaches, under its own token:
 - A call without a `progressToken` sends none downstream.
 
 The counter is `muster.downstream_progress_notifications` (see
-[Observability](observability.md)). Sampling and form elicitation requests
-from a downstream server are not relayed. A downstream URL elicitation is
-relayed only from a server with `spec.urlElicitation: Relay` and to the Dev
-Portal's origin, and the server's `notifications/elicitation/complete` for it
-goes to the session that received it, on the replica that relayed it (see
-[A call a server answers with a URL elicitation](../reference/mcp-tools.md#a-call-a-server-answers-with-a-url-elicitation)).
+[Observability](observability.md)).
+
+### Protocol Revisions and Input Requests
+
+muster speaks MCP 2026-07-28 to every downstream server that does, and falls
+back per server to the revision it answers `initialize` with, 2025-11-25 at
+most. A downstream server that asks the person for input mid-call (an
+elicitation, a sampling request, the client's roots) does so with an
+`input_required` result: muster declares on each call the capabilities of the
+client it calls for, passes the server's request to that client with the
+server's key in front of each message, and carries the client's answers back
+to the same server on the retry (see
+[A call a server answers with an input request](../reference/mcp-tools.md#a-call-a-server-answers-with-an-input-request)).
+A 2025-11-25 downstream server is declared no capability and asks nothing
+through muster.
+
+A 2026-07-28 server delivers `notifications/tools/list_changed` and the other
+list changes it declares on a `subscriptions/listen` stream muster holds open
+to it, reopened when it drops; a 2025-11-25 server on the standalone GET
+stream, as before. The periodic re-listing covers a server that sends none.
 
 ### Tool Calls Across a Replica Stop
 

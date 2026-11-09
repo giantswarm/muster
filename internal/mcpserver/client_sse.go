@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -99,16 +98,7 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to start SSE transport: %w", err)
 	}
 
-	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: api.ClientProtocolVersion,
-			ClientInfo: mcp.Implementation{
-				Name:    clientName,
-				Version: clientVersion,
-			},
-			Capabilities: c.clientCapabilities(),
-		},
-	})
+	initResult, err := c.initialize(ctx, mcpClient, mcp.Implementation{Name: clientName, Version: clientVersion})
 	if err != nil {
 		_ = mcpClient.Close()
 
@@ -124,7 +114,9 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 	c.client = mcpClient
 	c.connected = true
 	c.recordHandshake(initResult)
+	c.fellBackToLegacy(initResult)
 	c.wireNotificationHandler()
+	c.startListChangedStream(mcpClient, c.url)
 
 	logging.Debug("SSEClient", "SSE client initialized. Server: %s, Version: %s",
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)

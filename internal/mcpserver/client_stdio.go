@@ -6,7 +6,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -71,16 +70,7 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 		defer cancel()
 	}
 
-	initResult, err := mcpClient.Initialize(initCtx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: api.ClientProtocolVersion,
-			ClientInfo: mcp.Implementation{
-				Name:    "muster",
-				Version: clientVersion,
-			},
-			Capabilities: c.clientCapabilities(),
-		},
-	})
+	initResult, err := c.initialize(initCtx, mcpClient, mcp.Implementation{Name: "muster", Version: clientVersion})
 	if err != nil {
 		logging.Error("StdioClient", err, "Failed to initialize MCP protocol for %s", c.command)
 		closeErr := mcpClient.Close()
@@ -95,7 +85,9 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 	c.client = mcpClient
 	c.connected = true
 	c.recordHandshake(initResult)
+	c.fellBackToLegacy(initResult)
 	c.wireNotificationHandler()
+	c.startListChangedStream(mcpClient, c.command)
 
 	// Log server capabilities
 	if initResult.Capabilities.Tools != nil {
