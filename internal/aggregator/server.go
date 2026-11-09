@@ -1761,8 +1761,9 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 }
 
 // registerSubjectRoutes registers the endpoints that act as the person the
-// bearer names, each behind authenticate.
-func (a *AggregatorServer) registerSubjectRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Handler) error {
+// bearer names, each behind the OAuth server's ValidateTokenWithSubject.
+func (a *AggregatorServer) registerSubjectRoutes(mux *http.ServeMux, oauthHTTPServer oauthServer) error {
+	authenticate := oauthHTTPServer.ValidateTokenWithSubject
 	mux.Handle("DELETE /user-tokens", authenticate(http.HandlerFunc(a.handleUserTokensDeletion)))
 	mux.Handle("DELETE /auth/{server}", authenticate(http.HandlerFunc(a.handleAuthServerDeletion)))
 	return a.registerSessionBindingRoutes(mux, authenticate)
@@ -1897,7 +1898,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	if err := a.registerSubjectRoutes(outerMux, oauthHTTPServer.ValidateTokenWithSubject); err != nil {
+	if err := a.registerSubjectRoutes(outerMux, oauthHTTPServer); err != nil {
 		return nil, err
 	}
 	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated); err != nil {

@@ -90,18 +90,26 @@ func TestStartCredentialProviderNeedsTheOAuthServer(t *testing.T) {
 	a.stopCredentialProvider(context.Background())
 }
 
+// subjectGuardServer is an oauthServer whose ValidateTokenWithSubject refuses
+// every request and records it.
+type subjectGuardServer struct {
+	fakeOAuthServer
+	authenticated []string
+}
+
+func (s *subjectGuardServer) ValidateTokenWithSubject(http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.authenticated = append(s.authenticated, r.Method+" "+r.URL.Path)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	})
+}
+
 func TestSubjectRoutesAreAuthenticated(t *testing.T) {
 	a := &AggregatorServer{}
 	a.config.CredentialProvider = credentialProviderConfig()
 	mux := http.NewServeMux()
-	var authenticated []string
-	authenticate := func(http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authenticated = append(authenticated, r.Method+" "+r.URL.Path)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-		})
-	}
-	require.NoError(t, a.registerSubjectRoutes(mux, authenticate))
+	guard := &subjectGuardServer{}
+	require.NoError(t, a.registerSubjectRoutes(mux, guard))
 
 	for _, route := range []struct{ method, path string }{
 		{http.MethodPut, credprovider.BindingsPath},
@@ -110,11 +118,11 @@ func TestSubjectRoutesAreAuthenticated(t *testing.T) {
 		{http.MethodDelete, "/auth/mcp-kubernetes"},
 	} {
 		t.Run(route.method+" "+route.path, func(t *testing.T) {
-			authenticated = nil
+			guard.authenticated = nil
 			rec := httptest.NewRecorder()
 			mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), route.method, route.path, nil))
 			require.Equal(t, http.StatusUnauthorized, rec.Code)
-			require.Len(t, authenticated, 1)
+			require.Len(t, guard.authenticated, 1)
 		})
 	}
 }

@@ -30,10 +30,22 @@ func (s *OAuthHTTPServer) isDelegated(userInfo *providers.UserInfo) bool {
 }
 
 // namesActor reports whether a validated bearer carries an act claim (RFC 8693
-// §4.1): some party acts for the person, from any issuer. isDelegated is the
-// narrower case muster serves on its MCP endpoints.
+// §4.1): some party acts for the person, from any issuer and token source.
+// mcp-oauth sets ActorChain, with at least one entry, whenever the token has
+// act. UserInfo.IsOBO is narrower (trusted-issuer tokens only), and so is
+// isDelegated, the case muster serves on its MCP endpoints.
 func namesActor(userInfo *providers.UserInfo) bool {
-	return userInfo != nil && (userInfo.ActorIssuer != "" || userInfo.ActorSubject != "" || len(userInfo.ActorChain) > 0)
+	return userInfo != nil && len(userInfo.ActorChain) > 0
+}
+
+// actorSubjects lists the sub of each actor in the bearer's act chain, the
+// current actor first.
+func actorSubjects(userInfo *providers.UserInfo) []string {
+	subjects := make([]string, 0, len(userInfo.ActorChain))
+	for _, actor := range userInfo.ActorChain {
+		subjects = append(subjects, actor.Subject)
+	}
+	return subjects
 }
 
 // serveDelegated serves a request whose validated bearer is a delegated token:
@@ -51,10 +63,7 @@ func (s *OAuthHTTPServer) serveDelegated(w http.ResponseWriter, r *http.Request,
 	ctx := r.Context()
 	bearer := extractBearerToken(r)
 	sessionID, _ := oauthhandler.SessionIDFromContext(ctx)
-	actorChain := make([]string, 0, len(userInfo.ActorChain))
-	for _, actor := range userInfo.ActorChain {
-		actorChain = append(actorChain, actor.Subject)
-	}
+	actorChain := actorSubjects(userInfo)
 	actorDetails := fmt.Sprintf("session=%s actor_iss=%s actors=[%s]",
 		logging.TruncateIdentifier(sessionID), userInfo.ActorIssuer, strings.Join(actorChain, ","))
 	audit := logging.AuditEvent{

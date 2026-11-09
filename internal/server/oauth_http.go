@@ -597,11 +597,11 @@ func (s *OAuthHTTPServer) withValidatedSubject(next http.Handler) http.Handler {
 		if namesActor(userInfo) {
 			const reason = "a token naming an acting party cannot act as the person on this endpoint"
 			logging.Audit(logging.AuditEvent{
-				Action:  "delegated_bearer",
+				Action:  "subject_endpoint_bearer",
 				Outcome: "failure",
 				Subject: logging.TruncateIdentifier(userInfo.ID),
 				Target:  r.Method + " " + r.URL.Path,
-				Details: fmt.Sprintf("actor_iss=%s actor=%s", userInfo.ActorIssuer, userInfo.ActorSubject),
+				Details: fmt.Sprintf("actor_iss=%s actors=[%s]", userInfo.ActorIssuer, strings.Join(actorSubjects(userInfo), ",")),
 				Error:   reason,
 			})
 			w.Header().Set("WWW-Authenticate", s.insufficientScopeChallenge(reason))

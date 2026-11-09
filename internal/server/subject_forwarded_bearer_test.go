@@ -11,6 +11,7 @@ import (
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -104,21 +105,27 @@ func TestSubjectEndpointRefusesTokensNamingAnActor(t *testing.T) {
 		TokenSource:  providers.TokenSourceTrustedIssuer,
 		ActorIssuer:  "https://obo.example.com",
 		ActorSubject: "agent-manager",
+		ActorChain:   []oidc.ActorClaim{{Issuer: "https://obo.example.com", Subject: "agent-manager"}},
 	}
-	actorIssuerOnly := &providers.UserInfo{
-		ID:          "CgdwZXJzb24xEgNkZXg",
-		Issuer:      "https://obo.example.com",
-		TokenSource: providers.TokenSourceSSO,
-		ActorIssuer: "https://idp.ate-system.svc",
+	forwardedChain := &providers.UserInfo{
+		ID:           "CgdwZXJzb24xEgNkZXg",
+		Issuer:       "https://dex.example.com",
+		TokenSource:  providers.TokenSourceSSO,
+		ActorIssuer:  "https://idp.ate-system.svc",
+		ActorSubject: "actor/kagent/session-2",
+		ActorChain: []oidc.ActorClaim{
+			{Issuer: "https://idp.ate-system.svc", Subject: "actor/kagent/session-2"},
+			{Issuer: "https://idp.ate-system.svc", Subject: "actor/kagent/session-1"},
+		},
 	}
 	for _, testCase := range []struct {
 		name     string
 		userInfo *providers.UserInfo
 		actor    string
 	}{
-		{"delegated", delegatedUserInfo(), "actor_iss=https://idp.ate-system.svc actor=actor/kagent/session-1"},
-		{"on behalf of, issuer without delegation", onBehalfOf, "actor_iss=https://obo.example.com actor=agent-manager"},
-		{"act naming only an issuer", actorIssuerOnly, "actor_iss=https://idp.ate-system.svc actor="},
+		{"delegated", delegatedUserInfo(), "actor_iss=https://idp.ate-system.svc actors=[actor/kagent/session-1]"},
+		{"on behalf of, issuer without delegation", onBehalfOf, "actor_iss=https://obo.example.com actors=[agent-manager]"},
+		{"forwarded ID token with an actor chain", forwardedChain, "actor_iss=https://idp.ate-system.svc actors=[actor/kagent/session-2,actor/kagent/session-1]"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			buf.Reset()
@@ -133,7 +140,7 @@ func TestSubjectEndpointRefusesTokensNamingAnActor(t *testing.T) {
 			require.Equal(t, http.StatusForbidden, response.Code)
 			require.Contains(t, response.Header().Get("WWW-Authenticate"), `error="insufficient_scope"`)
 			line := buf.String()
-			require.Contains(t, line, "action=delegated_bearer outcome=failure")
+			require.Contains(t, line, "action=subject_endpoint_bearer outcome=failure")
 			require.Contains(t, line, "target=PUT /session-bindings")
 			require.Contains(t, line, testCase.actor)
 			require.Contains(t, line, "error=a token naming an acting party cannot act as the person on this endpoint")
