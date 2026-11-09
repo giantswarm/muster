@@ -20,8 +20,8 @@ type Fixture struct {
 	Sessions []Session
 
 	// MusterOAuthServer names the mock authorization server that is muster's
-	// own; FleetIssuer the one whose tokens the forwardToken servers trust
-	// (the tokens a scenario mints to open a session).
+	// own and whose provider tokens the SSO backends trust. FleetIssuer is a
+	// separate trusted issuer for workload authentication tests.
 	MusterOAuthServer, FleetIssuer string
 }
 

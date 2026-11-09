@@ -181,6 +181,7 @@ func newSubscriber(t *testing.T, person string) *subscriber {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	ctx = server.ContextWithBearerToken(ctx, unsignedJWT(t, map[string]any{"sub": person, "exp": time.Now().Add(time.Hour).Unix()}))
+	ctx = server.ContextWithIDToken(ctx, unsignedJWT(t, map[string]any{"sub": person, "aud": "mailbox", "exp": time.Now().Add(time.Hour).Unix()}))
 	ctx = api.WithSessionID(ctx, "session-"+person)
 	ctx = mcpserver.NewMCPServer("muster", "test").WithContext(ctx, sess)
 	return &subscriber{session: sess, ctx: ctx, cancel: cancel}

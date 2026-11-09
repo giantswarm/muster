@@ -14,11 +14,9 @@ description: |
       detail in its error field, so a client can show why SSO failed;
     - the token itself never reaches the logs.
 
-  The agent connects with a dex-issued OBO bearer (aud = muster's issuer, the
-  test_mint_token default). The backend validates forwarded JWTs against that
-  issuer's JWKS and requires the audience platform-client, which the token
-  does not carry -- the gazelle agent-manager case, where the Backstage
-  client's audiences were not in the backend's trusted set.
+  A browser login establishes a provider ID token for explicitly configured
+  SSO. The backend trusts that provider's JWKS but requires platform-client,
+  which the provider token does not carry.
 tags: ["oauth", "sso", "token-forwarding", "auth-status", "negative", "issue-1141"]
 timeout: "2m"
 
@@ -33,13 +31,6 @@ pre_configuration:
       client_secret: "muster-secret"
       use_as_muster_oauth_server: true
 
-    - name: "workload-idp"
-
-  muster_broker:
-    trusted_issuers:
-      - oauth_server_ref: "workload-idp"
-        accepted_typ_headers: [""]
-
   mcp_servers:
     - name: "strict-backend"
       config:
@@ -48,7 +39,7 @@ pre_configuration:
         expect_ready: false
         oauth:
           required: true
-          trust_issuer_ref: "workload-idp"
+          trust_issuer_ref: "muster-idp"
           expected_audience: "platform-client"
           forward_token: true
         tools:
@@ -69,25 +60,19 @@ steps:
       contains: ["strict-backend"]
       wait_for_state: "30s"
 
-  - id: "mint-dex-obo-token"
-    description: "Dex mints the OBO token; aud defaults to muster's issuer, not platform-client"
-    tool: "test_mint_token"
+  - id: "provider-login"
+    description: "Obtain a provider credential through browser authorization"
+    tool: "test_muster_auth_login"
     args:
-      server: "workload-idp"
       name: "obo-token"
-      sub: "alice@giantswarm.io"
-      email: "alice@giantswarm.io"
-      email_verified: true
-      act:
-        sub: "agent:sre-agent"
+      subject: "alice@giantswarm.io"
     expected:
       success: true
 
   - id: "connect-as-agent"
     description: |
-      Present the bearer on /mcp. muster trusts the issuer and establishes
-      the session; the SSO bootstrap forwards the bearer to strict-backend,
-      which rejects it over the audience.
+      Present the issued access token on /mcp. The session's provider token
+      is rejected by strict-backend over its audience.
     tool: "test_reconnect_with_token"
     args:
       token_ref: "obo-token"

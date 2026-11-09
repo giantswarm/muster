@@ -65,6 +65,19 @@ func (m *musterInstanceManager) applyBrokerConfig(
 		}
 		trustedIssuers = append(trustedIssuers, entry)
 	}
+	existingIssuers, _ := serverConfig["trustedIssuers"].([]map[string]interface{})
+	for _, existing := range existingIssuers {
+		found := false
+		for _, configured := range trustedIssuers {
+			if configured["issuer"] == existing["issuer"] {
+				found = true
+				break
+			}
+		}
+		if !found {
+			trustedIssuers = append(trustedIssuers, existing)
+		}
+	}
 	serverConfig["trustedIssuers"] = trustedIssuers
 
 	// Brokered exchange: confidential clients and the audiences they may

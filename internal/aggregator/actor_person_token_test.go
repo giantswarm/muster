@@ -65,7 +65,7 @@ func newPinnedLoginFixture(t *testing.T, backend string) *pinnedLoginFixture {
 }
 
 // login files a login ID token of the session, as muster's sign-in, a
-// refresh, or a forwarded bearer does.
+// refresh, or a resource bearer does.
 func (f *pinnedLoginFixture) login(sessionID, userID, token string, exp time.Time) {
 	api.StoreLoginIDToken(f.handler, sessionID, userID, identityTestIssuer, token, exp)
 }

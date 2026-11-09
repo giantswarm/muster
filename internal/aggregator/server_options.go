@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 
+	"github.com/giantswarm/mcp-toolkit/brand"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpotel "github.com/mark3labs/mcp-go/otel"
 	"github.com/mark3labs/mcp-go/server"
@@ -47,7 +48,8 @@ func RequestSpan() server.ToolHandlerMiddleware {
 }
 
 // mcpServerCapabilityOptions returns the capability advertisement for the
-// aggregator's mcp-go server.
+// aggregator's mcp-go server, along with the Giant Swarm logo as its icon
+// (serverInfo.icons).
 //
 // resources.subscribe is on for subscriptions/listen (MCP 2026-07-28), which
 // the aggregator relays per user to the backend serving each URI
@@ -56,6 +58,7 @@ func RequestSpan() server.ToolHandlerMiddleware {
 // subscriber.
 func mcpServerCapabilityOptions() []server.ServerOption {
 	return []server.ServerOption{
+		brand.WithGiantSwarmIcon(),
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, true),
 		server.WithPromptCapabilities(true),

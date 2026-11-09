@@ -115,9 +115,9 @@ func signIDToken(t *testing.T, key *ecdsa.PrivateKey, issuer string) string {
 }
 
 // TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID sends one
-// MCP request with a forwarded Dex ID token and an X-Request-ID through the
-// served handler chain, and reads mcp-oauth's forwarded_id_token_accepted
-// audit lines.
+// MCP request with a Dex ID token issued to a trustedAudiences client, as
+// agentgateway forwards it, and an X-Request-ID through the served handler
+// chain, and reads mcp-oauth's forwarded_id_token_accepted audit lines.
 func TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID(t *testing.T) {
 	issuer, caFile, signingKey := startSigningDex(t)
 

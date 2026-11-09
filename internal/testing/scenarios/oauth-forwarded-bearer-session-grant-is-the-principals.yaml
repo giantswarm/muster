@@ -43,7 +43,6 @@ pre_configuration:
   muster_broker:
     trusted_issuers:
       - oauth_server_ref: "muster-idp"
-        accepted_typ_headers: [""]
 
   mcp_servers:
     - name: "session-scoped"
@@ -71,23 +70,23 @@ steps:
 
   - id: "mint-alice-first"
     tool: "test_mint_token"
-    args: {server: "muster-idp", name: "alice-first", sub: "alice", azp: "portal", jti: "alice-1"}
+    args: {typ: "at+jwt", server: "muster-idp", name: "alice-first", sub: "alice", azp: "portal", jti: "alice-1"}
     expected: {success: true}
   - id: "mint-alice-second"
     tool: "test_mint_token"
-    args: {server: "muster-idp", name: "alice-second", sub: "alice", azp: "portal", jti: "alice-2"}
+    args: {typ: "at+jwt", server: "muster-idp", name: "alice-second", sub: "alice", azp: "portal", jti: "alice-2"}
     expected: {success: true}
   - id: "mint-alice-third"
     tool: "test_mint_token"
-    args: {server: "muster-idp", name: "alice-third", sub: "alice", azp: "portal", jti: "alice-3"}
+    args: {typ: "at+jwt", server: "muster-idp", name: "alice-third", sub: "alice", azp: "portal", jti: "alice-3"}
     expected: {success: true}
   - id: "mint-alice-other-client"
     tool: "test_mint_token"
-    args: {server: "muster-idp", name: "alice-cli", sub: "alice", azp: "cli", jti: "alice-cli"}
+    args: {typ: "at+jwt", server: "muster-idp", name: "alice-cli", sub: "alice", azp: "cli", jti: "alice-cli"}
     expected: {success: true}
   - id: "mint-bob"
     tool: "test_mint_token"
-    args: {server: "muster-idp", name: "bob", sub: "bob", azp: "portal", jti: "bob-1"}
+    args: {typ: "at+jwt", server: "muster-idp", name: "bob", sub: "bob", azp: "portal", jti: "bob-1"}
     expected: {success: true}
 
   - id: "alice-first-connects"

@@ -15,12 +15,9 @@ import (
 // The function sends the session's upstream ID token in HeaderMusterIDToken
 // next to the pinned grant the OAuth handler puts in Authorization, which it
 // leaves alone. The token is the one a forwardToken server would receive in
-// Authorization, resolved the same way on every request: the validated inbound
-// bearer when it is a forwardable JWT, else the session's ID token from the
-// request or the OAuth store, refreshed in process when the store holds no
-// valid one (getIDTokenForForwarding). A token refreshed during the
-// connection's life is therefore sent on the next call. A session without an
-// upstream ID token sends no header rather than an empty one.
+// Authorization. It resolves the session's provider ID token from the request
+// context or OAuth store and refreshes when needed. A resource bearer is never
+// sent in this header. A session without a provider ID token sends no header.
 //
 // mcp-go calls the function concurrently for the listening GET and for tool
 // calls; it holds no state of its own, and the refresh is coalesced per user
@@ -32,10 +29,7 @@ func (a *AggregatorServer) identityHeaderFunc(sessionID string, serverInfo *Serv
 	musterIssuer := a.getMusterIssuer()
 	refresher := a.sessionRefresher()
 	return func(ctx context.Context) map[string]string {
-		token := forwardableBearer(ctx)
-		if token == "" {
-			token = getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
-		}
+		token := getIDTokenForForwarding(ctx, sessionID, musterIssuer, refresher)
 		if token == "" {
 			return nil
 		}

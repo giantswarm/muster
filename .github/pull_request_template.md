@@ -20,7 +20,3 @@
 - [ ] Existing tests have been updated to reflect changes.
 
 ### Do the docs need to be updated?
-
-### Should this change be mentioned in the release notes?
-
-- [ ] CHANGELOG.md has been updated (if it exists)
