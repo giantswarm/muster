@@ -88,7 +88,7 @@ type challengeRecorderKey struct{}
 // which only muster's dispatch records (backend_elicitation.go).
 type challengeRecorder struct {
 	challenge    atomic.Pointer[signInChallenge]
-	backendInput atomic.Pointer[backendInput]
+	backendInput atomic.Pointer[mcp.CallToolResult]
 }
 
 func withChallengeRecorder(ctx context.Context) (context.Context, *challengeRecorder) {
@@ -149,8 +149,8 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 			if err != nil {
 				return result, err
 			}
-			if input := recorder.backendInput.Load(); input != nil && backendInputMarker(result) == input.result.RequestState {
-				return passBackendInput(callCtx, *input)
+			if input := recorder.backendInput.Load(); input != nil && backendInputMarker(result) == input.RequestState {
+				return passBackendInput(callCtx, input)
 			}
 			if !supportsURL {
 				return result, err

@@ -168,15 +168,16 @@ On each tool call to a 2026-07-28 server, muster declares the `elicitation` capa
 A 2026-07-28 server that needs something of the person answers with `resultType: "input_required"`. muster passes it to the client:
 
 - each elicitation's `message` is put on one line (each run of white space made one space) and prefixed with the server's key in brackets, `[github]` or, for a server of an organization namespace, `[org-a/github]`: the client only sees muster, and the person is told which server asks;
-- `requestState` is the server's own, wrapped with the server's key and the tool's name. The client echoes it with `inputResponses` on its retry of the same tool, and muster hands the server its own `requestState` and the answers. A retry whose `requestState` names another server or tool than the one called is refused, so the echo never chooses where an answer goes.
+- each URL elicitation without an `elicitationId` gets one, the same for every answer with one link: the 2026-07-28 schema does not define it, and rmcp requires it;
+- `requestState` is the server's own, wrapped with the server's key and the tool's name. The client echoes it with `inputResponses` on its retry of the same tool, and muster hands the server its own `requestState` and the answers. A retry whose `requestState` names another server or tool than the one called is refused, so the echo never chooses where an answer goes. muster binds the server's own `requestState` to nothing else: the server treats it as attacker-controlled input and verifies it, as MRTR requires (integrity, the person it was issued to, expiry).
 
 | Client's protocol version | Answer |
 |---|---|
 | 2026-07-28 or later | The `input_required` result, as described above. |
-| 2025-11-25, a request made only of URL elicitations | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitations, each with the server's `elicitationId` or, when it has none, one that is the same for every answer with one link. Call the tool again once the pages are done. That revision has no `requestState`, so the server is called without its own: it must tell from its own records whether the pages are done, and otherwise asks again. muster sends no `notifications/elicitation/complete` for these elicitations. |
+| 2025-11-25, a request made only of URL elicitations | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitations and their `elicitationId`. Call the tool again once the pages are done. That revision has no `requestState`, so the server is called without its own: it must tell from its own records whether the pages are done, and otherwise asks again. muster sends no `notifications/elicitation/complete` for these elicitations. |
 | 2025-11-25, a form elicitation | `elicitation/create`, then the tool call runs again with the answers and the server's `requestState`. |
 
-Through `call_tool`, a workflow, or any other path that cannot carry an input request, the call's answer is a tool error holding each message and the link of each URL elicitation.
+A call made through `call_tool` is answered the same way, and its retry is a `call_tool` call echoing `requestState`. Through a workflow, or any other path that cannot carry an input request, the call's answer is a tool error holding each message and the link of each URL elicitation.
 
 muster declares no capability at the `initialize` of a 2025-11-25 server: such a server is asked for the answer it gives a client that cannot be asked.
 

@@ -31,6 +31,10 @@ import (
 // without a mode is a form, and a client declaring `elicitation: {}` supports
 // forms only.
 //
+// Each URL elicitation the backend gave no elicitationId gets one, the same
+// for every answer with one link (urlElicitationID): rmcp refuses a URL
+// elicitation without it, on either revision.
+//
 // A 2025-11-25 client is asked in the shape of its revision: a request made
 // only of URL elicitations as -32042 URLElicitationRequiredError, which the
 // client answers by calling the tool again once the pages are done; a form
@@ -93,19 +97,13 @@ func decodeBackendInputState(requestState string) (backendInputState, bool) {
 	return state, true
 }
 
-// backendInput is a 2026-07-28 backend's input_required answer as muster
-// passes it on: requestState wrapped, messages prefixed.
-type backendInput struct {
-	server string
-	result *mcp.CallToolResult
-}
-
-// recordBackendInput notes the backend input request a tool call is answered
-// with, for the URL elicitation middleware. Outside a tool call it does
-// nothing.
-func recordBackendInput(ctx context.Context, input backendInput) {
+// recordBackendInput notes the input_required result, requestState wrapped
+// and messages prefixed, that muster passes on for the backend input request
+// a tool call is answered with, for the URL elicitation middleware. Outside a
+// tool call it does nothing.
+func recordBackendInput(ctx context.Context, input *mcp.CallToolResult) {
 	if recorder, ok := ctx.Value(challengeRecorderKey{}).(*challengeRecorder); ok {
-		recorder.backendInput.Store(&input)
+		recorder.backendInput.Store(input)
 	}
 }
 
@@ -162,6 +160,9 @@ func answerBackendInput(ctx context.Context, serverName, tool string, result *mc
 	for key, request := range result.InputRequests {
 		elicitation := *request.Elicitation
 		elicitation.Message = attributed(serverName, elicitation.Message)
+		if elicitation.Mode == mcp.ElicitationModeURL && elicitation.ElicitationID == "" {
+			elicitation.ElicitationID = urlElicitationID(elicitation.URL)
+		}
 		request.Elicitation = &elicitation
 		if text.Len() > 0 {
 			text.WriteString("\n\n")
@@ -172,7 +173,7 @@ func answerBackendInput(ctx context.Context, serverName, tool string, result *mc
 		}
 		passed.InputRequests[key] = request
 	}
-	recordBackendInput(ctx, backendInput{server: serverName, result: passed})
+	recordBackendInput(ctx, passed)
 	logging.InfoWithAttrs("Aggregator", "Passing on a backend's input request",
 		slog.String("server", serverName),
 		slog.Int("inputRequests", len(passed.InputRequests)))
@@ -265,23 +266,21 @@ func prepareBackendCall(ctx context.Context, serverName, tool string) (context.C
 // answers by calling the tool again without the requestState; any other
 // request is returned as is, and mcp-go asks it with elicitation/create and
 // calls the tool again with the answers and the requestState.
-func passBackendInput(ctx context.Context, input backendInput) (*mcp.CallToolResult, error) {
+// answerBackendInput already refused an elicitation in a mode the client did
+// not declare.
+func passBackendInput(ctx context.Context, input *mcp.CallToolResult) (*mcp.CallToolResult, error) {
 	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
-		return input.result, nil
+		return input, nil
 	}
-	elicitations := make([]mcp.ElicitationParams, 0, len(input.result.InputRequests))
-	for _, request := range input.result.InputRequests {
+	elicitations := make([]mcp.ElicitationParams, 0, len(input.InputRequests))
+	for _, request := range input.InputRequests {
 		if request.Elicitation == nil || request.Elicitation.Mode != mcp.ElicitationModeURL {
-			return input.result, nil
+			return input, nil
 		}
-		elicitation := *request.Elicitation
-		if elicitation.ElicitationID == "" {
-			elicitation.ElicitationID = urlElicitationID(elicitation.URL)
-		}
-		elicitations = append(elicitations, elicitation)
+		elicitations = append(elicitations, *request.Elicitation)
 	}
-	if len(elicitations) == 0 || !clientSupportsURLElicitation(ctx) {
-		return input.result, nil
+	if len(elicitations) == 0 {
+		return input, nil
 	}
 	return nil, mcp.URLElicitationRequiredError{Elicitations: elicitations}
 }

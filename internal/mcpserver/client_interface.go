@@ -123,8 +123,8 @@ type baseMCPClient struct {
 	// 2026-07-28 for subscriptions/listen (client_listen.go).
 	listenMode bool
 
-	// legacyBackend records that the backend does not speak 2026-07-28
-	// (client_protocol.go).
+	// legacyBackend records that the backend answered the last handshake on
+	// a revision before 2026-07-28 (client_protocol.go).
 	legacyBackend bool
 	// stopListChanged ends the subscriptions/listen stream for list changes
 	// of a 2026-07-28 connection (startListChangedStream).
@@ -222,9 +222,11 @@ func (b *baseMCPClient) recordHandshake(result *mcp.InitializeResult) {
 }
 
 // clearHandshake forgets the last initialize result: the connection it
-// described is gone. Called with mu held for writing.
+// described is gone, and the process behind the address may speak another
+// revision now. Called with mu held for writing.
 func (b *baseMCPClient) clearHandshake() {
 	b.stopListChangedStream()
+	b.legacyBackend = false
 	b.negotiatedProtocolVersion = ""
 	b.serverCapabilities = mcp.ServerCapabilities{}
 	b.serverInfo = mcp.Implementation{}

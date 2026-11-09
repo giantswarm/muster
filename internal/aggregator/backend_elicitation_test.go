@@ -14,7 +14,9 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
+	"github.com/giantswarm/muster/v5/internal/metatools"
 )
 
 const (
@@ -197,6 +199,7 @@ func TestBackendInput_ClientByBackendRevision(t *testing.T) {
 		asked := first.InputRequests[testBackendInputKey].Elicitation
 		require.Equal(t, testCredentialFormURL, asked.URL)
 		require.Equal(t, "[agents] A model key is missing.", asked.Message, "the person is told which server asks")
+		require.Equal(t, urlElicitationID(testCredentialFormURL), asked.ElicitationID, "rmcp refuses a URL elicitation without one")
 		require.NotEqual(t, testBackendState, first.RequestState, "the backend's state is wrapped")
 		require.NotNil(t, modernBackend.declared.Load().Elicitation.URL, "the backend was told the client supports URL elicitation")
 
@@ -249,6 +252,51 @@ func TestBackendInput_ClientByBackendRevision(t *testing.T) {
 			require.Equal(t, mcp.ClientCapabilities{}, *legacyBackend.declared.Load())
 		})
 	}
+}
+
+// call_tool, the path every client calls a backend's tool through, passes the
+// input request on and carries the retry's answer to the backend.
+func TestBackendInput_ThroughCallTool(t *testing.T) {
+	backend := newInputBackend(t)
+	a, err := NewAggregatorServer(t.Context(), AggregatorConfig{Host: "localhost", Port: 0}, nil)
+	require.NoError(t, err)
+	client := internalmcp.NewStreamableHTTPClientWithHeaders(backend.url, nil)
+	t.Cleanup(func() { _ = client.Close() })
+	require.NoError(t, a.registry.Register(t.Context(), ServerRegistration{Name: testElicitingServer}, client))
+	previousMeta, previousData := api.GetMetaTools(), api.GetMetaToolsDataProvider()
+	meta := metatools.NewAdapter()
+	meta.Register()
+	api.RegisterMetaToolsDataProvider(a)
+	t.Cleanup(func() {
+		api.RegisterMetaTools(previousMeta)
+		api.RegisterMetaToolsDataProvider(previousData)
+	})
+	srv := mcpserver.NewMCPServer("muster", "test", mcpserver.WithToolHandlerMiddleware(a.urlElicitation()))
+	srv.AddTool(mcp.NewTool("call_tool"), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		result, err := meta.GetProvider().ExecuteTool(ctx, "call_tool", req.GetArguments())
+		return convertToMCPResult(result), err
+	})
+	ts := httptest.NewServer(mcpserver.NewStreamableHTTPServer(srv))
+	t.Cleanup(ts.Close)
+	c := connectToMuster(t, ts.URL, mcp.ProtocolVersion20260728, urlAndForm(), nil)
+	callTool := func(roundTrip mcp.MultiRoundTripParams) (*mcp.CallToolResult, error) {
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		defer cancel()
+		return c.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+			Name:                 "call_tool",
+			Arguments:            map[string]any{"name": a.registry.ExposedToolName(testElicitingServer, "create"), "arguments": map[string]any{}},
+			MultiRoundTripParams: roundTrip,
+		}})
+	}
+
+	first, err := callTool(mcp.MultiRoundTripParams{})
+	require.NoError(t, err)
+	require.True(t, first.NeedsInput())
+	require.Equal(t, "[agents] A model key is missing.", first.InputRequests[testBackendInputKey].Elicitation.Message)
+
+	retried, err := callTool(mcp.MultiRoundTripParams{InputResponses: accepted(), RequestState: first.RequestState})
+	require.NoError(t, err)
+	require.Contains(t, textOf(t, retried), "accept "+testBackendState, "the backend gets the answer and its own requestState back")
 }
 
 // A client that does not declare URL mode elicitation is not declared to

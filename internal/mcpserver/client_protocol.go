@@ -16,8 +16,10 @@ import (
 // version, so mcp-go probes server/discover. A backend that does not answer
 // the probe as a 2026-07-28 server is spoken to on the revision it answers
 // the initialize handshake with, 2025-11-25 at most, and the client remembers
-// it (legacyBackend): its reconnects skip the probe, and a streamable-http one
-// gets back the standalone GET stream that revision delivers notifications on.
+// it for that connection (legacyBackend): a streamable-http one connects again
+// to get the standalone GET stream that revision delivers notifications on. A
+// connection that is closed or loses its session forgets it, so a backend
+// upgraded behind the address is probed again.
 // A client in listen mode does not fall back: it negotiates the revision
 // itself (client_listen.go).
 //

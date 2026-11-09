@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
@@ -155,6 +156,30 @@ func TestBackendProtocol_LegacyBackend(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "A model key is missing: add one in the Dev Portal.", result.Content[0].(mcp.TextContent).Text)
 	require.Equal(t, mcp.ClientCapabilities{}, *backend.declared.Load(), "its handshake declared nothing, whoever calls")
+}
+
+// A backend spoken to on 2025-11-25 that a new process speaking 2026-07-28
+// replaces behind its address is probed again when the client re-establishes
+// the lost session, rather than kept on the revision of the old process.
+func TestBackendProtocol_UpgradedBackendIsProbedAgain(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	var handler atomic.Pointer[http.Handler]
+	serve := func(versions ...string) {
+		var h http.Handler = server.NewStreamableHTTPServer(server.NewMCPServer("backend", "test"), server.WithStateful(true), server.WithStreamableHTTPProtocolVersions(versions...))
+		handler.Store(&h)
+	}
+	serve(mcp.LATEST_LEGACY_PROTOCOL_VERSION)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { (*handler.Load()).ServeHTTP(w, r) }))
+	t.Cleanup(ts.Close)
+	c := connect(t, ctx, ts.URL)
+	require.Equal(t, mcp.LATEST_LEGACY_PROTOCOL_VERSION, c.NegotiatedProtocolVersion())
+
+	serve()
+	ts.CloseClientConnections()
+	_, _ = c.ListTools(ctx)
+
+	require.Equal(t, mcp.ProtocolVersion20260728, c.NegotiatedProtocolVersion())
 }
 
 // TestBackendProtocol_ListChanged pins that a backend's tools/list_changed
