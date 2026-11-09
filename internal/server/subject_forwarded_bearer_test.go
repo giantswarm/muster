@@ -10,6 +10,7 @@ import (
 	"time"
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -85,7 +86,7 @@ func TestSubjectEndpointValidatesForwardedBearer(t *testing.T) {
 	}
 }
 
-func TestSubjectEndpointAuditsDelegatedRefusal(t *testing.T) {
+func TestSubjectEndpointRefusesTokensNamingAnActor(t *testing.T) {
 	var buf bytes.Buffer
 	logging.InitForCLI(logging.LevelInfo, &buf)
 	t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, os.Stderr) })
@@ -94,22 +95,49 @@ func TestSubjectEndpointAuditsDelegatedRefusal(t *testing.T) {
 		BaseURL: "https://muster.example.com",
 		TrustedIssuers: []config.TrustedIssuerConfig{
 			{Issuer: "https://dex.example.com", Delegation: &config.TrustedIssuerDelegationConfig{ActorIssuers: []string{"https://idp.ate-system.svc"}}},
+			{Issuer: "https://obo.example.com"},
 		},
 	}}
-	bearer := fakeJWT(t, map[string]interface{}{"sub": "CgdwZXJzb24xEgNkZXg", "act": map[string]any{"sub": "actor/kagent/session-1"}})
-	request := httptest.NewRequestWithContext(oauthhandler.ContextWithUserInfo(t.Context(), delegatedUserInfo()), http.MethodPut, "/session-bindings", nil)
-	request.Header.Set("Authorization", "Bearer "+bearer)
-	response := httptest.NewRecorder()
-	s.withValidatedSubject(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("a delegated token reached the handler")
-	})).ServeHTTP(response, request)
+	onBehalfOf := &providers.UserInfo{
+		ID:           "CgdwZXJzb24xEgNkZXg",
+		Issuer:       "https://obo.example.com",
+		TokenSource:  providers.TokenSourceTrustedIssuer,
+		ActorIssuer:  "https://obo.example.com",
+		ActorSubject: "agent-manager",
+	}
+	actorIssuerOnly := &providers.UserInfo{
+		ID:          "CgdwZXJzb24xEgNkZXg",
+		Issuer:      "https://obo.example.com",
+		TokenSource: providers.TokenSourceSSO,
+		ActorIssuer: "https://idp.ate-system.svc",
+	}
+	for _, testCase := range []struct {
+		name     string
+		userInfo *providers.UserInfo
+		actor    string
+	}{
+		{"delegated", delegatedUserInfo(), "actor_iss=https://idp.ate-system.svc actor=actor/kagent/session-1"},
+		{"on behalf of, issuer without delegation", onBehalfOf, "actor_iss=https://obo.example.com actor=agent-manager"},
+		{"act naming only an issuer", actorIssuerOnly, "actor_iss=https://idp.ate-system.svc actor="},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			buf.Reset()
+			bearer := fakeJWT(t, map[string]interface{}{"sub": testCase.userInfo.ID, "act": map[string]any{"sub": testCase.userInfo.ActorSubject}})
+			request := httptest.NewRequestWithContext(oauthhandler.ContextWithUserInfo(t.Context(), testCase.userInfo), http.MethodPut, "/session-bindings", nil)
+			request.Header.Set("Authorization", "Bearer "+bearer)
+			response := httptest.NewRecorder()
+			s.withValidatedSubject(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Fatal("a token naming an actor reached the handler")
+			})).ServeHTTP(response, request)
 
-	require.Equal(t, http.StatusForbidden, response.Code)
-	require.Contains(t, response.Header().Get("WWW-Authenticate"), `error="insufficient_scope"`)
-	line := buf.String()
-	require.Contains(t, line, "action=delegated_bearer outcome=failure")
-	require.Contains(t, line, "target=PUT /session-bindings")
-	require.Contains(t, line, "actor_iss=https://idp.ate-system.svc actor=actor/kagent/session-1")
-	require.Contains(t, line, "error=a delegated token cannot act as the person on this endpoint")
-	require.NotContains(t, line, bearer)
+			require.Equal(t, http.StatusForbidden, response.Code)
+			require.Contains(t, response.Header().Get("WWW-Authenticate"), `error="insufficient_scope"`)
+			line := buf.String()
+			require.Contains(t, line, "action=delegated_bearer outcome=failure")
+			require.Contains(t, line, "target=PUT /session-bindings")
+			require.Contains(t, line, testCase.actor)
+			require.Contains(t, line, "error=a token naming an acting party cannot act as the person on this endpoint")
+			require.NotContains(t, line, bearer)
+		})
+	}
 }

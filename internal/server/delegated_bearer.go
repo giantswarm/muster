@@ -29,6 +29,13 @@ func (s *OAuthHTTPServer) isDelegated(userInfo *providers.UserInfo) bool {
 	return false
 }
 
+// namesActor reports whether a validated bearer carries an act claim (RFC 8693
+// §4.1): some party acts for the person, from any issuer. isDelegated is the
+// narrower case muster serves on its MCP endpoints.
+func namesActor(userInfo *providers.UserInfo) bool {
+	return userInfo != nil && (userInfo.ActorIssuer != "" || userInfo.ActorSubject != "" || len(userInfo.ActorChain) > 0)
+}
+
 // serveDelegated serves a request whose validated bearer is a delegated token:
 // sub names the person and act the party acting for them. mcp-oauth has
 // verified the token and its issuer's act policy (TrustedIssuer.Actors).

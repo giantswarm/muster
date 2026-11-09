@@ -570,8 +570,8 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauthhandler.Handler {
 
 // ValidateTokenWithSubject guards an endpoint that acts as the person: it
 // accepts the same bearers as the MCP endpoints (authenticateForwardedBearer,
-// then mcp-oauth's ValidateToken), refuses a delegated token with 403
-// insufficient_scope, and puts the person's subject into the context. It skips
+// then mcp-oauth's ValidateToken), refuses a token naming an acting party with
+// 403 insufficient_scope, and puts the person's subject into the context. It skips
 // the SSO and token-injection logic of the MCP middleware chain.
 func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handler {
 	identified := s.withValidatedSubject(next)
@@ -591,10 +591,11 @@ func (s *OAuthHTTPServer) withValidatedSubject(next http.Handler) http.Handler {
 			return
 		}
 		// These endpoints act as the person: they bind a sandbox to them or
-		// drop their tokens. A delegated token is an actor acting for the
-		// person within a toolset, so it may not.
-		if s.isDelegated(userInfo) {
-			const reason = "a delegated token cannot act as the person on this endpoint"
+		// drop their tokens. A token naming an acting party (RFC 8693 §4.1
+		// act) lets that party act for the person, whatever the issuer's
+		// delegation policy, so it may not.
+		if namesActor(userInfo) {
+			const reason = "a token naming an acting party cannot act as the person on this endpoint"
 			logging.Audit(logging.AuditEvent{
 				Action:  "delegated_bearer",
 				Outcome: "failure",
