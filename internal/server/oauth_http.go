@@ -289,10 +289,7 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 	// Create middleware to inject access token into context for downstream use
 	accessTokenInjector := s.createAccessTokenInjectorMiddleware(s.mcpHandler)
 
-	// Wrap MCP endpoints with OAuth validation: forwarded JWT bearers through
-	// the operator's trustedAudiences and trustedIssuers, every other bearer
-	// through mcp-oauth's ValidateToken middleware.
-	protected := s.authenticateForwardedBearer(s.oauthHandler.ValidateToken(accessTokenInjector), accessTokenInjector)
+	protected := s.oauthHandler.ValidateToken(accessTokenInjector)
 	mux.Handle("/mcp", protected)
 	mux.Handle("/sse", protected)
 	mux.Handle("/message", protected)
@@ -569,13 +566,12 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauthhandler.Handler {
 }
 
 // ValidateTokenWithSubject guards an endpoint that acts as the person: it
-// accepts the same bearers as the MCP endpoints (authenticateForwardedBearer,
-// then mcp-oauth's ValidateToken), refuses a token naming an acting party with
-// 403 insufficient_scope, and puts the person's subject into the context. It skips
-// the SSO and token-injection logic of the MCP middleware chain.
+// accepts the same bearers as the MCP endpoints (mcp-oauth's ValidateToken),
+// refuses a token naming an acting party with 403 insufficient_scope, and puts
+// the person's subject into the context. It skips the SSO and token-injection
+// logic of the MCP middleware chain.
 func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handler {
-	identified := s.withValidatedSubject(next)
-	return s.authenticateForwardedBearer(s.oauthHandler.ValidateToken(identified), identified)
+	return s.oauthHandler.ValidateToken(s.withValidatedSubject(next))
 }
 
 // withValidatedSubject puts the person a validated bearer was issued to into
