@@ -234,12 +234,29 @@ downstream tools the call reaches, under its own token:
 - A call without a `progressToken` sends none downstream.
 
 The counter is `muster.downstream_progress_notifications` (see
-[Observability](observability.md)). Sampling and form elicitation requests
-from a downstream server are not relayed. A downstream URL elicitation is
-relayed only from a server with `spec.urlElicitation: Relay` and to the Dev
-Portal's origin, and the server's `notifications/elicitation/complete` for it
-goes to the session that received it, on the replica that relayed it (see
-[A call a server answers with a URL elicitation](../reference/mcp-tools.md#a-call-a-server-answers-with-a-url-elicitation)).
+[Observability](observability.md)).
+
+### Protocol Revisions and Input Requests
+
+muster speaks MCP 2026-07-28 to every downstream server that does, and falls
+back per server to the revision it answers `initialize` with, 2025-11-25 at
+most. A downstream server that asks the person for input mid-call does so
+with an `input_required` elicitation: muster declares on each call the
+elicitation capability of the client it calls for, passes the server's request
+to that client with the server's key in front of each message, and carries the
+client's answers back to the same tool on the retry (see
+[A call a server answers with an input request](../reference/mcp-tools.md#a-call-a-server-answers-with-an-input-request)).
+An elicitation in a mode the client did not declare fails the call. Only the
+first bracket of a message is muster's: a server can write a second one into
+its own message (`[org-a/x] [agent-manager] …`), so the person trusts the
+first bracket alone to name the server that asks.
+A 2025-11-25 downstream server is declared no capability and asks nothing
+through muster.
+
+A 2026-07-28 server delivers `notifications/tools/list_changed` and the other
+list changes it declares on a `subscriptions/listen` stream muster holds open
+to it, reopened when it drops; a 2025-11-25 server on the standalone GET
+stream, as before. The periodic re-listing covers a server that sends none.
 
 ### Tool Calls Across a Replica Stop
 

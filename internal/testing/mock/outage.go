@@ -26,6 +26,9 @@ type outageGate struct {
 	// pings makes an armed gate answer MCP pings too. By default they pass
 	// through uncounted, see gates.
 	pings bool
+	// fallbackPending is set when the gate answered a server/discover: the
+	// initialize mcp-go sends next is the same connection attempt.
+	fallbackPending bool
 }
 
 // set arms the gate: the next requests requests are answered with status. A
@@ -43,6 +46,7 @@ func (g *outageGate) set(status, requests, retryAfter int, pings bool) {
 	g.remaining = requests
 	g.retryAfter = retryAfter
 	g.pings = pings
+	g.fallbackPending = false
 }
 
 // take consumes one request from the gate and reports the status to answer
@@ -58,6 +62,29 @@ func (g *outageGate) take() (status, retryAfter int) {
 	return g.status, g.retryAfter
 }
 
+// takeAttempt is take for an MCP request of method: a 2026-07-28 client
+// probes server/discover and, on a failure that does not identify a
+// 2026-07-28 server, falls back to initialize. The two are one connection
+// attempt, answered with the status and counted once.
+func (g *outageGate) takeAttempt(method string) (status, retryAfter int) {
+	g.mu.Lock()
+	if method == string(mcp.MethodInitialize) && g.fallbackPending {
+		g.fallbackPending = false
+		status, retryAfter = g.status, g.retryAfter
+		g.mu.Unlock()
+		return status, retryAfter
+	}
+	g.fallbackPending = false
+	g.mu.Unlock()
+	status, retryAfter = g.take()
+	if status != 0 && method == string(mcp.MethodServerDiscover) {
+		g.mu.Lock()
+		g.fallbackPending = true
+		g.mu.Unlock()
+	}
+	return status, retryAfter
+}
+
 // remainingRequests reports how many requests the gate will still answer.
 func (g *outageGate) remainingRequests() int {
 	g.mu.Lock()
@@ -65,7 +92,8 @@ func (g *outageGate) remainingRequests() int {
 	return g.remaining
 }
 
-// gates reports whether an armed gate answers r. Two requests are never
+// gates reports whether an armed gate answers r, and the MCP method r carries.
+// Two requests are never
 // connection attempts, and counting either would make an outage of N
 // requests fail N-1 attempts: a session termination (HTTP DELETE), which is
 // the client tidying up the session it had before the outage and which
@@ -75,24 +103,25 @@ func (g *outageGate) remainingRequests() int {
 // would otherwise land in the outage window of any scenario that arms the
 // gate on a Connected server. The body is inspected only while the gate is
 // armed.
-func (g *outageGate) gates(r *http.Request) bool {
+func (g *outageGate) gates(r *http.Request) (bool, string) {
 	if r.Method == http.MethodDelete {
-		return false
+		return false, ""
 	}
 	g.mu.Lock()
-	armed, pings := g.remaining > 0, g.pings
+	armed, pings := g.remaining > 0 || g.fallbackPending, g.pings
 	g.mu.Unlock()
 	if !armed {
-		return false
+		return false, ""
 	}
-	return pings || !isMCPPing(r)
+	method := mcpMethod(r)
+	return pings || method != string(mcp.MethodPing), method
 }
 
 // wrap returns next guarded by the gate.
 func (g *outageGate) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if g.gates(r) {
-			if status, retryAfter := g.take(); status != 0 {
+		if gated, method := g.gates(r); gated {
+			if status, retryAfter := g.takeAttempt(method); status != 0 {
 				if retryAfter > 0 {
 					w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 				}
@@ -104,22 +133,25 @@ func (g *outageGate) wrap(next http.Handler) http.Handler {
 	})
 }
 
-// isMCPPing reports whether r carries a JSON-RPC ping. The body is read and
-// put back so the handler behind the gate still sees it.
-func isMCPPing(r *http.Request) bool {
+// mcpMethod returns the JSON-RPC method r carries, or "". The body is read
+// and put back so the handler behind the gate still sees it.
+func mcpMethod(r *http.Request) string {
 	if r.Method != http.MethodPost || r.Body == nil {
-		return false
+		return ""
 	}
 	body, err := io.ReadAll(r.Body)
 	_ = r.Body.Close()
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	if err != nil {
-		return false
+		return ""
 	}
 	var rpc struct {
 		Method string `json:"method"`
 	}
-	return json.Unmarshal(body, &rpc) == nil && rpc.Method == string(mcp.MethodPing)
+	if json.Unmarshal(body, &rpc) != nil {
+		return ""
+	}
+	return rpc.Method
 }
 
 // SetOutage makes the server answer its next requests requests with the given

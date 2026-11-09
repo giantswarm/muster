@@ -83,7 +83,7 @@ steps:
       success: true
       wait_for_state: "45s"
       contains:
-        - "health check failed: 3 consecutive failures: MCP ping failed"
+        - "health check failed: 3 consecutive failures: MCP tools/list failed"
         - "automatic recovery process started"
         - "connection failure 1 of 3 before unreachable"
     timeout: "60s"

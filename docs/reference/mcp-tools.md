@@ -159,26 +159,27 @@ A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked 
 
 Only the sign-in answers muster issues are elicited: a backend result that has the same shape is returned unchanged. A server muster connects with the person's muster sign-in (token forwarding, token exchange) has no link to open, and keeps the `auth_required` answer.
 
-#### A call a server answers with a URL elicitation
+#### A call a server answers with an input request
 
-An MCP server can answer a tool call with a URL elicitation: a request that the person open a page, such as the Dev Portal's form for a missing credential. muster relays it to the client only when both are true:
+muster speaks MCP 2026-07-28 to every server that does, and 2025-11-25 (or the earlier revision the server answers `initialize` with) to any other, decided per server when muster connects to it.
 
-- the server's MCPServer is in muster's namespace and sets `spec.urlElicitation: Relay` ([MCPServer spec fields](crds.md#spec-fields)). A server of an organization namespace (`org-…`) that sets `Relay` is not started, so an organization cannot put its own server on the allowlist, and
-- the page is on the origin (scheme, host and port) of muster's `aggregator.devPortalUrl` ([configuration](configuration.md#aggregator-configuration)).
+On each tool call to a 2026-07-28 server, muster declares the `elicitation` capability of the client it calls for (`io.modelcontextprotocol/clientCapabilities` in the request's `_meta`), as the client declared it on its request (2026-07-28) or at `initialize` (2025-11-25). muster never declares `sampling` or `roots`, which 2026-07-28 deprecates: a server's `input_required` answer asking for either fails the call with a tool error naming the server and the method. A client that does not declare `elicitation.url` is not declared to have it, so the server does not ask it to open a page. An elicitation in a mode the client did not declare fails the call with a tool error naming the server and the mode: an elicitation without `mode` is a form, and `elicitation: {}` declares forms only. A call muster makes on its own, such as a workflow step, declares none.
 
-muster declares URL mode elicitation (`elicitation: {url: {}}`) only to a server with `Relay`. A server without it is asked for its ordinary text answer.
+A 2026-07-28 server that needs something of the person answers with `resultType: "input_required"`. muster passes it to the client:
 
-A relayed elicitation reaches the client in the shape of the client's protocol version, as a sign-in does:
+- each elicitation's `message` is put on one line (each run of white space made one space) and prefixed with the server's key in brackets, `[github]` or, for a server of an organization namespace, `[org-a/github]`: the client only sees muster, and the person is told which server asks;
+- each URL elicitation without an `elicitationId` gets one, the same for every answer with one link: the 2026-07-28 schema does not define it, and rmcp requires it;
+- `requestState` is the server's own, wrapped with the server's key and the tool's name. The client echoes it with `inputResponses` on its retry of the same tool, and muster hands the server its own `requestState` and the answers. A retry whose `requestState` names another server or tool than the one called is refused, so the echo never chooses where an answer goes. muster binds the server's own `requestState` to nothing else: the server treats it as attacker-controlled input and verifies it, as MRTR requires (integrity, the person it was issued to, expiry).
 
 | Client's protocol version | Answer |
 |---|---|
-| 2026-07-28 or later, `elicitation.url` in the request's client capabilities | `resultType: "input_required"` with one `elicitation/create` input request per page (`mode: "url"`, the server's `url`, `message` and `elicitationId`) under the keys `muster_relayed_elicitation_0`, `muster_relayed_elicitation_1`, and so on. The client echoes `requestState`, which names the server and its `elicitationId`s. A retry whose `inputResponses` accept them waits until the server sends `notifications/elicitation/complete` for each of them, at most 5 minutes, then runs the call again: the client retries when the person agrees to open the page, usually before they complete it, and the wait keeps the server from asking again. When the 5 minutes pass without the completion, the call runs anyway; if the server asks again, the new elicitation's message says that muster waited 5 minutes for the server to report the page completed and it did not. A retry that declines or cancels one runs nothing and gets a tool error. |
-| 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the server's elicitations. When the server sends `notifications/elicitation/complete` for one, muster sends the same notification, with the same `elicitationId`, to the session that received the `-32042`, once. Retry the call then. |
-| Any other | A tool error with the server's message and the link, to open by hand. |
+| 2026-07-28 or later | The `input_required` result, as described above. |
+| 2025-11-25, a request made only of URL elicitations | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitations and their `elicitationId`. Call the tool again once the pages are done. That revision has no `requestState`, so the server is called without its own: it must tell from its own records whether the pages are done, and otherwise asks again. muster sends no `notifications/elicitation/complete` for these elicitations. |
+| 2025-11-25, a form elicitation | `elicitation/create`, then the tool call runs again with the answers and the server's `requestState`. |
 
-muster keeps the server's `elicitationId` when it relays an elicitation, and waits for or passes on a completion only for an elicitation it relayed to that session in the last 10 minutes. The completion arrives on the connection to the server that received the elicitation, so it is per replica: a retry that reaches another muster replica, or one after a restart, does not wait and runs the call at once, and a 2025-11-25 session is told of the completion only by the replica that relayed the elicitation. A server that sends no completion costs a 2026-07-28 retry the 5-minute wait.
+A call made through `call_tool` is answered the same way, and its retry is a `call_tool` call echoing `requestState`. Through a workflow, or any other path that cannot carry an input request, the call's answer is a tool error holding each message and the link of each URL elicitation.
 
-muster drops every other URL elicitation: from a server without `Relay`, to a page on another origin, or when `aggregator.devPortalUrl` is not set. It logs `Dropped a backend's URL elicitation` with the server, the page's origin and the reason, and answers the call with a tool error that names the server and holds the server's message with every link in it removed, never the URL. Thus no server, an organization's own included, can send a person to a page of its choice.
+muster declares no capability at the `initialize` of a 2025-11-25 server: such a server is asked for the answer it gives a client that cannot be asked.
 
 ### Resource Access
 

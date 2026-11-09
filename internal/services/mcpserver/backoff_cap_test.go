@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -248,13 +249,10 @@ func TestStartRefusedConnectionRecordsNoHTTPStatus(t *testing.T) {
 func TestAuthRequiredClearsSchedule(t *testing.T) {
 	withBackoff(t, time.Second, 3*time.Second)
 
-	var outage sync.Mutex
-	remaining := 4
+	var outage atomic.Bool
+	outage.Store(true)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		outage.Lock()
-		defer outage.Unlock()
-		if remaining > 0 {
-			remaining--
+		if outage.Load() {
 			http.Error(w, "Gateway Timeout", http.StatusGatewayTimeout)
 			return
 		}
@@ -272,6 +270,7 @@ func TestAuthRequiredClearsSchedule(t *testing.T) {
 	require.Equal(t, services.StateUnreachable, svc.GetState())
 	require.Equal(t, http.StatusGatewayTimeout, svc.GetLastFailureHTTPStatus())
 
+	outage.Store(false)
 	err = svc.Start(t.Context())
 	var authErr *mcpserver.AuthRequiredError
 	require.ErrorAs(t, err, &authErr)
