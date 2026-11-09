@@ -873,7 +873,8 @@ spec:
                 description: |-
                   Icon is the icon the server declares in its initialize result,
                   otherwise a built-in brand icon when spec.url is on a known brand
-                  domain. It is a data: URI (data:<mime>;base64,...) of type
+                  domain, or is in-cluster and names a known brand as service,
+                  namespace or first path segment. It is a data: URI (data:<mime>;base64,...) of type
                   image/svg+xml, image/png, image/jpeg or image/webp; the whole data: URI
                   is at most 65536 characters. SVG icons are sanitised (allowlist) before
                   they are stored. Absent when there is neither.
