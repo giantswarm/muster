@@ -7,9 +7,10 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/agent/oauth"
 
-	"github.com/giantswarm/mcp-toolkit/brand"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/giantswarm/muster/v5/internal/brand"
 )
 
 // PendingAuthMCPServer is an MCP server that exposes only the authenticate_muster tool.
@@ -33,7 +34,7 @@ func NewPendingAuthMCPServer(logger *Logger, authManager *oauth.AuthManager, ser
 	mcpServer := server.NewMCPServer(
 		"muster-agent",
 		"1.0.0",
-		brand.WithGiantSwarmIcon(),
+		brand.WithIcons(),
 		server.WithToolCapabilities(true), // Enable notifications for tool list changes
 	)
 

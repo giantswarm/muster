@@ -3,12 +3,13 @@ package aggregator
 import (
 	"context"
 
-	"github.com/giantswarm/mcp-toolkit/brand"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpotel "github.com/mark3labs/mcp-go/otel"
 	"github.com/mark3labs/mcp-go/server"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/giantswarm/muster/v5/internal/brand"
 
 	"github.com/giantswarm/muster/v5/pkg/observability"
 )
@@ -48,7 +49,7 @@ func RequestSpan() server.ToolHandlerMiddleware {
 }
 
 // mcpServerCapabilityOptions returns the capability advertisement for the
-// aggregator's mcp-go server, along with the Giant Swarm logo as its icon
+// aggregator's mcp-go server, along with the muster logo as its icons
 // (serverInfo.icons).
 //
 // resources.subscribe is on for subscriptions/listen (MCP 2026-07-28), which
@@ -58,7 +59,7 @@ func RequestSpan() server.ToolHandlerMiddleware {
 // subscriber.
 func mcpServerCapabilityOptions() []server.ServerOption {
 	return []server.ServerOption{
-		brand.WithGiantSwarmIcon(),
+		brand.WithIcons(),
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, true),
 		server.WithPromptCapabilities(true),
