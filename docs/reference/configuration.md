@@ -137,6 +137,7 @@ against the live catalogue on every request. Each rule sets exactly one of `tool
 toolsetPresets:
   infrastructure:
     description: Every infrastructure server, without deletes
+    icon: "data:image/svg+xml;base64,PHN2Zy..."  # optional
     include:
       - server: mcp-kubernetes
       - server: mcp-prometheus
@@ -144,9 +145,12 @@ toolsetPresets:
       - pattern: "*_delete"
 ```
 
+`icon` is optional: a `data:` URI (`image/svg+xml`, `png`, `jpeg` or `webp`), at most 65536
+characters. SVGs are sanitised.
+
 `read-only`, `none` and `full` are built in; configuration that redefines one, sets a rule with
-no key or more than one, uses an invalid `pattern`, composes an unknown preset or cycles fails
-`muster serve` at startup with the preset named. The Helm chart exposes this block as
+no key or more than one, uses an invalid `pattern` or `icon`, composes an unknown preset or
+cycles fails `muster serve` at startup with the preset named. The Helm chart exposes this block as
 `muster.toolsetPresets`.
 
 ### Aggregator Configuration

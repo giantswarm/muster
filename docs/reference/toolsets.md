@@ -108,8 +108,9 @@ toolsetPresets:
       - pattern: "*_patch"
 ```
 
-Each preset has an optional `description` (shown by `filter_tools` with `include_presets`),
-an `include` list and an optional `exclude` list. A preset resolves to the union of its
+Each preset has an optional `description` and `icon` (both shown by `filter_tools` with
+`include_presets`; `icon` is a `data:` URI, svg, png, jpeg or webp, at most 65536 characters,
+sanitised like an MCPServer's icon; the built-ins carry their own), an `include` list and an optional `exclude` list. A preset resolves to the union of its
 includes minus its excludes. `include` rules are a **union, never an intersection**: a preset
 that includes `preset: infrastructure` and `readOnly: true` resolves to every infrastructure tool
 *plus* every read-only tool in the catalogue, not to the infrastructure's read-only tools. To
@@ -244,7 +245,7 @@ for example a server the caller has not signed in to; `preset:none` is never rep
 `toolset_requiring_auth` (the servers awaiting the caller's sign-in some of whose tools the
 toolset could select once listed, by the same rules as `call_tool`, sorted by name, each with
 `name`, `auth_tool`, `tool_prefix` and, for a family member, `family`: the part of the toolset a
-sign-in would unlock) and `presets` (`[{name, description, built_in}]`, built-ins
+sign-in would unlock) and `presets` (`[{name, description, icon, built_in}]`, built-ins
 first). When the request also carries `X-muster-Toolset` or a bound toolset, the argument
 resolves **within** them and never widens them. Argument errors use the header's texts.
 

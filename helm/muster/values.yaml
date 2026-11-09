@@ -366,8 +366,9 @@ muster:
   # Toolset presets: named selections of the tool catalogue that an agent's
   # X-Muster-Toolset header (or the filter_tools toolset argument) can reference
   # as preset:<name>. Rendered verbatim into muster's config.yaml as
-  # `toolsetPresets`. Every preset has a description, `include` rules and
-  # optional `exclude` rules; each rule sets exactly one of
+  # `toolsetPresets`. Every preset has a description, optional `icon` (data:
+  # URI, svg/png/jpeg/webp, max 65536 chars), `include` rules and optional
+  # `exclude` rules; each rule sets exactly one of
   #   tool: <exact exposed name>        pattern: <glob on the exposed name>
   #   server: <MCPServer or family>     workflow: <workflow name>
   #   readOnly: true                    preset: <name>   (include only)
@@ -376,12 +377,13 @@ muster:
   #   toolsetPresets:
   #     infrastructure:
   #       description: Every infrastructure server
+  #       icon: "data:image/svg+xml;base64,..."
   #       include:
   #         - server: mcp-kubernetes
   #         - server: mcp-prometheus
   #       exclude:
   #         - pattern: "*_delete"
-  toolsetPresets: {}  # @schema additionalProperties: true
+  toolsetPresets: {}  # @schema additionalProperties: {type: object, additionalProperties: true, properties: {icon: {type: string, pattern: "^data:", maxLength: 65536, description: "Optional icon: a data: URI, svg/png/jpeg/webp, at most 65536 characters, SVGs sanitised."}}}
 
   # Provider Apps: the OAuth App of each provider instance a person grants
   # once in muster, apart from any MCPServer (core_auth_login app=<name>,

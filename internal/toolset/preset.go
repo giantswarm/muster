@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/giantswarm/muster/v5/internal/servericon"
 )
 
 // Built-in preset names. They are always defined and cannot be redefined by
@@ -93,9 +95,12 @@ func (r Rule) setKeys() int {
 }
 
 // Preset is a named, described selection of tools: the union of its include
-// rules minus its exclude rules.
+// rules minus its exclude rules. Icon is an optional data: URI (svg, png,
+// jpeg or webp, at most 65536 characters), validated and stored sanitised
+// like an MCPServer's status.icon.
 type Preset struct {
 	Description string `yaml:"description,omitempty" json:"description,omitempty"`
+	Icon        string `yaml:"icon,omitempty" json:"icon,omitempty"`
 	Include     []Rule `yaml:"include" json:"include"`
 	Exclude     []Rule `yaml:"exclude,omitempty" json:"exclude,omitempty"`
 }
@@ -107,6 +112,7 @@ type PresetsConfig map[string]Preset
 type Info struct {
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+	Icon        string `json:"icon,omitempty"`
 	BuiltIn     bool   `json:"built_in"`
 }
 
@@ -122,14 +128,17 @@ func builtInPresets() map[string]Preset {
 	return map[string]Preset{
 		PresetReadOnly: {
 			Description: "Every tool annotated read-only (muster's own read-only core tools included), plus every workflow whose step tools are all read-only",
+			Icon:        builtInIcons[PresetReadOnly],
 			Include:     []Rule{{ReadOnly: &yes}},
 		},
 		PresetNone: {
 			Description: "No tools",
+			Icon:        builtInIcons[PresetNone],
 			Include:     []Rule{},
 		},
 		PresetFull: {
 			Description: "The whole catalogue, including muster's core tools",
+			Icon:        builtInIcons[PresetFull],
 			Include:     []Rule{{Pattern: "*"}},
 		},
 	}
@@ -169,6 +178,13 @@ func NewRegistry(cfg PresetsConfig) (*Registry, error) {
 		}
 		if err := validateRules(name, "exclude", p.Exclude, false); err != nil {
 			return nil, err
+		}
+		if p.Icon != "" {
+			icon, err := servericon.FromDataURI(p.Icon)
+			if err != nil {
+				return nil, fmt.Errorf("toolsetPresets: preset %q icon is invalid: %v", name, err)
+			}
+			p.Icon = icon
 		}
 		r.presets[name] = p
 		r.configured = append(r.configured, name)
@@ -246,7 +262,7 @@ func (r *Registry) Names() []string {
 func (r *Registry) List() []Info {
 	infos := make([]Info, 0, len(r.presets))
 	for _, name := range r.Names() {
-		infos = append(infos, Info{Name: name, Description: r.presets[name].Description, BuiltIn: r.builtIn[name]})
+		infos = append(infos, Info{Name: name, Description: r.presets[name].Description, Icon: r.presets[name].Icon, BuiltIn: r.builtIn[name]})
 	}
 	return infos
 }
