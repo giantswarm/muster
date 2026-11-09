@@ -9,8 +9,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/giantswarm/muster/v5/internal/brand"
-
+	"github.com/giantswarm/muster/v5/internal/musterlogo"
 	"github.com/giantswarm/muster/v5/pkg/observability"
 )
 
@@ -59,7 +58,7 @@ func RequestSpan() server.ToolHandlerMiddleware {
 // subscriber.
 func mcpServerCapabilityOptions() []server.ServerOption {
 	return []server.ServerOption{
-		brand.WithIcons(),
+		musterlogo.WithIcons(),
 		server.WithToolCapabilities(true),
 		server.WithResourceCapabilities(true, true),
 		server.WithPromptCapabilities(true),

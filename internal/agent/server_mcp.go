@@ -10,12 +10,11 @@ import (
 	"github.com/giantswarm/muster/v5/internal/agent/oauth"
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/metatools"
+	"github.com/giantswarm/muster/v5/internal/musterlogo"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-
-	"github.com/giantswarm/muster/v5/internal/brand"
 )
 
 // MCPServer wraps the agent functionality and exposes it as MCP tools for AI assistants.
@@ -86,7 +85,7 @@ func NewMCPServer(client *Client, logger *Logger, notifyClients bool) (*MCPServe
 	mcpServer := server.NewMCPServer(
 		"muster-agent",
 		"1.0.0",
-		brand.WithIcons(),
+		musterlogo.WithIcons(),
 		server.WithToolCapabilities(notifyClients),
 		server.WithResourceCapabilities(false, false),
 		server.WithPromptCapabilities(false),
