@@ -149,7 +149,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Name:        "include_presets",
 					Type:        api.ArgTypeBoolean,
 					Required:    false,
-					Description: "Include the known toolset presets (name, description, built_in) in the response",
+					Description: "Include the known toolset presets (name, description, icon, built_in) in the response",
 					Default:     false,
 				},
 				{

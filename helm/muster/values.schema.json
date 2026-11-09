@@ -714,7 +714,18 @@
                 },
                 "toolsetPresets": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "properties": {
+                            "icon": {
+                                "type": "string",
+                                "maxLength": 65536,
+                                "pattern": "^data:",
+                                "description": "Optional icon: a data: URI, svg/png/jpeg/webp, at most 65536 characters; SVGs are sanitised."
+                            }
+                        }
+                    }
                 },
                 "writesAsCaller": {
                     "type": "object",
