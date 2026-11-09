@@ -3,8 +3,11 @@ package servericon
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/xml"
 	"errors"
+	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -156,4 +159,125 @@ func decodeIcon(t *testing.T, uri string) string {
 func base64Payload(uri string) ([]byte, error) {
 	_, payload, _ := strings.Cut(uri, ",")
 	return base64.StdEncoding.DecodeString(payload)
+}
+
+func TestSanitizeSVGInlinesClassRules(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "class fill",
+			in:   svgOpen + `<style>.st0{fill:#fff}</style><path class="st0" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="st0" d="M0 0h1" fill="#fff"/></svg>`,
+		},
+		{
+			name: "all four properties, CDATA, whitespace",
+			in:   svgOpen + "<defs><style type=\"text/css\"><![CDATA[\n  .a {\n    fill: rgb(1, 2, 3);\n    stroke: none;\n    fill-opacity: .5;\n    stroke-width: 2px;\n  }\n]]></style></defs><rect class=\"a\" width=\"1\"/></svg>",
+			want: svgOpen + `<defs/><rect class="a" width="1" fill="rgb(1, 2, 3)" fill-opacity=".5" stroke="none" stroke-width="2px"/></svg>`,
+		},
+		{
+			name: "stylesheet after the elements it styles",
+			in:   svgOpen + `<path class="b" d="M0 0h1"/><style>.b{fill:red}</style></svg>`,
+			want: svgOpen + `<path class="b" d="M0 0h1" fill="red"/></svg>`,
+		},
+		{
+			name: "class rule wins over a presentation attribute",
+			in:   svgOpen + `<style>.b{fill:#0e2151}</style><path fill="#000" class="b" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="b" d="M0 0h1" fill="#0e2151"/></svg>`,
+		},
+		{
+			name: "later rule wins, several classes, selector group",
+			in:   svgOpen + `<style>.a,.c{fill:red;stroke:blue}.b{fill:green}</style><path class="b  a" d="M0 0h1"/><path class="c" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="b  a" d="M0 0h1" fill="green" stroke="blue"/><path class="c" d="M0 0h1" fill="red" stroke="blue"/></svg>`,
+		},
+		{
+			name: "class on a group",
+			in:   svgOpen + `<style>.g{fill:#abc}</style><g class="g"><path d="M0 0h1"/></g></svg>`,
+			want: svgOpen + `<g class="g" fill="#abc"><path d="M0 0h1"/></g></svg>`,
+		},
+		{
+			name: "other properties are not inlined",
+			in:   svgOpen + `<style>.a{fill:red;opacity:0;stroke-miterlimit:10;display:none}</style><path class="a" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1" fill="red"/></svg>`,
+		},
+		{
+			name: "url, expressions, important and odd values are not inlined",
+			in: svgOpen + `<style>.a{fill:url(#g);stroke:url(https://evil/x)}.b{fill:expression(alert(1));stroke:red !important}` +
+				`.c{fill:var(--x);stroke:calc(1px + 2px);stroke-width:1e3;fill-opacity:attr(x)}</style>` +
+				`<path class="a" d="M0 0h1"/><path class="b" d="M0 0h1"/><path class="c" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1"/><path class="b" d="M0 0h1"/><path class="c" d="M0 0h1"/></svg>`,
+		},
+		{
+			name: "rules whose selector is not a plain class are not applied",
+			in: svgOpen + `<style>path{fill:red}*{fill:red}#p{fill:red}.a .b{fill:red}.a.b{fill:red}.a>.b{fill:red}.b:hover{fill:red}[class=b]{fill:red}.a,path{fill:red}.b{stroke:blue}</style>` +
+				`<g class="a"><path id="p" class="a b" d="M0 0h1"/></g></svg>`,
+			want: svgOpen + `<g class="a"><path id="p" class="a b" d="M0 0h1" stroke="blue"/></g></svg>`,
+		},
+		{
+			name: "at-rules refuse the whole stylesheet",
+			in:   svgOpen + `<style>@import url(https://evil/x.css);.a{fill:red}</style><style>@media (prefers-color-scheme: dark){.a{fill:#fff}}</style><path class="a" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1"/></svg>`,
+		},
+		{
+			name: "escapes, comments and quotes refuse the whole stylesheet",
+			in: svgOpen + `<style>.a{fill:red}.b{fill:\72 ed}</style><style>.a{fill:red}/* x */</style><style>.a{fill:red}.b{fill:"red"}</style><style>.a{fill:red}}</style>` +
+				`<path class="a" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1"/></svg>`,
+		},
+		{
+			name: "style outside the SVG namespace",
+			in:   `<svg xmlns="http://www.w3.org/2000/svg" xmlns:h="http://www.w3.org/1999/xhtml"><h:style>.a{fill:red}</h:style><path class="a" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1"/></svg>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := sanitizeSVG([]byte(tt.in))
+			if err != nil {
+				t.Fatalf("sanitizeSVG: %v", err)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("sanitizeSVG:\n got %s\nwant %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFromDataURIKeepsWebAssetsIconColours uses giantswarm/web-assets
+// assets/app-icons/muster/1/light.svg, which colours its paths only through
+// a <style> block.
+func TestFromDataURIKeepsWebAssetsIconColours(t *testing.T) {
+	icon, err := os.ReadFile("testdata/muster-light.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	uri, err := FromDataURI("data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString(icon))
+	if err != nil {
+		t.Fatalf("FromDataURI: %v", err)
+	}
+	var fills []string
+	dec := xml.NewDecoder(strings.NewReader(decodeIcon(t, uri)))
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if el, ok := tok.(xml.StartElement); ok && el.Name.Local == "path" {
+			fill := ""
+			for _, a := range el.Attr {
+				if a.Name.Local == "fill" {
+					fill = a.Value
+				}
+			}
+			fills = append(fills, fill)
+		}
+	}
+	if want := []string{"#0e2151", "#fff"}; !slices.Equal(fills, want) {
+		t.Fatalf("path fills = %q, want %q", fills, want)
+	}
 }
