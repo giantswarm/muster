@@ -56,11 +56,11 @@ type signInRequestState struct {
 	Link   string `json:"link"`
 }
 
-// signInElicitationID is the elicitationId of a 2026-07-28 sign-in
-// elicitation, the same for every answer carrying one link. The 2026-07-28
+// urlElicitationID is the elicitationId muster gives a URL elicitation that
+// has none, the same for every answer carrying one link. The 2026-07-28
 // schema defines no elicitationId and its clients ignore one, but rmcp, the
 // Rust SDK the Codex CLI is built on, refuses a URL elicitation without it.
-func signInElicitationID(link string) string {
+func urlElicitationID(link string) string {
 	sum := sha256.Sum256([]byte(link))
 	return hex.EncodeToString(sum[:16])
 }
@@ -223,7 +223,7 @@ func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInCha
 			Mode:          mcp.ElicitationModeURL,
 			Message:       message,
 			URL:           challenge.authURL,
-			ElicitationID: signInElicitationID(challenge.authURL),
+			ElicitationID: urlElicitationID(challenge.authURL),
 		}).ToolResult(), nil
 	}
 

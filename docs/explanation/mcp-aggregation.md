@@ -240,12 +240,11 @@ The counter is `muster.downstream_progress_notifications` (see
 
 muster speaks MCP 2026-07-28 to every downstream server that does, and falls
 back per server to the revision it answers `initialize` with, 2025-11-25 at
-most. A downstream server that asks the person for input mid-call (an
-elicitation, a sampling request, the client's roots) does so with an
-`input_required` result: muster declares on each call the capabilities of the
-client it calls for, passes the server's request to that client with the
-server's key in front of each message, and carries the client's answers back
-to the same server on the retry (see
+most. A downstream server that asks the person for input mid-call does so
+with an `input_required` elicitation: muster declares on each call the
+elicitation capability of the client it calls for, passes the server's request
+to that client with the server's key in front of each message, and carries the
+client's answers back to the same tool on the retry (see
 [A call a server answers with an input request](../reference/mcp-tools.md#a-call-a-server-answers-with-an-input-request)).
 A 2025-11-25 downstream server is declared no capability and asks nothing
 through muster.

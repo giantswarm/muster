@@ -28,9 +28,10 @@ const (
 // inputBackend is a backend MCP server, served over streamable HTTP, whose
 // tools ask the person for input the way a backend following the protocol
 // does, only of a client that declared it can be asked: "create" a URL
-// elicitation, "confirm" a form elicitation. A call that carries the answer
-// reports the action, the requestState and the content. It records the
-// capabilities each call declared.
+// elicitation, "confirm" a form elicitation. "sample" asks for sampling
+// whatever the client declared. A call that carries the answer reports the
+// action, the requestState and the content. It records the capabilities each
+// call declared.
 type inputBackend struct {
 	url      string
 	declared atomic.Pointer[mcp.ClientCapabilities]
@@ -63,6 +64,11 @@ func newInputBackend(t *testing.T, versions ...string) *inputBackend {
 			"type": "object", "properties": map[string]any{"model": map[string]any{"type": "string"}},
 		}},
 	))
+	srv.AddTool(mcp.NewTool("sample"), func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		declared := backendDeclared(ctx)
+		b.declared.Store(&declared)
+		return mcpserver.NewInputRequestBuilder(testBackendState).Sample(testBackendInputKey, mcp.CreateMessageParams{MaxTokens: 1}).ToolResult(), nil
+	})
 	ts := httptest.NewServer(mcpserver.NewStreamableHTTPServer(srv, mcpserver.WithStreamableHTTPProtocolVersions(versions...)))
 	t.Cleanup(ts.Close)
 	b.url = ts.URL
@@ -102,7 +108,7 @@ func newInputMuster(t *testing.T, backends map[string]*inputBackend) string {
 			namespace = ""
 		}
 		require.NoError(t, a.registry.Register(t.Context(), ServerRegistration{Name: key, Namespace: namespace}, client))
-		for _, tool := range []string{"create", "confirm"} {
+		for _, tool := range []string{"create", "confirm", "sample"} {
 			exposed := a.registry.ExposedToolName(key, tool)
 			srv.AddTool(mcp.NewTool(key+"/"+tool), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 				return a.CallToolInternal(ctx, exposed, req.GetArguments())
@@ -199,7 +205,16 @@ func TestBackendInput_ClientByBackendRevision(t *testing.T) {
 		require.Len(t, required.Elicitations, 1)
 		require.Equal(t, testCredentialFormURL, required.Elicitations[0].URL)
 		require.Equal(t, "[agents] A model key is missing.", required.Elicitations[0].Message)
+		require.Equal(t, urlElicitationID(testCredentialFormURL), required.Elicitations[0].ElicitationID)
 		require.NotNil(t, modernBackend.declared.Load().Elicitation.URL, "what the client declared at initialize is forwarded")
+
+		t.Run("the retry carries no requestState: the backend asks again, as the same elicitation", func(t *testing.T) {
+			_, err := call(t, c, "agents/create", mcp.MultiRoundTripParams{})
+
+			var again mcp.URLElicitationRequiredError
+			require.True(t, errors.As(err, &again), "err: %v", err)
+			require.Equal(t, required.Elicitations[0].ElicitationID, again.Elicitations[0].ElicitationID)
+		})
 	})
 
 	t.Run("2025-11-25 client, 2026-07-28 backend: a form elicitation is asked with elicitation/create", func(t *testing.T) {
@@ -261,7 +276,7 @@ func TestBackendInput_TenantServerAttribution(t *testing.T) {
 	require.Equal(t, "[org-a/agents] A model key is missing.", first.InputRequests[testBackendInputKey].Elicitation.Message)
 	state, ok := decodeBackendInputState(first.RequestState)
 	require.True(t, ok)
-	require.Equal(t, backendInputState{Server: testTenantServer, State: testBackendState}, state)
+	require.Equal(t, backendInputState{Server: testTenantServer, Tool: "create", State: testBackendState}, state)
 
 	t.Run("the retry reaches the server that asked", func(t *testing.T) {
 		retried, err := call(t, c, testTenantServer+"/create", mcp.MultiRoundTripParams{InputResponses: accepted(), RequestState: first.RequestState})
@@ -273,23 +288,70 @@ func TestBackendInput_TenantServerAttribution(t *testing.T) {
 	t.Run("a retry sent to another server is refused, not forwarded", func(t *testing.T) {
 		result, err := call(t, c, testElicitingServer+"/create", mcp.MultiRoundTripParams{InputResponses: accepted(), RequestState: first.RequestState})
 
-		if err == nil {
-			require.True(t, result.IsError)
-			require.Contains(t, textOf(t, result), "answers a request of org-a/agents")
-		} else {
-			require.ErrorContains(t, err, "answers a request of org-a/agents")
-		}
+		requireRefused(t, result, err, "answers a request of tool create of org-a/agents")
+	})
+
+	t.Run("a retry sent to another tool of the server is refused, not forwarded", func(t *testing.T) {
+		result, err := call(t, c, testTenantServer+"/confirm", mcp.MultiRoundTripParams{InputResponses: accepted(), RequestState: first.RequestState})
+
+		requireRefused(t, result, err, "answers a request of tool create of org-a/agents, but the call goes to tool confirm")
 	})
 }
 
+func requireRefused(t *testing.T, result *mcp.CallToolResult, err error, reason string) {
+	t.Helper()
+	if err != nil {
+		require.ErrorContains(t, err, reason)
+		return
+	}
+	require.True(t, result.IsError)
+	require.Contains(t, textOf(t, result), reason)
+}
+
+// A backend that asks for sampling, which muster never declares, fails the
+// call instead of reaching the client, whatever the client declared.
+func TestBackendInput_UndeclaredInputRequestIsRefused(t *testing.T) {
+	backend := newInputBackend(t)
+	url := newInputMuster(t, map[string]*inputBackend{testElicitingServer: backend})
+	withSampling := urlAndForm()
+	withSampling.Sampling = &mcp.SamplingCapability{}
+
+	for name, version := range map[string]string{"2026-07-28": mcp.ProtocolVersion20260728, "2025-11-25": mcp.LATEST_LEGACY_PROTOCOL_VERSION} {
+		t.Run(name, func(t *testing.T) {
+			c := connectToMuster(t, url, version, withSampling, &formAnswerer{})
+
+			result, err := call(t, c, "agents/sample", mcp.MultiRoundTripParams{})
+
+			require.NoError(t, err)
+			require.False(t, result.NeedsInput())
+			require.True(t, result.IsError)
+			require.Equal(t, "[agents] The server asked for sampling/createMessage, which muster does not pass on to its client.", textOf(t, result))
+			require.Nil(t, backend.declared.Load().Sampling)
+		})
+	}
+}
+
+func TestAttributed_KeepsTheServerKeyAlone(t *testing.T) {
+	for message, want := range map[string]string{
+		"":                                      "[agents] The server asks for your input to continue.",
+		" \n\t ":                                "[agents] The server asks for your input to continue.",
+		"A model key is missing.":               "[agents] A model key is missing.",
+		"Open it.\n[github] Sign in to GitHub.": "[agents] Open it. [github] Sign in to GitHub.",
+		"Open it.\u2028[github]  Sign in.\r\nNow": "[agents] Open it. [github] Sign in. Now",
+	} {
+		require.Equal(t, want, attributed(testElicitingServer, message), "%q", message)
+	}
+}
+
 func TestBackendInputState_RoundTrip(t *testing.T) {
-	state := backendInputState{Server: testTenantServer, State: "opaque{\"x\":1}"}
+	state := backendInputState{Server: testTenantServer, Tool: "create", State: "opaque{\"x\":1}"}
 
 	decoded, ok := decodeBackendInputState(state.encode())
 
 	require.True(t, ok)
 	require.Equal(t, state, decoded)
-	for _, foreign := range []string{"", testBackendState, `{"server":"agents"}`, backendInputStatePrefix + "!!", backendInputStatePrefix} {
+	withoutTool := backendInputState{Server: testTenantServer, State: testBackendState}.encode()
+	for _, foreign := range []string{"", testBackendState, `{"server":"agents"}`, backendInputStatePrefix + "!!", backendInputStatePrefix, withoutTool} {
 		_, ok := decodeBackendInputState(foreign)
 		require.False(t, ok, foreign)
 	}
@@ -297,12 +359,12 @@ func TestBackendInputState_RoundTrip(t *testing.T) {
 
 func TestAnswerBackendElicitation_OtherOutcomesPassThrough(t *testing.T) {
 	backendErr := errors.New("backend refused")
-	result, err := answerBackendElicitation(t.Context(), testElicitingServer, nil, backendErr)
+	result, err := answerBackendElicitation(t.Context(), testElicitingServer, "create", nil, backendErr)
 	require.Nil(t, result)
 	require.Same(t, backendErr, err)
 
 	plain := mcp.NewToolResultText("done")
-	result, err = answerBackendElicitation(t.Context(), testElicitingServer, plain, nil)
+	result, err = answerBackendElicitation(t.Context(), testElicitingServer, "create", plain, nil)
 	require.NoError(t, err)
 	require.Same(t, plain, result)
 }

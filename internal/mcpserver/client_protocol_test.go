@@ -106,6 +106,19 @@ func TestBackendProtocol_ModernBackend(t *testing.T) {
 		require.NotNil(t, declared.Elicitation.Form, "what the caller does support is forwarded")
 	})
 
+	t.Run("sampling and roots are not declared", func(t *testing.T) {
+		everything := urlCapabilities()
+		everything.Sampling = &mcp.SamplingCapability{}
+		everything.Roots = &struct {
+			ListChanged bool `json:"listChanged,omitempty"`
+		}{ListChanged: true}
+
+		_, err := c.CallTool(WithCallerCapabilities(ctx, everything), "create", nil)
+
+		require.NoError(t, err)
+		require.Equal(t, mcp.ClientCapabilities{Elicitation: urlCapabilities().Elicitation}, *backend.declared.Load())
+	})
+
 	t.Run("a call without a caller declares nothing", func(t *testing.T) {
 		result, err := c.CallTool(ctx, "create", nil)
 

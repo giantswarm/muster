@@ -210,11 +210,3 @@ require (
 replace github.com/prometheus/prometheus v0.51.0 => github.com/prometheus/prometheus v0.315.0
 
 replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
-
-// The Giant Swarm line of mcp-go: v1.4.0 plus the streamable-http fix that
-// sends a request's notifications on its POST stream, and the request body
-// bound of the HTTP transports (CVE-2026-108859) (giantswarm/mcp-go FORK.md
-// and fork/). Pinned to v1.4.0 only, so an mcp-go bump leaves the line and the
-// progress tests show whether upstream carries the fixes; moving the pin
-// follows FORK.md "Moving the pin".
-replace github.com/mark3labs/mcp-go v1.4.0 => github.com/giantswarm/mcp-go v1.1.2-0.20261026144956-a19544b98532

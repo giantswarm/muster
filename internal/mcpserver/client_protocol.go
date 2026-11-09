@@ -18,14 +18,16 @@ import (
 // the initialize handshake with, 2025-11-25 at most, and the client remembers
 // it (legacyBackend): its reconnects skip the probe, and a streamable-http one
 // gets back the standalone GET stream that revision delivers notifications on.
+// A client in listen mode does not fall back: it negotiates the revision
+// itself (client_listen.go).
 //
 // A 2026-07-28 backend answers a tool call that needs the person with an
 // input_required result. The client returns it unchanged (manual round trips),
-// declares on the call the capabilities of the client muster calls for
-// (WithCallerCapabilities), and attaches the inputResponses and requestState
-// of a retry (WithRoundTrip). A 2025-11-25 backend fixes the capabilities at
-// its handshake, where muster declares none: such a backend asks nothing of
-// the person through muster.
+// declares on the call the elicitation capability of the client muster calls
+// for (WithCallerCapabilities), and attaches the inputResponses and
+// requestState of a retry (WithRoundTrip). A 2025-11-25 backend fixes the
+// capabilities at its handshake, where muster declares none: such a backend
+// asks nothing of the person through muster.
 
 // listChangedRetryMin and listChangedRetryMax bound the wait before a dropped
 // subscriptions/listen stream for list changes is opened again.
@@ -37,9 +39,10 @@ const (
 type callerCapabilitiesKey struct{}
 
 // WithCallerCapabilities returns a context whose tool calls declare, to a
-// 2026-07-28 backend, the capabilities of the client muster calls the tool
-// for. A tool call whose context carries none declares none: the backend
-// cannot ask anything of a caller muster knows nothing about.
+// 2026-07-28 backend, the forwarded capabilities (ForwardedCapabilities) of
+// the client muster calls the tool for. A tool call whose context carries
+// none declares none: the backend cannot ask anything of a caller muster
+// knows nothing about.
 func WithCallerCapabilities(ctx context.Context, capabilities mcp.ClientCapabilities) context.Context {
 	return context.WithValue(ctx, callerCapabilitiesKey{}, ForwardedCapabilities(capabilities))
 }
@@ -50,16 +53,13 @@ func callerCapabilitiesFrom(ctx context.Context) mcp.ClientCapabilities {
 }
 
 // ForwardedCapabilities is what muster declares to a backend of the
-// capabilities its caller declared: those that let the backend ask the
-// caller for input (elicitation, sampling, roots), which muster passes
-// through. Experimental capabilities and extensions describe what the caller
-// does with muster, not what muster relays, and are not forwarded.
+// capabilities its caller declared: elicitation only, the one input request
+// muster passes through. Sampling and roots, deprecated in 2026-07-28
+// (SEP-2577), would let a backend run the caller's model or read its
+// workspace, and are not forwarded. Experimental capabilities and extensions
+// describe what the caller does with muster, not what muster relays.
 func ForwardedCapabilities(capabilities mcp.ClientCapabilities) mcp.ClientCapabilities {
-	return mcp.ClientCapabilities{
-		Elicitation: capabilities.Elicitation,
-		Sampling:    capabilities.Sampling,
-		Roots:       capabilities.Roots,
-	}
+	return mcp.ClientCapabilities{Elicitation: capabilities.Elicitation}
 }
 
 type roundTripKey struct{}

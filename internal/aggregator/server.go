@@ -2150,11 +2150,11 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
 			start := time.Now()
 			ctx := observability.AnnotateDownstreamCall(ctx, sessionServerName, toolName, originalName)
-			ctx, err := prepareBackendCall(ctx, sessionServerName)
+			ctx, err := prepareBackendCall(ctx, sessionServerName, originalName)
 			var res *mcp.CallToolResult
 			if err == nil {
 				res, err = a.callToolWithTokenExchangeRetry(ctx, sessionServerName, originalName, args, sessionID, sub)
-				res, err = answerBackendElicitation(ctx, sessionServerName, res, err)
+				res, err = answerBackendElicitation(ctx, sessionServerName, originalName, res, err)
 			}
 			a.finishDispatch(ctx, sessionServerName, toolName, start, res, err)
 			return res, err
@@ -2288,9 +2288,9 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
 	// Runs before finishDispatch: a backend's input request is passed on
 	// here, where the server it came from is known.
-	defer func() { res, err = answerBackendElicitation(ctx, serverName, res, err) }()
+	defer func() { res, err = answerBackendElicitation(ctx, serverName, originalName, res, err) }()
 	ctx = observability.AnnotateDownstreamCall(ctx, serverName, toolName, originalName)
-	if ctx, err = prepareBackendCall(ctx, serverName); err != nil {
+	if ctx, err = prepareBackendCall(ctx, serverName, originalName); err != nil {
 		return nil, err
 	}
 	serverInfo, exists := a.registry.GetServerInfo(serverName)

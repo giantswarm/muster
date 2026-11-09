@@ -163,18 +163,18 @@ Only the sign-in answers muster issues are elicited: a backend result that has t
 
 muster speaks MCP 2026-07-28 to every server that does, and 2025-11-25 (or the earlier revision the server answers `initialize` with) to any other, decided per server when muster connects to it.
 
-On each tool call to a 2026-07-28 server, muster declares the client capabilities of the client it calls for (`io.modelcontextprotocol/clientCapabilities` in the request's `_meta`): those that let the server ask the client for input, `elicitation`, `sampling` and `roots`, as the client declared them on its request (2026-07-28) or at `initialize` (2025-11-25). A client that does not declare `elicitation.url` is not declared to have it, so the server does not ask it to open a page. A call muster makes on its own, such as a workflow step, declares none.
+On each tool call to a 2026-07-28 server, muster declares the `elicitation` capability of the client it calls for (`io.modelcontextprotocol/clientCapabilities` in the request's `_meta`), as the client declared it on its request (2026-07-28) or at `initialize` (2025-11-25). muster never declares `sampling` or `roots`, which 2026-07-28 deprecates: a server's `input_required` answer asking for either fails the call with a tool error naming the server and the method. A client that does not declare `elicitation.url` is not declared to have it, so the server does not ask it to open a page. A call muster makes on its own, such as a workflow step, declares none.
 
 A 2026-07-28 server that needs something of the person answers with `resultType: "input_required"`. muster passes it to the client:
 
-- each elicitation's `message` is prefixed with the server's key in brackets, `[github]` or, for a server of an organization namespace, `[org-a/github]`: the client only sees muster, and the person is told which server asks;
-- `requestState` is the server's own, wrapped with the server's key. The client echoes it with `inputResponses` on its retry of the same tool, and muster hands the server its own `requestState` and the answers. A retry whose `requestState` names another server than the one the tool belongs to is refused, so the echo never chooses where an answer goes.
+- each elicitation's `message` is put on one line (each run of white space made one space) and prefixed with the server's key in brackets, `[github]` or, for a server of an organization namespace, `[org-a/github]`: the client only sees muster, and the person is told which server asks;
+- `requestState` is the server's own, wrapped with the server's key and the tool's name. The client echoes it with `inputResponses` on its retry of the same tool, and muster hands the server its own `requestState` and the answers. A retry whose `requestState` names another server or tool than the one called is refused, so the echo never chooses where an answer goes.
 
 | Client's protocol version | Answer |
 |---|---|
 | 2026-07-28 or later | The `input_required` result, as described above. |
-| 2025-11-25, a request made only of URL elicitations | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitations. Call the tool again once the pages are done. |
-| 2025-11-25, any other request | The server-initiated requests of that revision (`elicitation/create`, `sampling/createMessage`, `roots/list`), then the tool call runs again with the answers. |
+| 2025-11-25, a request made only of URL elicitations | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitations, each with the server's `elicitationId` or, when it has none, one that is the same for every answer with one link. Call the tool again once the pages are done. That revision has no `requestState`, so the server is called without its own: it must tell from its own records whether the pages are done, and otherwise asks again. muster sends no `notifications/elicitation/complete` for these elicitations. |
+| 2025-11-25, a form elicitation | `elicitation/create`, then the tool call runs again with the answers and the server's `requestState`. |
 
 Through `call_tool`, a workflow, or any other path that cannot carry an input request, the call's answer is a tool error holding each message and the link of each URL elicitation.
 
