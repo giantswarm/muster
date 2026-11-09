@@ -1869,6 +1869,14 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 	return mux
 }
 
+// registerSubjectRoutes registers the endpoints that act as the person the
+// bearer names, each behind authenticate.
+func (a *AggregatorServer) registerSubjectRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Handler) error {
+	mux.Handle("DELETE /user-tokens", authenticate(http.HandlerFunc(a.handleUserTokensDeletion)))
+	mux.Handle("DELETE /auth/{server}", authenticate(http.HandlerFunc(a.handleAuthServerDeletion)))
+	return a.registerSessionBindingRoutes(mux, authenticate)
+}
+
 // createOAuthProtectedMux creates an HTTP mux with OAuth 2.1 protection.
 // All MCP endpoints are protected by the ValidateToken middleware.
 //
@@ -1990,8 +1998,6 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	oauthMux := oauthHTTPServer.CreateMux()
 	outerMux := http.NewServeMux()
 
-	// Authenticated logout endpoints (behind ValidateToken middleware).
-	// These require a valid Bearer token and extract the user's subject from context.
 	// Unauthenticated health check so Kubernetes liveness/readiness probes work
 	// regardless of OAuth configuration.
 	outerMux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -2000,11 +2006,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	outerMux.Handle("DELETE /user-tokens", oauthHTTPServer.ValidateTokenWithSubject(
-		http.HandlerFunc(a.handleUserTokensDeletion)))
-	outerMux.Handle("DELETE /auth/{server}", oauthHTTPServer.ValidateTokenWithSubject(
-		http.HandlerFunc(a.handleAuthServerDeletion)))
-	if err := a.registerSessionBindingRoutes(outerMux, oauthHTTPServer.ValidateTokenWithSubject); err != nil {
+	if err := a.registerSubjectRoutes(outerMux, oauthHTTPServer.ValidateTokenWithSubject); err != nil {
 		return nil, err
 	}
 	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated); err != nil {

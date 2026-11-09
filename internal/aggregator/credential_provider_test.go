@@ -89,3 +89,32 @@ func TestStartCredentialProviderNeedsTheOAuthServer(t *testing.T) {
 	assert.ErrorContains(t, a.startCredentialProvider(context.Background()), "OAuth server")
 	a.stopCredentialProvider(context.Background())
 }
+
+func TestSubjectRoutesAreAuthenticated(t *testing.T) {
+	a := &AggregatorServer{}
+	a.config.CredentialProvider = credentialProviderConfig()
+	mux := http.NewServeMux()
+	var authenticated []string
+	refuse := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authenticated = append(authenticated, r.Method+" "+r.URL.Path)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		})
+	}
+	require.NoError(t, a.registerSubjectRoutes(mux, refuse))
+
+	for _, route := range []struct{ method, path string }{
+		{http.MethodPut, credprovider.BindingsPath},
+		{http.MethodDelete, credprovider.BindingsPath + "?actor=spiffe://substrate-actor.local/actor/kagent/s1"},
+		{http.MethodDelete, "/user-tokens"},
+		{http.MethodDelete, "/auth/mcp-kubernetes"},
+	} {
+		t.Run(route.method+" "+route.path, func(t *testing.T) {
+			authenticated = nil
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), route.method, route.path, nil))
+			require.Equal(t, http.StatusUnauthorized, rec.Code)
+			require.Len(t, authenticated, 1)
+		})
+	}
+}

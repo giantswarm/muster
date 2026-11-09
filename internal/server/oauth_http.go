@@ -589,6 +589,23 @@ func (s *OAuthHTTPServer) withValidatedSubject(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized: missing user identity", http.StatusUnauthorized)
 			return
 		}
+		// These endpoints act as the person: they bind a sandbox to them or
+		// drop their tokens. A delegated token is an actor acting for the
+		// person within a toolset, so it may not.
+		if s.isDelegated(userInfo) {
+			const reason = "a delegated token cannot act as the person on this endpoint"
+			logging.Audit(logging.AuditEvent{
+				Action:  "delegated_bearer",
+				Outcome: "failure",
+				Subject: logging.TruncateIdentifier(userInfo.ID),
+				Target:  r.Method + " " + r.URL.Path,
+				Details: fmt.Sprintf("actor_iss=%s actor=%s", userInfo.ActorIssuer, userInfo.ActorSubject),
+				Error:   reason,
+			})
+			w.Header().Set("WWW-Authenticate", s.insufficientScopeChallenge(reason))
+			http.Error(w, http.StatusText(http.StatusForbidden)+": "+reason, http.StatusForbidden)
+			return
+		}
 
 		ctx = api.WithSubject(ctx, userInfo.ID)
 		ctx = api.WithSignInIdentity(ctx, s.signInIdentity(userInfo))

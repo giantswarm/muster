@@ -28,6 +28,7 @@ func TestSubjectEndpointValidatesForwardedBearer(t *testing.T) {
 			AllowedAudiences:   []string{"kagent"},
 			AcceptedTypHeaders: []string{""},
 			AllowPrivateIPJWKS: true,
+			Delegation:         &config.TrustedIssuerDelegationConfig{ActorIssuers: []string{"https://idp.ate-system.svc"}},
 		}},
 		Dex: config.DexConfig{
 			IssuerURL:          dexServer.issuer,
@@ -54,6 +55,7 @@ func TestSubjectEndpointValidatesForwardedBearer(t *testing.T) {
 		{"missing bearer", "", http.StatusUnauthorized},
 		{"unknown opaque bearer", "unrecognized-access-token", http.StatusUnauthorized},
 		{"delegated trusted audience", dexServer.idToken(t, "agent-platform", expires, map[string]any{"act": map[string]any{"sub": "agent:review"}}), http.StatusUnauthorized},
+		{"delegated trusted issuer", dexServer.idToken(t, "kagent", expires, map[string]any{"act": map[string]any{"iss": "https://idp.ate-system.svc", "sub": "actor/kagent/session-1"}}), http.StatusForbidden},
 		{"DPoP without proof", dexServer.idToken(t, "agent-platform", expires, map[string]any{"cnf": map[string]any{"jkt": "0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I"}}), http.StatusUnauthorized},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
