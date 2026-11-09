@@ -198,16 +198,25 @@ func TestSanitizeSVGInlinesClassRules(t *testing.T) {
 			want: svgOpen + `<g class="g" fill="#abc"><path d="M0 0h1"/></g></svg>`,
 		},
 		{
+			name: "presentation properties are inlined",
+			in:   svgOpen + `<style>.a{fill:url(#g);fill-rule:evenodd;opacity:.5;clip-path:url(#c);stroke-miterlimit:10;display:none}</style><path class="a" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1" clip-path="url(#c)" display="none" fill="url(#g)" fill-rule="evenodd" opacity=".5" stroke-miterlimit="10"/></svg>`,
+		},
+		{
 			name: "other properties are not inlined",
-			in:   svgOpen + `<style>.a{fill:red;opacity:0;stroke-miterlimit:10;display:none}</style><path class="a" d="M0 0h1"/></svg>`,
+			in:   svgOpen + `<style>.a{fill:red;transform:rotate(9deg);x:1;d:none;filter:blur(1px);mix-blend-mode:multiply;style:x;href:#p}</style><path class="a" d="M0 0h1"/></svg>`,
 			want: svgOpen + `<path class="a" d="M0 0h1" fill="red"/></svg>`,
 		},
 		{
-			name: "url, expressions, important and odd values are not inlined",
-			in: svgOpen + `<style>.a{fill:url(#g);stroke:url(https://evil/x)}.b{fill:expression(alert(1));stroke:red !important}` +
-				`.c{fill:var(--x);stroke:calc(1px + 2px);stroke-width:1e3;fill-opacity:attr(x)}</style>` +
-				`<path class="a" d="M0 0h1"/><path class="b" d="M0 0h1"/><path class="c" d="M0 0h1"/></svg>`,
-			want: svgOpen + `<path class="a" d="M0 0h1"/><path class="b" d="M0 0h1"/><path class="c" d="M0 0h1"/></svg>`,
+			name: "values get the attribute check, important is dropped",
+			in: svgOpen + `<style>.a{fill:url(https://evil/x);stroke:URL( x );stroke-width:}.b{fill:url(#g) !important;stroke:red!IMPORTANT}</style>` +
+				`<path class="a" d="M0 0h1"/><path class="b" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1"/><path class="b" d="M0 0h1" fill="url(#g)" stroke="red"/></svg>`,
+		},
+		{
+			name: "a refused value leaves the earlier rule in place",
+			in:   svgOpen + `<style>.a{fill:red}.b{fill:url(https://evil/x)}</style><path class="a b" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a b" d="M0 0h1" fill="red"/></svg>`,
 		},
 		{
 			name: "rules whose selector is not a plain class are not applied",
@@ -216,8 +225,15 @@ func TestSanitizeSVGInlinesClassRules(t *testing.T) {
 			want: svgOpen + `<g class="a"><path id="p" class="a b" d="M0 0h1" stroke="blue"/></g></svg>`,
 		},
 		{
-			name: "at-rules refuse the whole stylesheet",
-			in:   svgOpen + `<style>@import url(https://evil/x.css);.a{fill:red}</style><style>@media (prefers-color-scheme: dark){.a{fill:#fff}}</style><path class="a" d="M0 0h1"/></svg>`,
+			name: "at-rules and conditional stylesheets are skipped",
+			in: svgOpen + `<style>@import url(https://evil/x.css);.a{fill:red}@media (prefers-color-scheme: dark){.a{fill:#fff}.b{fill:#000}}.a{stroke:blue}</style>` +
+				`<style media="(prefers-color-scheme: dark)">.a{stroke:#fff}</style><style type="text/x-other">.a{stroke:#000}</style><style media="all">.a{stroke-width:2}</style>` +
+				`<path class="a" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1" fill="red" stroke="blue" stroke-width="2"/></svg>`,
+		},
+		{
+			name: "unclosed at-rule refuses the whole stylesheet",
+			in:   svgOpen + `<style>.a{fill:red}@media screen{.a{fill:#fff}</style><path class="a" d="M0 0h1"/></svg>`,
 			want: svgOpen + `<path class="a" d="M0 0h1"/></svg>`,
 		},
 		{
@@ -279,5 +295,24 @@ func TestFromDataURIKeepsWebAssetsIconColours(t *testing.T) {
 	}
 	if want := []string{"#0e2151", "#fff"}; !slices.Equal(fills, want) {
 		t.Fatalf("path fills = %q, want %q", fills, want)
+	}
+}
+
+// TestSanitizeSVGClassRulesAtSizeCap feeds the largest SVG FromDataURI
+// accepts, split between rules for one class and repetitions of that class,
+// and elements carrying it: the work per element must not grow with the
+// number of rules.
+func TestSanitizeSVGClassRulesAtSizeCap(t *testing.T) {
+	quarter := MaxEncodedLen * 2 / 4
+	sheet := strings.Repeat(".a{fill:red}", quarter/len(".a{fill:red}"))
+	class := strings.Repeat("a ", quarter/2)
+	paths := strings.Repeat(`<g class="a"/>`, quarter/len(`<g class="a"/>`))
+	in := svgOpen + "<style>" + sheet + `</style><path class="` + class + `" d="M0 0h1"/>` + paths + `</svg>`
+	got, err := sanitizeSVG([]byte(in))
+	if err != nil {
+		t.Fatalf("sanitizeSVG: %v", err)
+	}
+	if want := `<path class="` + class + `" d="M0 0h1" fill="red"/>`; !strings.Contains(string(got), want) {
+		t.Fatalf("sanitizeSVG: path not styled")
 	}
 }

@@ -3,50 +3,44 @@ package servericon
 import (
 	"bytes"
 	"encoding/xml"
-	"errors"
-	"io"
 	"regexp"
-	"slices"
 	"strings"
 )
 
-// classProperties are the CSS properties a class rule may set; they are
-// written to the elements carrying the class as presentation attributes.
-var classProperties = map[string]*regexp.Regexp{
-	"fill":         paintValue,
-	"stroke":       paintValue,
-	"fill-opacity": regexp.MustCompile(`^` + cssNumber + `%?$`),
-	"stroke-width": regexp.MustCompile(`^` + cssNumber + `(px|%)?$`),
-}
-
-const cssNumber = `[+-]?(\d+(\.\d*)?|\.\d+)`
-
-// paintValue is a colour: a keyword, a hex colour, or rgb(), rgba(), hsl()
-// or hsla() over numbers.
-var paintValue = regexp.MustCompile(`^([a-zA-Z]+|#[0-9a-fA-F]{3,8}|(rgba?|hsla?)\([0-9.,%\s]*\))$`)
+// presentationProperties are the CSS properties that are also SVG
+// presentation attributes with the same value syntax. A class rule setting
+// one becomes that attribute, checked as sanitizeAttr checks the attribute.
+var presentationProperties = toSet(
+	"fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity",
+	"stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray",
+	"stroke-dashoffset", "opacity", "color", "display", "visibility", "overflow",
+	"clip-path", "clip-rule", "mask", "stop-color", "stop-opacity", "vector-effect",
+	"shape-rendering", "paint-order", "font-family", "font-size", "font-weight",
+	"font-style", "text-anchor", "dominant-baseline", "letter-spacing", "word-spacing",
+)
 
 var classSelector = regexp.MustCompile(`^\.[a-zA-Z_-][a-zA-Z0-9_-]*$`)
 
-// classRules maps a class name to the declarations its rules set, each with
-// the index of its rule so the later rule wins, as in CSS.
-type classRules map[string][]classDecl
+// classRules maps a class name to the value each property gets from the
+// last rule setting it, with that rule's index: all rules have the same
+// specificity, so across an element's classes the later rule wins.
+type classRules map[string]map[string]classDecl
 
 type classDecl struct {
-	rule     int
-	property string
-	value    string
+	rule  int
+	value string
 }
 
-// stylesheetClassRules reads the <style> elements of an SVG document and
-// keeps only rules whose selectors are all a single class, and of those
-// only the classProperties declarations whose value passes its check. A
-// stylesheet with an at-rule, an escape, a comment, a quote or unbalanced
-// braces is not used at all.
+// stylesheetClassRules reads the <style> elements of an SVG document that
+// apply unconditionally, and keeps the presentationProperties declarations
+// of the rules whose selectors are all a single class. At-rules (@import,
+// @media, ...) are skipped. A stylesheet with an escape, a comment, a quote
+// or unbalanced braces is not used at all.
 func stylesheetClassRules(data []byte) classRules {
 	rules := classRules{}
 	n := 0
 	for _, sheet := range stylesheets(data) {
-		if strings.ContainsAny(sheet, `@\"'`) || strings.Contains(sheet, "/*") {
+		if strings.ContainsAny(sheet, `\"'`) || strings.Contains(sheet, "/*") {
 			continue
 		}
 		blocks, ok := ruleBlocks(sheet)
@@ -62,8 +56,9 @@ func stylesheetClassRules(data []byte) classRules {
 }
 
 // stylesheets returns the text of every <style> element in the SVG
-// namespace. A document that does not parse yields what was read before the
-// error; sanitizeSVG refuses it anyway.
+// namespace that a browser applies whatever the medium: no type other than
+// CSS, no media query. A document that does not parse yields what was read
+// before the error; sanitizeSVG refuses it anyway.
 func stylesheets(data []byte) []string {
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	dec.Strict = true
@@ -71,12 +66,12 @@ func stylesheets(data []byte) []string {
 	var current *strings.Builder
 	for {
 		tok, err := dec.Token()
-		if errors.Is(err, io.EOF) || err != nil {
+		if err != nil {
 			return sheets
 		}
 		switch t := tok.(type) {
 		case xml.StartElement:
-			if t.Name.Space == svgNS && t.Name.Local == "style" && current == nil {
+			if t.Name.Space == svgNS && t.Name.Local == "style" && current == nil && unconditional(t.Attr) {
 				current = &strings.Builder{}
 			}
 		case xml.EndElement:
@@ -92,18 +87,53 @@ func stylesheets(data []byte) []string {
 	}
 }
 
+// unconditional reports whether a <style> element with these attributes
+// applies in every context.
+func unconditional(attrs []xml.Attr) bool {
+	for _, a := range attrs {
+		if a.Name.Space != "" {
+			continue
+		}
+		v := strings.ToLower(strings.TrimSpace(a.Value))
+		switch a.Name.Local {
+		case "type":
+			if v != "" && v != "text/css" {
+				return false
+			}
+		case "media":
+			if v != "" && v != "all" && v != "screen" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // ruleBlocks splits a stylesheet into its rules' selector and declaration
-// text. It fails on a nested, unopened or unclosed block.
+// text, skipping at-rules. It fails on a nested, unopened or unclosed block.
 func ruleBlocks(sheet string) ([][2]string, bool) {
 	var blocks [][2]string
 	rest := sheet
 	for {
-		open := strings.IndexByte(rest, '{')
-		closing := strings.IndexByte(rest, '}')
-		if open < 0 {
-			return blocks, closing < 0 && strings.TrimSpace(rest) == ""
+		rest = strings.TrimSpace(rest)
+		if rest == "" {
+			return blocks, true
 		}
-		if closing < open {
+		open := strings.IndexByte(rest, '{')
+		if rest[0] == '@' {
+			if semi := strings.IndexByte(rest, ';'); semi >= 0 && (open < 0 || semi < open) {
+				rest = rest[semi+1:]
+				continue
+			}
+			end, ok := blockEnd(rest, open)
+			if !ok {
+				return nil, false
+			}
+			rest = rest[end+1:]
+			continue
+		}
+		closing := strings.IndexByte(rest, '}')
+		if open < 0 || closing < open {
 			return nil, false
 		}
 		body := rest[open+1 : closing]
@@ -113,6 +143,26 @@ func ruleBlocks(sheet string) ([][2]string, bool) {
 		blocks = append(blocks, [2]string{rest[:open], body})
 		rest = rest[closing+1:]
 	}
+}
+
+// blockEnd returns the index of the '}' closing the block opened at open.
+func blockEnd(s string, open int) (int, bool) {
+	if open < 0 {
+		return 0, false
+	}
+	depth := 0
+	for i := open; i < len(s); i++ {
+		switch s[i] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return i, true
+			}
+		}
+	}
+	return 0, false
 }
 
 func addRule(rules classRules, index int, selectors, body string) {
@@ -130,31 +180,45 @@ func addRule(rules classRules, index int, selectors, body string) {
 			continue
 		}
 		property = strings.ToLower(strings.TrimSpace(property))
+		// !important only raises the rule over the style attribute, which
+		// the sanitiser drops.
+		value, _, _ = strings.Cut(value, "!")
 		value = strings.TrimSpace(value)
-		check, known := classProperties[property]
-		if !known || !check.MatchString(value) || !safeValue(value) {
+		if !presentationProperties[property] || value == "" {
+			continue
+		}
+		if _, _, keep := sanitizeAttr(xml.Attr{Name: xml.Name{Local: property}, Value: value}); !keep {
 			continue
 		}
 		for _, c := range classes {
-			rules[c] = append(rules[c], classDecl{rule: index, property: property, value: value})
+			if rules[c] == nil {
+				rules[c] = map[string]classDecl{}
+			}
+			rules[c][property] = classDecl{rule: index, value: value}
 		}
 	}
 }
 
 // attributes returns the presentation attributes the rules give an element
-// with the class attribute value class, sorted by name.
+// with the class attribute value class.
 func (r classRules) attributes(class string) map[string]string {
-	var decls []classDecl
+	var winners map[string]classDecl
 	for c := range strings.FieldsSeq(class) {
-		decls = append(decls, r[c]...)
+		for property, d := range r[c] {
+			if winners == nil {
+				winners = map[string]classDecl{}
+			}
+			if w, ok := winners[property]; !ok || d.rule > w.rule {
+				winners[property] = d
+			}
+		}
 	}
-	if len(decls) == 0 {
+	if winners == nil {
 		return nil
 	}
-	slices.SortStableFunc(decls, func(a, b classDecl) int { return a.rule - b.rule })
-	out := make(map[string]string, len(decls))
-	for _, d := range decls {
-		out[d.property] = d.value
+	out := make(map[string]string, len(winners))
+	for property, d := range winners {
+		out[property] = d.value
 	}
 	return out
 }
