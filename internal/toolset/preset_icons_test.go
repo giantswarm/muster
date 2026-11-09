@@ -31,6 +31,12 @@ func TestBuiltInIcons_PassIconValidation(t *testing.T) {
 	}
 }
 
+func TestBuiltInIcons_ArtworkSurvivesSanitiser(t *testing.T) {
+	for name, raw := range map[string]string{PresetReadOnly: presetReadOnlySVG, PresetNone: presetNoneSVG, PresetFull: presetFullSVG} {
+		assert.Equal(t, svgDataURI(raw), builtInIcons[name], "%s artwork is stored byte-identical", name)
+	}
+}
+
 func TestNewRegistry_PresetIcon(t *testing.T) {
 	valid := svgDataURI(testSVG)
 	canonical, err := servericon.FromDataURI(valid)

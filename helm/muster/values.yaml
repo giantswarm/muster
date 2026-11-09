@@ -383,7 +383,7 @@ muster:
   #         - server: mcp-prometheus
   #       exclude:
   #         - pattern: "*_delete"
-  toolsetPresets: {}  # @schema additionalProperties: true
+  toolsetPresets: {}  # @schema additionalProperties: {type: object, additionalProperties: true, properties: {icon: {type: string, pattern: "^data:", maxLength: 65536, description: "Optional icon: a data: URI, svg/png/jpeg/webp, at most 65536 characters, SVGs sanitised."}}}
 
   # Provider Apps: the OAuth App of each provider instance a person grants
   # once in muster, apart from any MCPServer (core_auth_login app=<name>,
