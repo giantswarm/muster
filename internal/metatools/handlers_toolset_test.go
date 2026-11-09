@@ -201,8 +201,10 @@ func TestToolset_SameSessionDifferentHeaders(t *testing.T) {
 
 func TestToolset_FilterToolsArgument(t *testing.T) {
 	defer registerMockHandler(toolsetFixture())()
+	// A configured icon comes back as given when it is already canonical.
+	const infraIcon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMTQiLz48L3N2Zz4="
 	p := NewProviderWithPresets(must(toolset.NewRegistry(toolset.PresetsConfig{
-		"infrastructure": {Description: "infra", Include: []toolset.Rule{{Server: "k8s"}}},
+		"infrastructure": {Description: "infra", Icon: infraIcon, Include: []toolset.Rule{{Server: "k8s"}}},
 	})))
 
 	// Unscoped request, argument given: resolution, unmatched, presets.
@@ -216,8 +218,9 @@ func TestToolset_FilterToolsArgument(t *testing.T) {
 	assert.Equal(t, []any{"server:nope"}, resp["toolset_unmatched"])
 	presets, _ := resp["presets"].([]any)
 	require.Len(t, presets, 4)
-	assert.Equal(t, map[string]any{"name": "read-only", "description": presets[0].(map[string]any)["description"], "built_in": true}, presets[0])
+	assert.Equal(t, map[string]any{"name": "read-only", "description": presets[0].(map[string]any)["description"], "icon": toolset.BuiltIns().List()[0].Icon, "built_in": true}, presets[0])
 	assert.Equal(t, "infrastructure", presets[3].(map[string]any)["name"])
+	assert.Equal(t, infraIcon, presets[3].(map[string]any)["icon"])
 	assert.Equal(t, false, presets[3].(map[string]any)["built_in"])
 
 	// include_presets alone lists presets without resolving anything.

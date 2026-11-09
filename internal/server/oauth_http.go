@@ -289,10 +289,7 @@ func (s *OAuthHTTPServer) setupMCPRoutes(mux *http.ServeMux) {
 	// Create middleware to inject access token into context for downstream use
 	accessTokenInjector := s.createAccessTokenInjectorMiddleware(s.mcpHandler)
 
-	// Wrap MCP endpoints with OAuth validation: forwarded JWT bearers through
-	// the operator's trustedAudiences and trustedIssuers, every other bearer
-	// through mcp-oauth's ValidateToken middleware.
-	protected := s.authenticateForwardedBearer(s.oauthHandler.ValidateToken(accessTokenInjector), accessTokenInjector)
+	protected := s.oauthHandler.ValidateToken(accessTokenInjector)
 	mux.Handle("/mcp", protected)
 	mux.Handle("/sse", protected)
 	mux.Handle("/message", protected)
@@ -568,10 +565,11 @@ func (s *OAuthHTTPServer) GetOAuthHandler() *oauthhandler.Handler {
 	return s.oauthHandler
 }
 
-// ValidateTokenWithSubject wraps the given handler with OAuth token validation
-// and extracts the authenticated user's subject (sub claim) into the context.
-// This is used for API endpoints that need to identify the user but don't need
-// the full SSO/token-injection logic of the MCP middleware chain.
+// ValidateTokenWithSubject guards an endpoint that acts as the person: it
+// accepts the same bearers as the MCP endpoints (mcp-oauth's ValidateToken),
+// refuses a token naming an acting party with 403 insufficient_scope, and puts
+// the person's subject into the context. It skips the SSO and token-injection
+// logic of the MCP middleware chain.
 func (s *OAuthHTTPServer) ValidateTokenWithSubject(next http.Handler) http.Handler {
 	return s.oauthHandler.ValidateToken(s.withValidatedSubject(next))
 }
@@ -586,6 +584,24 @@ func (s *OAuthHTTPServer) withValidatedSubject(next http.Handler) http.Handler {
 		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil || userInfo.ID == "" {
 			http.Error(w, "Unauthorized: missing user identity", http.StatusUnauthorized)
+			return
+		}
+		// These endpoints act as the person: they bind a sandbox to them or
+		// drop their tokens. A token naming an acting party (RFC 8693 §4.1
+		// act) lets that party act for the person, whatever the issuer's
+		// delegation policy, so it may not.
+		if namesActor(userInfo) {
+			const reason = "a token naming an acting party cannot act as the person on this endpoint"
+			logging.Audit(logging.AuditEvent{
+				Action:  "subject_endpoint_bearer",
+				Outcome: "failure",
+				Subject: logging.TruncateIdentifier(userInfo.ID),
+				Target:  r.Method + " " + r.URL.Path,
+				Details: fmt.Sprintf("actor_iss=%s actors=[%s]", userInfo.ActorIssuer, strings.Join(actorSubjects(userInfo), ",")),
+				Error:   reason,
+			})
+			w.Header().Set("WWW-Authenticate", s.insufficientScopeChallenge(reason))
+			http.Error(w, http.StatusText(http.StatusForbidden)+": "+reason, http.StatusForbidden)
 			return
 		}
 
