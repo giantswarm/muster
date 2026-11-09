@@ -121,7 +121,7 @@ func signIDToken(t *testing.T, key *ecdsa.PrivateKey, issuer string) string {
 func TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID(t *testing.T) {
 	issuer, caFile, signingKey := startSigningDex(t)
 
-	var logs bytes.Buffer
+	var logs lockedBuffer
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
@@ -170,7 +170,7 @@ func TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID(t *testin
 	require.NotEmpty(t, openedSession)
 
 	var accepted int
-	for line := range bytes.SplitSeq(logs.Bytes(), []byte("\n")) {
+	for line := range bytes.SplitSeq([]byte(logs.String()), []byte("\n")) {
 		var entry struct {
 			Audit struct {
 				EventType string         `json:"event_type"`
