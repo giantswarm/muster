@@ -9,13 +9,15 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// A server outside muster's namespace that the caller sees, and whose
-// sign-in cannot start yet, is answered as such by core_auth_login: the
-// listings (core_mcpserver_list, list_tools) show it, so "not found" would
-// contradict them. The commonest reason is a pin whose client Secret muster
-// may not read: a tenant pin's Secret stays in the tenant's namespace, and
-// muster reads it only through a Role there that gives its ServiceAccount
-// get on that one Secret (D9).
+// A server that the caller sees, and whose sign-in cannot start, is answered
+// as such by core_auth_login: the listings (core_mcpserver_list, list_tools)
+// show it, so "not found" would contradict them. Such a server has no
+// registry entry: a tenant server before it registers, or any server whose
+// sign-in muster refuses (its entry is removed, api.IsSignInRefused). The
+// commonest reason is a pin whose client Secret muster may not read: a
+// tenant pin's Secret stays in the tenant's namespace, and muster reads it
+// only through a Role there that gives its ServiceAccount get on that one
+// Secret (D9).
 
 // signInNotReadyMessage is core_auth_login's answer for a server whose
 // sign-in cannot start yet.
@@ -23,17 +25,23 @@ func signInNotReadyMessage(serverName string, reason error) string {
 	return fmt.Sprintf("Cannot sign in to '%s': the server's sign-in is not ready: %v", serverName, reason)
 }
 
-// tenantSignInNotReady returns why the sign-in of a tenant server that has
-// no registry entry yet cannot start, or nil when there is no definition of
-// it (the server does not exist). The reason is the pin Secret muster cannot read,
-// else the definition's last error, else its state.
-func tenantSignInNotReady(ctx context.Context, serverName string) error {
+// definedSignInNotReady returns why the sign-in of a server that has no
+// registry entry cannot start, or nil when there is no definition of it (the
+// server does not exist) or, in muster's namespace, for a server without a
+// sign-in. The reason is the pin Secret muster cannot read, else the
+// definition's last error, else its state.
+func definedSignInNotReady(ctx context.Context, serverName string) error {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
 		return nil
 	}
 	definition, err := manager.GetMCPServer(ctx, serverName)
 	if err != nil || definition == nil {
+		return nil
+	}
+	// In muster's namespace only a server with a sign-in has one that is not
+	// ready; any other unregistered server is "not found", as it always was.
+	if !api.IsTenantMCPServerKey(serverName) && !signsIn(definition.Auth) {
 		return nil
 	}
 	if err := pinSecretReadable(ctx, serverName, definition); err != nil {
@@ -63,7 +71,7 @@ func pinSecretReadable(ctx context.Context, serverName string, definition *api.M
 	}
 	info := &ServerInfo{Name: serverName, Namespace: definition.Namespace, UID: definition.UID}
 	namespace := info.GetNamespace()
-	if _, err := secrets.LoadMCPServerClientCredentials(ctx, info.SecretOwner(), api.SecretFieldAuthorizationServer, as.ClientCredentialsSecretRef); err != nil {
+	if _, err := secrets.LoadMCPServerClientCredentials(ctx, info.SecretOwner().ForAuthorizationServer(as), api.SecretFieldAuthorizationServer, as.ClientCredentialsSecretRef); err != nil {
 		return fmt.Errorf("load client credentials for server %s: %w", serverName,
 			tenantSecretReadError(serverName, namespace, as.ClientCredentialsSecretRef.Name, err))
 	}
@@ -79,4 +87,10 @@ func tenantSecretReadError(serverName, namespace, secret string, err error) erro
 	return fmt.Errorf("muster may not read the Secret %s/%s of the pin: give muster's ServiceAccount get on that Secret alone "+
 		"(a Role in %s with resourceNames: [%s] and a RoleBinding to it, see \"Servers outside muster's namespace\" in muster's docs): %w",
 		namespace, secret, namespace, secret, err)
+}
+
+// signsIn reports whether a server's auth has a sign-in: OAuth, or the
+// caller's own identity (token forwarding or exchange).
+func signsIn(auth *api.MCPServerAuth) bool {
+	return auth != nil && (auth.Type == "oauth" || auth.UsesSessionAuth())
 }

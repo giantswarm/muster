@@ -112,6 +112,10 @@ type MCPServerCreateRequest struct {
 	// Auth configures authentication behavior for this MCP server.
 	// This is only relevant for remote servers (streamable-http or sse).
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// ClientCredentials is the client of auth.authorizationServer, written
+	// as the caller to a Secret owned by the server. Write-only.
+	ClientCredentials *MCPServerClientCredentials `json:"clientCredentials,omitempty"`
 }
 
 // MCPServerUpdateRequest represents a request to update an existing MCP server definition.
@@ -178,6 +182,15 @@ type MCPServerUpdateRequest struct {
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`
+
+	// ClientCredentials replaces the client of auth.authorizationServer: a
+	// new Secret owned by the server, written as the caller. Write-only.
+	ClientCredentials *MCPServerClientCredentials `json:"clientCredentials,omitempty"`
+
+	// ClearClientCredentials drops the client stored with ClientCredentials:
+	// the generated client Secret reference goes, auth.authorizationServer
+	// stays. Not with ClientCredentials or an explicit reference.
+	ClearClientCredentials bool `json:"clearClientCredentials,omitempty"`
 
 	// Suspended declares the desired lifecycle state of the server's service.
 	// Tri-state: omitting it keeps the current value, so an unrelated update

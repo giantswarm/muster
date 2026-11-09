@@ -33,7 +33,9 @@ func TestHandleAuthLogin_SignInNotReady(t *testing.T) {
 		registered bool
 		defined    bool
 		sees       []string
-		want       string // %[1]s is the server
+		readErr    error              // the Secret reader's answer; default forbidden
+		auth       *api.MCPServerAuth // the definition's auth; default pinned
+		want       string             // %[1]s is the server
 	}{
 		{name: "tenant, listed, not registered", server: "org-b/fixture", defined: true, sees: []string{"org-b"},
 			want: "Cannot sign in to '%[1]s': the server's sign-in is not ready: load client credentials for server %[1]s: muster may not read the Secret org-b/fixture-client of the pin"},
@@ -43,6 +45,18 @@ func TestHandleAuthLogin_SignInNotReady(t *testing.T) {
 		{name: "tenant that does not exist", server: "org-b/fixture", sees: []string{"org-b"}, want: notFound},
 		{name: "muster's namespace, registered", server: "fixture", registered: true, defined: true,
 			want: "Cannot authenticate to '%[1]s': load client credentials for server %[1]s: secrets \"fixture-client\" is forbidden"},
+		{name: "muster's namespace, listed, not registered: its sign-in is refused", server: "fixture", defined: true,
+			readErr: fmt.Errorf("MCPServer muster/fixture may not read Secret muster/fixture-muster-client-abcde12345: %w", api.ErrSecretOtherAuthorizationServer),
+			want:    "Cannot sign in to '%[1]s': the server's sign-in is not ready: load client credentials for server %[1]s: MCPServer muster/fixture may not read Secret muster/fixture-muster-client-abcde12345: the Secret holds a client stored for another authorization server"},
+		{name: "muster's namespace, not defined", server: "fixture", want: notFound},
+		{name: "muster's namespace, listed, not registered, no sign-in", server: "fixture", defined: true,
+			auth: &api.MCPServerAuth{Type: "none"}, want: notFound},
+		{name: "muster's namespace, generated client Secret not owned", server: "fixture", registered: true, defined: true,
+			readErr: fmt.Errorf("MCPServer muster/fixture may not read Secret muster/fixture-muster-client-abcde12345: %w", api.ErrSecretNotOwned),
+			want:    "Cannot sign in to '%[1]s': the server's sign-in is not ready: load client credentials for server %[1]s: MCPServer muster/fixture may not read Secret muster/fixture-muster-client-abcde12345: the Secret is not owned by the MCPServer"},
+		{name: "muster's namespace, generated client Secret stored for another authorization server", server: "fixture", registered: true, defined: true,
+			readErr: fmt.Errorf("MCPServer muster/fixture may not read Secret muster/fixture-muster-client-abcde12345: %w", api.ErrSecretOtherAuthorizationServer),
+			want:    "Cannot sign in to '%[1]s': the server's sign-in is not ready: load client credentials for server %[1]s: MCPServer muster/fixture may not read Secret muster/fixture-muster-client-abcde12345: the Secret holds a client stored for another authorization server"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -50,10 +64,19 @@ func TestHandleAuthLogin_SignInNotReady(t *testing.T) {
 			namespace, name := api.SplitMCPServerKey(tc.server)
 			definitions := &stubMCPServerManager{servers: map[string]api.MCPServerInfo{}}
 			if tc.defined {
-				definitions.servers[tc.server] = api.MCPServerInfo{Name: name, Namespace: namespace, Key: tc.server, Auth: pinned, State: "auth_required"}
+				auth := tc.auth
+				if auth == nil {
+					auth = pinned
+				}
+				definitions.servers[tc.server] = api.MCPServerInfo{Name: name, Namespace: namespace, Key: tc.server, Auth: auth, State: "auth_required"}
 			}
 			api.RegisterMCPServerManager(definitions)
-			api.RegisterSecretCredentialsHandler(&mockSecretCredentialsHandler{err: forbidden})
+			readErr := tc.readErr
+			if readErr == nil {
+				readErr = forbidden
+			}
+			secrets := &mockSecretCredentialsHandler{err: readErr}
+			api.RegisterSecretCredentialsHandler(secrets)
 			manager := oauth.NewManager(config.OAuthMCPClientConfig{Enabled: true, PublicURL: "https://muster.example.com", ClientID: "client-id", CallbackPath: "/oauth/proxy/callback"})
 			t.Cleanup(manager.Stop)
 			api.RegisterOAuthHandler(oauth.NewAdapter(manager))
@@ -80,6 +103,7 @@ func TestHandleAuthLogin_SignInNotReady(t *testing.T) {
 			want := fmt.Sprintf(tc.want, tc.server)
 			if tc.want == notFound {
 				assert.Equal(t, want, result.Content[0], "word for word as for a server that does not exist")
+				assert.Zero(t, secrets.loadCalls, "no Secret is read for it")
 				return
 			}
 			assert.Contains(t, result.Content[0], want)

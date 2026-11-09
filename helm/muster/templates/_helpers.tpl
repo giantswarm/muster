@@ -250,3 +250,12 @@ binding. muster's configuration names the binding
 {{- define "muster.mcpServerSecretReferencesName" -}}
 {{- printf "%s-mcpserver-secret-references" (include "muster.fullname" .) -}}
 {{- end }}
+
+{{/*
+Name of the ValidatingAdmissionPolicy on Secret creates in muster's namespace
+(a writer who may not get a Secret creates only a connector's client) and of
+its binding.
+*/}}
+{{- define "muster.mcpServerClientSecretsName" -}}
+{{- printf "%s-mcpserver-client-secrets" (include "muster.fullname" .) -}}
+{{- end }}

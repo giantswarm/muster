@@ -306,6 +306,25 @@
               "description": "Whether server should auto-start; on update, omitted keeps the current value",
               "type": "boolean"
             },
+            "clientCredentials": {
+              "description": "Write-only OAuth client for auth.authorizationServer; muster stores it in a Secret owned by the server, as you",
+              "properties": {
+                "clientId": {
+                  "description": "OAuth client ID",
+                  "type": "string"
+                },
+                "clientSecret": {
+                  "description": "OAuth client secret",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "clientId",
+                "clientSecret"
+              ],
+              "type": "object",
+              "writeOnly": true
+            },
             "command": {
               "description": "Command executable path (required for stdio)",
               "type": "string"
@@ -695,6 +714,29 @@
             "autoStart": {
               "description": "Whether server should auto-start; on update, omitted keeps the current value",
               "type": "boolean"
+            },
+            "clearClientCredentials": {
+              "description": "Drops the client stored with clientCredentials and keeps auth.authorizationServer; not with clientCredentials or clientCredentialsSecretRef",
+              "type": "boolean"
+            },
+            "clientCredentials": {
+              "description": "Write-only: replaces the client of auth.authorizationServer with a new Secret owned by the server, written as you",
+              "properties": {
+                "clientId": {
+                  "description": "OAuth client ID",
+                  "type": "string"
+                },
+                "clientSecret": {
+                  "description": "OAuth client secret",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "clientId",
+                "clientSecret"
+              ],
+              "type": "object",
+              "writeOnly": true
             },
             "command": {
               "description": "Command executable path (required for stdio)",

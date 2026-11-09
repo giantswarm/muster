@@ -230,6 +230,11 @@ type ArgMetadata struct {
 	// For simple types (string, number, boolean), this field can be omitted
 	// and the basic Type field will be used.
 	Schema map[string]any `json:"schema,omitempty"`
+
+	// Sensitive marks a write-only argument, such as a secret the tool
+	// stores: its schema says writeOnly, and a workflow execution record
+	// never holds an input passed into it (SensitiveToolArgs).
+	Sensitive bool
 }
 
 // ToolProvider interface defines the contract for components that can provide tools
