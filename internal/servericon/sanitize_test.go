@@ -105,6 +105,8 @@ func TestBrandIcon(t *testing.T) {
 		"https://mcp.sentry.io/":                  "Sentry",
 		"https://mcp.datadoghq.eu/":               "Datadog",
 		"https://mcp.miro.com/":                   "Miro",
+		"https://mcp.kagi.com/mcp":                "Kagi",
+		"https://kagi.com.evil.example/":          "",
 		"https://bedrock.us-east-1.amazonaws.com": "",
 		"https://kubernetes.example/":             "",
 		"https://github-mcp.internal:8443/":       "",
