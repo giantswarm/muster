@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/giantswarm/mcp-toolkit/brand"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
@@ -15,6 +14,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/giantswarm/muster/v5/internal/musterlogo"
 )
 
 const (
@@ -136,8 +137,11 @@ func TestMCPServerCapabilityOptions_ResourceSubscribeForSubscriptionsListenOnly(
 		"resources.listChanged is wired via notification_subscriber and must stay on")
 	require.NotNil(t, resp.Result.Capabilities.Tools)
 	require.NotNil(t, resp.Result.Capabilities.Prompts)
-	require.Equal(t, []mcp.Icon{brand.GiantSwarmIcon()}, resp.Result.ServerInfo.Icons,
-		"the aggregator advertises the Giant Swarm logo as its icon")
+	icons := resp.Result.ServerInfo.Icons
+	require.Len(t, icons, 2, "the aggregator advertises the muster logo, light and dark")
+	require.Equal(t, mcp.IconThemeLight, icons[0].Theme)
+	require.Equal(t, mcp.IconThemeDark, icons[1].Theme)
+	require.Equal(t, musterlogo.Icons(), icons)
 
 	discoverBody := fmt.Appendf(nil,
 		`{"jsonrpc":"2.0","id":2,"method":"server/discover","params":{"_meta":{%q:%q,%q:{"name":"t","version":"1"},%q:{}}}}`,
