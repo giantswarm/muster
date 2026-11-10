@@ -252,9 +252,6 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
-                        "devPortalUrl": {
-                            "type": "string"
-                        },
                         "port": {
                             "type": "integer"
                         },
@@ -714,7 +711,18 @@
                 },
                 "toolsetPresets": {
                     "type": "object",
-                    "additionalProperties": true
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "properties": {
+                            "icon": {
+                                "type": "string",
+                                "description": "Optional icon: a data: URI, svg/png/jpeg/webp, at most 65536 characters, SVGs sanitised.",
+                                "maxLength": 65536,
+                                "pattern": "^data:"
+                            }
+                        }
+                    }
                 },
                 "writesAsCaller": {
                     "type": "object",

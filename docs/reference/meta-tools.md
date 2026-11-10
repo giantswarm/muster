@@ -206,7 +206,7 @@ A tool you cannot find may sit behind a sign-in: servers_requiring_auth names ea
     },
     "include_presets": {
       "default": false,
-      "description": "Include the known toolset presets (name, description, built_in) in the response",
+      "description": "Include the known toolset presets (name, description, icon, built_in) in the response",
       "type": "boolean"
     },
     "include_schema": {

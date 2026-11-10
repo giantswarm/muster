@@ -19,6 +19,10 @@ const initializeBody = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{
 // mcpPost sends one JSON-RPC body to endpoint with the given bearer and
 // session id (either may be empty) and returns the status and the session id
 // the server answered with.
+// freshConnections sends each request on a connection of its own: Redeploy
+// closes the open ones, as the old process's exit does.
+var freshConnections = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
 func mcpPost(t *testing.T, endpoint, body, bearer, session string) (int, string, string) {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(body))
@@ -31,7 +35,7 @@ func mcpPost(t *testing.T, endpoint, body, bearer, session string) (int, string,
 	if session != "" {
 		req.Header.Set("Mcp-Session-Id", session)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := freshConnections.Do(req)
 	require.NoError(t, err)
 	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(resp.Body)
@@ -145,7 +149,7 @@ func TestProtectedMCPServerAuthFlip(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(initializeBody))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := freshConnections.Do(req)
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	require.Equal(t, http.StatusUnauthorized, resp.StatusCode)

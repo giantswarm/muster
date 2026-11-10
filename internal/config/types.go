@@ -98,13 +98,6 @@ type AggregatorConfig struct {
 	Transport    string `yaml:"transport,omitempty"`    // Transport to use (default: streamable-http)
 	MusterPrefix string `yaml:"musterPrefix,omitempty"` // Pre-prefix for all tools (default: "x")
 
-	// DevPortalURL is the installation's Dev Portal. Its origin is the only
-	// one a URL elicitation of a backend MCP server may send people to: an
-	// MCPServer with spec.urlElicitation Relay has its URL elicitations
-	// relayed to muster's client when their page is on this origin, and every
-	// other one is dropped. Empty, no backend's URL elicitation is relayed.
-	DevPortalURL string `yaml:"devPortalUrl,omitempty"`
-
 	// OAuth contains all OAuth-related configuration with explicit mcpClient/server roles.
 	// - oauth.mcpClient: muster as OAuth client/proxy for authenticating TO remote MCP servers
 	// - oauth.server: muster as OAuth resource server for protecting ITSELF

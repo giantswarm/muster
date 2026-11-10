@@ -56,11 +56,11 @@ type signInRequestState struct {
 	Link   string `json:"link"`
 }
 
-// signInElicitationID is the elicitationId of a 2026-07-28 sign-in
-// elicitation, the same for every answer carrying one link. The 2026-07-28
+// urlElicitationID is the elicitationId muster gives a URL elicitation that
+// has none, the same for every answer carrying one link. The 2026-07-28
 // schema defines no elicitationId and its clients ignore one, but rmcp, the
 // Rust SDK the Codex CLI is built on, refuses a URL elicitation without it.
-func signInElicitationID(link string) string {
+func urlElicitationID(link string) string {
 	sum := sha256.Sum256([]byte(link))
 	return hex.EncodeToString(sum[:16])
 }
@@ -84,12 +84,11 @@ type challengeRecorderKey struct{}
 // one tool call: a gated call's auth_required answer or core_auth_login's
 // challenge. It lives in the call's context, so only muster's own answer is
 // ever turned into an elicitation: a backend that returns a result of the
-// same shape records nothing. It holds the backend URL elicitation muster
-// relays as well, which only muster's dispatch records, once it allowed it
-// (backend_elicitation.go).
+// same shape records nothing. It holds a backend's input request as well,
+// which only muster's dispatch records (backend_elicitation.go).
 type challengeRecorder struct {
-	challenge atomic.Pointer[signInChallenge]
-	relayed   atomic.Pointer[relayedElicitation]
+	challenge    atomic.Pointer[signInChallenge]
+	backendInput atomic.Pointer[mcp.CallToolResult]
 }
 
 func withChallengeRecorder(ctx context.Context) (context.Context, *challengeRecorder) {
@@ -124,32 +123,24 @@ func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
 // (signInElicitations). A client that does not declare elicitation.url keeps
 // the auth_required answer.
 //
-// A backend's URL elicitation muster relays (backend_elicitation.go) is
-// asked in the same two shapes. A 2026-07-28 retry that accepted it first
-// waits for the backend's completion of it (awaitRelayedCompletion), then
-// runs the call again; one that declined or cancelled it runs nothing. On
-// 2025-11-25 the session is sent notifications/elicitation/complete when the
-// backend completes it (completeRelayedElicitation).
+// A 2026-07-28 backend's input request (backend_elicitation.go) reaches every
+// client, whatever it declared: the backend was told what the client
+// supports. A retry whose requestState muster wrapped a backend's in carries
+// its answer to that backend (prepareBackendCall).
 func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 	return func(next mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if !clientSupportsURLElicitation(ctx) {
-				return next(ctx, req)
+			if state, ok := decodeBackendInputState(req.Params.RequestState); ok {
+				ctx = withBackendRoundTrip(ctx, state, req.Params.InputResponses)
+				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
 			}
-			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); answer != nil {
+			supportsURL := clientSupportsURLElicitation(ctx)
+			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); supportsURL && answer != nil {
 				state := decodeSignInRequestState(req.Params.RequestState)
 				if answer.Action != mcp.ElicitationResponseActionAccept {
 					return declinedSignInResult(answer.Action, state.Server), nil
 				}
 				a.awaitSignIn(ctx, getSessionIDFromContext(ctx), state)
-				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
-			}
-			relayedWaitExpired := false
-			if action, answered := relayedElicitationAnswer(req.Params.InputResponses); answered {
-				if action != mcp.ElicitationResponseActionAccept {
-					return declinedRelayedResult(action, req.Params.RequestState), nil
-				}
-				relayedWaitExpired = a.awaitRelayedCompletion(ctx, getSessionIDFromContext(ctx), decodeRelayedRequestState(req.Params.RequestState))
 				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
 			}
 
@@ -158,11 +149,14 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 			if err != nil {
 				return result, err
 			}
+			if input := recorder.backendInput.Load(); input != nil && backendInputMarker(result) == input.RequestState {
+				return passBackendInput(callCtx, input)
+			}
+			if !supportsURL {
+				return result, err
+			}
 			if challenge := recorder.challenge.Load(); challenge != nil && signInLink(result) == challenge.authURL {
 				return a.elicitSignIn(callCtx, *challenge)
-			}
-			if relayed := recorder.relayed.Load(); relayed != nil && relayedElicitationLink(result) == relayed.link() {
-				return a.elicitRelayed(callCtx, *relayed, relayedWaitExpired)
 			}
 			return result, err
 		}
@@ -229,7 +223,7 @@ func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInCha
 			Mode:          mcp.ElicitationModeURL,
 			Message:       message,
 			URL:           challenge.authURL,
-			ElicitationID: signInElicitationID(challenge.authURL),
+			ElicitationID: urlElicitationID(challenge.authURL),
 		}).ToolResult(), nil
 	}
 
@@ -260,18 +254,27 @@ func signInLink(result *mcp.CallToolResult) string {
 	return link
 }
 
-// clientSupportsURLElicitation reports whether the client declared URL mode
-// elicitation: on the request itself from protocol 2026-07-28, at the
-// session's initialize before that.
-func clientSupportsURLElicitation(ctx context.Context) bool {
-	var capabilities *mcp.ClientCapabilities
+// callerCapabilities returns the capabilities muster's client declared: on
+// the request itself from protocol 2026-07-28, at the session's initialize
+// before that. Outside a client's request it is the zero value.
+func callerCapabilities(ctx context.Context) mcp.ClientCapabilities {
 	if info := mcpserver.RequestProtocolInfoFromContext(ctx); info != nil && info.Modern {
-		capabilities = info.ClientCapabilities
-	} else if session, ok := mcpserver.ClientSessionFromContext(ctx).(mcpserver.SessionWithClientInfo); ok {
-		declared := session.GetClientCapabilities()
-		capabilities = &declared
+		if info.ClientCapabilities == nil {
+			return mcp.ClientCapabilities{}
+		}
+		return *info.ClientCapabilities
 	}
-	return capabilities != nil && capabilities.Elicitation != nil && capabilities.Elicitation.URL != nil
+	if session, ok := mcpserver.ClientSessionFromContext(ctx).(mcpserver.SessionWithClientInfo); ok {
+		return session.GetClientCapabilities()
+	}
+	return mcp.ClientCapabilities{}
+}
+
+// clientSupportsURLElicitation reports whether the client declared URL mode
+// elicitation (callerCapabilities).
+func clientSupportsURLElicitation(ctx context.Context) bool {
+	capabilities := callerCapabilities(ctx)
+	return capabilities.Elicitation != nil && capabilities.Elicitation.URL != nil
 }
 
 // signInElicitations remembers the URL elicitations sent as -32042 per

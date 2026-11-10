@@ -62,7 +62,7 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `namespace` | `string` | `"default"` | Kubernetes namespace for discovering MCPServer and Workflow CRs: muster's namespace |
-| `mcpServerNamespaceSelector` | label selector | unset | In Kubernetes mode, the namespaces besides `namespace` whose MCPServer CRs muster serves, as prometheus-operator's `serviceMonitorNamespaceSelector` selects namespaces: unset, none; `{}`, every namespace; otherwise (`matchLabels`, `matchExpressions`) the namespaces whose labels match, which muster reads (the chart then grants `get`, `list` and `watch` on `namespaces`). Set, muster watches MCPServer CRs of every namespace; a namespace whose labels change has its servers started or stopped as the selector now says, and a server that stops being served has its stored sign-ins swept. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family`, `auth.type: sigv4` or `urlElicitation: Relay`. A server of `namespace` whose `toolPrefix` (else its name) or `family.name` is a selected namespace's name, or starts with it followed by `_`, takes every exposed name of that namespace's servers: those are not started and read `Failed` until it goes. Such a server signs in through `/oauth/ns/<namespace>/callback` with a client of its own namespace, and its sign-in is filed under its namespace and issuer and goes when the namespace's servers go; its pin's client Secret is read through a Role in its namespace with `get` on that Secret alone ([Servers outside muster's namespace](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)). A person sees a server only when Kubernetes RBAC lets them `list` `mcpservers.muster.giantswarm.io` in its namespace, `namespace` included ([Who sees which MCP server](#who-sees-which-mcp-server)). Needs `aggregator.oauth.server` with the `dex` provider; muster refuses to start otherwise. Helm: `muster.mcpServerNamespaceSelector`. |
+| `mcpServerNamespaceSelector` | label selector | unset | In Kubernetes mode, the namespaces besides `namespace` whose MCPServer CRs muster serves, as prometheus-operator's `serviceMonitorNamespaceSelector` selects namespaces: unset, none; `{}`, every namespace; otherwise (`matchLabels`, `matchExpressions`) the namespaces whose labels match, which muster reads (the chart then grants `get`, `list` and `watch` on `namespaces`). Set, muster watches MCPServer CRs of every namespace; a namespace whose labels change has its servers started or stopped as the selector now says, and a server that stops being served has its stored sign-ins swept. Workflow CRs, events and the broker's default Secret namespace stay in `namespace`. A server of another namespace is keyed `<namespace>/<name>`, its tools are exposed as `x_<namespace>_<toolPrefix or name>_<tool>`, and it may not set `auth.requiredAudiences`, `auth.forwardToken`, `auth.forwardIdentity`, `auth.tokenExchange`, `family`, or `auth.type: sigv4`. A server of `namespace` whose `toolPrefix` (else its name) or `family.name` is a selected namespace's name, or starts with it followed by `_`, takes every exposed name of that namespace's servers: those are not started and read `Failed` until it goes. Such a server signs in through `/oauth/ns/<namespace>/callback` with a client of its own namespace, and its sign-in is filed under its namespace and issuer and goes when the namespace's servers go; its pin's client Secret is read through a Role in its namespace with `get` on that Secret alone ([Servers outside muster's namespace](../how-to/connecting-non-rfc9728-mcp-servers.md#servers-outside-musters-namespace)). A person sees a server only when Kubernetes RBAC lets them `list` `mcpservers.muster.giantswarm.io` in its namespace, `namespace` included ([Who sees which MCP server](#who-sees-which-mcp-server)). Needs `aggregator.oauth.server` with the `dex` provider; muster refuses to start otherwise. Helm: `muster.mcpServerNamespaceSelector`. |
 | `mcpServerSelector` | label selector | unset | In Kubernetes mode, the MCPServer CRs muster serves, in `namespace` and in the selected namespaces, by their labels: unset, every one (prometheus-operator's `serviceMonitorSelector` selects none when unset; muster keeps serving every server). A server whose labels stop matching is stopped as if deleted. Helm: `muster.mcpServerSelector`. |
 | `kubernetes` | `bool` | `false` | Enable Kubernetes CRD mode. When `true`, uses Kubernetes CRDs for resource storage and requires the apiserver: if the Kubernetes client cannot be created at startup (apiserver unreachable, muster CRDs not installed), `muster serve` retries for about half a minute and then exits with an error instead of falling back to the filesystem, so the kubelet restarts it. When `false`, uses filesystem YAML files. The Helm chart sets this to `true` by default. |
 | `aggregator` | `AggregatorConfig` | see below | Aggregator service configuration |
@@ -137,6 +137,7 @@ against the live catalogue on every request. Each rule sets exactly one of `tool
 toolsetPresets:
   infrastructure:
     description: Every infrastructure server, without deletes
+    icon: "data:image/svg+xml;base64,PHN2Zy..."  # optional
     include:
       - server: mcp-kubernetes
       - server: mcp-prometheus
@@ -144,9 +145,12 @@ toolsetPresets:
       - pattern: "*_delete"
 ```
 
+`icon` is optional: a `data:` URI (`image/svg+xml`, `png`, `jpeg` or `webp`), at most 65536
+characters. SVGs are sanitised.
+
 `read-only`, `none` and `full` are built in; configuration that redefines one, sets a rule with
-no key or more than one, uses an invalid `pattern`, composes an unknown preset or cycles fails
-`muster serve` at startup with the preset named. The Helm chart exposes this block as
+no key or more than one, uses an invalid `pattern` or `icon`, composes an unknown preset or
+cycles fails `muster serve` at startup with the preset named. The Helm chart exposes this block as
 `muster.toolsetPresets`.
 
 ### Aggregator Configuration
@@ -158,7 +162,6 @@ The aggregator manages the unified MCP interface and tool aggregation.
 | `port` | `int` | `8090` | Port for the aggregator HTTP/WebSocket server |
 | `host` | `string` | `"localhost"` | Host address to bind the server to |
 | `transport` | `string` | `"streamable-http"` | MCP transport protocol |
-| `devPortalUrl` | `string` | `""` | The installation's Dev Portal. Its origin is the only one to which muster relays the URL elicitation of an MCPServer with `spec.urlElicitation: Relay` (see [A call a server answers with a URL elicitation](mcp-tools.md#a-call-a-server-answers-with-a-url-elicitation)). Empty, muster relays none. muster does not start with a value that is not an absolute `http` or `https` URL without a user name or password. Helm: `muster.aggregator.devPortalUrl`. |
 | `enabled` | `bool` | `true` | Whether to enable the aggregator service |
 
 #### Transport Options

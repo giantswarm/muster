@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestOutageGateAnswersThenRecovers: an armed gate answers exactly the
@@ -182,4 +184,32 @@ func TestHTTPServerOutageSurvivesRestart(t *testing.T) {
 	if srv.OutageRemaining() != 0 {
 		t.Fatalf("outage must be consumed, remaining %d", srv.OutageRemaining())
 	}
+}
+
+// TestOutageGateCountsADiscoverFallbackAsOneAttempt: a 2026-07-28 client
+// probes server/discover and falls back to initialize when the probe fails;
+// the gate answers both with the status and counts them as the one connection
+// attempt they are, so an outage of N requests still fails N attempts.
+func TestOutageGateCountsADiscoverFallbackAsOneAttempt(t *testing.T) {
+	var gate outageGate
+	srv := httptest.NewServer(gate.wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})))
+	defer srv.Close()
+	post := func(method string) int {
+		resp, err := http.Post(srv.URL, "application/json", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"`+method+`"}`))
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	gate.set(http.StatusGatewayTimeout, 2, 0, false)
+	for attempt := 1; attempt <= 2; attempt++ {
+		require.Equal(t, http.StatusGatewayTimeout, post("server/discover"), "attempt %d probe", attempt)
+		require.Equal(t, http.StatusGatewayTimeout, post("initialize"), "attempt %d fallback", attempt)
+	}
+	require.Equal(t, 0, gate.remainingRequests())
+
+	require.Equal(t, http.StatusOK, post("server/discover"), "the outage is over after two attempts")
+	require.Equal(t, http.StatusOK, post("initialize"))
 }

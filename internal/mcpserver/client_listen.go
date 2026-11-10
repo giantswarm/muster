@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/giantswarm/muster/v5/internal/api"
-
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -44,23 +42,20 @@ func (b *baseMCPClient) UseSubscriptionsListen() {
 	b.listenMode = true
 }
 
-// handshakeOptions returns the transport options and the protocol version the
-// handshake asks for. A legacy client keeps the standalone GET stream, which
-// pins it to the initialize handshake; a client in listen mode asks for no
-// version, so mcp-go probes server/discover and speaks 2026-07-28.
-// Caller holds b.mu.
-func (b *baseMCPClient) handshakeOptions() ([]transport.StreamableHTTPCOption, string) {
-	if b.listenMode {
-		return nil, ""
+// handshakeOptions returns the transport options of a streamable-http
+// connection. Only a backend known to speak a revision before 2026-07-28
+// (legacyBackend) gets the standalone GET stream, which pins the connection
+// to the initialize handshake; every other connection probes server/discover
+// first, and one in listen mode must speak 2026-07-28. Caller holds b.mu.
+func (b *baseMCPClient) handshakeOptions() []transport.StreamableHTTPCOption {
+	if b.listenMode || !b.legacyBackend {
+		return nil
 	}
 	// SA1019: mcp-go v1 deprecates WithContinuousListening because
 	// protocol revision 2026-07-28 removed the standalone GET stream in
-	// favour of Client.Listen. Keeping the option is the behaviour-
-	// preserving choice for the legacy clients: it pins the connection to
-	// the legacy handshake, and dropping it would silently cost every
-	// pre-2026-07-28 backend its out-of-band notifications. Resource
-	// subscriptions use Client.Listen on a client in listen mode instead.
-	return []transport.StreamableHTTPCOption{transport.WithContinuousListening()}, api.ClientProtocolVersion //nolint:staticcheck // SA1019: see comment above
+	// favour of Client.Listen. A backend on an earlier revision delivers its
+	// out-of-band notifications only on that stream.
+	return []transport.StreamableHTTPCOption{transport.WithContinuousListening()} //nolint:staticcheck // SA1019: see comment above
 }
 
 // checkListenHandshake refuses a listen-mode connection that did not

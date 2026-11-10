@@ -425,6 +425,9 @@ func (m *musterInstanceManager) startProtectedMCPServer(
 		Transport:            transportType,
 		Debug:                m.debug,
 	}
+	if version, ok := mcpServer.Config["protocol_version"].(string); ok {
+		config.ProtocolVersion = version
+	}
 	if delay, err := mockConnectDelay(mcpServer.Config); err != nil {
 		return nil, fmt.Errorf("mcp server %s: %w", mcpServer.Name, err)
 	} else if delay > 0 {

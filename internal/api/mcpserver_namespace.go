@@ -119,12 +119,11 @@ func MCPServerExposedPrefix(key, toolPrefix string) string {
 
 // ValidateServerNamespace reports a server that its namespace does not
 // allow. Outside muster's namespace a server gets no identity from muster: requiredAudiences,
-// forwardToken, forwardIdentity, tokenExchange, family, auth.type sigv4 and
-// urlElicitation Relay are refused, so it adds no audience to any login,
-// receives no person's token except through its own sign-in, signs nothing as
-// muster, joins no family and sends nobody to a page through muster: an
-// organization cannot put its own server on the URL elicitation allowlist.
-func ValidateServerNamespace(namespace, musterNamespace string, family *MCPServerFamily, auth *MCPServerAuth, urlElicitation string) error {
+// forwardToken, forwardIdentity, tokenExchange, family and auth.type sigv4
+// are refused, so it adds no audience to any login, receives no person's
+// token except through its own sign-in, signs nothing as muster and joins no
+// family.
+func ValidateServerNamespace(namespace, musterNamespace string, family *MCPServerFamily, auth *MCPServerAuth) error {
 	if namespace == "" || namespace == musterNamespace {
 		return nil
 	}
@@ -148,9 +147,6 @@ func ValidateServerNamespace(namespace, musterNamespace string, family *MCPServe
 		if auth.Type == MCPServerAuthTypeSigV4 {
 			refused = append(refused, "auth.type sigv4")
 		}
-	}
-	if urlElicitation == MCPServerURLElicitationRelay {
-		refused = append(refused, "urlElicitation Relay")
 	}
 	if len(refused) > 0 {
 		return fmt.Errorf("%w: %s %s not allowed in namespace %q; only a server in muster's namespace %q may use them",

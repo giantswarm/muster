@@ -145,7 +145,6 @@ func (a *AggregatorServer) newSessionClient(ctx context.Context, serverInfo *Ser
 			WithTimeout(serverInfo.Timeout).
 			WithMaxCallDuration(serverInfo.MaxCallDuration).
 			WithAuthLossHandler(a.makeSessionAuthLossHandler(sessionID, serverName))
-		a.declareURLElicitation(ctx, serverName, client)
 
 	} else {
 		return nil, fmt.Errorf("unable to determine auth method for server %s", serverName)

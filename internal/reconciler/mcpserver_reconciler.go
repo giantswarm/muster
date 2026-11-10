@@ -795,7 +795,7 @@ func (r *MCPServerReconciler) validateDefinition(ctx context.Context, info *api.
 	if r.isKubernetesMode() {
 		serverNamespace = info.Namespace
 	}
-	if err := api.ValidateServerNamespace(serverNamespace, r.Namespace, info.Family, info.Auth, info.URLElicitation); err != nil {
+	if err := api.ValidateServerNamespace(serverNamespace, r.Namespace, info.Family, info.Auth); err != nil {
 		return err
 	}
 	if err := api.ValidateNotShadowed(ctx, serverNamespace, r.Namespace, r.mcpServerManager.ListMCPServers); err != nil {
