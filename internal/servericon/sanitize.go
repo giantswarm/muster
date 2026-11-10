@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -58,10 +60,15 @@ var errSVG = fmt.Errorf("%w: SVG", errInvalid)
 
 // sanitizeSVG parses data as XML and rewrites it keeping only allowlisted
 // SVG elements and attributes: no scripts, event handlers, foreign content,
-// style, animation, links or external references. It fails when data is not
+// style elements or attributes, animation, links or external references.
+// The presentation declarations of its simple class rules
+// (stylesheetClassRules) and of each style attribute become presentation
+// attributes of the elements they apply to, overriding the element's own
+// attribute of that name as CSS would. It fails when data is not
 // well-formed XML with an <svg> root in the SVG namespace, or when nothing
 // visible is left.
 func sanitizeSVG(data []byte) ([]byte, error) {
+	rules := stylesheetClassRules(data)
 	dec := xml.NewDecoder(bytes.NewReader(data))
 	dec.Strict = true
 
@@ -117,12 +124,14 @@ func sanitizeSVG(data []byte) ([]byte, error) {
 			if len(stack) == 0 {
 				out.WriteString(` xmlns="` + svgNS + `"`)
 			}
+			styled := rules.attributes(t.Attr)
 			for _, a := range t.Attr {
-				if name, value, keep := sanitizeAttr(a); keep {
-					out.WriteString(" " + name + `="`)
-					_ = xml.EscapeText(&out, []byte(value))
-					out.WriteByte('"')
+				if name, value, keep := sanitizeAttr(a); keep && styled[name] == "" {
+					writeAttr(&out, name, value)
 				}
+			}
+			for _, name := range slices.Sorted(maps.Keys(styled)) {
+				writeAttr(&out, name, styled[name])
 			}
 			pendingOpen = true
 			stack = append(stack, t.Name.Local)
@@ -158,6 +167,12 @@ func sanitizeSVG(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("%w: nothing visible", errSVG)
 	}
 	return out.Bytes(), nil
+}
+
+func writeAttr(out *bytes.Buffer, name, value string) {
+	out.WriteString(" " + name + `="`)
+	_ = xml.EscapeText(out, []byte(value))
+	out.WriteByte('"')
 }
 
 // sanitizeAttr returns the attribute as written to the output, and whether
