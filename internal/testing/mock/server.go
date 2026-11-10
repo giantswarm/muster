@@ -109,10 +109,7 @@ func (s *Server) buildMCPServer() *server.MCPServer {
 		// which no down-negotiating backend does. mcp-go builds the result, runs
 		// this hook, then serialises it, so the overwrite here is what the
 		// client sees.
-		protocolVersion := s.protocolVersion
-		hooks.AddAfterInitialize(func(_ context.Context, _ any, _ *mcp.InitializeRequest, result *mcp.InitializeResult) {
-			result.ProtocolVersion = protocolVersion
-		})
+		addRevisionHooks(hooks, s.protocolVersion)
 	}
 
 	mcpServer := server.NewMCPServer(
@@ -240,12 +237,19 @@ func (s *Server) createToolHandler(toolName string) func(context.Context, mcp.Ca
 			return nil, err
 		}
 
-		// echo_handshake tools report the initialize request muster's outbound
-		// client sent, so scenarios can pin the negotiated protocol version.
+		// echo_handshake tools report the protocol version and client name
+		// muster's outbound client declared: on the call itself from
+		// 2026-07-28, at its initialize request before.
 		if handler.config.EchoHandshake {
 			s.mu.RLock()
 			version, clientName := s.clientProtocolVersion, s.clientName
 			s.mu.RUnlock()
+			if info := server.RequestProtocolInfoFromContext(ctx); info != nil && info.Modern {
+				version, clientName = info.ProtocolVersion, ""
+				if info.ClientInfo != nil {
+					clientName = info.ClientInfo.Name
+				}
+			}
 			echo := map[string]interface{}{
 				"response":                result,
 				"client_protocol_version": version,
@@ -327,4 +331,46 @@ func (s *Server) Start(ctx context.Context) error {
 	// Use the proper MCP library to serve stdio
 	// This handles all the protocol details correctly
 	return server.ServeStdio(s.mcpServer)
+}
+
+// addRevisionHooks makes a mock server stand for a backend on the protocol
+// revision version: its initialize answer carries version, and a revision
+// before 2026-07-28 does not know server/discover, so a client falls back to
+// initialize.
+func addRevisionHooks(hooks *server.Hooks, version string) {
+	hooks.AddAfterInitialize(func(_ context.Context, _ any, _ *mcp.InitializeRequest, result *mcp.InitializeResult) {
+		result.ProtocolVersion = version
+	})
+	if mcp.IsModernProtocol(version) {
+		return
+	}
+	hooks.AddOnRequestInitialization(func(_ context.Context, _ any, message any) error {
+		if requestMethod(message) == string(mcp.MethodServerDiscover) {
+			return fmt.Errorf("unknown method %s: this server speaks %s", mcp.MethodServerDiscover, version)
+		}
+		return nil
+	})
+}
+
+// isHandshake reports whether a message, as the request hooks receive it,
+// opens a connection: initialize, or server/discover from 2026-07-28.
+func isHandshake(message any) bool {
+	method := requestMethod(message)
+	return method == string(mcp.MethodInitialize) || method == string(mcp.MethodServerDiscover)
+}
+
+// requestMethod returns the JSON-RPC method of a message as the request hooks
+// receive it, or "".
+func requestMethod(message any) string {
+	raw, ok := message.(json.RawMessage)
+	if !ok {
+		return ""
+	}
+	var request struct {
+		Method string `json:"method"`
+	}
+	if json.Unmarshal(raw, &request) != nil {
+		return ""
+	}
+	return request.Method
 }

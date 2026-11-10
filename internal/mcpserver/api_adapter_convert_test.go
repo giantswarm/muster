@@ -59,15 +59,3 @@ func TestConvertAuth_PlainIssuerOverrideStaysPlain(t *testing.T) {
 	assert.False(t, converted.AuthorizationServer.SubjectScoped())
 	assert.Nil(t, converted.AuthorizationServer.ClientCredentialsSecretRef)
 }
-
-// spec.urlElicitation reaches the definition the service connects with, so
-// a server that relays is declared URL mode elicitation.
-func TestConvertCRDToInfo_URLElicitation(t *testing.T) {
-	server := &musterv1alpha1.MCPServer{Spec: musterv1alpha1.MCPServerSpec{Type: "streamable-http", URLElicitation: api.MCPServerURLElicitationRelay}}
-
-	info := convertCRDToInfo(server)
-
-	assert.Equal(t, api.MCPServerURLElicitationRelay, info.URLElicitation)
-	assert.True(t, info.ToMCPServer().RelaysURLElicitation())
-	assert.False(t, convertCRDToInfo(&musterv1alpha1.MCPServer{}).ToMCPServer().RelaysURLElicitation())
-}

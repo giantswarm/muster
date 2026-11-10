@@ -418,7 +418,8 @@ func TestStreamableHTTPClient_RecoversSessionAfterBackendRedeploy(t *testing.T) 
 			runs.Add(1)
 			return mcp.NewToolResultText("alive"), nil
 		})
-		return server.NewStreamableHTTPServer(s, server.WithStateful(true))
+		// Sessions exist only before 2026-07-28, which is stateless.
+		return server.NewStreamableHTTPServer(s, server.WithStateful(true), server.WithStreamableHTTPProtocolVersions(mcp.LATEST_LEGACY_PROTOCOL_VERSION))
 	}
 
 	var backend atomic.Pointer[server.StreamableHTTPServer]

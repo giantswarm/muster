@@ -21,12 +21,12 @@ func newListenTestServer(t *testing.T, opts ...mcpserver.StreamableHTTPOption) s
 
 // TestListenMode_NegotiatesTheModernRevision pins that a client in listen mode
 // speaks 2026-07-28 and holds a subscriptions/listen stream whose
-// acknowledgement reaches its notification handler, while a legacy client
-// stays on the initialize handshake.
+// acknowledgement reaches its notification handler, while a client of a
+// backend on an earlier revision cannot listen.
 func TestListenMode_NegotiatesTheModernRevision(t *testing.T) {
 	url := newListenTestServer(t)
 
-	legacy := NewStreamableHTTPClientWithHeaders(url, nil)
+	legacy := NewStreamableHTTPClientWithHeaders(newListenTestServer(t, mcpserver.WithStreamableHTTPProtocolVersions(mcp.LATEST_LEGACY_PROTOCOL_VERSION)), nil)
 	require.NoError(t, legacy.Initialize(context.Background()))
 	t.Cleanup(func() { _ = legacy.Close() })
 	assert.False(t, mcp.IsModernProtocol(legacy.NegotiatedProtocolVersion()))

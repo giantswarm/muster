@@ -75,7 +75,7 @@ steps:
       success: true
       wait_for_state: "45s"
       contains:
-        - "health check failed: 3 consecutive failures: MCP ping failed"
+        - "health check failed: 3 consecutive failures: MCP tools/list failed"
     timeout: "60s"
 
   - id: "call-while-reconnecting-is-retryable"

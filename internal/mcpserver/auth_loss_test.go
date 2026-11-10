@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -187,7 +188,8 @@ func TestDynamicAuthClient_AuthLossStopsListener(t *testing.T) {
 	revoked := &atomic.Bool{}
 	requests := &atomic.Int64{}
 
-	mcpHandler := server.NewStreamableHTTPServer(newTestMCPServer(), server.WithStateful(true))
+	// The continuous listener is the GET stream of a backend before 2026-07-28.
+	mcpHandler := server.NewStreamableHTTPServer(newTestMCPServer(), server.WithStateful(true), server.WithStreamableHTTPProtocolVersions(mcp.LATEST_LEGACY_PROTOCOL_VERSION))
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
 		if revoked.Load() {

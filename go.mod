@@ -16,7 +16,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/giantswarm/go-selfupdate v1.7.6
 	github.com/giantswarm/mcp-oauth v1.13.0
-	github.com/giantswarm/mcp-toolkit v0.5.2
+	github.com/giantswarm/mcp-toolkit v0.5.3
 	github.com/giantswarm/pagekit v0.3.7
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/go-logr/logr v1.4.4
@@ -24,7 +24,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/itchyny/gojq v0.12.20
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/mark3labs/mcp-go v1.5.0
+	github.com/mark3labs/mcp-go v1.5.1-0.20261103124459-acf999d599ff
 	github.com/mark3labs/mcp-go/otel v0.54.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
@@ -210,11 +210,3 @@ require (
 replace github.com/prometheus/prometheus v0.51.0 => github.com/prometheus/prometheus v0.315.0
 
 replace go.etcd.io/etcd/v3 v3.6.8 => go.etcd.io/etcd/v3 v3.7.2
-
-// The Giant Swarm line of mcp-go: v1.4.0 plus the streamable-http fix that
-// sends a request's notifications on its POST stream, and the request body
-// bound of the HTTP transports (CVE-2026-108859) (giantswarm/mcp-go FORK.md
-// and fork/). Pinned to v1.4.0 only, so an mcp-go bump leaves the line and the
-// progress tests show whether upstream carries the fixes; moving the pin
-// follows FORK.md "Moving the pin".
-replace github.com/mark3labs/mcp-go v1.4.0 => github.com/giantswarm/mcp-go v1.1.2-0.20261026144956-a19544b98532

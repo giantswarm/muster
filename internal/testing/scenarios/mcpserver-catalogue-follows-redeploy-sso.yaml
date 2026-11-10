@@ -5,7 +5,8 @@ concept: "mcpserver"
 tags: ["mcpserver", "oauth", "sso", "redeploy", "capabilities", "describe_tool", "issue-1440"]
 timeout: "3m"
 
-# Given: a token-forwarding MCP server behind muster's own authorization
+# Given: a token-forwarding MCP server on MCP 2025-11-25, which keeps an MCP
+#        session, behind muster's own authorization
 #        server, and a person signed in to muster and connected to it: the
 #        session holds a pooled connection, and the capability store has the
 #        session's list with list_issues taking its field filters at the top
@@ -36,6 +37,7 @@ pre_configuration:
     - name: "sso-schema-server"
       config:
         type: "streamable-http"
+        protocol_version: "2025-11-25"
         oauth:
           required: true
           mock_oauth_server_ref: "muster-idp"
@@ -163,5 +165,5 @@ steps:
 # nor the poll did.
 instance_logs:
   contains:
-    - "recovered a lost MCP session"
+    - "met a new process"
     - "Session capability refresh (recovery): updated capabilities for sso-schema-server"

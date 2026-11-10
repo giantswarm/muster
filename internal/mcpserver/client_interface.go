@@ -38,9 +38,8 @@ type MCPClient interface {
 	// The handler is wired to the underlying mcp-go client during Initialize.
 	OnNotification(handler func(mcp.JSONRPCNotification))
 	// NegotiatedProtocolVersion returns the MCP revision the server answered
-	// with during the handshake, or "" before a successful Initialize. It can
-	// be older than api.ClientProtocolVersion: a server that supports only
-	// an earlier revision answers with that one, and the client accepts it.
+	// with during the handshake, or "" before a successful Initialize:
+	// 2026-07-28, or the earlier revision of a server that does not speak it.
 	NegotiatedProtocolVersion() string
 	// ServerCapabilities returns the capabilities the server declared in its
 	// initialize result, or the zero value before a successful Initialize. A
@@ -111,10 +110,6 @@ type baseMCPClient struct {
 
 	notifMu      sync.Mutex
 	notifHandler func(mcp.JSONRPCNotification)
-	// elicitationCompleteHandler is told the elicitationId of every
-	// notifications/elicitation/complete the server sends
-	// (OnElicitationComplete).
-	elicitationCompleteHandler func(elicitationID string)
 	// recoveredHandler is told, from a goroutine of its own, every time a
 	// lost MCP session was re-established by a fresh handshake
 	// (OnSessionRecovered).
@@ -128,61 +123,25 @@ type baseMCPClient struct {
 	// 2026-07-28 for subscriptions/listen (client_listen.go).
 	listenMode bool
 
-	// urlElicitation makes the client declare URL mode elicitation to the
-	// server at its handshake (DeclareURLElicitation).
-	urlElicitation bool
-}
-
-// URLElicitationDeclarer is a client that can declare URL mode elicitation
-// to its server; every transport is one.
-type URLElicitationDeclarer interface {
-	DeclareURLElicitation()
-}
-
-// DeclareURLElicitation makes the client declare URL mode elicitation
-// (capabilities.elicitation.url) to the server at its handshake, for a
-// server whose URL elicitations muster relays to its own client
-// (spec.urlElicitation Relay). A server muster does not declare it to keeps
-// its text answer instead of an elicitation muster would drop. Call it
-// before Initialize.
-func (b *baseMCPClient) DeclareURLElicitation() {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.urlElicitation = true
-}
-
-// ElicitationCompleteObserver is a client that reports the server's
-// notifications/elicitation/complete; every transport is one.
-type ElicitationCompleteObserver interface {
-	OnElicitationComplete(handler func(elicitationID string))
-}
-
-// OnElicitationComplete registers the handler told the elicitationId of
-// each notifications/elicitation/complete the server sends: the server's
-// word that the page of a URL elicitation it answered a call with was
-// completed. Such a notification no longer reaches the OnNotification
-// handler. It replaces the handler registered before.
-func (b *baseMCPClient) OnElicitationComplete(handler func(elicitationID string)) {
-	b.notifMu.Lock()
-	defer b.notifMu.Unlock()
-	b.elicitationCompleteHandler = handler
-}
-
-// clientCapabilities returns the capabilities the client declares at its
-// handshake. Caller holds b.mu.
-func (b *baseMCPClient) clientCapabilities() mcp.ClientCapabilities {
-	if !b.urlElicitation {
-		return mcp.ClientCapabilities{}
-	}
-	return mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{URL: &struct{}{}}}
+	// legacyBackend records that the backend answered the last handshake on
+	// a revision before 2026-07-28 (client_protocol.go).
+	legacyBackend bool
+	// stopListChanged ends the subscriptions/listen stream for list changes
+	// of a 2026-07-28 connection (startListChangedStream).
+	stopListChanged context.CancelFunc
+	// resyncOnListening makes the next acknowledgement of the list-changes
+	// stream tell the OnSessionRecovered handler (startListChangedStream).
+	resyncOnListening atomic.Bool
 }
 
 // OnSessionRecovered registers a handler called after the client lost its
 // MCP session and re-established it with a fresh handshake (session
-// recovery, client_session_recovery.go). A backend forgets a session when a
-// new process took over behind its address: the handler is where a caller
-// re-reads what that process serves. It runs on a goroutine of its own, so it
-// may use the client. Transports without a session to lose never call it.
+// recovery, client_session_recovery.go), or, on a 2026-07-28 connection,
+// after its dropped list-changes stream was opened again and acknowledged
+// (startListChangedStream). Either happens when a new process took over
+// behind the backend's address: the handler is where a caller re-reads what
+// that process serves. It runs on a goroutine of its own, so it may use the
+// client.
 func (b *baseMCPClient) OnSessionRecovered(handler func()) {
 	b.notifMu.Lock()
 	b.recoveredHandler = handler
@@ -263,8 +222,11 @@ func (b *baseMCPClient) recordHandshake(result *mcp.InitializeResult) {
 }
 
 // clearHandshake forgets the last initialize result: the connection it
-// described is gone. Called with mu held for writing.
+// described is gone, and the process behind the address may speak another
+// revision now. Called with mu held for writing.
 func (b *baseMCPClient) clearHandshake() {
+	b.stopListChangedStream()
+	b.legacyBackend = false
 	b.negotiatedProtocolVersion = ""
 	b.serverCapabilities = mcp.ServerCapabilities{}
 	b.serverInfo = mcp.Implementation{}
@@ -343,8 +305,9 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 	}
 
 	params := mcp.CallToolParams{
-		Name:      name,
-		Arguments: args,
+		Name:                 name,
+		Arguments:            args,
+		MultiRoundTripParams: roundTripFrom(ctx),
 	}
 	if reporter := progressReporterFrom(ctx); reporter != nil {
 		token, done := b.progress.open(reporter, callBudgetFrom(ctx))
@@ -352,6 +315,7 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 		params.Meta = &mcp.Meta{ProgressToken: token}
 	}
 
+	ctx = client.WithRequestClientCapabilities(ctx, callerCapabilitiesFrom(ctx))
 	result, err := b.client.CallTool(ctx, mcp.CallToolRequest{Params: params})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call tool: %w", err)
@@ -497,26 +461,22 @@ func (b *baseMCPClient) wireNotificationHandler() {
 	}
 }
 
-// dispatchNotification routes progress to the call it belongs to, an
-// elicitation's completion to the OnElicitationComplete handler when one is
-// registered, and every other notification to the stored handler.
+// dispatchNotification routes progress to the call it belongs to, tells the
+// OnSessionRecovered handler when a reopened list-changes stream is
+// acknowledged, and passes every other notification to the stored handler.
 func (b *baseMCPClient) dispatchNotification(notification mcp.JSONRPCNotification) {
 	if notification.Method == string(mcp.MethodNotificationProgress) {
 		b.progress.route(notification)
 		return
 	}
 
+	if notification.Method == mcp.MethodNotificationSubscriptionsAcknowledged && b.resyncOnListening.CompareAndSwap(true, false) {
+		b.notifyRecovered()
+	}
+
 	b.notifMu.Lock()
 	handler := b.notifHandler
-	completed := b.elicitationCompleteHandler
 	b.notifMu.Unlock()
-
-	if completed != nil && notification.Method == string(mcp.MethodNotificationElicitationComplete) {
-		if elicitationID, _ := notification.Params.AdditionalFields["elicitationId"].(string); elicitationID != "" {
-			completed(elicitationID)
-		}
-		return
-	}
 
 	if handler != nil {
 		handler(notification)

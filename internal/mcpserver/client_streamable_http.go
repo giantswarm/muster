@@ -148,8 +148,7 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 
 	// A legacy client receives server-pushed notifications on a long-lived
 	// GET stream; one in listen mode on its subscriptions/listen stream.
-	handshakeOpts, protocolVersion := c.handshakeOptions()
-	opts = append(opts, handshakeOpts...)
+	opts = append(opts, c.handshakeOptions()...)
 	opts = append(opts, transport.WithHTTPLogger(mcpTransportLogger(c.url)))
 
 	mcpClient, err := client.NewStreamableHttpClient(c.url, opts...)
@@ -171,16 +170,7 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 		return fmt.Errorf("failed to start StreamableHTTP transport: %w", err)
 	}
 
-	initResult, err := mcpClient.Initialize(ctx, mcp.InitializeRequest{
-		Params: mcp.InitializeParams{
-			ProtocolVersion: protocolVersion,
-			ClientInfo: mcp.Implementation{
-				Name:    clientName,
-				Version: clientVersion,
-			},
-			Capabilities: c.clientCapabilities(),
-		},
-	})
+	initResult, err := c.initialize(ctx, mcpClient, mcp.Implementation{Name: clientName, Version: clientVersion})
 	if err != nil {
 		_ = mcpClient.Close()
 
@@ -207,12 +197,19 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 		_ = mcpClient.Close()
 		return err
 	}
+	// A backend on an earlier revision delivers its notifications on the
+	// standalone GET stream, which only a new transport opens.
+	if c.fellBackToLegacy(initResult) {
+		_ = mcpClient.Close()
+		return c.connectLocked(ctx)
+	}
 
 	c.client = mcpClient
 	c.connected = true
 	c.recordHandshake(initResult)
 	c.hadSession = sessionIDOf(mcpClient) != ""
 	c.wireNotificationHandler()
+	c.startListChangedStream(mcpClient, c.url)
 
 	logging.Debug("StreamableHTTPClient", "StreamableHTTP client initialized. Server: %s, Version: %s",
 		initResult.ServerInfo.Name, initResult.ServerInfo.Version)

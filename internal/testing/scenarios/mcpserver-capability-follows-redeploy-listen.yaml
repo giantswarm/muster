@@ -1,0 +1,107 @@
+name: "mcpserver-capability-follows-redeploy-listen"
+description: "A remote MCPServer on MCP 2026-07-28 whose backend is redeployed with another tool set -- no CR change, and no list_changed from a process that has never seen muster's subscription -- has its tool list re-listed once muster's subscriptions/listen stream, which the old process dropped on exit, is acknowledged by the new one: the tool the new image dropped stops being served and the one it added becomes callable without a health probe or the capability poll (#1032)"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["mcpserver", "streamable-http", "redeploy", "capabilities", "subscriptions-listen", "clock", "issue-1032"]
+timeout: "3m"
+
+# Given: a remote streamable-http MCP server without auth on MCP 2026-07-28,
+#        Connected, with one tool, and muster's subscriptions/listen stream
+#        for its list changes open. The instance runs on production
+#        intervals, and nothing advances the clock: neither the health probe
+#        nor the capability poll runs.
+# When:  the backend is redeployed with an image that offers another tool
+#        set: `probe` is gone, `report` is new. The old process exits, which
+#        drops every connection to it, the listen stream included; a fresh
+#        process takes over behind the same port and notifies nobody.
+# Then:  muster opens the stream again; once the new process acknowledges
+#        it, muster re-lists the server. `report` answers, `probe` is no
+#        longer a tool, and the server was connected throughout.
+# (The 2025-11-25 counterpart, where the health probe meets a forgotten
+# session: mcpserver-capability-follows-silent-redeploy.)
+
+pre_configuration:
+  intervals: "production"
+  mcp_servers:
+    - name: "listening-server"
+      config:
+        type: "streamable-http"
+        tools:
+          - name: "probe"
+            description: "Offered by the image before the roll"
+            input_schema:
+              type: "object"
+              properties: {}
+            responses:
+              - response: { alive: true }
+
+steps:
+  - id: "connected-on-2026-07-28"
+    tool: "core_service_status"
+    args:
+      name: "listening-server"
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        state: "connected"
+        metadata.protocolVersion: "2026-07-28"
+    timeout: "45s"
+
+  - id: "probe-before-the-roll"
+    tool: "x_listening-server_probe"
+    args: {}
+    expected:
+      success: true
+      contains: ["alive"]
+    timeout: "15s"
+
+  - id: "backend-rolled-with-another-tool-set"
+    description: "A fresh process behind the same port offering report instead of probe; the old one's connections are gone"
+    tool: "test_redeploy_mock_server"
+    args:
+      server: "listening-server"
+      add_tools:
+        - name: "report"
+          description: "Offered by the image after the roll"
+      remove_tools: ["probe"]
+    expected:
+      success: true
+      contains: ["Redeployed mock server", "tools changed: +report -probe"]
+    timeout: "15s"
+
+  - id: "new-tool-served-after-the-stream-reopens"
+    tool: "x_listening-server_report"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["report"]
+    timeout: "45s"
+
+  - id: "dropped-tool-gone"
+    tool: "x_listening-server_probe"
+    args: {}
+    expected:
+      success: false
+    timeout: "15s"
+
+  - id: "connected-throughout"
+    tool: "core_service_status"
+    args:
+      name: "listening-server"
+    expected:
+      success: true
+      json_path:
+        state: "connected"
+        health: "healthy"
+    timeout: "15s"
+
+# The reopened stream, not a notification, the health probe or the poll,
+# re-listed the server.
+instance_logs:
+  contains:
+    - "Backend of listening-server changed (its connection met a new process): re-listing"
+    - "Capability refresh (recovery): updated 1 tools for listening-server"
+  not_contains:
+    - "Capability refresh (poll): updated 1 tools for listening-server"

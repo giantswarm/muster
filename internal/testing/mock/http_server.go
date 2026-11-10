@@ -40,6 +40,38 @@ type HTTPServer struct {
 	outage outageGate
 	// live is the MCP handler behind the listening port; Redeploy replaces it.
 	live *swappableHandler
+	// conns are the open connections, which Redeploy closes.
+	conns openConns
+}
+
+// openConns tracks a server's open connections (http.Server.ConnState).
+type openConns struct {
+	mu    sync.Mutex
+	conns map[net.Conn]struct{}
+}
+
+func (o *openConns) track(conn net.Conn, state http.ConnState) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	switch state {
+	case http.StateNew:
+		if o.conns == nil {
+			o.conns = make(map[net.Conn]struct{})
+		}
+		o.conns[conn] = struct{}{}
+	case http.StateClosed, http.StateHijacked:
+		delete(o.conns, conn)
+	}
+}
+
+// closeAll closes every open connection, as a process that exits does.
+func (o *openConns) closeAll() {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	for conn := range o.conns {
+		_ = conn.Close()
+	}
+	clear(o.conns)
 }
 
 // swappableHandler serves the handler it currently holds and lets Redeploy
@@ -119,7 +151,8 @@ func (s *HTTPServer) startServing() {
 
 	s.live = &swappableHandler{h: s.createHandler()}
 	httpServer := &http.Server{ //nolint:gosec
-		Handler: s.outage.wrap(s.live),
+		Handler:   s.outage.wrap(s.live),
+		ConnState: s.conns.track,
 	}
 	s.httpServer = httpServer
 	listener := s.listener
@@ -246,11 +279,13 @@ func (s *HTTPServer) Stop(ctx context.Context) error {
 // one, built from the server's tools with change applied: every MCP session
 // the old handler knew is forgotten, and the port never stopped accepting --
 // a backend pod replaced behind the same Service, by the same image or by
-// one that offers other tools. A client that keeps using its session id is
-// answered 404 ("Invalid session ID") by the new handler, as mcp-go's
-// streamable-HTTP server answers for a session it does not know. A changed
-// tool set announces itself to nobody: the new process has never seen a
-// client's session, so no notifications/tools/list_changed goes out.
+// one that offers other tools. The open connections close, as the old
+// process's do when it exits, streams included. A client that keeps using its
+// session id is answered 404 ("Invalid session ID") by the new handler, as
+// mcp-go's streamable-HTTP server answers for a session it does not know. A
+// changed tool set announces itself to nobody: the new process has never seen
+// a client's session or subscription, so no notifications/tools/list_changed
+// goes out.
 func (s *HTTPServer) Redeploy(change ToolSetChange) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -259,6 +294,7 @@ func (s *HTTPServer) Redeploy(change ToolSetChange) error {
 	}
 	s.mockServer.redeploy(change)
 	s.live.set(s.createHandler())
+	s.conns.closeAll()
 	if s.debug {
 		fmt.Fprintf(os.Stderr, "🔁 Redeployed mock HTTP server on port %d: sessions forgotten, %s\n", s.port, change.Summary())
 	}

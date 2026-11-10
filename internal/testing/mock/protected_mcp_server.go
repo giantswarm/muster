@@ -17,7 +17,6 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/template"
 
-	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )
 
@@ -80,11 +79,16 @@ type ProtectedMCPServerConfig struct {
 	// metadata either.
 	StartAnonymous bool
 
-	// ConnectDelay holds every initialize request for this long before the
-	// server answers it: a backend that is slow to connect, so a scenario can
-	// prove what the aggregator does while a session's connect to it is still
-	// in flight.
+	// ConnectDelay holds every handshake request (initialize, or
+	// server/discover from 2026-07-28) for this long before the server
+	// answers it: a backend that is slow to connect, so a scenario can prove
+	// what the aggregator does while a session's connect to it is still in
+	// flight.
 	ConnectDelay time.Duration
+
+	// ProtocolVersion, when set, is the revision the server stands for, as
+	// the protocol_version of a plain mock (addRevisionHooks).
+	ProtocolVersion string
 
 	// Debug enables debug logging
 	Debug bool
@@ -110,6 +114,8 @@ type ProtectedMCPServer struct {
 	authRequired atomic.Bool
 	// live is the handler behind the listening port; Redeploy replaces it.
 	live *swappableHandler
+	// conns are the open connections, which Redeploy closes.
+	conns openConns
 	// rejected and rejectedExpired count the requests answered with 401,
 	// all of them and those whose bearer had expired. They survive
 	// Stop/StartOnPort and Redeploy.
@@ -151,8 +157,9 @@ func (s *ProtectedMCPServer) AuthRequired() bool {
 
 // Redeploy replaces the handler behind the listening port with a fresh one
 // built from the server's tools (configured and added at runtime) with change
-// applied: every MCP session is forgotten while the port keeps accepting, and
-// a changed tool set is announced to nobody, see HTTPServer.Redeploy.
+// applied: every MCP session is forgotten and every open connection closed
+// while the port keeps accepting, and a changed tool set is announced to
+// nobody, see HTTPServer.Redeploy.
 func (s *ProtectedMCPServer) Redeploy(change ToolSetChange) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -165,6 +172,7 @@ func (s *ProtectedMCPServer) Redeploy(change ToolSetChange) error {
 		return fmt.Errorf("failed to create handler: %w", err)
 	}
 	s.live.set(handler)
+	s.conns.closeAll()
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔁 Redeployed protected MCP server %s on port %d: sessions forgotten, %s\n", s.config.Name, s.port, change.Summary())
 	}
@@ -196,7 +204,7 @@ func (s *ProtectedMCPServer) Start(ctx context.Context) (int, error) {
 	}
 
 	s.live = &swappableHandler{h: handler}
-	httpServer := &http.Server{Handler: s.outage.wrap(s.live)} //nolint:gosec
+	httpServer := &http.Server{Handler: s.outage.wrap(s.live), ConnState: s.conns.track} //nolint:gosec
 	s.httpServer = httpServer
 
 	// Serve on the captured server, not on the field: Stop clears the field
@@ -247,7 +255,7 @@ func (s *ProtectedMCPServer) StartOnPort(ctx context.Context, port int) error {
 	}
 
 	s.live = &swappableHandler{h: handler}
-	httpServer := &http.Server{Handler: s.outage.wrap(s.live)} //nolint:gosec
+	httpServer := &http.Server{Handler: s.outage.wrap(s.live), ConnState: s.conns.track} //nolint:gosec
 	s.httpServer = httpServer
 
 	// Serve on the captured server, not on the field: Stop clears the field
@@ -365,12 +373,19 @@ func (s *ProtectedMCPServer) createProtectedHandler() (http.Handler, error) {
 	// Create the underlying MCP server
 	hooks := &server.Hooks{}
 	if s.config.ConnectDelay > 0 {
-		hooks.AddBeforeInitialize(func(ctx context.Context, _ any, _ *mcp.InitializeRequest) {
+		hooks.AddOnRequestInitialization(func(ctx context.Context, _ any, message any) error {
+			if !isHandshake(message) {
+				return nil
+			}
 			select {
 			case <-time.After(s.config.ConnectDelay):
 			case <-ctx.Done():
 			}
+			return nil
 		})
+	}
+	if s.config.ProtocolVersion != "" {
+		addRevisionHooks(hooks, s.config.ProtocolVersion)
 	}
 	mcpServer := server.NewMCPServer(
 		fmt.Sprintf("protected-%s", s.config.Name),

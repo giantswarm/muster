@@ -8,6 +8,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
+	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -90,8 +91,13 @@ func sessionIDOf(c client.MCPClient) string {
 }
 
 // sessionLostLocked reports whether err means the backend no longer knows
-// this client's MCP session. Caller must hold b.mu.
+// this client's MCP session. Caller must hold b.mu. A 2026-07-28 connection
+// has no session to lose: that revision answers an unknown method with 404,
+// which mcp-go's transport reports as ErrSessionTerminated.
 func (b *baseMCPClient) sessionLostLocked(err error) bool {
+	if mcp.IsModernProtocol(b.negotiatedProtocolVersion) {
+		return false
+	}
 	if errors.Is(err, transport.ErrSessionTerminated) {
 		return true
 	}
