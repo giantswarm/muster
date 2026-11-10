@@ -17,7 +17,7 @@ require (
 	github.com/giantswarm/go-selfupdate v1.7.6
 	github.com/giantswarm/mcp-oauth v1.13.2
 	github.com/giantswarm/mcp-toolkit v0.5.3
-	github.com/giantswarm/pagekit v0.3.7
+	github.com/giantswarm/pagekit v0.3.8
 	github.com/go-jose/go-jose/v4 v4.1.9
 	github.com/go-logr/logr v1.4.4
 	github.com/golang-jwt/jwt/v5 v5.3.1
