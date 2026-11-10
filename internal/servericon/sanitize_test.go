@@ -42,7 +42,7 @@ func TestSanitizeSVGStrips(t *testing.T) {
 		{name: "external href", in: svgOpen + `<use href="https://evil.example/x.svg#a"/><use href="other.svg#a"/><rect width="1"/></svg>`, want: svgOpen + `<use/><use/><rect width="1"/></svg>`},
 		{name: "local href kept as href", in: `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><defs><path id="p" d="M0 0h1"/></defs><use xlink:href="#p"/></svg>`, want: svgOpen + `<defs><path id="p" d="M0 0h1"/></defs><use href="#p"/></svg>`},
 		{name: "a, image, style, animate", in: svgOpen + `<style>*{fill:url(https://evil)}</style><a href="https://evil"><rect width="1"/></a><image href="https://evil/x.png"/><set attributeName="href" to="javascript:x"/><animate attributeName="fill"/><circle r="1"/></svg>`, want: svgOpen + `<circle r="1"/></svg>`},
-		{name: "external url values", in: svgOpen + `<rect width="1" fill="url(https://evil/#a)" style="fill:red" mask="URL( 'http://x' )" clip-path="url(#c)"/></svg>`, want: svgOpen + `<rect width="1" clip-path="url(#c)"/></svg>`},
+		{name: "external url values", in: svgOpen + `<rect width="1" fill="url(https://evil/#a)" style="fill:red" mask="URL( 'http://x' )" clip-path="url(#c)"/></svg>`, want: svgOpen + `<rect width="1" clip-path="url(#c)" fill="red"/></svg>`},
 		{name: "css escape", in: svgOpen + `<rect width="1" fill="u\72l(https://evil)"/></svg>`, want: svgOpen + `<rect width="1"/></svg>`},
 		{name: "uppercase tags", in: svgOpen + `<SCRIPT>alert(1)</SCRIPT><Path d="M0 0"/><rect width="1"/></svg>`, want: svgOpen + `<rect width="1"/></svg>`},
 		{name: "nested script", in: svgOpen + `<g><g><script>x</script><path d="M0 0h1"/></g></g></svg>`, want: svgOpen + `<g><g><path d="M0 0h1"/></g></g></svg>`},
@@ -237,10 +237,29 @@ func TestSanitizeSVGInlinesClassRules(t *testing.T) {
 			want: svgOpen + `<path class="a" d="M0 0h1"/></svg>`,
 		},
 		{
-			name: "escapes, comments and quotes refuse the whole stylesheet",
-			in: svgOpen + `<style>.a{fill:red}.b{fill:\72 ed}</style><style>.a{fill:red}/* x */</style><style>.a{fill:red}.b{fill:"red"}</style><style>.a{fill:red}}</style>` +
+			name: "escapes, unterminated comments and strings, strings holding delimiters and unbalanced braces refuse the whole stylesheet",
+			in: svgOpen + `<style>.a{fill:red}.b{fill:\72 ed}</style><style>.a{fill:red}/* x </style><style>.a{fill:red}.b{font-family:"x}</style>` +
+				`<style>.a{fill:red}.b{font-family:"x}"}</style><style>.a{fill:red}.b{font-family:"x;y"}</style><style>.a{fill:red}}</style>` +
 				`<path class="a" d="M0 0h1"/></svg>`,
 			want: svgOpen + `<path class="a" d="M0 0h1"/></svg>`,
+		},
+		{
+			name: "comments and plain strings",
+			in:   svgOpen + `<style>/* a */.a/* b */{fill:/* c */red;font-family:"Open Sans", 'x'}.b/**/.c{fill:blue}</style><text class="a">x</text></svg>`,
+			want: svgOpen + `<text class="a" fill="red" font-family="&#34;Open Sans&#34;, &#39;x&#39;">x</text></svg>`,
+		},
+		{
+			name: "important wins over a later rule",
+			in:   svgOpen + `<style>.a{fill:red!important}.a{fill:blue}.b{stroke:red}.c{stroke:blue !important}</style><path class="c b a" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="c b a" d="M0 0h1" fill="red" stroke="blue"/></svg>`,
+		},
+		{
+			name: "style attribute wins over class rules unless they are important",
+			in: svgOpen + `<style>.a{fill:red;stroke:red!important}</style>` +
+				`<path class="a" fill="#000" style="fill:blue;stroke:blue;opacity:.5;stop-color:url(https://evil/x);transform:scale(2)" d="M0 0h1"/>` +
+				`<stop style="stop-color:#2A59A2 ; stop-opacity : 1;" offset="0"/><path style="fill:url(#g)!important;x:1" d="M0 0h1"/><path style="fill:green\;" d="M0 0h1"/></svg>`,
+			want: svgOpen + `<path class="a" d="M0 0h1" fill="blue" opacity=".5" stroke="red"/>` +
+				`<stop offset="0" stop-color="#2A59A2" stop-opacity="1"/><path d="M0 0h1" fill="url(#g)"/><path d="M0 0h1"/></svg>`,
 		},
 		{
 			name: "style outside the SVG namespace",

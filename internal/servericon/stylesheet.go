@@ -3,12 +3,13 @@ package servericon
 import (
 	"bytes"
 	"encoding/xml"
+	"math"
 	"regexp"
 	"strings"
 )
 
 // presentationProperties are the CSS properties that are also SVG
-// presentation attributes with the same value syntax. A class rule setting
+// presentation attributes with the same value syntax. A declaration setting
 // one becomes that attribute, checked as sanitizeAttr checks the attribute.
 var presentationProperties = toSet(
 	"fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity",
@@ -21,26 +22,46 @@ var presentationProperties = toSet(
 
 var classSelector = regexp.MustCompile(`^\.[a-zA-Z_-][a-zA-Z0-9_-]*$`)
 
-// classRules maps a class name to the value each property gets from the
-// last rule setting it, with that rule's index: all rules have the same
-// specificity, so across an element's classes the later rule wins.
-type classRules map[string]map[string]classDecl
-
-type classDecl struct {
-	rule  int
-	value string
+// declaration is a presentation declaration whose value passes sanitizeAttr.
+type declaration struct {
+	property  string
+	value     string
+	important bool
 }
 
+// cascaded is a declaration with its position in the cascade: rules are
+// numbered in document order, and a style attribute comes after all of them.
+// All class selectors have the same specificity, so order decides between
+// declarations of the same importance.
+type cascaded struct {
+	declaration
+	order int
+}
+
+const styleAttributeOrder = math.MaxInt
+
+func (d cascaded) overrides(other cascaded) bool {
+	if d.important != other.important {
+		return d.important
+	}
+	return d.order > other.order
+}
+
+// classRules maps a class name to the declaration that wins for each
+// property among the rules selecting that class.
+type classRules map[string]map[string]cascaded
+
 // stylesheetClassRules reads the <style> elements of an SVG document that
-// apply unconditionally, and keeps the presentationProperties declarations
-// of the rules whose selectors are all a single class. At-rules (@import,
-// @media, ...) are skipped. A stylesheet with an escape, a comment, a quote
-// or unbalanced braces is not used at all.
+// apply unconditionally, and keeps the declarations of the rules whose
+// selectors are all a single class. At-rules (@import, @media, ...) are
+// skipped. A stylesheet cleanCSS refuses or with unbalanced braces is not
+// used at all.
 func stylesheetClassRules(data []byte) classRules {
 	rules := classRules{}
 	n := 0
 	for _, sheet := range stylesheets(data) {
-		if strings.ContainsAny(sheet, `\"'`) || strings.Contains(sheet, "/*") {
+		sheet, ok := cleanCSS(sheet)
+		if !ok {
 			continue
 		}
 		blocks, ok := ruleBlocks(sheet)
@@ -49,7 +70,7 @@ func stylesheetClassRules(data []byte) classRules {
 		}
 		for _, b := range blocks {
 			n++
-			addRule(rules, n, b[0], b[1])
+			rules.add(n, b[0], b[1])
 		}
 	}
 	return rules
@@ -109,6 +130,43 @@ func unconditional(attrs []xml.Attr) bool {
 	return true
 }
 
+// cleanCSS returns CSS text with each comment replaced by a space. It
+// refuses text that splitting on braces and semicolons would misread: an
+// escape, an unterminated comment or string, or a string holding a brace, a
+// semicolon or a newline.
+func cleanCSS(css string) (string, bool) {
+	if strings.ContainsRune(css, '\\') {
+		return "", false
+	}
+	var b strings.Builder
+	for i := 0; i < len(css); {
+		switch {
+		case strings.HasPrefix(css[i:], "/*"):
+			end := strings.Index(css[i+2:], "*/")
+			if end < 0 {
+				return "", false
+			}
+			b.WriteByte(' ')
+			i += 2 + end + 2
+		case css[i] == '"' || css[i] == '\'':
+			end := strings.IndexByte(css[i+1:], css[i])
+			if end < 0 {
+				return "", false
+			}
+			str := css[i : i+end+2]
+			if strings.ContainsAny(str, "{};\n\r\f") {
+				return "", false
+			}
+			b.WriteString(str)
+			i += len(str)
+		default:
+			b.WriteByte(css[i])
+			i++
+		}
+	}
+	return b.String(), true
+}
+
 // ruleBlocks splits a stylesheet into its rules' selector and declaration
 // text, skipping at-rules. It fails on a nested, unopened or unclosed block.
 func ruleBlocks(sheet string) ([][2]string, bool) {
@@ -165,7 +223,9 @@ func blockEnd(s string, open int) (int, bool) {
 	return 0, false
 }
 
-func addRule(rules classRules, index int, selectors, body string) {
+// add records the declarations of a rule whose selectors are all a single
+// class; a rule with any other selector is not applied.
+func (r classRules) add(order int, selectors, block string) {
 	var classes []string
 	for sel := range strings.SplitSeq(selectors, ",") {
 		sel = strings.TrimSpace(sel)
@@ -174,42 +234,72 @@ func addRule(rules classRules, index int, selectors, body string) {
 		}
 		classes = append(classes, sel[1:])
 	}
-	for decl := range strings.SplitSeq(body, ";") {
+	for _, d := range declarations(block) {
+		decl := cascaded{declaration: d, order: order}
+		for _, c := range classes {
+			if r[c] == nil {
+				r[c] = map[string]cascaded{}
+			}
+			if prev, ok := r[c][d.property]; !ok || decl.overrides(prev) {
+				r[c][d.property] = decl
+			}
+		}
+	}
+}
+
+// declarations returns the presentationProperties declarations of a
+// declaration block whose value passes sanitizeAttr. A declaration with a
+// priority other than !important is invalid CSS and left out.
+func declarations(block string) []declaration {
+	var out []declaration
+	for decl := range strings.SplitSeq(block, ";") {
 		property, value, ok := strings.Cut(decl, ":")
 		if !ok {
 			continue
 		}
 		property = strings.ToLower(strings.TrimSpace(property))
-		// !important only raises the rule over the style attribute, which
-		// the sanitiser drops.
-		value, _, _ = strings.Cut(value, "!")
+		value, priority, prioritised := strings.Cut(value, "!")
 		value = strings.TrimSpace(value)
-		if !presentationProperties[property] || value == "" {
+		important := strings.EqualFold(strings.TrimSpace(priority), "important")
+		if !presentationProperties[property] || value == "" || prioritised && !important {
 			continue
 		}
 		if _, _, keep := sanitizeAttr(xml.Attr{Name: xml.Name{Local: property}, Value: value}); !keep {
 			continue
 		}
-		for _, c := range classes {
-			if rules[c] == nil {
-				rules[c] = map[string]classDecl{}
-			}
-			rules[c][property] = classDecl{rule: index, value: value}
-		}
+		out = append(out, declaration{property: property, value: value, important: important})
 	}
+	return out
 }
 
-// attributes returns the presentation attributes the rules give an element
-// with the class attribute value class.
-func (r classRules) attributes(class string) map[string]string {
-	var winners map[string]classDecl
-	for c := range strings.FieldsSeq(class) {
-		for property, d := range r[c] {
-			if winners == nil {
-				winners = map[string]classDecl{}
+// attributes returns the presentation attributes an element gets from the
+// rules selecting its classes and from its style attribute.
+func (r classRules) attributes(attrs []xml.Attr) map[string]string {
+	var winners map[string]cascaded
+	pick := func(d cascaded) {
+		if winners == nil {
+			winners = map[string]cascaded{}
+		}
+		if w, ok := winners[d.property]; !ok || d.overrides(w) {
+			winners[d.property] = d
+		}
+	}
+	for _, a := range attrs {
+		if a.Name.Space != "" {
+			continue
+		}
+		switch a.Name.Local {
+		case "class":
+			for c := range strings.FieldsSeq(a.Value) {
+				for _, d := range r[c] {
+					pick(d)
+				}
 			}
-			if w, ok := winners[property]; !ok || d.rule > w.rule {
-				winners[property] = d
+		case "style":
+			if block, ok := cleanCSS(a.Value); ok {
+				for _, d := range declarations(block) {
+					pick(cascaded{declaration: d, order: styleAttributeOrder})
+				}
 			}
 		}
 	}
