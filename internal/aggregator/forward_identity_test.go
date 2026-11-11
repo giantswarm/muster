@@ -1,7 +1,10 @@
 package aggregator
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -173,7 +176,7 @@ func newPostRecorder(t *testing.T) *postRecorder {
 	streamable := mcpgoserver.NewStreamableHTTPServer(backend, mcpgoserver.WithStateful(true))
 	rec := &postRecorder{}
 	rec.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		if r.Method == http.MethodPost && isToolCall(r) {
 			rec.mu.Lock()
 			rec.posts = append(rec.posts, r.Header.Clone())
 			rec.mu.Unlock()
@@ -184,7 +187,23 @@ func newPostRecorder(t *testing.T) *postRecorder {
 	return rec
 }
 
-// take returns the POSTs recorded since the last call.
+// isToolCall reports whether a POST carries a tools/call request, restoring
+// its body for the server. A 2026-07-28 connection also POSTs a long-lived
+// subscriptions/listen, which keeps the ID token it was opened with across a
+// refresh.
+func isToolCall(r *http.Request) bool {
+	body, err := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	var request struct {
+		Method string `json:"method"`
+	}
+	return json.Unmarshal(body, &request) == nil && request.Method == string(mcp.MethodToolsCall)
+}
+
+// take returns the tools/call POSTs recorded since the last call.
 func (r *postRecorder) take() []http.Header {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -211,7 +230,7 @@ func pinnedGrantClient(t *testing.T, ctx context.Context, url string, headerFunc
 
 // TestPinnedServerCallsCarryTheGrantAndTheIDToken drives the session client of
 // a forwardIdentity server against a real streamable-http backend: every
-// request carries the pinned grant in Authorization and the session's ID token
+// tool call carries the pinned grant in Authorization and the session's ID token
 // in X-Muster-Id-Token, the refreshed one after a refresh; a pinned server
 // without the field receives the grant alone.
 func TestPinnedServerCallsCarryTheGrantAndTheIDToken(t *testing.T) {
