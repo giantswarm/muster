@@ -50,7 +50,7 @@ func (m *musterInstanceManager) applyBrokerConfig(
 			return fmt.Errorf("muster_broker trusted issuer references unknown OAuth server %q", ti.OAuthServerRef)
 		}
 		entry := map[string]interface{}{
-			"issuer":             issuerURL,
+			keyIssuer:            issuerURL,
 			"jwksUrl":            issuerURL + "/jwks",
 			"allowPrivateIPJWKS": true,
 		}
@@ -69,7 +69,7 @@ func (m *musterInstanceManager) applyBrokerConfig(
 	for _, existing := range existingIssuers {
 		found := false
 		for _, configured := range trustedIssuers {
-			if configured["issuer"] == existing["issuer"] {
+			if configured[keyIssuer] == existing[keyIssuer] {
 				found = true
 				break
 			}
@@ -109,7 +109,19 @@ func (m *musterInstanceManager) applyBrokerConfig(
 				if issuerURL == "" {
 					return fmt.Errorf("muster_broker grant target %q references unknown OAuth server %q", audience, gt.OAuthServerRef)
 				}
-				targets[audience] = map[string]interface{}{"grantIssuer": issuerURL}
+				target := map[string]interface{}{"grantIssuer": issuerURL}
+				if len(gt.SubjectIssuerRefs) > 0 {
+					subjectIssuers := make([]string, 0, len(gt.SubjectIssuerRefs))
+					for _, ref := range gt.SubjectIssuerRefs {
+						subjectIssuer := m.resolveIssuerURL(instanceID, ref)
+						if subjectIssuer == "" {
+							return fmt.Errorf("muster_broker grant target %q: subject_issuer_refs names unknown OAuth server %q", audience, ref)
+						}
+						subjectIssuers = append(subjectIssuers, subjectIssuer)
+					}
+					target["subjectIssuers"] = subjectIssuers
+				}
+				targets[audience] = target
 			}
 			brokerCfg["targets"] = targets
 		}
@@ -130,4 +142,36 @@ func (m *musterInstanceManager) resolveIssuerURL(instanceID, ref string) string 
 		return ""
 	}
 	return srv.GetIssuerURL()
+}
+
+// providerAppsConfig renders aggregator.providerApps from the scenario's
+// provider_apps, each App's issuer, endpoints and client_id taken from its
+// mock OAuth server.
+func (m *musterInstanceManager) providerAppsConfig(instanceID string, config *MusterPreConfiguration) ([]map[string]interface{}, error) {
+	apps := make([]map[string]interface{}, 0, len(config.ProviderApps))
+	for _, app := range config.ProviderApps {
+		srv := m.GetMockOAuthServer(instanceID, app.OAuthServerRef)
+		if srv == nil {
+			return nil, fmt.Errorf("provider_apps %q references unknown OAuth server %q", app.Name, app.OAuthServerRef)
+		}
+		clientID := ""
+		for _, oauthCfg := range config.MockOAuthServers {
+			if oauthCfg.Name == app.OAuthServerRef {
+				clientID = oauthCfg.ClientID
+			}
+		}
+		issuer := srv.GetIssuerURL()
+		entry := map[string]interface{}{
+			"name":                  app.Name,
+			keyIssuer:               issuer,
+			"authorizationEndpoint": issuer + "/authorize",
+			"tokenEndpoint":         issuer + "/token",
+			"clientID":              clientID,
+		}
+		if app.Scopes != "" {
+			entry["scopes"] = app.Scopes
+		}
+		apps = append(apps, entry)
+	}
+	return apps, nil
 }

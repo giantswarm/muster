@@ -1772,17 +1772,20 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 	var oauthHTTPServer oauthServer
 	var browserIdentity api.BrowserIdentity
+	var sessionSubjects api.SessionSubjectResolver
 	inner, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
 	if err != nil {
 		logging.Warn("Aggregator", "OIDC discovery failed at startup, starting in degraded mode (OAuth unavailable until Dex recovers): %v", err)
 		lazy := server.NewLazyOAuthHTTPServer(a.ctx, cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
-		oauthHTTPServer, browserIdentity = lazy, lazy
+		oauthHTTPServer, browserIdentity, sessionSubjects = lazy, lazy, lazy
 	} else {
-		oauthHTTPServer, browserIdentity = inner, inner
+		oauthHTTPServer, browserIdentity, sessionSubjects = inner, inner, inner
 	}
 	// The OAuth proxy start endpoint checks with it that the person signing
 	// in to a server is the person the sign-in was started for.
 	api.RegisterBrowserIdentity(browserIdentity)
+	// The token broker releases a grant by the subject it was filed under.
+	api.RegisterSessionSubjectResolver(sessionSubjects)
 
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer

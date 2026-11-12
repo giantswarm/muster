@@ -1,0 +1,162 @@
+name: "oauth-broker-provider-app-grant-release"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  The token broker releases a person's provider App grant without any
+  MCPServer pinned to the App's issuer: the grant target names the App's
+  issuer, and the person grants the App with core_auth_login app=<name>.
+  Only subject tokens of muster's own issuer release it unless the target
+  lists another issuer.
+
+    - No grant yet: invalid_target.
+    - After the person granted the App: the access token, no refresh token.
+    - A subject token with the same sub from another trusted issuer:
+      invalid_target (subject_issuer_not_allowed).
+tags: ["oauth", "token-exchange", "rfc8693", "broker", "subject-grant", "provider-app", "github"]
+timeout: "3m"
+
+instance_logs:
+  contains:
+    - "subject_grant_released"
+    - "subject_issuer_not_allowed"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+    # Another trusted issuer whose subjects collide with muster's own.
+    - name: "other-idp"
+
+    # The provider App's authorization server (GitHub's stand-in). No
+    # MCPServer pins it.
+    - name: "github-app"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-app-client"
+      use_tls: true
+
+  provider_apps:
+    - name: "github"
+      oauth_server_ref: "github-app"
+      scopes: "repo"
+
+  muster_broker:
+    trusted_issuers:
+      # muster's own issuer keeps the default typ (at+jwt), which the
+      # harness's own bearer carries too.
+      - oauth_server_ref: "muster-idp"
+      - oauth_server_ref: "other-idp"
+        accepted_typ_headers: [""]
+    clients:
+      - client_id: "devportal"
+        client_secret: "devportal-secret"
+        audiences: ["github"]
+    grant_targets:
+      github:
+        oauth_server_ref: "github-app"
+
+steps:
+  - id: mint-alice-id-token
+    description: "alice's ID token from muster's own issuer"
+    tool: "test_mint_token"
+    args:
+      typ: "at+jwt"
+      server: "muster-idp"
+      name: "alice-id-token"
+      sub: "alice"
+    expected:
+      success: true
+
+  - id: mint-impostor-id-token
+    description: "A token of another trusted issuer that carries the same sub"
+    tool: "test_mint_token"
+    args:
+      server: "other-idp"
+      name: "impostor-id-token"
+      sub: "alice"
+    expected:
+      success: true
+
+  - id: exchange-before-any-grant
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: false
+      contains:
+        - "invalid_target"
+
+  - id: login-alice
+    tool: "test_muster_auth_login"
+    args:
+      subject: "alice"
+    expected:
+      success: true
+  - id: create-alice
+    tool: "test_create_user"
+    args:
+      name: "alice"
+    expected:
+      success: true
+
+  - id: alice_grants_the_app
+    as_user: "alice"
+    description: "alice starts the App's sign-in; no MCPServer is involved"
+    tool: "core_auth_login"
+    args:
+      app: "github"
+    expected:
+      success: true
+      contains:
+        - "/oauth/proxy/start"
+
+  - id: alice-completes-the-app-sign-in
+    as_user: "alice"
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "app:github"
+      auth_url: "{{ .alice_grants_the_app }}"
+    expected:
+      success: true
+      contains:
+        - "success"
+
+  - id: exchange-releases-the-app-grant
+    description: "The devportal exchanges alice's ID token for her App grant"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "alice-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: true
+      contains:
+        - "urn:ietf:params:oauth:token-type:access_token"
+      json_path:
+        has_refresh_token: false
+
+  - id: another-issuer-releases-nothing
+    description: "The same sub from another trusted issuer is another person"
+    tool: "test_broker_token_exchange"
+    args:
+      subject_token_ref: "impostor-id-token"
+      audience: "github"
+      client_id: "devportal"
+      client_secret: "devportal-secret"
+    expected:
+      success: false
+      contains:
+        - "invalid_target"

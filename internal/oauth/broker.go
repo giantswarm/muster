@@ -2,9 +2,11 @@ package oauth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,12 +36,16 @@ import (
 //
 // Thread-safe: Yes.
 type BrokerExchanger struct {
-	cfg       config.TokenExchangeBrokerConfig
-	exchanger *TokenExchanger
+	cfg                  config.TokenExchangeBrokerConfig
+	defaultSubjectIssuer string
+	exchanger            *TokenExchanger
 }
 
 // NewBrokerExchanger creates a BrokerExchanger for the configured targets.
-func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
+// defaultSubjectIssuer is the issuer whose subject tokens a grant target
+// accepts when it lists no subjectIssuers: the Dex issuer of muster's own
+// sign-in.
+func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, defaultSubjectIssuer string) *BrokerExchanger {
 	// Mirror the OAuth manager's internal-deployment handling: mcp-oauth's
 	// private-IP-allowed client bypasses the process-wide augmented transport
 	// (--extra-ca-file), so hand the exchanger an explicit client backed by
@@ -50,7 +56,8 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig) *BrokerExchanger {
 		httpClient.Transport = http.DefaultTransport
 	}
 	return &BrokerExchanger{
-		cfg: cfg,
+		cfg:                  cfg,
+		defaultSubjectIssuer: defaultSubjectIssuer,
 		exchanger: NewTokenExchangerWithOptions(TokenExchangerOptions{
 			AllowPrivateIP: cfg.AllowPrivateIP,
 			HTTPClient:     httpClient,
@@ -129,20 +136,44 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 // releaseGrant answers a grant target: the person's own grant from the
 // target's issuer, as the OAuth proxy holds it (refreshed when due), released
 // to the authenticated broker client. mcp-oauth has already validated the
-// subject token and the client's audience allowlist; this decides only which
-// person and whether a grant exists.
+// subject token and the client's audience allowlist; this decides whether the
+// token's issuer may release grants, which person, and whether a grant exists.
 //
-// The person is the subject token's raw `sub` -- the Dex subject the grant
-// was filed under when the person connected the server -- not the
-// trustedIssuers subjectClaim mapping mcp-oauth applies for OBO exchanges
-// (gazelle maps the email there), because that mapping never keyed a grant.
+// The person is the subject an MCP request presenting the subject token is
+// served as (api.SessionSubjectResolver): the subject the person's grants are
+// filed under when such a session signs in, so a grant is released by the
+// identity it was filed under whatever the trustedIssuers subjectClaim says.
 // The refresh token stays in muster: the relying party gets the access token
 // and its remaining lifetime and re-exchanges when that runs out.
 func (b *BrokerExchanger) releaseGrant(ctx context.Context, req *oauthserver.ExchangerRequest, target config.BrokerTargetConfig) (*oauthserver.ExchangerResult, error) {
 	issuer := strings.TrimSuffix(target.GrantIssuer, "/")
-	sub := grantSubject(req.Subject)
-	if sub == "" {
-		return nil, fmt.Errorf("%w: no_grant: the subject token carries no sub to look a grant up by", oauthserver.ErrInvalidTarget)
+
+	subjectIssuer := ""
+	if req.Subject != nil {
+		subjectIssuer = req.Subject.Issuer
+	}
+	if !b.subjectIssuerAllowed(target, subjectIssuer) {
+		logging.WarnWithAttrs("TokenBroker", "subject_grant_release_refused",
+			slog.String("audience", req.Audience),
+			slog.String("client", req.ClientID),
+			slog.String("issuer", issuer),
+			slog.String("subjectIssuer", subjectIssuer),
+			slog.String("reason", "subject_issuer_not_allowed"))
+		return nil, fmt.Errorf("%w: subject_issuer_not_allowed: subject tokens of %s do not release grants of %s", oauthserver.ErrInvalidTarget, subjectIssuer, issuer)
+	}
+
+	sub, err := grantSubject(ctx, req)
+	if err != nil {
+		logging.WarnWithAttrs("TokenBroker", "subject_grant_release_refused",
+			slog.String("audience", req.Audience),
+			slog.String("client", req.ClientID),
+			slog.String("issuer", issuer),
+			slog.String("reason", "no_subject"),
+			slog.String("error", err.Error()))
+		if serverFault(err) {
+			return nil, fmt.Errorf("grant target %q: %w", req.Audience, err)
+		}
+		return nil, fmt.Errorf("%w: no_grant: %v", oauthserver.ErrInvalidTarget, err)
 	}
 
 	handler := api.GetOAuthHandler()
@@ -177,11 +208,61 @@ func (b *BrokerExchanger) releaseGrant(ctx context.Context, req *oauthserver.Exc
 	}, nil
 }
 
-// grantSubject returns the raw `sub` of the validated subject token: the
-// identity muster files subject-scoped grants under. mcp-oauth's
-// SubjectIdentity.Subject may be remapped by the trusted issuer's
-// subjectClaim; the claims keep the token's own subject.
-func grantSubject(identity *oauthserver.SubjectIdentity) string {
+// subjectIssuerAllowed reports whether a subject token of the issuer may
+// release the target's grant: target.SubjectIssuers, else the default subject
+// issuer.
+func (b *BrokerExchanger) subjectIssuerAllowed(target config.BrokerTargetConfig, subjectIssuer string) bool {
+	if subjectIssuer == "" {
+		return false
+	}
+	allowed := target.SubjectIssuers
+	if len(allowed) == 0 {
+		allowed = []string{b.defaultSubjectIssuer}
+	}
+	subjectIssuer = strings.TrimSuffix(subjectIssuer, "/")
+	return slices.ContainsFunc(allowed, func(issuer string) bool {
+		return issuer != "" && strings.TrimSuffix(issuer, "/") == subjectIssuer
+	})
+}
+
+// grantSubject returns the subject the person's grants are filed under: the
+// session subject of the request's subject token. A subject that differs from
+// the token's raw sub (a trustedIssuers subjectClaim mapping) is logged, as a
+// grant filed under one is never found under the other.
+func grantSubject(ctx context.Context, req *oauthserver.ExchangerRequest) (string, error) {
+	resolver := api.GetSessionSubjectResolver()
+	if resolver == nil {
+		return "", errNoSessionSubjectResolver
+	}
+	sub, err := resolver.SessionSubject(ctx, req.SubjectToken)
+	if err != nil {
+		return "", fmt.Errorf("resolve the subject token's session subject: %w", err)
+	}
+	if raw := rawSubject(req.Subject); raw != "" && raw != sub {
+		logging.WarnWithAttrs("TokenBroker", "subject_grant_subject_mapped",
+			slog.String("audience", req.Audience),
+			slog.String("sub", logging.TruncateIdentifier(raw)),
+			slog.String("sessionSubject", logging.TruncateIdentifier(sub)))
+	}
+	return sub, nil
+}
+
+var errNoSessionSubjectResolver = errors.New("muster runs no OAuth server to resolve the subject token's session subject")
+
+// serverFault reports whether resolving the session subject failed without
+// refusing the token: the identity provider or the token store did not
+// answer, or no resolver runs. Such an error must not wrap invalid_target,
+// which a relying party reads as "the person has no grant": mcp-oauth answers
+// a token store outage 503 temporarily_unavailable and any other error 400
+// invalid_grant.
+func serverFault(err error) bool {
+	return errors.Is(err, oauthserver.ErrProviderUnavailable) ||
+		errors.Is(err, oauthserver.ErrStorageUnavailable) ||
+		errors.Is(err, errNoSessionSubjectResolver)
+}
+
+// rawSubject returns the raw sub of the validated subject token.
+func rawSubject(identity *oauthserver.SubjectIdentity) string {
 	if identity == nil {
 		return ""
 	}

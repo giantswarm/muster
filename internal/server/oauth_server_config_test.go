@@ -275,10 +275,14 @@ func TestValidateBrokerTarget(t *testing.T) {
 		{"plain http grant issuer", config.BrokerTargetConfig{GrantIssuer: "http://github.example.com"}, "HTTPS"},
 		{"grant target with exchange settings", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", ConnectorID: "main"}, "takes no exchange settings"},
 		{"grant target with credentials", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", ClientCredentialsSecretRef: &config.BrokerSecretRefConfig{Name: "x"}}, "takes no exchange settings"},
+		{"grant target with a trusted subject issuer", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", SubjectIssuers: []string{"https://dex.example.com/"}}, ""},
+		{"grant target with an untrusted subject issuer", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", SubjectIssuers: []string{"https://dex.other.example.com"}}, "not a trustedIssuers issuer"},
+		{"dex exchange target with subject issuers", config.BrokerTargetConfig{DexTokenEndpoint: "https://dex.example.com/token", SubjectIssuers: []string{"https://dex.example.com"}}, "grant targets"},
 	}
+	trusted := []config.TrustedIssuerConfig{{Issuer: "https://dex.example.com"}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateBrokerTarget("github", tc.target)
+			err := validateBrokerTarget("github", tc.target, trusted, "https://dex.example.com")
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 				return
@@ -291,6 +295,8 @@ func TestValidateBrokerTarget(t *testing.T) {
 
 func TestBuildOAuthServerOptions_AcceptsGrantTarget(t *testing.T) {
 	cfg := config.OAuthServerConfig{
+		Provider:       OAuthProviderDex,
+		Dex:            config.DexConfig{IssuerURL: "https://dex.example.com"},
 		TrustedIssuers: []config.TrustedIssuerConfig{{Issuer: "https://dex.example.com", JwksURL: "https://dex.example.com/keys"}},
 		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
 			ClientAudiences: map[string][]string{"devportal": {"github"}},
@@ -302,6 +308,30 @@ func TestBuildOAuthServerOptions_AcceptsGrantTarget(t *testing.T) {
 	opts, err := buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
+}
+
+// Without Dex, muster has no default subject issuer, so a grant target names
+// its own.
+func TestBuildOAuthServerOptions_GrantTargetWithoutDexNeedsSubjectIssuers(t *testing.T) {
+	cfg := config.OAuthServerConfig{
+		Provider:       OAuthProviderGoogle,
+		TrustedIssuers: []config.TrustedIssuerConfig{{Issuer: "https://accounts.google.com", JwksURL: "https://www.googleapis.com/oauth2/v3/certs"}},
+		TokenExchangeBroker: config.TokenExchangeBrokerConfig{
+			ClientAudiences: map[string][]string{"devportal": {"github"}},
+			Targets: map[string]config.BrokerTargetConfig{
+				"github": {GrantIssuer: "https://github.com/login/oauth"},
+			},
+		},
+	}
+	_, err := buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
+	require.ErrorContains(t, err, "needs subjectIssuers")
+
+	cfg.TokenExchangeBroker.Targets["github"] = config.BrokerTargetConfig{
+		GrantIssuer:    "https://github.com/login/oauth",
+		SubjectIssuers: []string{"https://accounts.google.com"},
+	}
+	_, err = buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
+	require.NoError(t, err)
 }
 
 // An issuer with delegation names the actor issuers its tokens may carry in
