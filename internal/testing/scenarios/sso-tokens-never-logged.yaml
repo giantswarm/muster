@@ -103,6 +103,11 @@ steps:
         - "alice@giantswarm.io"
 
 # Evaluated once the steps above ran: muster serve's own stdout and stderr,
-# captured at debug level for the whole scenario, never carried a JWT.
+# captured at debug level for the whole scenario, never carried a credential:
+# none of the values the mock authorization servers issued (codes, access,
+# refresh and ID tokens), and no JWT, two dot-joined base64url segments that
+# each encode a JSON object. A bare "eyJ" also matches random identifiers such
+# as request IDs.
 instance_logs:
-  not_contains: ["eyJ"]
+  not_contains_issued_credentials: true
+  not_matches: ['eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+']
