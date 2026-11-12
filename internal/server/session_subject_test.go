@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -74,4 +75,18 @@ func TestDefaultSubjectIssuer(t *testing.T) {
 		Provider: OAuthProviderDex, BaseURL: "https://muster.example.com", Dex: config.DexConfig{IssuerURL: "https://dex.example.com"},
 	}))
 	require.Empty(t, defaultSubjectIssuer(config.OAuthServerConfig{Provider: OAuthProviderGoogle, BaseURL: "https://muster.example.com"}))
+}
+
+// An outage while mapping a trusted-issuer token's subject stays a provider
+// outage, so the broker does not answer invalid_target for it.
+func TestOAuthHTTPServer_SessionSubjectKeepsProviderOutage(t *testing.T) {
+	defer stubValidateBearer(func(context.Context, string) (*providers.UserInfo, error) {
+		return &providers.UserInfo{ID: "alice", Issuer: "https://dex.example.com", TokenSource: providers.TokenSourceTrustedIssuer}, nil
+	})()
+	defer stubAcceptTrustedIssuerToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+		return nil, fmt.Errorf("jwks: %w", oauthserver.ErrProviderUnavailable)
+	})()
+
+	_, err := (&OAuthHTTPServer{}).SessionSubject(t.Context(), "kagent-token")
+	require.ErrorIs(t, err, oauthserver.ErrProviderUnavailable)
 }

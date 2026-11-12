@@ -239,3 +239,20 @@ func TestBrokerTargetConfig_IsGrantTarget(t *testing.T) {
 	assert.True(t, config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth"}.IsGrantTarget())
 	assert.False(t, config.BrokerTargetConfig{DexTokenEndpoint: "https://dex.example.com/token"}.IsGrantTarget())
 }
+
+// Without an OAuth server muster cannot tell whom a grant was filed under,
+// which is a server fault, not a person without a grant.
+func TestBrokerExchanger_GrantTarget_NoResolverIsNotInvalidTarget(t *testing.T) {
+	handler := &grantReleasingHandler{enabled: true, grants: map[string]*api.OAuthToken{}}
+	withOAuthHandler(t, handler)
+	withSessionSubjects(t, nil)
+
+	_, err := grantBroker().Exchange(t.Context(), &oauthserver.ExchangerRequest{
+		Audience:     "github",
+		Subject:      dexIdentity("alice", "alice"),
+		SubjectToken: "dex-id-token",
+	})
+	require.ErrorIs(t, err, errNoSessionSubjectResolver)
+	assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget))
+	assert.Empty(t, handler.lookups)
+}

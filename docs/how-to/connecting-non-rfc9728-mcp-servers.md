@@ -319,6 +319,13 @@ the person's ID token as `subject_token` and `audience=github`, and receives:
   delegated token (an issuer with `delegation`), and the trusted issuer's
   `subjectClaim` mapping for any other trusted-issuer token. muster logs
   `subject_grant_subject_mapped` when it differs from the token's `sub`.
+  A subject token the MCP endpoint would refuse (an audience in neither
+  `trustedAudiences` nor the issuer's `allowedAudiences`, say) releases
+  nothing and gets `invalid_target`, even when the broker accepted it.
+- When the token store does not answer, the exchange gets `503
+  temporarily_unavailable`; when the identity provider does not answer, it
+  gets `invalid_grant`. Neither is `invalid_target`, so the relying party
+  does not send the person to grant again.
 - The access token is the person's, refreshed first when it is due;
   `expires_in` is its remaining lifetime. The refresh token never leaves
   muster: the relying party re-exchanges when the token runs out, and each
