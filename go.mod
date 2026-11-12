@@ -24,7 +24,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/itchyny/gojq v0.12.20
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/mark3labs/mcp-go v1.5.1-0.20261103124459-acf999d599ff
+	github.com/mark3labs/mcp-go v1.5.1-0.20261109144041-2f5b9637ea84
 	github.com/mark3labs/mcp-go/otel v0.54.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
