@@ -364,3 +364,25 @@ func TestStoreDataURIAndInvalid(t *testing.T) {
 		t.Fatalf("changes = %v", changed)
 	}
 }
+
+type implClient mcp.Implementation
+
+func (c implClient) ServerImplementation() mcp.Implementation { return mcp.Implementation(c) }
+
+// TestRecordClientSkipsADisconnectedClient: a client that is no longer
+// connected exposes the zero server info, which leaves the icon as it is.
+func TestRecordClientSkipsADisconnectedClient(t *testing.T) {
+	const key = "record-client-test"
+	t.Cleanup(func() { Forget(key) })
+	icon := dataURI(mimeSVG, svgBytes)
+
+	RecordClient(key, implClient{Name: "backend", Icons: []mcp.Icon{{Src: icon}}})
+	RecordClient(key, implClient{})
+	if got, _ := Lookup(key); got != icon {
+		t.Fatalf("Lookup = %q, want the icon kept", got)
+	}
+	RecordClient(key, implClient{Name: "backend"})
+	if got, known := Lookup(key); !known || got != "" {
+		t.Fatalf("Lookup = %q, %v, want no icon", got, known)
+	}
+}

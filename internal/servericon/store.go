@@ -52,10 +52,16 @@ var defaultStore = newStore(newFetcher(publicAddr, nil))
 // resolved in the background. Never blocks on the network.
 func Record(key string, impl mcp.Implementation) { defaultStore.Record(key, impl) }
 
-// RecordClient records the server info of a client that exposes it.
+// RecordClient records the server info of a client that exposes it. A
+// client that is no longer connected exposes the zero value, which is not
+// recorded: it would clear the icon of a server that still declares one.
 func RecordClient(key string, client any) {
-	if c, ok := client.(interface{ ServerImplementation() mcp.Implementation }); ok {
-		Record(key, c.ServerImplementation())
+	c, ok := client.(interface{ ServerImplementation() mcp.Implementation })
+	if !ok {
+		return
+	}
+	if impl := c.ServerImplementation(); impl.Name != "" || len(impl.Icons) > 0 {
+		Record(key, impl)
 	}
 }
 
