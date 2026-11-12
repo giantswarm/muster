@@ -267,7 +267,9 @@ sign-in) reads the person's state on every server in one call. The answer is the
   `spec.auth.authorizationServer.grantScope` is `subject` for a pinned issuer, or, for a
   discovered issuer, once muster knows the issuer and its pin is subject-scoped; `session` (the
   session that completed it) otherwise, among them a discovered issuer that is not known yet or
-  that an operator's session-scoped pin describes;
+  that an operator's session-scoped pin describes. A `subject` server whose issuer the person
+  already holds a grant for is connected by the read and reported `connected`, whichever server's
+  sign-in or session created the grant, as a listing connects it;
 - `auth_url`, with `auth_urls: true`, for every `grant` server in `auth_required` or
   `reauth_required` that is not suspended: the link `core_auth_login` would issue for it, with the
   same expiry and the same `redirect` parameter on `/oauth/proxy/start`. A server whose grant the
