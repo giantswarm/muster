@@ -1,6 +1,7 @@
 package aggregator
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -247,4 +248,13 @@ func (m *AuthMetrics) GetServerMetrics(serverName string) (AuthServerMetricView,
 		LastSuccessAt:   metrics.LastSuccessAt,
 		LastFailureAt:   metrics.LastFailureAt,
 	}, true
+}
+
+// recordLoginFailure records a failed login unless the caller's context ended
+// first: a cancelled or timed-out call is the caller leaving, not a failure.
+func recordLoginFailure(ctx context.Context, m *AuthMetrics, serverName, sub, reason string) {
+	if m == nil || ctx.Err() != nil {
+		return
+	}
+	m.RecordLoginFailure(serverName, sub, reason)
 }
