@@ -253,8 +253,8 @@ var errNoSessionSubjectResolver = errors.New("muster runs no OAuth server to res
 // refusing the token: the identity provider or the token store did not
 // answer, or no resolver runs. Such an error must not wrap invalid_target,
 // which a relying party reads as "the person has no grant": mcp-oauth answers
-// a token store outage 503 temporarily_unavailable and any other error 400
-// invalid_grant.
+// ErrProviderUnavailable and ErrStorageUnavailable as 503 with Retry-After and
+// any other error as 400 invalid_grant.
 func serverFault(err error) bool {
 	return errors.Is(err, oauthserver.ErrProviderUnavailable) ||
 		errors.Is(err, oauthserver.ErrStorageUnavailable) ||

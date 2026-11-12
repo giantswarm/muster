@@ -201,9 +201,10 @@ func (l *LazyOAuthHTTPServer) WaitReady(ctx context.Context) error {
 	}
 }
 
+// writeOIDCPending answers 503 with Retry-After and a plain-text body. It
+// carries no OAuth error code: RFC 6749 §5.2 and RFC 6750 §3.1 define none for
+// an outage, and mcp-oauth answers its own outages the same way.
 func writeOIDCPending(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Retry-After", "30")
-	w.WriteHeader(http.StatusServiceUnavailable)
-	_, _ = w.Write([]byte(`{"error":"service_unavailable","error_description":"OIDC discovery in progress, please retry"}`))
+	http.Error(w, "OIDC discovery in progress, please retry", http.StatusServiceUnavailable)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -155,4 +156,6 @@ func TestLazyOAuthHTTPServer_RetryAfterHeader(t *testing.T) {
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.NotEmpty(t, rec.Header().Get("Retry-After"))
+	assert.True(t, strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain"))
+	assert.NotContains(t, rec.Body.String(), `"error"`)
 }
