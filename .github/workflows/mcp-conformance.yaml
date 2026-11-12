@@ -1,0 +1,63 @@
+name: mcp-conformance
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The suite publishes no release with the current scenarios; pin a commit
+  # of github.com/modelcontextprotocol/conformance and bump it deliberately.
+  CONFORMANCE_REF: 96a6f9478b7f2e125cf0360a213383cf57533893
+  MUSTER_PORT: "18090"
+
+jobs:
+  server:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the MCP conformance suite
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: modelcontextprotocol/conformance
+          ref: ${{ env.CONFORMANCE_REF }}
+          path: .conformance
+          persist-credentials: false
+      - name: Set up Go environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Build the conformance suite
+        working-directory: .conformance
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+      - name: Start muster
+        run: |
+          go build -o ./muster .
+          config_dir=$(mktemp -d)
+          printf 'aggregator:\n  port: %s\n' "$MUSTER_PORT" > "$config_dir/config.yaml"
+          OTEL_SDK_DISABLED=true ./muster serve --config-path "$config_dir" --silent &
+          timeout 30 bash -c "until curl -s -o /dev/null http://localhost:${MUSTER_PORT}/mcp; do sleep 0.5; done"
+      - name: Run the server conformance scenarios
+        run: |
+          node .conformance/dist/index.js server \
+            --url "http://localhost:${MUSTER_PORT}/mcp" \
+            --expected-failures .github/mcp-conformance-baseline.yml

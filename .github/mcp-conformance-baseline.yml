@@ -1,0 +1,5 @@
+# Known failures of the MCP conformance suite against muster
+# (.github/workflows/mcp-conformance.yaml). The run fails on a new failure and
+# on an entry that now passes, so remove an entry in the change that fixes it.
+# Prefer `<scenario>:<check-id>` over a whole scenario.
+server: []
