@@ -55,7 +55,7 @@ jobs:
           config_dir=$(mktemp -d)
           printf 'aggregator:\n  port: %s\n' "$MUSTER_PORT" > "$config_dir/config.yaml"
           OTEL_SDK_DISABLED=true ./muster serve --config-path "$config_dir" > muster.log 2>&1 &
-          if ! timeout 90 bash -c "until curl -s -o /dev/null http://localhost:${MUSTER_PORT}/mcp; do sleep 0.5; done"; then
+          if ! timeout 90 bash -c "until curl -s -o /dev/null -m 2 -X POST http://localhost:${MUSTER_PORT}/mcp; do sleep 0.5; done"; then
             cat muster.log
             exit 1
           fi
