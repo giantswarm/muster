@@ -55,9 +55,10 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // The MCPServer CRD State only reflects infrastructure state (Running/Connected/Failed/etc.),
 // while this resource shows the per-user state.
 //
-// Note: SSO connections for servers with forwardToken: true are established on demand
-// when the user first accesses tools, not during auth status reads.
-// This ensures auth://status is a pure read operation without side effects.
+// The read starts no SSO connect: a server that forwards or exchanges the
+// person's token connects when its tools are first used. It does connect the
+// session to a subject-scoped server whose grant the person already holds, as
+// a listing does, so that server is reported connected.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	response := a.sessionAuthStatus(ctx)
 	data, err := json.Marshal(response)
