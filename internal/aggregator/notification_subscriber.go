@@ -3,6 +3,10 @@ package aggregator
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
+	"net"
+	"syscall"
 	"time"
 
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
@@ -161,6 +165,16 @@ func (a *AggregatorServer) refreshSharedServer(serverName string, trigger refres
 	}()
 }
 
+// closedConnection reports whether err is a request lost on a connection its
+// peer closed: reset, broken pipe, end of stream, or a closed connection.
+func closedConnection(err error) bool {
+	return errors.Is(err, syscall.ECONNRESET) ||
+		errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, net.ErrClosed)
+}
+
 // relistDeclared lists what client serves: tools always, resources and
 // prompts only when the server declared the capability at its handshake. The
 // protocol reserves resources/list and prompts/list for servers that offer
@@ -175,8 +189,18 @@ func (a *AggregatorServer) refreshSharedServer(serverName string, trigger refres
 // redeploy that adds a capability the old process lacked is seen at the next
 // handshake, which the session recovery performs when the new process
 // refuses the old session.
+//
+// A tools listing lost on a kept-alive connection the backend closed (a
+// redeploy replaced the process) is sent once more: net/http repeats such a
+// request only when it is idempotent, which a JSON-RPC POST is not, while a
+// listing is safe to repeat. The repeat dials a new connection, which meets
+// the new process and recovers the session.
 func relistDeclared(ctx context.Context, client MCPClient, subject string, trigger refreshTrigger) ([]mcp.Tool, []mcp.Resource, []mcp.Prompt, error) {
 	tools, err := client.ListTools(ctx)
+	if err != nil && closedConnection(err) && ctx.Err() == nil {
+		logging.Debug("Aggregator", "Capability refresh (%s): listing tools for %s met a closed connection, listing again: %v", trigger, subject, err)
+		tools, err = client.ListTools(ctx)
+	}
 	if err != nil {
 		return nil, nil, nil, err
 	}
