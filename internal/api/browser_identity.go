@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"sync"
 )
@@ -22,6 +23,11 @@ type BrowserIdentity interface {
 	// its login method when the provider has several.
 	SignInURL(ctx context.Context, returnURL *url.URL, state, codeChallenge string, expected SignInIdentity) (string, error)
 
+	// CheckRefusal returns a *SignInCheckError when no browser can pass the
+	// check for a link issued to expected, nil when one can. A sign-in that
+	// would end in such a check is refused before any link exists.
+	CheckRefusal(expected SignInIdentity) error
+
 	// Identity redeems the code returnURL received and returns who signed in.
 	Identity(ctx context.Context, returnURL *url.URL, code, codeVerifier string) (SignInIdentity, error)
 }
@@ -33,6 +39,32 @@ type BrowserIdentity interface {
 type SignInIdentity struct {
 	Issuer  string
 	Subject string
+}
+
+// SignInCheckError says the sign-in check cannot pass for a session, so
+// muster issues no sign-in link for it. Reason is worded for the person.
+type SignInCheckError struct {
+	Reason string
+}
+
+func (e *SignInCheckError) Error() string {
+	return "the sign-in check cannot pass: " + e.Reason
+}
+
+// IsSignInCheckRefused reports whether err is a *SignInCheckError.
+func IsSignInCheckRefused(err error) bool {
+	var target *SignInCheckError
+	return errors.As(err, &target)
+}
+
+// SignInCheckRefusal returns the registered check's refusal of a sign-in for
+// the request's identity, nil when it can pass or no check is registered.
+func SignInCheckRefusal(ctx context.Context) error {
+	identity := GetBrowserIdentity()
+	if identity == nil {
+		return nil
+	}
+	return identity.CheckRefusal(SignInIdentityFromContext(ctx))
 }
 
 type signInIdentityContextKey struct{}

@@ -129,6 +129,58 @@ func TestOAuthHTTPServer_SignInURLUsesTheExpectedLoginMethod(t *testing.T) {
 	}
 }
 
+// The check signs the browser in at muster's issuer and compares issuer and
+// sub, so a sign-in is refused up front for every session it cannot pass for,
+// and allowed for the configured connector, a listed one, and a subject Dex
+// encoded no connector in.
+func TestOAuthHTTPServer_CheckRefusal(t *testing.T) {
+	cfg := testDexIdentityConfig
+	cfg.Dex.IdentityCheckConnectors = []string{"azure-ad", "simple-oidc"}
+	s := newIdentityTestServer(t, cfg)
+
+	for name, tc := range map[string]struct {
+		expected api.SignInIdentity
+		refused  bool
+	}{
+		"configured connector":                       {expected: api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"}},
+		"listed connector":                           {expected: api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIIYXp1cmUtYWQ"}},
+		"subject exchanged through listed connector": {expected: api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRILc2ltcGxlLW9pZGM"}},
+		"subject without connector":                  {expected: api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZQ"}},
+		"unlisted connector":                         {expected: api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIEbGRhcA"}, refused: true},
+		"subject of another issuer":                  {expected: api.SignInIdentity{Issuer: "https://dex.other.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"}, refused: true},
+		"no expected identity":                       {refused: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := s.CheckRefusal(tc.expected)
+			if !tc.refused {
+				require.NoError(t, err)
+				return
+			}
+			require.True(t, api.IsSignInCheckRefused(err), "got %v", err)
+		})
+	}
+}
+
+// Without dex.connectorId the check shows Dex's connector chooser, so a
+// session of any connector can pass it.
+func TestOAuthHTTPServer_CheckRefusalWithoutConfiguredConnector(t *testing.T) {
+	cfg := testDexIdentityConfig
+	cfg.Dex.ConnectorID = ""
+	s := newIdentityTestServer(t, cfg)
+
+	require.NoError(t, s.CheckRefusal(api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIEbGRhcA"}))
+}
+
+// A muster that started before Dex answered refuses nothing up front: the
+// link's check fails in SignInURL until discovery completed.
+func TestLazyOAuthHTTPServer_CheckRefusal(t *testing.T) {
+	require.NoError(t, (&LazyOAuthHTTPServer{}).CheckRefusal(api.SignInIdentity{}))
+
+	s := newIdentityTestServer(t, testDexIdentityConfig)
+	l := &LazyOAuthHTTPServer{inner: s.OAuthHTTPServer}
+	require.True(t, api.IsSignInCheckRefused(l.CheckRefusal(api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIEbGRhcA"})))
+}
+
 // Without identityCheckConnectors the check keeps the configured connector,
 // so it is never weaker than that connector.
 func TestOAuthHTTPServer_SignInURLKeepsTheConfiguredConnectorByDefault(t *testing.T) {

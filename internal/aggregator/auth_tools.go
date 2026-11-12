@@ -173,9 +173,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 		// Listed (its definition exists) but not registered, not yet or no
 		// longer (a refused sign-in): say why rather than "not found".
 		if reason := definedSignInNotReady(ctx, serverName); reason != nil {
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "signin_not_ready")
-			}
+			recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "signin_not_ready")
 			return &api.CallToolResult{Content: []any{signInNotReadyMessage(serverName, reason)}, IsError: true}
 		}
 	}
@@ -212,18 +210,14 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	suspended, err := serverSuspended(ctx, serverName)
 	if err != nil {
 		logging.Warn("AuthTools", "Cannot tell whether server %s is suspended: %v", serverName, err)
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "suspension_lookup_failed")
-		}
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "suspension_lookup_failed")
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)},
 			IsError: true,
 		}
 	}
 	if suspended {
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "server_suspended")
-		}
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "server_suspended")
 		return &api.CallToolResult{
 			Content: []any{suspendedServerMessage(serverName)},
 			IsError: true,
@@ -251,9 +245,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	// Check if OAuth handler is available
 	oauthHandler := api.GetOAuthHandler()
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "oauth_not_configured")
-		}
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "oauth_not_configured")
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf(
 				"OAuth is not configured. Server '%s' requires authentication but OAuth proxy is not enabled. "+
@@ -281,6 +273,15 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 		}
 	}
 
+	// A sign-in whose link no browser can pass is refused before any is
+	// issued, and nothing is recorded against the session: the same check
+	// refuses whoever else opens a person's link, which must never lock the
+	// person out.
+	if refusal := api.SignInCheckRefusal(ctx); refusal != nil {
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "signin_check_cannot_pass")
+		return signInCheckRefusedResult(serverName, refusal)
+	}
+
 	// From here on the answer needs an OAuth flow: a held grant reused or a
 	// new challenge. That is the attempt the rate limit counts.
 	if limit != nil {
@@ -298,9 +299,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	authInfo, err := p.aggregator.resolveServerAuthInfo(ctx, serverInfo)
 	if err != nil {
 		logging.Warn("AuthTools", "Cannot apply the authorization server pin of %s: %v", serverName, err)
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "authorization_server_pin_failed")
-		}
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "authorization_server_pin_failed")
 		message := fmt.Sprintf("Cannot authenticate to '%s': %v", serverName, err)
 		if api.IsTenantMCPServerKey(serverName) || api.IsSignInRefused(err) {
 			message = signInNotReadyMessage(serverName, err)
@@ -313,9 +312,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 
 	// If still empty, we can't proceed
 	if authInfo.Issuer == "" {
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "issuer_discovery_failed")
-		}
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "issuer_discovery_failed")
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf(
 				"Cannot authenticate to '%s': RFC 9728 protected resource metadata not found. "+
@@ -341,9 +338,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	// registration or grant of another namespace is found.
 	issuerKey := api.ServerIssuerKey(serverName, authInfo.Issuer)
 	if issuerKey == "" {
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "issuer_discovery_failed")
-		}
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "issuer_discovery_failed")
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Cannot authenticate to '%s': it names the issuer %q, which muster does not accept (it reads as the issuer key of a server in another namespace).", serverName, authInfo.Issuer)},
 			IsError: true,
@@ -352,9 +347,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	// A tenant server's record names the key before a flow or a token is
 	// stored under it, so the key goes with the server.
 	if err := p.aggregator.recordTenantIssuer(ctx, serverInfo, issuerKey); err != nil {
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "signin_not_ready")
-		}
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "signin_not_ready")
 		return &api.CallToolResult{Content: []any{signInNotReadyMessage(serverName, err)}, IsError: true}
 	}
 	token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, issuerKey)
@@ -390,9 +383,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 		} else {
 			// Some other error - report it
 			logging.Error("AuthTools", connectErr, "Failed to connect to server %s with existing token", serverName)
-			if p.aggregator.authMetrics != nil {
-				p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "connection_failed")
-			}
+			recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "connection_failed")
 			return &api.CallToolResult{
 				Content: []any{fmt.Sprintf(
 					"Failed to connect to '%s': %v\n\nPlease try again or check the server status.",
@@ -424,9 +415,7 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	})
 	if err != nil {
 		logging.Error("AuthTools", err, "Failed to create auth challenge for server %s", serverName)
-		if p.aggregator.authMetrics != nil {
-			p.aggregator.authMetrics.RecordLoginFailure(serverName, sub, "challenge_creation_failed")
-		}
+		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "challenge_creation_failed")
 		return &api.CallToolResult{
 			Content: []any{fmt.Sprintf("Failed to create authentication challenge: %v", err)},
 			IsError: true,

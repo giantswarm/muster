@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -93,4 +94,19 @@ func tenantSecretReadError(serverName, namespace, secret string, err error) erro
 // caller's own identity (token forwarding or exchange).
 func signsIn(auth *api.MCPServerAuth) bool {
 	return auth != nil && (auth.Type == "oauth" || auth.UsesSessionAuth())
+}
+
+// signInCheckRefusedResult is core_auth_login's answer when muster's sign-in
+// check cannot pass for the session (api.SignInCheckError): a tool error with
+// no sign-in link, so no client is asked to open one.
+func signInCheckRefusedResult(name string, refusal error) *api.CallToolResult {
+	reason := refusal.Error()
+	var checkErr *api.SignInCheckError
+	if errors.As(refusal, &checkErr) {
+		reason = checkErr.Reason
+	}
+	return &api.CallToolResult{
+		Content: []any{fmt.Sprintf("Cannot sign in to '%s': %s.", name, reason)},
+		IsError: true,
+	}
 }

@@ -38,6 +38,8 @@ func (f *fakeBrowserIdentity) SignInURL(_ context.Context, _ *url.URL, state, co
 	return "https://dex.example.com/auth?state=" + url.QueryEscape(state), nil
 }
 
+func (f *fakeBrowserIdentity) CheckRefusal(api.SignInIdentity) error { return nil }
+
 func (f *fakeBrowserIdentity) Identity(_ context.Context, _ *url.URL, code, codeVerifier string) (api.SignInIdentity, error) {
 	sum := sha256.Sum256([]byte(codeVerifier))
 	if code == "" || base64.RawURLEncoding.EncodeToString(sum[:]) != f.challenge {

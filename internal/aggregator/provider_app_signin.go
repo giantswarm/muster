@@ -79,6 +79,10 @@ func (p *AuthToolProvider) grantProviderApp(ctx context.Context, sessionID, sub,
 	if app.Flow == configPkg.ProviderAppFlowChatGPTDeviceCode {
 		return p.grantDeviceCodeApp(ctx, sessionID, sub, app, limit)
 	}
+	if refusal := api.SignInCheckRefusal(ctx); refusal != nil {
+		recordLoginFailure(ctx, a.authMetrics, flow, sub, "signin_check_cannot_pass")
+		return signInCheckRefusedResult(name, refusal)
+	}
 	if limit != nil {
 		if refused := limit(sub, flow); refused != nil {
 			return refused
@@ -87,9 +91,7 @@ func (p *AuthToolProvider) grantProviderApp(ctx context.Context, sessionID, sub,
 	// Re-pinned before every sign-in: a rotated client Secret is picked up
 	// without a restart.
 	if err := a.providerApps.pin(ctx, name); err != nil {
-		if a.authMetrics != nil {
-			a.authMetrics.RecordLoginFailure(flow, sub, "authorization_server_pin_failed")
-		}
+		recordLoginFailure(ctx, a.authMetrics, flow, sub, "authorization_server_pin_failed")
 		return &api.CallToolResult{Content: []any{fmt.Sprintf("Cannot grant provider App '%s': %v", name, err)}, IsError: true}
 	}
 	challenge, err := oauthHandler.CreateAuthChallenge(ctx, api.AuthChallengeParams{
@@ -100,9 +102,7 @@ func (p *AuthToolProvider) grantProviderApp(ctx context.Context, sessionID, sub,
 		Scope:      app.Scopes,
 	})
 	if err != nil {
-		if a.authMetrics != nil {
-			a.authMetrics.RecordLoginFailure(flow, sub, "challenge_creation_failed")
-		}
+		recordLoginFailure(ctx, a.authMetrics, flow, sub, "challenge_creation_failed")
 		return &api.CallToolResult{Content: []any{fmt.Sprintf("Failed to create the sign-in for provider App '%s': %v", name, err)}, IsError: true}
 	}
 	result := authChallengeResult(name, challenge)
