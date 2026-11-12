@@ -1593,6 +1593,8 @@ func (m *musterInstanceManager) stopMockHTTPServers(ctx context.Context, instanc
 // configureOAuthForInstance configures OAuth proxy and server settings for a test instance.
 // This is extracted from generateConfigFilesWithMocks for readability.
 // Uses the consolidated OAuth config structure: oauth.mcpClient + oauth.server
+// A muster_broker or provider_apps section it cannot render fails the
+// scenario's setup instead of starting muster without it.
 func (m *musterInstanceManager) configureOAuthForInstance(
 	aggregatorConfig map[string]interface{},
 	config *MusterPreConfiguration,
@@ -1600,7 +1602,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	instanceID string,
 	musterConfigPath string,
 	logger TestLogger,
-) {
+) error {
 	// Build OAuth MCP client/proxy config - this allows muster to handle OAuth flows for protected MCP servers
 	oauthMCPClientConfig := map[string]interface{}{
 		keyEnabled:     true,
@@ -1646,9 +1648,10 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	if config.MusterBroker != nil {
 		serverConfig, ok := oauthConfig["server"].(map[string]interface{})
 		if !ok {
-			logger.Debug("⚠️  muster_broker set but no mock OAuth server uses use_as_muster_oauth_server; broker not configured\n")
-		} else if err := m.applyBrokerConfig(serverConfig, config, port, instanceID, musterConfigPath, logger); err != nil {
-			logger.Debug("⚠️  Failed to configure muster broker: %v\n", err)
+			return fmt.Errorf("muster_broker needs a mock OAuth server with use_as_muster_oauth_server")
+		}
+		if err := m.applyBrokerConfig(serverConfig, config, port, instanceID, musterConfigPath, logger); err != nil {
+			return fmt.Errorf("configure muster_broker: %w", err)
 		}
 	}
 
@@ -1657,11 +1660,11 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	if len(config.ProviderApps) > 0 {
 		apps, err := m.providerAppsConfig(instanceID, config)
 		if err != nil {
-			logger.Debug("⚠️  Failed to configure provider Apps: %v\n", err)
-		} else {
-			aggregatorConfig["providerApps"] = apps
+			return fmt.Errorf("configure provider_apps: %w", err)
 		}
+		aggregatorConfig["providerApps"] = apps
 	}
+	return nil
 }
 
 // collectAndWriteCACertificates collects CA certificates from all TLS-enabled OAuth servers
@@ -1805,7 +1808,9 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 
 	// Configure OAuth if mock OAuth servers are defined
 	if config != nil && len(config.MockOAuthServers) > 0 {
-		m.configureOAuthForInstance(aggregatorConfig, config, port, instanceID, musterConfigPath, logger)
+		if err := m.configureOAuthForInstance(aggregatorConfig, config, port, instanceID, musterConfigPath, logger); err != nil {
+			return err
+		}
 	}
 
 	// Point every backed store at the instance's Valkey stand-in when the
