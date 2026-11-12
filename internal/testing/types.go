@@ -182,6 +182,11 @@ type MusterPreConfiguration struct {
 	// subject/actor tokens the exchange validates.
 	MusterBroker *MusterBrokerConfig `yaml:"muster_broker,omitempty"`
 
+	// ProviderApps configures aggregator.providerApps, each App backed by a
+	// mock OAuth server: its issuer, /authorize and /token endpoints and
+	// client_id. A person grants an App with core_auth_login app=<name>.
+	ProviderApps []ProviderAppTestConfig `yaml:"provider_apps,omitempty"`
+
 	// Storage selects the store backend the instance runs on. Absent means
 	// memory: every store dies with the process. See StorageConfig.
 	Storage *StorageConfig `yaml:"storage,omitempty"`
@@ -268,6 +273,19 @@ type BrokerClientTestConfig struct {
 // target releases grants from.
 type BrokerGrantTargetConfig struct {
 	OAuthServerRef string `yaml:"oauth_server_ref"`
+
+	// SubjectIssuerRefs name the mock OAuth servers whose subject tokens
+	// may release the grant (tokenExchangeBroker.targets.<audience>.
+	// subjectIssuers). Empty keeps muster's default: its own issuer.
+	SubjectIssuerRefs []string `yaml:"subject_issuer_refs,omitempty"`
+}
+
+// ProviderAppTestConfig is one provider App of a test instance, backed by a
+// mock OAuth server.
+type ProviderAppTestConfig struct {
+	Name           string `yaml:"name"`
+	OAuthServerRef string `yaml:"oauth_server_ref"`
+	Scopes         string `yaml:"scopes,omitempty"`
 }
 
 // BrokerTrustedIssuerConfig references a mock OAuth server as a trusted issuer for

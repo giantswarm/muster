@@ -32,6 +32,7 @@ import (
 
 const (
 	keyEnabled = "enabled"
+	keyIssuer  = "issuer"
 	// Keys of the CR-shaped definitions the harness renders.
 	keyAPIVersion = "apiVersion"
 	keyMetadata   = "metadata"
@@ -1652,6 +1653,15 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	}
 
 	aggregatorConfig["oauth"] = oauthConfig
+
+	if len(config.ProviderApps) > 0 {
+		apps, err := m.providerAppsConfig(instanceID, config)
+		if err != nil {
+			logger.Debug("⚠️  Failed to configure provider Apps: %v\n", err)
+		} else {
+			aggregatorConfig["providerApps"] = apps
+		}
+	}
 }
 
 // collectAndWriteCACertificates collects CA certificates from all TLS-enabled OAuth servers
@@ -1756,7 +1766,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		"dex":      dexConfig,
 		"storage":  map[string]interface{}{"type": "memory"},
 		"trustedIssuers": []map[string]interface{}{{
-			"issuer": issuerURL, "jwksUrl": issuerURL + "/jwks", "allowPrivateIPJWKS": true,
+			keyIssuer: issuerURL, "jwksUrl": issuerURL + "/jwks", "allowPrivateIPJWKS": true,
 		}},
 		"allowLocalhostRedirectURIs":    true,
 		"allowPublicClientRegistration": true, // Allow dynamic client registration for testing
@@ -1964,7 +1974,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							// The pin opts out of RFC 9728 discovery, so the scope the
 							// backend requires has to travel with it.
 							authorizationServer := map[string]interface{}{
-								"issuer": oauthServer.GetIssuerURL() + pin.IdentityPath,
+								keyIssuer: oauthServer.GetIssuerURL() + pin.IdentityPath,
 							}
 							if pin.ExpectedIssuerRef != "" {
 								if !expectedIssuerFound {
@@ -1991,7 +2001,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							authConfig["authorizationServer"] = authorizationServer
 							if m.debug {
 								logger.Debug("🔐 Pinning authorization server %s (grantScope=%q, endpoints from %q, expectedIssuer=%v) for MCPServer %s\n",
-									authorizationServer["issuer"], grantScope, endpointsRef, authorizationServer["expectedIssuer"], mcpServer.Name)
+									authorizationServer[keyIssuer], grantScope, endpointsRef, authorizationServer["expectedIssuer"], mcpServer.Name)
 							}
 						}
 

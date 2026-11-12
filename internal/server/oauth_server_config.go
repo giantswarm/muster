@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -174,11 +175,11 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 		// loads silently, so check the shape here instead of failing on
 		// the first exchange request.
 		for audience, target := range cfg.TokenExchangeBroker.Targets {
-			if err := validateBrokerTarget(audience, target); err != nil {
+			if err := validateBrokerTarget(audience, target, cfg.TrustedIssuers); err != nil {
 				return nil, err
 			}
 		}
-		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker)))
+		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker, musterIssuerOf(cfg))))
 		brokerLogger := logger
 		if brokerLogger == nil {
 			brokerLogger = slog.Default()
@@ -201,8 +202,21 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 
 // validateBrokerTarget checks one broker target: a Dex exchange target needs
 // its dexTokenEndpoint, a grant target its HTTPS grantIssuer and none of the
-// exchange fields, and a target cannot be both.
-func validateBrokerTarget(audience string, target config.BrokerTargetConfig) error {
+// exchange fields, a target cannot be both, and only a grant target names
+// subjectIssuers, each of them a trusted issuer.
+func validateBrokerTarget(audience string, target config.BrokerTargetConfig, trusted []config.TrustedIssuerConfig) error {
+	if len(target.SubjectIssuers) > 0 {
+		if !target.IsGrantTarget() {
+			return fmt.Errorf("tokenExchangeBroker target %q: subjectIssuers applies to grant targets (grantIssuer) only", audience)
+		}
+		for _, issuer := range target.SubjectIssuers {
+			if !slices.ContainsFunc(trusted, func(t config.TrustedIssuerConfig) bool {
+				return strings.TrimSuffix(t.Issuer, "/") == strings.TrimSuffix(issuer, "/")
+			}) {
+				return fmt.Errorf("tokenExchangeBroker target %q: subjectIssuers entry %q is not a trustedIssuers issuer, so no subject token of it is ever validated", audience, issuer)
+			}
+		}
+	}
 	switch {
 	case target.GrantIssuer != "" && target.DexTokenEndpoint != "":
 		return fmt.Errorf("tokenExchangeBroker target %q sets both grantIssuer and dexTokenEndpoint; a target either releases the person's grant or exchanges at a downstream Dex", audience)

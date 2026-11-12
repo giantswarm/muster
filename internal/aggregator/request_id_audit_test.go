@@ -125,7 +125,7 @@ func TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID(t *testin
 	previous := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(previous) })
-	t.Cleanup(func() { api.RegisterBrowserIdentity(nil) })
+	t.Cleanup(func() { api.RegisterBrowserIdentity(nil); api.RegisterSessionSubjectResolver(nil) })
 
 	a := &AggregatorServer{
 		ctx: t.Context(),

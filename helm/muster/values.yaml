@@ -901,13 +901,15 @@ muster:
       #
       # Target: release the person's own grant (no downstream exchange)
       #   A grant target names the issuer an MCPServer pins with
-      #   spec.auth.authorizationServer and grantScope: subject (GitHub, say).
-      #   The exchange answers the access token of the person's own grant
-      #   from that issuer -- the person being the subject token's `sub` --
-      #   refreshed first when it is due, with expires_in its remaining
+      #   spec.auth.authorizationServer and grantScope: subject, or a
+      #   provider App's issuer (GitHub, say). The exchange answers the
+      #   access token of the person's own grant from that issuer -- filed
+      #   under the subject an MCP request with the subject token is served
+      #   as -- refreshed first when it is due, with expires_in its remaining
       #   lifetime and never the refresh token; a person without a grant gets
-      #   invalid_target. Mutually exclusive with dexTokenEndpoint; takes none
-      #   of the exchange fields.
+      #   invalid_target. Only subject tokens of muster's own issuer release
+      #   it unless subjectIssuers lists other trustedIssuers. Mutually
+      #   exclusive with dexTokenEndpoint; takes none of the exchange fields.
       #   clientAudiences:
       #     portal-backend: ["cluster-a", "github"]
       #   targets:

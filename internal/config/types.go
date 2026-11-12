@@ -689,6 +689,13 @@ type BrokerTargetConfig struct {
 	// Example: https://github.com/login/oauth
 	GrantIssuer string `yaml:"grantIssuer,omitempty"`
 
+	// SubjectIssuers lists the issuers whose subject tokens may release a
+	// grant target's grant: the verified iss of the exchange request's
+	// subject token must be one of them. Empty means muster's own issuer
+	// only (dex.issuerUrl, or baseUrl for another provider). Each entry must
+	// be a trustedIssuers issuer. Grant targets only.
+	SubjectIssuers []string `yaml:"subjectIssuers,omitempty"`
+
 	// ExpectedIssuer is the expected iss claim of the exchanged token. If
 	// empty, it is derived from DexTokenEndpoint (strip /token suffix).
 	ExpectedIssuer string `yaml:"expectedIssuer,omitempty"`

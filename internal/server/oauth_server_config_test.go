@@ -275,10 +275,14 @@ func TestValidateBrokerTarget(t *testing.T) {
 		{"plain http grant issuer", config.BrokerTargetConfig{GrantIssuer: "http://github.example.com"}, "HTTPS"},
 		{"grant target with exchange settings", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", ConnectorID: "main"}, "takes no exchange settings"},
 		{"grant target with credentials", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", ClientCredentialsSecretRef: &config.BrokerSecretRefConfig{Name: "x"}}, "takes no exchange settings"},
+		{"grant target with a trusted subject issuer", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", SubjectIssuers: []string{"https://dex.example.com/"}}, ""},
+		{"grant target with an untrusted subject issuer", config.BrokerTargetConfig{GrantIssuer: "https://github.com/login/oauth", SubjectIssuers: []string{"https://dex.other.example.com"}}, "not a trustedIssuers issuer"},
+		{"dex exchange target with subject issuers", config.BrokerTargetConfig{DexTokenEndpoint: "https://dex.example.com/token", SubjectIssuers: []string{"https://dex.example.com"}}, "grant targets"},
 	}
+	trusted := []config.TrustedIssuerConfig{{Issuer: "https://dex.example.com"}}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateBrokerTarget("github", tc.target)
+			err := validateBrokerTarget("github", tc.target, trusted)
 			if tc.wantErr == "" {
 				require.NoError(t, err)
 				return
