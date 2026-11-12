@@ -1,0 +1,119 @@
+name: "oauth-auth-status-reports-shared-issuer-grant"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Two servers pinned to one App issuer with grantScope: subject share the
+  person's grant. Once the person signed in to one of them, auth://status
+  and core_auth_status report the other connected too, without a
+  core_auth_login or a tool call for it.
+
+  1. Both servers wait for the person's grant.
+  2. The person signs in to workspace-manager.
+  3. The status reports both connected, and toolchain-manager's tool runs.
+tags: ["oauth", "authentication", "github", "subject-grant", "mcpserver"]
+timeout: "3m"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "github-app"
+      profile: "github"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+
+  mcp_servers:
+    - name: "workspace-manager"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-app"
+          scope: "repo"
+          grant_scope: "subject"
+        tools:
+          - name: "whoami"
+            description: "Who the server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "workspace-manager"
+
+    - name: "toolchain-manager"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-app"
+          scope: "repo"
+          grant_scope: "subject"
+        tools:
+          - name: "whoami"
+            description: "Who the server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "toolchain-manager"
+
+steps:
+  - id: verify-servers-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["workspace-manager", "toolchain-manager"]
+
+  - id: person-logs-into-muster
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: both-wait-for-the-grant
+    tool: "core_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - '"name":"toolchain-manager","status":"auth_required"'
+        - '"name":"workspace-manager","status":"auth_required"'
+
+  - id: person-signs-in-to-workspace-manager
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "workspace-manager"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: both-connected
+    description: "The grant filed by workspace-manager's sign-in connects toolchain-manager on the read"
+    tool: "core_auth_status"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - '"name":"toolchain-manager","status":"connected"'
+        - '"name":"workspace-manager","status":"connected"'
+      not_contains:
+        - "auth_required"
+
+  - id: toolchain-manager-tool-runs
+    tool: "x_toolchain-manager_whoami"
+    args: {}
+    expected:
+      success: true
+      contains: ["toolchain-manager"]

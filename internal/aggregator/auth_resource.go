@@ -106,6 +106,10 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 	suspended := suspendedServers(ctx, servers)
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
+		// A grant the person completed after the session's start, through
+		// another server of the same issuer or another session, connects the
+		// session as a listing would, so the status reports it connected.
+		a.adoptSubjectGrants(ctx, sessionID, sub)
 	}
 	response := pkgoauth.AuthStatusResponse{
 		Servers:      make([]pkgoauth.ServerAuthStatus, 0, len(servers)),
