@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -200,6 +201,11 @@ type OAuthServer struct {
 	// State tracking
 	authCodes    map[string]*authCodeEntry // code -> entry
 	issuedTokens map[string]*issuedToken   // access_token -> token info
+
+	// issuedMu guards issuedCredentials, every credential value the server
+	// ever handed out, kept after it is redeemed, rotated or revoked.
+	issuedMu          sync.Mutex
+	issuedCredentials []string
 
 	// DCR state (populated when config.SupportsDCR is true)
 	registeredClients map[string]*registeredClient // client_id -> registration
@@ -593,6 +599,7 @@ func (s *OAuthServer) GenerateAuthCodeWithSubject(clientID, redirectURI, scope, 
 	defer s.mu.Unlock()
 
 	code := generateOpaqueToken()
+	s.recordIssued(code)
 
 	s.authCodes[code] = &authCodeEntry{
 		ClientID:        clientID,
@@ -653,6 +660,7 @@ func (s *OAuthServer) SimulateCallback(code string) (*TokenResponse, error) {
 
 	s.mu.Lock()
 	s.issuedTokens[accessToken] = token
+	s.recordIssued(accessToken, refreshToken, idToken)
 	// Also store the ID token for SSO token forwarding validation.
 	// When muster forwards the ID token to downstream MCP servers, those servers
 	// need to be able to validate it against this OAuth server.
@@ -716,6 +724,7 @@ func (s *OAuthServer) GenerateTestToken(clientID, scope string) *TokenResponse {
 	}
 
 	s.issuedTokens[accessToken] = token
+	s.recordIssued(accessToken, refreshToken, idToken)
 	// Also store the ID token for SSO token forwarding validation.
 	if idToken != "" {
 		s.issuedTokens[idToken] = token
@@ -841,6 +850,7 @@ func (s *OAuthServer) handleRegister(w http.ResponseWriter, r *http.Request) {
 	s.registeredClients[client.ClientID] = client
 	s.registrationCount++
 	s.mu.Unlock()
+	s.recordIssued(client.RegistrationAccessToken)
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔐 DCR registration: client_id=%s application_type=%s\n",
@@ -1209,6 +1219,7 @@ func (s *OAuthServer) handleAuthCodeExchange(w http.ResponseWriter, r *http.Requ
 
 	s.mu.Lock()
 	s.issuedTokens[accessToken] = token
+	s.recordIssued(accessToken, refreshToken, idToken)
 	// Also store the ID token for SSO token forwarding validation.
 	// When muster forwards the ID token to downstream MCP servers, those servers
 	// need to be able to validate it against this OAuth server.
@@ -1291,6 +1302,7 @@ func (s *OAuthServer) handleRefreshToken(w http.ResponseWriter, r *http.Request)
 	// Add new token
 	s.issuedTokens[newAccessToken] = newToken
 	s.mu.Unlock()
+	s.recordIssued(newAccessToken, newRefreshToken, newIDToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(TokenResponse{ //nolint:gosec
@@ -1407,6 +1419,7 @@ func (s *OAuthServer) handleTokenExchange(w http.ResponseWriter, r *http.Request
 	s.mu.Lock()
 	s.issuedTokens[accessToken] = token
 	s.mu.Unlock()
+	s.recordIssued(accessToken, idToken)
 
 	if s.config.Debug {
 		fmt.Fprintf(os.Stderr, "🔐 Token exchange successful: issued token for user %s\n", userID)
@@ -1797,4 +1810,25 @@ func ExtractBearerToken(authHeader string) string {
 		return ""
 	}
 	return strings.TrimPrefix(authHeader, "Bearer ")
+}
+
+// recordIssued notes credential values the server handed out; empty values
+// are skipped.
+func (s *OAuthServer) recordIssued(values ...string) {
+	s.issuedMu.Lock()
+	defer s.issuedMu.Unlock()
+	for _, v := range values {
+		if v != "" {
+			s.issuedCredentials = append(s.issuedCredentials, v)
+		}
+	}
+}
+
+// IssuedCredentials returns every credential value the server handed out:
+// authorization codes, access, refresh and ID tokens, and DCR registration
+// access tokens, including those since redeemed, rotated or revoked.
+func (s *OAuthServer) IssuedCredentials() []string {
+	s.issuedMu.Lock()
+	defer s.issuedMu.Unlock()
+	return slices.Clone(s.issuedCredentials)
 }

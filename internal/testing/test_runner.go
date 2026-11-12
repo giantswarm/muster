@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv" // Added for strconv.Atoi
 	"strings"
@@ -551,7 +552,7 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 	// keeps its place at the front of the error.
 	if scenario.InstanceLogs != nil {
 		r.awaitInstanceLogs(scenarioCtx, scenario.InstanceLogs, instance, &result)
-		if err := validateInstanceLogs(scenario.InstanceLogs, result.InstanceLogs); err != nil {
+		if err := validateInstanceLogs(scenario.InstanceLogs, result.InstanceLogs, r.issuedCredentials(scenario.InstanceLogs, instance)); err != nil {
 			if result.Result == ResultPassed {
 				result.Result = ResultFailed
 				result.Error = err.Error()
@@ -633,11 +634,14 @@ func instanceLogsPending(expected *InstanceLogExpectation, logs *InstanceLogs) b
 // validateInstanceLogs evaluates a scenario's instance_logs expectations against
 // the captured serve output.
 //
-// A not_contains hit is reported by line number and the text of that line up to
-// the match -- never the match itself or what follows it. The typical use is
+// A not_contains or not_matches hit is reported by line number and the text of
+// that line up to the match -- never the match itself or what follows it. The typical use is
 // asserting that a credential never reached the logs, and a failure report that
 // echoed the credential into the CI output would defeat the point.
-func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs) error {
+//
+// issued are the credentials not_contains_issued_credentials checks for; a hit
+// is reported by line number and the text before it, never by the value.
+func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs, issued []string) error {
 	if expected == nil {
 		return nil
 	}
@@ -658,13 +662,47 @@ func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs) 
 		if idx < 0 {
 			continue
 		}
-		line := 1 + strings.Count(out[:idx], "\n")
-		lineStart := strings.LastIndex(out[:idx], "\n") + 1
-		prefix := out[lineStart:idx]
-		if len(prefix) > instanceLogMatchContextLimit {
-			prefix = prefix[:instanceLogMatchContextLimit] + "..."
-		}
+		line, prefix := matchContext(out, idx)
 		problems = append(problems, fmt.Sprintf("instance logs contain forbidden %q on %d line(s), first at line %d (line starts: %q)", forbidden, linesContaining(lines, forbidden), line, prefix))
+	}
+	for _, pattern := range expected.NotMatches {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			problems = append(problems, fmt.Sprintf("instance_logs.not_matches %q: %v", pattern, err))
+			continue
+		}
+		loc := re.FindStringIndex(out)
+		if loc == nil {
+			continue
+		}
+		line, prefix := matchContext(out, loc[0])
+		problems = append(problems, fmt.Sprintf("instance logs match forbidden %q on %d line(s), first at line %d (line starts: %q)", pattern, linesMatching(lines, re), line, prefix))
+	}
+	if expected.NotContainsIssuedCredentials {
+		if len(issued) == 0 {
+			problems = append(problems, "not_contains_issued_credentials is set but the scenario issued no credential to check for")
+		}
+		hitLines := map[int]bool{}
+		firstIdx := -1
+		for _, credential := range issued {
+			for offset := 0; ; {
+				idx := strings.Index(out[offset:], credential)
+				if idx < 0 {
+					break
+				}
+				idx += offset
+				line, _ := matchContext(out, idx)
+				hitLines[line] = true
+				if firstIdx < 0 || idx < firstIdx {
+					firstIdx = idx
+				}
+				offset = idx + len(credential)
+			}
+		}
+		if firstIdx >= 0 {
+			line, prefix := matchContext(out, firstIdx)
+			problems = append(problems, fmt.Sprintf("instance logs contain an issued credential on %d line(s), first at line %d (line starts: %q)", len(hitLines), line, prefix))
+		}
 	}
 	// Sorted so a report with several misses reads the same on every run.
 	for _, want := range slices.Sorted(maps.Keys(expected.Occurrences)) {
@@ -682,6 +720,29 @@ func validateInstanceLogs(expected *InstanceLogExpectation, logs *InstanceLogs) 
 // evaluated against.
 func (l *InstanceLogs) output() string {
 	return l.Stdout + "\n" + l.Stderr
+}
+
+// matchContext returns the line number of the match at idx and the text of
+// that line up to the match, cut to instanceLogMatchContextLimit.
+func matchContext(out string, idx int) (int, string) {
+	line := 1 + strings.Count(out[:idx], "\n")
+	lineStart := strings.LastIndex(out[:idx], "\n") + 1
+	prefix := out[lineStart:idx]
+	if len(prefix) > instanceLogMatchContextLimit {
+		prefix = prefix[:instanceLogMatchContextLimit] + "..."
+	}
+	return line, prefix
+}
+
+// linesMatching counts the lines re matches.
+func linesMatching(lines []string, re *regexp.Regexp) int {
+	n := 0
+	for _, l := range lines {
+		if re.MatchString(l) {
+			n++
+		}
+	}
+	return n
 }
 
 // linesContaining counts the lines that contain substring.
@@ -1396,4 +1457,21 @@ func (r *testRunner) compareValuesEnhanced(actual, expected interface{}) bool {
 	actualStr := fmt.Sprintf("%v", actual)
 	expectedStr := fmt.Sprintf("%v", expected)
 	return actualStr == expectedStr
+}
+
+// issuedCredentials returns the credentials the instance's mock OAuth servers
+// handed out and the harness's own bearer, when the expectation checks for
+// them.
+func (r *testRunner) issuedCredentials(expected *InstanceLogExpectation, instance *MusterInstance) []string {
+	if expected == nil || !expected.NotContainsIssuedCredentials || instance == nil {
+		return nil
+	}
+	var issued []string
+	if manager, ok := r.instanceManager.(*musterInstanceManager); ok {
+		issued = manager.issuedCredentials(instance.ID)
+	}
+	if instance.MusterOAuthAccessToken != "" {
+		issued = append(issued, instance.MusterOAuthAccessToken)
+	}
+	return issued
 }
