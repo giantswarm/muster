@@ -2,4 +2,29 @@
 # (.github/workflows/mcp-conformance.yaml). The run fails on a new failure and
 # on an entry that now passes, so remove an entry in the change that fixes it.
 # Prefer `<scenario>:<check-id>` over a whole scenario.
-server: []
+server:
+  # Findings in muster.
+  - server-session-lifecycle
+  - logging-set-level
+  # These call fixture tools, resources and prompts that only the suite's
+  # reference server defines (test_simple_text, ...); muster serves none of them.
+  - completion-complete
+  - tools-call-simple-text
+  - tools-call-image
+  - tools-call-audio
+  - tools-call-embedded-resource
+  - tools-call-mixed-content
+  - tools-call-with-logging
+  - tools-call-error
+  - tools-call-with-progress
+  - tools-call-sampling
+  - tools-call-elicitation
+  - elicitation-sep1034-defaults
+  - elicitation-sep1330-enums
+  - resources-read-text
+  - resources-read-binary
+  - resources-templates-read
+  - prompts-get-simple
+  - prompts-get-with-args
+  - prompts-get-embedded-resource
+  - prompts-get-with-image
