@@ -78,7 +78,12 @@ func (s *OAuthServer) MintSignedJWT(claims map[string]any, typHeader string) (st
 	if err != nil {
 		return "", fmt.Errorf("signing JWT: %w", err)
 	}
-	return signed.CompactSerialize()
+	compact, err := signed.CompactSerialize()
+	if err != nil {
+		return "", err
+	}
+	s.recordIssued(compact)
+	return compact, nil
 }
 
 // encodeIDToken serializes ID token claims as a compact JWT. When signing is

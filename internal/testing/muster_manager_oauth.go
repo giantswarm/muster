@@ -711,3 +711,15 @@ func (m *musterInstanceManager) GetMockOAuthServer(instanceID, serverName string
 	}
 	return nil
 }
+
+// issuedCredentials returns every credential the instance's mock OAuth
+// servers handed out.
+func (m *musterInstanceManager) issuedCredentials(instanceID string) []string {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var issued []string
+	for _, server := range m.mockOAuthServers[instanceID] {
+		issued = append(issued, server.IssuedCredentials()...)
+	}
+	return issued
+}
