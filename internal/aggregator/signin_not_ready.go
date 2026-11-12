@@ -100,13 +100,19 @@ func signsIn(auth *api.MCPServerAuth) bool {
 // check cannot pass for the session (api.SignInCheckError): a tool error with
 // no sign-in link, so no client is asked to open one.
 func signInCheckRefusedResult(name string, refusal error) *api.CallToolResult {
+	return &api.CallToolResult{
+		Content: []any{signInCheckRefusedMessage(name, refusal)},
+		IsError: true,
+	}
+}
+
+// signInCheckRefusedMessage words the refusal for the person: the
+// api.SignInCheckError's reason, never the connector muster logged.
+func signInCheckRefusedMessage(name string, refusal error) string {
 	reason := refusal.Error()
 	var checkErr *api.SignInCheckError
 	if errors.As(refusal, &checkErr) {
 		reason = checkErr.Reason
 	}
-	return &api.CallToolResult{
-		Content: []any{fmt.Sprintf("Cannot sign in to '%s': %s.", name, reason)},
-		IsError: true,
-	}
+	return fmt.Sprintf("Cannot sign in to '%s': %s.", name, reason)
 }

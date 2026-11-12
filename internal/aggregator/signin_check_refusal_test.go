@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 )
 
 // stubBrowserIdentity refuses every sign-in check with refusal, or none when
@@ -124,4 +125,46 @@ func TestGrantProviderApp_RefusesASignInTheCheckCannotPass(t *testing.T) {
 	result, err = p.handleAuthLogin(ctx, map[string]any{"app": "gitlab"})
 	require.NoError(t, err)
 	require.True(t, loginConnected(result), "%v", result.Content)
+}
+
+// A plain auth://status read says the same: a grant server whose sign-in the
+// check cannot pass advertises no auth_tool and carries the refusal in error,
+// and core_auth_status with auth_urls issues it no link.
+func TestSessionAuthStatus_ReportsASignInTheCheckCannotPass(t *testing.T) {
+	a, oauthHandler := newSignInCheckTestServer(t)
+	identity := &stubBrowserIdentity{refusal: &api.SignInCheckError{Reason: "your login method cannot be checked here"}}
+	registerStubBrowserIdentity(t, identity)
+
+	status := a.sessionAuthStatus(testSessionCtx())
+	require.Len(t, status.Servers, 1)
+	require.Equal(t, pkgoauth.SessionServerStatusAuthRequired, status.Servers[0].Status)
+	require.Empty(t, status.Servers[0].AuthTool)
+	require.Equal(t, "Cannot sign in to 'miro': your login method cannot be checked here.", status.Servers[0].Error)
+
+	result, err := NewAuthToolProvider(a).handleAuthStatus(testSessionCtx(), map[string]any{authURLsArg: true})
+	require.NoError(t, err)
+	listed, ok := result.StructuredContent.(pkgoauth.AuthStatusResponse)
+	require.True(t, ok)
+	require.Empty(t, listed.Servers[0].AuthURL)
+	require.Zero(t, oauthHandler.challenges)
+
+	identity.refusal = nil
+	status = a.sessionAuthStatus(testSessionCtx())
+	require.Equal(t, "core_auth_login", status.Servers[0].AuthTool)
+	require.Empty(t, status.Servers[0].Error)
+}
+
+// A provider App's status read reports the refusal the same way.
+func TestProviderAppStatuses_ReportASignInTheCheckCannotPass(t *testing.T) {
+	f := newAppFixture(t)
+	registerStubBrowserIdentity(t, &stubBrowserIdentity{refusal: &api.SignInCheckError{Reason: "your login method cannot be checked here"}})
+	ctx := api.WithSubject(api.WithSessionID(context.Background(), appSession), appSubject)
+
+	for _, app := range NewAuthToolProvider(f.agg).providerAppStatuses(ctx, appSession, appSubject, true) {
+		require.Equal(t, pkgoauth.SessionServerStatusAuthRequired, app.Status, app.Name)
+		require.Empty(t, app.AuthTool, app.Name)
+		require.Empty(t, app.AuthURL, app.Name)
+		require.Equal(t, "Cannot sign in to '"+app.Name+"': your login method cannot be checked here.", app.Error)
+	}
+	require.Empty(t, f.handler.challenges)
 }

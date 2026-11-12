@@ -105,6 +105,7 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 		}
 	}
 	suspended := suspendedServers(ctx, servers)
+	signInRefusal := api.SignInCheckRefusal(ctx)
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
 		// A grant the person completed after the session's start, through
@@ -167,8 +168,14 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 			// core_auth_login refuses SSO servers in every state, so it is
 			// only advertised where it can succeed: an SSO server's
 			// reauth_required is fixed by re-authenticating to muster.
+			// A sign-in the check cannot pass for this session is refused by
+			// core_auth_login, so none is advertised and error says why.
 			if status.Kind == pkgoauth.ServerAuthKindGrant {
-				status.AuthTool = "core_auth_login"
+				if signInRefusal != nil {
+					status.Error = signInCheckRefusedMessage(name, signInRefusal)
+				} else {
+					status.AuthTool = "core_auth_login"
+				}
 			}
 		}
 

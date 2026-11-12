@@ -276,6 +276,13 @@ sign-in) reads the person's state on every server in one call. The answer is the
   person already holds is connected by the call and reported `connected`; one the login refuses
   carries the reason in `error`.
 
+A `grant` server or a provider App in `auth_required` or `reauth_required` with no `auth_tool` and
+an `error` is a sign-in that cannot pass for this session: muster's sign-in check cannot confirm
+the person for it (their login method is not one the check may use, or their session comes from
+another identity provider). Every read reports it, with or without `auth_urls`, and no link is
+issued; `error` is worded for the person (`Cannot sign in to '<server>': <reason>.`) and is meant
+to be shown as is. It is decided per request, so another session of the person may still sign in.
+
 Issuing the links counts as one authentication attempt for the rate limit. Each link is a bearer
 link for the caller's session: show it to the person only.
 
