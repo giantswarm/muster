@@ -174,12 +174,13 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 		// Config loading is lenient YAML: a target missing required keys
 		// loads silently, so check the shape here instead of failing on
 		// the first exchange request.
+		subjectIssuer := defaultSubjectIssuer(cfg)
 		for audience, target := range cfg.TokenExchangeBroker.Targets {
-			if err := validateBrokerTarget(audience, target, cfg.TrustedIssuers); err != nil {
+			if err := validateBrokerTarget(audience, target, cfg.TrustedIssuers, subjectIssuer); err != nil {
 				return nil, err
 			}
 		}
-		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker, musterIssuerOf(cfg))))
+		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker, subjectIssuer)))
 		brokerLogger := logger
 		if brokerLogger == nil {
 			brokerLogger = slog.Default()
@@ -203,8 +204,12 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 // validateBrokerTarget checks one broker target: a Dex exchange target needs
 // its dexTokenEndpoint, a grant target its HTTPS grantIssuer and none of the
 // exchange fields, a target cannot be both, and only a grant target names
-// subjectIssuers, each of them a trusted issuer.
-func validateBrokerTarget(audience string, target config.BrokerTargetConfig, trusted []config.TrustedIssuerConfig) error {
+// subjectIssuers, each of them a trusted issuer. A grant target needs
+// subjectIssuers when muster has no default subject issuer.
+func validateBrokerTarget(audience string, target config.BrokerTargetConfig, trusted []config.TrustedIssuerConfig, defaultSubjectIssuer string) error {
+	if target.IsGrantTarget() && len(target.SubjectIssuers) == 0 && defaultSubjectIssuer == "" {
+		return fmt.Errorf("tokenExchangeBroker target %q: a grant target needs subjectIssuers when muster's sign-in is not Dex", audience)
+	}
 	if len(target.SubjectIssuers) > 0 {
 		if !target.IsGrantTarget() {
 			return fmt.Errorf("tokenExchangeBroker target %q: subjectIssuers applies to grant targets (grantIssuer) only", audience)

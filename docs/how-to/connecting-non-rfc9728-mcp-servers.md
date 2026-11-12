@@ -309,15 +309,16 @@ the person's ID token as `subject_token` and `audience=github`, and receives:
  "token_type": "Bearer", "expires_in": 27540}
 ```
 
-- Only subject tokens of muster's own issuer (`dex.issuerUrl`, or `baseUrl`
-  for another provider) release the grant, unless the target lists other
-  trusted issuers in `subjectIssuers`: the same `sub` from another issuer is
-  another person.
+- Only subject tokens of muster's own Dex issuer (`dex.issuerUrl`) release
+  the grant, unless the target lists other trusted issuers in
+  `subjectIssuers`: the same `sub` from another issuer is another person.
+  With another provider than Dex, a grant target must list `subjectIssuers`.
 - The person is the subject the grant was filed under: the subject an MCP
   request presenting the subject token is served as. That is the token's own
-  `sub` when its audience is in `trustedAudiences`, and the trusted issuer's
-  `subjectClaim` mapping otherwise. muster logs `subject_grant_subject_mapped`
-  when it differs from the token's `sub`.
+  `sub` for an ID token whose audience is in `trustedAudiences` and for a
+  delegated token (an issuer with `delegation`), and the trusted issuer's
+  `subjectClaim` mapping for any other trusted-issuer token. muster logs
+  `subject_grant_subject_mapped` when it differs from the token's `sub`.
 - The access token is the person's, refreshed first when it is due;
   `expires_in` is its remaining lifetime. The refresh token never leaves
   muster: the relying party re-exchanges when the token runs out, and each

@@ -36,15 +36,16 @@ import (
 //
 // Thread-safe: Yes.
 type BrokerExchanger struct {
-	cfg          config.TokenExchangeBrokerConfig
-	musterIssuer string
-	exchanger    *TokenExchanger
+	cfg                  config.TokenExchangeBrokerConfig
+	defaultSubjectIssuer string
+	exchanger            *TokenExchanger
 }
 
 // NewBrokerExchanger creates a BrokerExchanger for the configured targets.
-// musterIssuer is the issuer of muster's own identity provider: the subject
-// issuer a grant target accepts when it names none.
-func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, musterIssuer string) *BrokerExchanger {
+// defaultSubjectIssuer is the issuer whose subject tokens a grant target
+// accepts when it lists no subjectIssuers: the Dex issuer of muster's own
+// sign-in.
+func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, defaultSubjectIssuer string) *BrokerExchanger {
 	// Mirror the OAuth manager's internal-deployment handling: mcp-oauth's
 	// private-IP-allowed client bypasses the process-wide augmented transport
 	// (--extra-ca-file), so hand the exchanger an explicit client backed by
@@ -55,8 +56,8 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, musterIssuer strin
 		httpClient.Transport = http.DefaultTransport
 	}
 	return &BrokerExchanger{
-		cfg:          cfg,
-		musterIssuer: musterIssuer,
+		cfg:                  cfg,
+		defaultSubjectIssuer: defaultSubjectIssuer,
 		exchanger: NewTokenExchangerWithOptions(TokenExchangerOptions{
 			AllowPrivateIP: cfg.AllowPrivateIP,
 			HTTPClient:     httpClient,
@@ -205,14 +206,15 @@ func (b *BrokerExchanger) releaseGrant(ctx context.Context, req *oauthserver.Exc
 }
 
 // subjectIssuerAllowed reports whether a subject token of the issuer may
-// release the target's grant: target.SubjectIssuers, else muster's own issuer.
+// release the target's grant: target.SubjectIssuers, else the default subject
+// issuer.
 func (b *BrokerExchanger) subjectIssuerAllowed(target config.BrokerTargetConfig, subjectIssuer string) bool {
 	if subjectIssuer == "" {
 		return false
 	}
 	allowed := target.SubjectIssuers
 	if len(allowed) == 0 {
-		allowed = []string{b.musterIssuer}
+		allowed = []string{b.defaultSubjectIssuer}
 	}
 	subjectIssuer = strings.TrimSuffix(subjectIssuer, "/")
 	return slices.ContainsFunc(allowed, func(issuer string) bool {

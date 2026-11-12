@@ -6,39 +6,58 @@ import (
 	"testing"
 
 	oauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/providers"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/config"
 )
 
-// The session subject follows the order mcp-oauth accepts an external token
-// in: a forwarded ID token keeps its raw sub, any other token is a
-// trusted-issuer token served as its mapped subject.
-func TestOAuthHTTPServer_SessionSubject(t *testing.T) {
-	forwarded := func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
-		if bearer == "portal-token" {
-			return &oauthserver.ForwardedIDTokenAcceptance{Subject: "CgVhbGljZRIGZ2l0aHVi"}, nil
-		}
-		return nil, oauth.ErrTrustedAudienceMismatch
+func stubValidateBearer(fn func(context.Context, string) (*providers.UserInfo, error)) func() {
+	prev := validateBearer
+	validateBearer = func(_ *oauth.Server, ctx context.Context, bearer string) (*providers.UserInfo, error) {
+		return fn(ctx, bearer)
 	}
-	trusted := func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
-		if bearer == "kagent-token" || bearer == "portal-token" {
-			return &oauthserver.ForwardedIDTokenAcceptance{Subject: "alice@example.com"}, nil
+	return func() { validateBearer = prev }
+}
+
+// The session subject is the one the MCP endpoint serves the token as: the
+// token's own sub for a forwarded ID token and a delegated token, the
+// issuer's subjectClaim mapping for any other trusted-issuer token.
+func TestOAuthHTTPServer_SessionSubject(t *testing.T) {
+	const dexIssuer = "https://dex.example.com"
+	validated := map[string]*providers.UserInfo{
+		"portal-token":    {ID: "CgVhbGljZRIGZ2l0aHVi", TokenSource: providers.TokenSourceSSO},
+		"kagent-token":    {ID: "CgVhbGljZRIGZ2l0aHVi", Issuer: dexIssuer, TokenSource: providers.TokenSourceTrustedIssuer},
+		"delegated-token": {ID: "CgVhbGljZRIGZ2l0aHVi", Issuer: dexIssuer, ActorSubject: "system:serviceaccount:agents:a", TokenSource: providers.TokenSourceTrustedIssuer},
+		"muster-token":    {ID: "alice", TokenSource: providers.TokenSourceOAuth},
+	}
+	defer stubValidateBearer(func(_ context.Context, bearer string) (*providers.UserInfo, error) {
+		if info, ok := validated[bearer]; ok {
+			return info, nil
 		}
 		return nil, errors.New("untrusted issuer")
+	})()
+	defer stubAcceptTrustedIssuerToken(func(_ context.Context, bearer string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
+		return &oauthserver.ForwardedIDTokenAcceptance{Subject: "alice@example.com"}, nil
+	})()
+	s := &OAuthHTTPServer{config: config.OAuthServerConfig{TrustedIssuers: []config.TrustedIssuerConfig{{
+		Issuer:     dexIssuer,
+		Delegation: &config.TrustedIssuerDelegationConfig{ActorIssuers: []string{"https://kubernetes.default.svc"}},
+	}}}}
+
+	for bearer, want := range map[string]string{
+		"portal-token":    "CgVhbGljZRIGZ2l0aHVi",
+		"kagent-token":    "alice@example.com",
+		"delegated-token": "CgVhbGljZRIGZ2l0aHVi",
+	} {
+		sub, err := s.SessionSubject(t.Context(), bearer)
+		require.NoError(t, err, bearer)
+		require.Equal(t, want, sub, bearer)
 	}
-	defer stubAcceptForwardedIDToken(forwarded)()
-	defer stubAcceptTrustedIssuerToken(trusted)()
-	s := &OAuthHTTPServer{}
 
-	sub, err := s.SessionSubject(t.Context(), "portal-token")
-	require.NoError(t, err)
-	require.Equal(t, "CgVhbGljZRIGZ2l0aHVi", sub, "a trustedAudiences token is served as its raw sub even when its issuer maps the email")
-
-	sub, err = s.SessionSubject(t.Context(), "kagent-token")
-	require.NoError(t, err)
-	require.Equal(t, "alice@example.com", sub)
+	_, err := s.SessionSubject(t.Context(), "muster-token")
+	require.ErrorContains(t, err, "not an externally issued token")
 
 	_, err = s.SessionSubject(t.Context(), "stranger-token")
 	require.ErrorContains(t, err, "untrusted issuer")
@@ -50,9 +69,9 @@ func TestLazyOAuthHTTPServer_SessionSubjectRefusesUntilReady(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestMusterIssuerOf(t *testing.T) {
-	require.Equal(t, "https://dex.example.com", musterIssuerOf(config.OAuthServerConfig{
+func TestDefaultSubjectIssuer(t *testing.T) {
+	require.Equal(t, "https://dex.example.com", defaultSubjectIssuer(config.OAuthServerConfig{
 		Provider: OAuthProviderDex, BaseURL: "https://muster.example.com", Dex: config.DexConfig{IssuerURL: "https://dex.example.com"},
 	}))
-	require.Equal(t, "https://muster.example.com", musterIssuerOf(config.OAuthServerConfig{Provider: OAuthProviderGoogle, BaseURL: "https://muster.example.com"}))
+	require.Empty(t, defaultSubjectIssuer(config.OAuthServerConfig{Provider: OAuthProviderGoogle, BaseURL: "https://muster.example.com"}))
 }

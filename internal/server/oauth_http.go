@@ -420,7 +420,10 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 //
 // Returns empty string when no issuer can be determined.
 func (s *OAuthHTTPServer) musterIssuer() string {
-	return musterIssuerOf(s.config)
+	if s.config.Provider == OAuthProviderDex && s.config.Dex.IssuerURL != "" {
+		return s.config.Dex.IssuerURL
+	}
+	return s.config.BaseURL
 }
 
 // acceptForwardedIDToken is a test seam around (*oauth.Server).AcceptForwardedIDToken.

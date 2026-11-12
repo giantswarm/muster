@@ -55,12 +55,12 @@ func withCredentialsHandler(t *testing.T, h api.SecretCredentialsHandler) {
 	t.Cleanup(func() { api.RegisterSecretCredentialsHandler(prev) })
 }
 
-// testBrokerMusterIssuer is muster's own issuer in broker tests, the issuer
-// of dexIdentity's subject tokens.
-const testBrokerMusterIssuer = "https://dex.example.com"
+// testBrokerSubjectIssuer is the default subject issuer in broker tests, the
+// issuer of dexIdentity's subject tokens.
+const testBrokerSubjectIssuer = "https://dex.example.com"
 
 func newTestBroker(cfg config.TokenExchangeBrokerConfig, httpClient *http.Client) *BrokerExchanger {
-	b := NewBrokerExchanger(cfg, testBrokerMusterIssuer)
+	b := NewBrokerExchanger(cfg, testBrokerSubjectIssuer)
 	if httpClient != nil {
 		b.exchanger = NewTokenExchangerWithOptions(TokenExchangerOptions{
 			AllowPrivateIP: true,

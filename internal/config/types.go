@@ -691,9 +691,9 @@ type BrokerTargetConfig struct {
 
 	// SubjectIssuers lists the issuers whose subject tokens may release a
 	// grant target's grant: the verified iss of the exchange request's
-	// subject token must be one of them. Empty means muster's own issuer
-	// only (dex.issuerUrl, or baseUrl for another provider). Each entry must
-	// be a trustedIssuers issuer. Grant targets only.
+	// subject token must be one of them. Empty means muster's own Dex
+	// issuer only (dex.issuerUrl); with another provider it is required.
+	// Each entry must be a trustedIssuers issuer. Grant targets only.
 	SubjectIssuers []string `yaml:"subjectIssuers,omitempty"`
 
 	// ExpectedIssuer is the expected iss claim of the exchanged token. If

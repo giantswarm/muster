@@ -907,8 +907,9 @@ muster:
       #   under the subject an MCP request with the subject token is served
       #   as -- refreshed first when it is due, with expires_in its remaining
       #   lifetime and never the refresh token; a person without a grant gets
-      #   invalid_target. Only subject tokens of muster's own issuer release
-      #   it unless subjectIssuers lists other trustedIssuers. Mutually
+      #   invalid_target. Only subject tokens of muster's own Dex issuer
+      #   release it unless subjectIssuers lists other trustedIssuers (required
+      #   with another provider than Dex). Mutually
       #   exclusive with dexTokenEndpoint; takes none of the exchange fields.
       #   clientAudiences:
       #     portal-backend: ["cluster-a", "github"]

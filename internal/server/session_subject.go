@@ -2,31 +2,49 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	oauth "github.com/giantswarm/mcp-oauth"
+	"github.com/giantswarm/mcp-oauth/providers"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 )
 
-// SessionSubject implements api.SessionSubjectResolver in the order
-// mcp-oauth's ValidateToken accepts an externally issued token: as a
-// forwarded ID token of a trustedAudiences client first, which serves the
-// session as the token's raw sub, then as a trusted-issuer token, which
-// serves it as the issuer's subjectClaim mapping. muster sets no
-// RequireResourceAccessTokens, so the forwarded path is always tried.
+// validateBearer is a test seam around (*oauth.Server).ValidateToken.
+var validateBearer = func(s *oauth.Server, ctx context.Context, bearerToken string) (*providers.UserInfo, error) {
+	return s.ValidateToken(ctx, bearerToken)
+}
+
+// SessionSubject implements api.SessionSubjectResolver with the decision the
+// MCP endpoint makes for an externally issued bearer: mcp-oauth's
+// ValidateToken picks the token source, and the endpoint serves a delegated
+// token and a forwarded ID token as the token's own sub and any other
+// trusted-issuer token as the issuer's subjectClaim mapping.
 func (s *OAuthHTTPServer) SessionSubject(ctx context.Context, bearer string) (string, error) {
-	acceptance, forwardedErr := acceptForwardedIDToken(s.oauthServer, ctx, bearer)
-	if forwardedErr != nil {
-		var err error
-		acceptance, err = acceptTrustedIssuerToken(s.oauthServer, ctx, bearer)
+	userInfo, err := validateBearer(s.oauthServer, ctx, bearer)
+	if err != nil {
+		return "", err
+	}
+	if userInfo == nil || userInfo.ID == "" {
+		return "", errors.New("the token yields no subject")
+	}
+	switch {
+	case s.isDelegated(userInfo), userInfo.TokenSource == providers.TokenSourceSSO:
+		return userInfo.ID, nil
+	case userInfo.TokenSource == providers.TokenSourceTrustedIssuer:
+		acceptance, err := acceptTrustedIssuerToken(s.oauthServer, ctx, bearer)
 		if err != nil {
-			return "", fmt.Errorf("neither a forwarded ID token (%v) nor a trusted-issuer token: %w", forwardedErr, err)
+			return "", err
 		}
+		if acceptance.Subject == "" {
+			return "", errors.New("the token yields no subject")
+		}
+		return acceptance.Subject, nil
+	default:
+		return "", fmt.Errorf("a %q token is not an externally issued token", userInfo.TokenSource)
 	}
-	if acceptance == nil || acceptance.Subject == "" {
-		return "", fmt.Errorf("the token yields no subject")
-	}
-	return acceptance.Subject, nil
 }
 
 // SessionSubject implements api.SessionSubjectResolver once OIDC discovery
@@ -44,11 +62,13 @@ var (
 	_ api.SessionSubjectResolver = (*LazyOAuthHTTPServer)(nil)
 )
 
-// musterIssuerOf is the issuer of the bearers muster's own identity provider
-// issues: the Dex issuer with the dex provider, muster's base URL otherwise.
-func musterIssuerOf(cfg config.OAuthServerConfig) string {
-	if cfg.Provider == OAuthProviderDex && cfg.Dex.IssuerURL != "" {
+// defaultSubjectIssuer is the issuer whose subject tokens a grant target
+// accepts when it lists no subjectIssuers: the Dex issuer of muster's own
+// sign-in. Another provider has none, so its grant targets list
+// subjectIssuers.
+func defaultSubjectIssuer(cfg config.OAuthServerConfig) string {
+	if cfg.Provider == OAuthProviderDex {
 		return cfg.Dex.IssuerURL
 	}
-	return cfg.BaseURL
+	return ""
 }
