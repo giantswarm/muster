@@ -274,9 +274,8 @@ func (p *AuthToolProvider) login(ctx context.Context, sessionID, sub, serverName
 	}
 
 	// A sign-in whose link no browser can pass is refused before any is
-	// issued, and nothing is recorded against the session: the same check
-	// refuses whoever else opens a person's link, which must never lock the
-	// person out.
+	// issued, and charges no attempt: the same check refuses whoever else
+	// opens a person's link, which must never lock the person out.
 	if refusal := api.SignInCheckRefusal(ctx); refusal != nil {
 		recordLoginFailure(ctx, p.aggregator.authMetrics, serverName, sub, "signin_check_cannot_pass")
 		return signInCheckRefusedResult(serverName, refusal)

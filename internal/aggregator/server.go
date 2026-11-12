@@ -3839,6 +3839,9 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 	view := api.CallerVisibility(ctx)
 
 	var authRequired []api.ServerAuthInfo
+	// Evaluated only for a server awaiting a sign-in: the check logs every
+	// refusal.
+	signInRefusal := sync.OnceValue(func() error { return api.SignInCheckRefusal(ctx) })
 
 	for name, info := range servers {
 		if !needsManualLogin(info) || info.IsDown() || !view.Sees(name) {
@@ -3852,13 +3855,20 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 			}
 		}
 
-		authRequired = append(authRequired, api.ServerAuthInfo{
+		entry := api.ServerAuthInfo{
 			Name:       name,
 			Status:     "auth_required",
 			AuthTool:   "core_auth_login",
 			ToolPrefix: a.registry.ExposedToolPrefix(name),
 			Family:     a.registry.GroupedFamily(name),
-		})
+		}
+		// core_auth_login refuses a sign-in the check cannot pass, so it is
+		// not advertised for one.
+		if refusal := signInRefusal(); refusal != nil {
+			entry.AuthTool = ""
+			entry.Error = signInCheckRefusedMessage(name, refusal)
+		}
+		authRequired = append(authRequired, entry)
 	}
 
 	logging.DebugWithAttrs("Aggregator", "ListServersRequiringAuth",

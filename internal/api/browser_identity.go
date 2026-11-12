@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"net/url"
 	"sync"
 )
@@ -49,12 +48,6 @@ type SignInCheckError struct {
 
 func (e *SignInCheckError) Error() string {
 	return "the sign-in check cannot pass: " + e.Reason
-}
-
-// IsSignInCheckRefused reports whether err is a *SignInCheckError.
-func IsSignInCheckRefused(err error) bool {
-	var target *SignInCheckError
-	return errors.As(err, &target)
 }
 
 // SignInCheckRefusal returns the registered check's refusal of a sign-in for

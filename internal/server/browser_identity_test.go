@@ -156,7 +156,8 @@ func TestOAuthHTTPServer_CheckRefusal(t *testing.T) {
 				require.NoError(t, err)
 				return
 			}
-			require.True(t, api.IsSignInCheckRefused(err), "got %v", err)
+			var refusal *api.SignInCheckError
+			require.ErrorAs(t, err, &refusal)
 		})
 	}
 }
@@ -178,7 +179,8 @@ func TestLazyOAuthHTTPServer_CheckRefusal(t *testing.T) {
 
 	s := newIdentityTestServer(t, testDexIdentityConfig)
 	l := &LazyOAuthHTTPServer{inner: s.OAuthHTTPServer}
-	require.True(t, api.IsSignInCheckRefused(l.CheckRefusal(api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIEbGRhcA"})))
+	var refusal *api.SignInCheckError
+	require.ErrorAs(t, l.CheckRefusal(api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIEbGRhcA"}), &refusal)
 }
 
 // Without identityCheckConnectors the check keeps the configured connector,

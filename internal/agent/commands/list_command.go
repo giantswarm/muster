@@ -103,6 +103,10 @@ func printServersRequiringAuth(output OutputLogger, servers []api.ServerAuthInfo
 	output.OutputLine("")
 	output.OutputLine("Servers requiring authentication:")
 	for _, server := range servers {
+		if server.AuthTool == "" {
+			output.OutputLine("  - %s (%s)", server.Name, server.Error)
+			continue
+		}
 		output.OutputLine("  - %s (use '%s' to authenticate)", server.Name, server.AuthTool)
 	}
 }

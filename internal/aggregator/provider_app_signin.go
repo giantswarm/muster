@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -271,7 +272,9 @@ func (p *AuthToolProvider) providerAppStatuses(ctx context.Context, sessionID, s
 	if oauthHandler == nil || !oauthHandler.IsEnabled() {
 		return nil
 	}
-	signInRefusal := api.SignInCheckRefusal(ctx)
+	// Evaluated only for an App awaiting a browser sign-in: the check logs
+	// every refusal.
+	signInRefusal := sync.OnceValue(func() error { return api.SignInCheckRefusal(ctx) })
 	statuses := make([]pkgoauth.ProviderAppAuthStatus, 0, len(names))
 	for _, name := range names {
 		app, _ := a.providerApps.get(name)
@@ -279,14 +282,16 @@ func (p *AuthToolProvider) providerAppStatuses(ctx context.Context, sessionID, s
 		if token := api.FullTokenByIssuerForUser(oauthHandler, sessionID, sub, app.Issuer); token == nil || token.AccessToken == "" {
 			status.Status = pkgoauth.SessionServerStatusAuthRequired
 			status.AuthTool = "core_auth_login"
-			if signInRefusal != nil && app.Flow != configPkg.ProviderAppFlowChatGPTDeviceCode {
-				status.AuthTool = ""
-				status.Error = signInCheckRefusedMessage(name, signInRefusal)
-			} else if app.Flow == configPkg.ProviderAppFlowChatGPTDeviceCode {
+			switch {
+			case app.Flow == configPkg.ProviderAppFlowChatGPTDeviceCode:
 				// A device code is issued by core_auth_login only: a status
 				// read never starts a sign-in the person did not ask for.
+				// It has no browser link, so the sign-in check never applies.
 				a.deviceCodeStatus(ctx, sessionID, sub, app, &status)
-			} else if withURLs {
+			case signInRefusal() != nil:
+				status.AuthTool = ""
+				status.Error = signInCheckRefusedMessage(name, signInRefusal())
+			case withURLs:
 				login := p.grantProviderApp(ctx, sessionID, sub, name, nil)
 				if url := challengeURL(login); url != "" {
 					status.AuthURL = url

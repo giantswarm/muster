@@ -160,11 +160,31 @@ func TestProviderAppStatuses_ReportASignInTheCheckCannotPass(t *testing.T) {
 	registerStubBrowserIdentity(t, &stubBrowserIdentity{refusal: &api.SignInCheckError{Reason: "your login method cannot be checked here"}})
 	ctx := api.WithSubject(api.WithSessionID(context.Background(), appSession), appSubject)
 
-	for _, app := range NewAuthToolProvider(f.agg).providerAppStatuses(ctx, appSession, appSubject, true) {
+	apps := NewAuthToolProvider(f.agg).providerAppStatuses(ctx, appSession, appSubject, true)
+	require.Len(t, apps, 2)
+	for _, app := range apps {
 		require.Equal(t, pkgoauth.SessionServerStatusAuthRequired, app.Status, app.Name)
 		require.Empty(t, app.AuthTool, app.Name)
 		require.Empty(t, app.AuthURL, app.Name)
 		require.Equal(t, "Cannot sign in to '"+app.Name+"': your login method cannot be checked here.", app.Error)
 	}
 	require.Empty(t, f.handler.challenges)
+}
+
+// list_tools and filter_tools do not advertise core_auth_login for a sign-in
+// the check cannot pass: the entry carries the refusal instead.
+func TestListServersRequiringAuth_ReportsASignInTheCheckCannotPass(t *testing.T) {
+	a, _ := newSignInCheckTestServer(t)
+	identity := &stubBrowserIdentity{refusal: &api.SignInCheckError{Reason: "your login method cannot be checked here"}}
+	registerStubBrowserIdentity(t, identity)
+
+	servers := a.ListServersRequiringAuth(testSessionCtx())
+	require.Len(t, servers, 1)
+	require.Empty(t, servers[0].AuthTool)
+	require.Equal(t, "Cannot sign in to 'miro': your login method cannot be checked here.", servers[0].Error)
+
+	identity.refusal = nil
+	servers = a.ListServersRequiringAuth(testSessionCtx())
+	require.Equal(t, "core_auth_login", servers[0].AuthTool)
+	require.Empty(t, servers[0].Error)
 }

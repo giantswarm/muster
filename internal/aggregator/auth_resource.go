@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"sync"
 	"time"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -105,7 +106,9 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 		}
 	}
 	suspended := suspendedServers(ctx, servers)
-	signInRefusal := api.SignInCheckRefusal(ctx)
+	// Evaluated only for a server awaiting a grant: the check logs every
+	// refusal, and most reads have none to report.
+	signInRefusal := sync.OnceValue(func() error { return api.SignInCheckRefusal(ctx) })
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
 		// A grant the person completed after the session's start, through
@@ -171,8 +174,8 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 			// A sign-in the check cannot pass for this session is refused by
 			// core_auth_login, so none is advertised and error says why.
 			if status.Kind == pkgoauth.ServerAuthKindGrant {
-				if signInRefusal != nil {
-					status.Error = signInCheckRefusedMessage(name, signInRefusal)
+				if refusal := signInRefusal(); refusal != nil {
+					status.Error = signInCheckRefusedMessage(name, refusal)
 				} else {
 					status.AuthTool = "core_auth_login"
 				}
