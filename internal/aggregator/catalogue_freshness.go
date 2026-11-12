@@ -11,7 +11,6 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
-	"github.com/giantswarm/muster/v5/internal/servericon"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -65,9 +64,8 @@ type sessionRecoveryObserver interface {
 	OnSessionRecovered(func())
 }
 
-// observeSharedRecovery records the server info and re-lists a shared-client
-// server whenever its connection meets a new process (OnSessionRecovered),
-// so a changed icon reaches status.icon (servericon): the health probe or
+// observeSharedRecovery re-lists a shared-client server whenever its
+// connection meets a new process (OnSessionRecovered): the health probe or
 // the reopened list-changes stream meets it within seconds to a probe
 // interval, so the shared catalogue follows a redeploy in well under a
 // minute. The handler runs on a goroutine of the
@@ -80,7 +78,6 @@ func (a *AggregatorServer) observeSharedRecovery(serverName string, client MCPCl
 	}
 	observer.OnSessionRecovered(func() {
 		logging.Info("Aggregator", "Backend of %s changed (its connection met a new process): re-listing", serverName)
-		servericon.RecordClient(serverName, client)
 		_, _, _ = a.notifRefreshGroup.Do(nonOAuthRefreshKey(serverName), func() (any, error) {
 			a.refreshNonOAuthCapabilities(serverName, refreshByRecovery)
 			return nil, nil
@@ -89,8 +86,7 @@ func (a *AggregatorServer) observeSharedRecovery(serverName string, client MCPCl
 }
 
 // observeSessionRecovery marks a per-session server rolled whenever one of
-// its pooled connections meets a new process (OnSessionRecovered), records
-// the new process's server info, and re-lists that
+// its pooled connections meets a new process (OnSessionRecovered), and re-lists that
 // session through the recovered connection, in the handler like
 // observeSharedRecovery; every other session follows on its next read.
 func (a *AggregatorServer) observeSessionRecovery(serverName, sessionID string, client MCPClient) {
@@ -103,7 +99,6 @@ func (a *AggregatorServer) observeSessionRecovery(serverName, sessionID string, 
 			logging.Info("Aggregator", "Backend of %s changed (session %s met a new process): entries listed before are re-listed on their next read",
 				serverName, logging.TruncateIdentifier(sessionID))
 		}
-		servericon.RecordClient(serverName, client)
 		if a.connPool == nil || !a.connPool.Holds(sessionID, serverName, client) {
 			return
 		}
