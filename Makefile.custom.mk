@@ -151,3 +151,20 @@ verify-cli-docs: generate-cli-docs ## Fail if the committed CLI reference is sta
 		echo "ERROR: docs/reference/cli is out of date. Run 'make generate-cli-docs' and commit."; \
 		exit 1; }
 	@echo "CLI reference is up to date."
+
+##@ API conventions
+
+KUBE_API_LINTER := hack/tools/bin/golangci-lint-kube-api-linter
+
+$(KUBE_API_LINTER): hack/tools/.custom-gcl.yml
+	v=$$(go env GOVERSION) && cd hack/tools && GOTOOLCHAIN=$$v golangci-lint custom
+
+.PHONY: lint-api
+lint-api: $(KUBE_API_LINTER) ## Check API types against the Kubernetes API conventions (kube-api-linter).
+	hack/lint-api.sh
+
+.PHONY: lint-conventions
+lint-conventions: ## Run the tests that check muster's own API conventions (TestConvention*).
+	go test -count=1 -run '^TestConvention' ./internal/app/
+
+lint-custom: lint-api lint-conventions

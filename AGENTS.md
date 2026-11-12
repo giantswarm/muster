@@ -37,7 +37,7 @@ make test                         # Unit tests with race detector
 
 # Code quality (run before every commit)
 goimports -w . && go fmt ./...    # Format code
-make lint                         # golangci-lint with gosec and goconst
+make lint                         # golangci-lint, kube-api-linter on pkg/apis, TestConvention* tests
 make vet                          # go vet
 
 # Helm

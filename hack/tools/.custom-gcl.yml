@@ -1,0 +1,9 @@
+# Builds golangci-lint with kube-api-linter (KAL) for `make lint-api`.
+# kube-api-linter publishes no tags, so the plugin is pinned to a commit
+# pseudo-version; bump both versions together.
+version: v2.15.0
+name: golangci-lint-kube-api-linter
+destination: ./bin
+plugins:
+  - module: sigs.k8s.io/kube-api-linter
+    version: v0.0.0-20261030144752-d90122c89087

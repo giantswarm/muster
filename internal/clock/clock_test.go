@@ -205,7 +205,7 @@ func TestRespond(t *testing.T) {
 // path (t.TempDir can exceed the limit under a long test name).
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "clk")
+	dir, err := os.MkdirTemp("", "clk") //nolint:usetesting // t.TempDir can exceed the Unix socket path limit
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir

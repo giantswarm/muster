@@ -49,3 +49,6 @@ test-reports-envtest/
 # Documentation site build (make docs-build)
 site/
 .cache/
+
+# Custom golangci-lint build (make lint-api)
+/hack/tools/bin/

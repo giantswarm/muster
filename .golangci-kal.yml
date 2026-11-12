@@ -1,0 +1,132 @@
+version: "2"
+linters:
+  default: none
+  enable:
+    - kubeapilinter
+  settings:
+    custom:
+      kubeapilinter:
+        type: module
+        description: Kube API Linter checks API types against the Kubernetes API conventions.
+        settings:
+          linters:
+            disable: ["*"]
+            enable:
+              - conditions # Conditions are []metav1.Condition with the standard markers and tags.
+              - jsontags # Every field has a lowerCamelCase json tag.
+              - nobools # A bool cannot grow a third state; use a metav1.Condition for status observations.
+              - statusoptional # Status fields are optional.
+  exclusions:
+    rules:
+      - linters: [kubeapilinter]
+        path-except: ^pkg/apis/
+      # Existing API fields that predate the linter. Changing them breaks users,
+      # so they stay listed here; new fields must pass.
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field MCPServerSpec\.AutoStart '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field MCPServerSpec\.Suspended '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field MCPServerAuth\.ForwardToken '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field MCPServerAuth\.ForwardIdentity '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field TokenExchangeConfig\.Enabled '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "State" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "LastError" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "LastConnected" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "RestartCount" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "ConsecutiveFailures" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "LastAttempt" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "NextRetryAfter" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "LastFailureHTTPStatus" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "LastRestartedAt" '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'conditions: Conditions field in MCPServerStatus '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field ArgDefinition\.Required '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowStep\.Output '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowStep\.Store '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowStep\.AllowFailure '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowSubStep\.Output '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowSubStep\.Store '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowSubStep\.AllowFailure '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowNestedStep\.Output '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowNestedStep\.Store '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowNestedStep\.AllowFailure '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowConditionExpectation\.Success '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowStatus\.Valid '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "ValidationErrors" '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "ReferencedTools" '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "StepCount" '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'conditions: Conditions field in WorkflowStatus '
+      - path: pkg/apis/muster/v1alpha1/workflowexecution_types\.go
+        linters: [kubeapilinter]
+        text: 'nobools: field WorkflowExecutionSpec\.Truncated '
+      - path: pkg/apis/muster/v1alpha1/mcpserver_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "Conditions" '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "Valid" '
+      - path: pkg/apis/muster/v1alpha1/workflow_types\.go
+        linters: [kubeapilinter]
+        text: 'statusoptional: status field "Conditions" '
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

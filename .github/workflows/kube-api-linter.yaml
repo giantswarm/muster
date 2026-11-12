@@ -1,0 +1,43 @@
+name: kube-api-linter
+
+on:
+  pull_request:
+    paths:
+      - "pkg/apis/**"
+      - ".golangci-kal.yml"
+      - "hack/tools/.custom-gcl.yml"
+      - "hack/lint-api.sh"
+      - ".github/workflows/kube-api-linter.yaml"
+  merge_group:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint-api:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Go environment
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install golangci-lint
+        uses: giantswarm/install-binary-action@5bef88f65012037dd836117c8d344b21bb559854 # v4.1.0
+        with:
+          binary: golangci-lint
+          version: "2.15.0"
+          download_url: "https://github.com/golangci/golangci-lint/releases/download/v${version}/${binary}-${version}-linux-amd64.tar.gz"
+      - name: Check API types against the Kubernetes API conventions
+        run: make lint-api

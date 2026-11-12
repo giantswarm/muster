@@ -18,9 +18,7 @@ func TestConfigReloadIntegration(t *testing.T) {
 	t.Skip("Skipping integration test - needs proper mocking of config paths")
 
 	// Create a temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "muster-config-reload-test")
-	assert.NoError(t, err)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	tmpDir := t.TempDir()
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
@@ -70,9 +68,7 @@ func TestConfigReloadIntegration(t *testing.T) {
 
 func TestConfigReloadTool(t *testing.T) {
 	// Create a temporary directory for testing
-	tmpDir, err := os.MkdirTemp("", "muster-config-reload-tool-test")
-	assert.NoError(t, err)
-	defer func() { _ = os.RemoveAll(tmpDir) }()
+	tmpDir := t.TempDir()
 
 	configPath := filepath.Join(tmpDir, "config.yaml")
 

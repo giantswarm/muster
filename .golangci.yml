@@ -4,7 +4,19 @@ linters:
   enable:
     - gosec
     - goconst
+    - depguard
+    - usetesting
   settings:
+    depguard:
+      rules:
+        deprecated:
+          deny:
+            - pkg: github.com/giantswarm/microerror
+              desc: deprecated, use the standard errors package
+            - pkg: github.com/giantswarm/micrologger
+              desc: deprecated, use log/slog
+            - pkg: github.com/giantswarm/operatorkit
+              desc: deprecated, use controller-runtime
     goconst:
       min-len: 5
       min-occurrences: 5
