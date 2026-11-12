@@ -3,6 +3,7 @@ package oauth
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func (s stubSessionSubjects) SessionSubject(_ context.Context, bearer string) (s
 	return "", errors.New("token not accepted")
 }
 
-func withSessionSubjects(t *testing.T, subjects stubSessionSubjects) {
+func withSessionSubjects(t *testing.T, subjects api.SessionSubjectResolver) {
 	t.Helper()
 	prev := api.GetSessionSubjectResolver()
 	api.RegisterSessionSubjectResolver(subjects)
@@ -209,6 +210,29 @@ func TestBrokerExchanger_GrantTarget_RequiresTheOAuthProxy(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget), "a disabled proxy is a server fault, not invalid_target")
+}
+
+// A session subject the identity provider could not answer for is a server
+// fault: invalid_target would tell the relying party the person has no grant.
+func TestBrokerExchanger_GrantTarget_UnavailableProviderIsNotInvalidTarget(t *testing.T) {
+	handler := &grantReleasingHandler{enabled: true, grants: map[string]*api.OAuthToken{}}
+	withOAuthHandler(t, handler)
+	withSessionSubjects(t, unavailableSessionSubjects{})
+
+	_, err := grantBroker().Exchange(t.Context(), &oauthserver.ExchangerRequest{
+		Audience:     "github",
+		Subject:      dexIdentity("alice", "alice"),
+		SubjectToken: "dex-id-token",
+	})
+	require.ErrorIs(t, err, oauthserver.ErrProviderUnavailable)
+	assert.False(t, errors.Is(err, oauthserver.ErrInvalidTarget))
+	assert.Empty(t, handler.lookups)
+}
+
+type unavailableSessionSubjects struct{}
+
+func (unavailableSessionSubjects) SessionSubject(context.Context, string) (string, error) {
+	return "", fmt.Errorf("validate: %w", oauthserver.ErrProviderUnavailable)
 }
 
 func TestBrokerTargetConfig_IsGrantTarget(t *testing.T) {

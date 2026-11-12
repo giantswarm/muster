@@ -170,6 +170,9 @@ func (b *BrokerExchanger) releaseGrant(ctx context.Context, req *oauthserver.Exc
 			slog.String("issuer", issuer),
 			slog.String("reason", "no_subject"),
 			slog.String("error", err.Error()))
+		if serverFault(err) {
+			return nil, fmt.Errorf("grant target %q: %w", req.Audience, err)
+		}
 		return nil, fmt.Errorf("%w: no_grant: %v", oauthserver.ErrInvalidTarget, err)
 	}
 
@@ -229,7 +232,7 @@ func (b *BrokerExchanger) subjectIssuerAllowed(target config.BrokerTargetConfig,
 func grantSubject(ctx context.Context, req *oauthserver.ExchangerRequest) (string, error) {
 	resolver := api.GetSessionSubjectResolver()
 	if resolver == nil {
-		return "", errors.New("muster runs no OAuth server to resolve the subject token's session subject")
+		return "", errNoSessionSubjectResolver
 	}
 	sub, err := resolver.SessionSubject(ctx, req.SubjectToken)
 	if err != nil {
@@ -242,6 +245,18 @@ func grantSubject(ctx context.Context, req *oauthserver.ExchangerRequest) (strin
 			slog.String("sessionSubject", logging.TruncateIdentifier(sub)))
 	}
 	return sub, nil
+}
+
+var errNoSessionSubjectResolver = errors.New("muster runs no OAuth server to resolve the subject token's session subject")
+
+// serverFault reports whether resolving the session subject failed without
+// refusing the token: the identity provider or the token store did not
+// answer, or no resolver runs. The client then gets a server error, not
+// invalid_target, which a relying party reads as "the person has no grant".
+func serverFault(err error) bool {
+	return errors.Is(err, oauthserver.ErrProviderUnavailable) ||
+		errors.Is(err, oauthserver.ErrStorageUnavailable) ||
+		errors.Is(err, errNoSessionSubjectResolver)
 }
 
 // rawSubject returns the raw sub of the validated subject token.
