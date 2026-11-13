@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -190,8 +191,13 @@ func (l *scenarioLoader) validateScenario(scenario TestScenario, filePath string
 	// An instance_logs block with nothing to check would pass vacuously -- the
 	// same failure mode status_code and retry had.
 	if logs := scenario.InstanceLogs; logs != nil {
-		if len(logs.Contains) == 0 && len(logs.NotContains) == 0 && len(logs.Occurrences) == 0 {
-			return fmt.Errorf("instance_logs must list at least one of contains, not_contains or occurrences")
+		if len(logs.Contains) == 0 && len(logs.NotContains) == 0 && len(logs.NotMatches) == 0 && len(logs.Occurrences) == 0 && !logs.NotContainsIssuedCredentials {
+			return fmt.Errorf("instance_logs must set at least one of contains, not_contains, not_matches, occurrences or not_contains_issued_credentials")
+		}
+		for _, pattern := range logs.NotMatches {
+			if _, err := regexp.Compile(pattern); err != nil {
+				return fmt.Errorf("instance_logs.not_matches %q: %w", pattern, err)
+			}
 		}
 		for substring, count := range logs.Occurrences {
 			if count < 0 {

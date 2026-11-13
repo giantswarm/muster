@@ -38,6 +38,15 @@ func TestInstanceLogsRequiresAnAssertion(t *testing.T) {
 		t.Errorf("a scenario with a not_contains assertion should load, got: %v", err)
 	}
 
+	scenario.InstanceLogs = &InstanceLogExpectation{NotMatches: []string{`eyJ[A-Za-z0-9_-]+\.eyJ`}}
+	if err := loader.validateScenario(scenario, "logs-are-clean.yaml"); err != nil {
+		t.Errorf("a scenario with a not_matches assertion should load, got: %v", err)
+	}
+	scenario.InstanceLogs.NotMatches = []string{"eyJ[unclosed"}
+	if err := loader.validateScenario(scenario, "logs-are-clean.yaml"); err == nil || !strings.Contains(err.Error(), "not_matches") {
+		t.Errorf("an invalid not_matches pattern should be rejected at load time, got: %v", err)
+	}
+
 	scenario.InstanceLogs = &InstanceLogExpectation{Occurrences: map[string]int{"Suspending MCPServer service x": 1}}
 	if err := loader.validateScenario(scenario, "logs-are-clean.yaml"); err != nil {
 		t.Errorf("a scenario with an occurrences assertion should load, got: %v", err)
@@ -58,13 +67,13 @@ func TestValidateInstanceLogs(t *testing.T) {
 	}
 
 	t.Run("nil expectation is a no-op", func(t *testing.T) {
-		if err := validateInstanceLogs(nil, nil); err != nil {
+		if err := validateInstanceLogs(nil, nil, nil); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 
 	t.Run("no captured logs cannot satisfy an assertion", func(t *testing.T) {
-		err := validateInstanceLogs(&InstanceLogExpectation{NotContains: []string{"eyJ"}}, nil)
+		err := validateInstanceLogs(&InstanceLogExpectation{NotContains: []string{"eyJ"}}, nil, nil)
 		if err == nil {
 			t.Fatal("an assertion against missing logs must not pass vacuously")
 		}
@@ -72,18 +81,18 @@ func TestValidateInstanceLogs(t *testing.T) {
 
 	t.Run("contains is checked across stdout and stderr", func(t *testing.T) {
 		exp := &InstanceLogExpectation{Contains: []string{"onAuthenticated callback", "something on stderr"}}
-		if err := validateInstanceLogs(exp, logs); err != nil {
+		if err := validateInstanceLogs(exp, logs, nil); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		exp.Contains = append(exp.Contains, "never logged")
-		err := validateInstanceLogs(exp, logs)
+		err := validateInstanceLogs(exp, logs, nil)
 		if err == nil || !strings.Contains(err.Error(), `do not contain "never logged"`) {
 			t.Fatalf("missing substring should be reported, got: %v", err)
 		}
 	})
 
 	t.Run("not_contains reports the line without echoing the match", func(t *testing.T) {
-		err := validateInstanceLogs(&InstanceLogExpectation{NotContains: []string{"eyJ"}}, logs)
+		err := validateInstanceLogs(&InstanceLogExpectation{NotContains: []string{"eyJ"}}, logs, nil)
 		if err == nil {
 			t.Fatal("forbidden substring present but no error")
 		}
@@ -107,7 +116,7 @@ func TestValidateInstanceLogs(t *testing.T) {
 			"never logged":        0,
 			"initSSOForSession":   2, // logged once: a miss
 		}}
-		err := validateInstanceLogs(exp, logs)
+		err := validateInstanceLogs(exp, logs, nil)
 		if err == nil {
 			t.Fatal("wrong occurrence counts must fail the scenario")
 		}
@@ -129,14 +138,62 @@ func TestValidateInstanceLogs(t *testing.T) {
 
 		delete(exp.Occurrences, "SSO: ")
 		exp.Occurrences["initSSOForSession"] = 1
-		if err := validateInstanceLogs(exp, logs); err != nil {
+		if err := validateInstanceLogs(exp, logs, nil); err != nil {
 			t.Fatalf("exact counts should pass, got: %v", err)
+		}
+	})
+
+	t.Run("not_matches finds a JWT by its shape, not a random id that contains eyJ", func(t *testing.T) {
+		jwtShape := []string{`eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+`}
+		jwt := &InstanceLogs{Stdout: "level=INFO msg=ready\n" +
+			"level=DEBUG msg=forwarding token=eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJhbGljZSJ9.c2lnbmF0dXJl\n"}
+		err := validateInstanceLogs(&InstanceLogExpectation{NotMatches: jwtShape}, jwt, nil)
+		if err == nil {
+			t.Fatal("a logged JWT must fail the scenario")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "on 1 line(s), first at line 2") || !strings.Contains(msg, "msg=forwarding token=") {
+			t.Errorf("the report should locate the match and quote the line up to it, got: %v", msg)
+		}
+		if strings.Contains(msg, "eyJzdWIiOiJhbGljZSJ9") {
+			t.Errorf("the report must not echo the token, got: %v", msg)
+		}
+
+		requestID := &InstanceLogs{Stdout: "level=INFO msg=security_audit audit.request_id=WOfFSeyJk3Pq9xT2mVb8nRzL1 audit.event_type=client_consent_approved\n"}
+		if err := validateInstanceLogs(&InstanceLogExpectation{NotMatches: jwtShape}, requestID, nil); err != nil {
+			t.Fatalf("a request id that happens to contain eyJ is no JWT, got: %v", err)
+		}
+	})
+
+	t.Run("not_contains_issued_credentials finds an issued credential without echoing it", func(t *testing.T) {
+		exp := &InstanceLogExpectation{NotContainsIssuedCredentials: true}
+		leaky := &InstanceLogs{
+			Stdout: "level=INFO msg=ready\n",
+			Stderr: "level=DEBUG msg=refreshing refresh_token=rt-9f3a2c71 for alice\nlevel=DEBUG msg=again rt-9f3a2c71\n",
+		}
+		err := validateInstanceLogs(exp, leaky, []string{"rt-9f3a2c71", "at-never-logged"})
+		if err == nil {
+			t.Fatal("a logged refresh token must fail the scenario")
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "issued credential on 2 line(s)") || !strings.Contains(msg, "msg=refreshing refresh_token=") {
+			t.Errorf("the report should count the lines and quote the first up to the match, got: %v", msg)
+		}
+		if strings.Contains(msg, "rt-9f3a2c71") {
+			t.Errorf("the report must not echo the credential, got: %v", msg)
+		}
+
+		if err := validateInstanceLogs(exp, &InstanceLogs{Stdout: "level=INFO msg=ready\n"}, []string{"rt-9f3a2c71"}); err != nil {
+			t.Fatalf("logs without the credential should pass, got: %v", err)
+		}
+		if err := validateInstanceLogs(exp, &InstanceLogs{Stdout: "level=INFO msg=ready\n"}, nil); err == nil {
+			t.Fatal("a check with no issued credential would pass vacuously")
 		}
 	})
 
 	t.Run("clean logs pass", func(t *testing.T) {
 		clean := &InstanceLogs{Stdout: "level=INFO msg=ready\n"}
-		if err := validateInstanceLogs(&InstanceLogExpectation{NotContains: []string{"eyJ"}}, clean); err != nil {
+		if err := validateInstanceLogs(&InstanceLogExpectation{NotContains: []string{"eyJ"}}, clean, nil); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -183,7 +240,7 @@ func TestAwaitInstanceLogs(t *testing.T) {
 
 	result := &TestScenarioResult{}
 	r.collectInstanceLogs(instance, result)
-	if err := validateInstanceLogs(expected, result.InstanceLogs); err == nil {
+	if err := validateInstanceLogs(expected, result.InstanceLogs, nil); err == nil {
 		t.Fatal("the read before the rebuild logged should miss it")
 	}
 
@@ -191,7 +248,7 @@ func TestAwaitInstanceLogs(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.awaitInstanceLogs(context.Background(), expected, instance, result)
-	if err := validateInstanceLogs(expected, result.InstanceLogs); err != nil {
+	if err := validateInstanceLogs(expected, result.InstanceLogs, nil); err != nil {
 		t.Fatalf("awaitInstanceLogs should have read the line logged after the step: %v", err)
 	}
 

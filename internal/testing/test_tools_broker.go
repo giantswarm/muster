@@ -265,7 +265,7 @@ func (h *TestToolsHandler) handleBrokerTokenExchange(ctx context.Context, args m
 		result["subject"] = sub
 	}
 	if iss, ok := claims["iss"].(string); ok {
-		result["issuer"] = iss
+		result[keyIssuer] = iss
 	}
 	if act, ok := claims["act"].(map[string]interface{}); ok {
 		if actSub, ok := act["sub"].(string); ok {

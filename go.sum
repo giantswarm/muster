@@ -146,8 +146,8 @@ github.com/fxamacker/cbor/v2 v2.9.1 h1:2rWm8B193Ll4VdjsJY28jxs70IdDsHRWgQYAI80+r
 github.com/fxamacker/cbor/v2 v2.9.1/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/giantswarm/go-selfupdate v1.7.7 h1:VU9EUr+VRlnd/XRPNLy4SVnObdqwuXE7Fnz5mBE88SQ=
 github.com/giantswarm/go-selfupdate v1.7.7/go.mod h1:nqRW1Io8Ixo3x8tSnLKkpfenWn2PRf/Zcu548PZp780=
-github.com/giantswarm/mcp-oauth v1.13.5 h1:y2H5tCx/ZYUGTmsTXCDQI3wsXV10wE/vCsqTtYRIS7I=
-github.com/giantswarm/mcp-oauth v1.13.5/go.mod h1:W9XQfCHNKVcXNnHY0uEZVl5k4K72bgMxmt9JdTaR7PM=
+github.com/giantswarm/mcp-oauth v1.13.10 h1:oAuqUoz3MM3MIEXjfJZArlWoH6RqoLgSUftTKE3EXM4=
+github.com/giantswarm/mcp-oauth v1.13.10/go.mod h1:HJBNgKIPZ6zXvUd2XQur9Om9agW1vkcTkoepQtExnoA=
 github.com/giantswarm/mcp-toolkit v0.5.3 h1:wfRRF3P+33XE0kfqFdrfVR2NThSKffekFScRMculo6g=
 github.com/giantswarm/mcp-toolkit v0.5.3/go.mod h1:m8dbpEeOg25kldNTnBh/al5ux4y5PYvbg2KhfHiUinc=
 github.com/giantswarm/pagekit v0.3.8 h1:vmCbZ0KjQSgQnv9LEI6DRx2WU1BKvFCsOXEJQOUEVNE=
@@ -321,8 +321,8 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/letsencrypt/boulder v0.20260309.0 h1:kZynrxK3QfqLGx6hhoz+Rfs3hgltJs1p9Mp+4+VwnY0=
 github.com/letsencrypt/boulder v0.20260309.0/go.mod h1:yG8lj8pNPZ8taq3oNdTpfBS+eC74IaEuiewqzVpXiWE=
-github.com/mark3labs/mcp-go v1.5.1-0.20261109144041-2f5b9637ea84 h1:clUdauIi/4yQ1L7Aeurr+tDf4xzS8wmcIYZJv0UJSJU=
-github.com/mark3labs/mcp-go v1.5.1-0.20261109144041-2f5b9637ea84/go.mod h1:6L8eBboqlAMnYrvl8rpbUeV2qE/SJh52aVGrXIomVb0=
+github.com/mark3labs/mcp-go v1.5.1-0.20261112150913-5968243dcce1 h1:1evjWkfSB071AYrovWUYghPrntIzkYoNVwYFDsY0rOM=
+github.com/mark3labs/mcp-go v1.5.1-0.20261112150913-5968243dcce1/go.mod h1:6L8eBboqlAMnYrvl8rpbUeV2qE/SJh52aVGrXIomVb0=
 github.com/mark3labs/mcp-go/otel v0.54.0 h1:ZRr8iC9skLwLGXOscFEsbdbIn3f1RdX8O292S5SU7P4=
 github.com/mark3labs/mcp-go/otel v0.54.0/go.mod h1:P16AS19jEeF6qI1yVQ06yxK8aMc5y6dP46apwGnZzKg=
 github.com/mattn/go-colorable v0.1.14 h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=

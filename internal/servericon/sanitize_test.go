@@ -115,6 +115,8 @@ func TestBrandIcon(t *testing.T) {
 		"http://kyverno-policy-reporter.kyverno:9090/mcp":                      "Kyverno",
 		"http://kyverno-playground-mcp.mcp-kyverno-playground:8080":            "Kyverno",
 		"http://agentgateway.agent-platform.svc.cluster.local:8080/kagent/mcp": "kagent",
+		"http://mcp-pagerduty.mcp-pagerduty.svc.cluster.local:8080/mcp":        "PagerDuty",
+		"http://pagerduty.monitoring.svc:8080/mcp":                             "",
 		"https://kyverno.io/":                                                  "Kyverno",
 		"https://kagent.example.com/mcp":                                       "",
 		"https://example.com/kagent/mcp":                                       "",

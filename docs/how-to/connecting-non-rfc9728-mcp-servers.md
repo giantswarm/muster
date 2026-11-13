@@ -291,9 +291,14 @@ aggregator:
               name: muster-broker-clients
         targets:
           github:
-            # The issuer the MCPServer above pins with grantScope: subject.
+            # The issuer the MCPServer above pins with grantScope: subject,
+            # or a provider App's issuer (aggregator.providerApps).
             grantIssuer: https://github.com/login/oauth
 ```
+
+The grant target needs no MCPServer: a provider App's grant, which the person
+grants with `core_auth_login app=<name>`, is released the same way when
+`grantIssuer` names the App's `issuer`.
 
 The relying party's backend (a confidential broker client) POSTs to
 `/oauth/token` with `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`,
@@ -304,10 +309,23 @@ the person's ID token as `subject_token` and `audience=github`, and receives:
  "token_type": "Bearer", "expires_in": 27540}
 ```
 
-- The person is the subject token's own `sub` -- the Dex subject the grant
-  was filed under when the person connected the server -- regardless of a
-  `subjectClaim` mapping the trusted issuer may carry for on-behalf-of
-  exchanges.
+- Only subject tokens of muster's own Dex issuer (`dex.issuerUrl`) release
+  the grant, unless the target lists other trusted issuers in
+  `subjectIssuers`: the same `sub` from another issuer is another person.
+  With another provider than Dex, a grant target must list `subjectIssuers`.
+- The person is the subject the grant was filed under: the subject an MCP
+  request presenting the subject token is served as. That is the token's own
+  `sub` for an ID token whose audience is in `trustedAudiences` and for a
+  delegated token (an issuer with `delegation`), and the trusted issuer's
+  `subjectClaim` mapping for any other trusted-issuer token. muster logs
+  `subject_grant_subject_mapped` when it differs from the token's `sub`.
+  A subject token the MCP endpoint would refuse (an audience in neither
+  `trustedAudiences` nor the issuer's `allowedAudiences`, say) releases
+  nothing and gets `invalid_target`, even when the broker accepted it.
+- When the token store or the identity provider does not answer, the
+  exchange gets `503` with `Retry-After` and no OAuth error code, never
+  `invalid_target`, so the relying party retries instead of sending the
+  person to grant again.
 - The access token is the person's, refreshed first when it is due;
   `expires_in` is its remaining lifetime. The refresh token never leaves
   muster: the relying party re-exchanges when the token runs out, and each

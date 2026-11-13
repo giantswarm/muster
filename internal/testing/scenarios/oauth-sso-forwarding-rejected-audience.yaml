@@ -121,5 +121,8 @@ instance_logs:
     - "error_description="
     - "token validation failed: audience ["
     - "does not include platform-client"
-  not_contains:
-    - "eyJ"
+  # No issued credential verbatim, and no JWT by its shape, not a bare "eyJ"
+  # that random identifiers contain too.
+  not_contains_issued_credentials: true
+  not_matches:
+    - 'eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+'

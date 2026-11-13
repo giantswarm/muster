@@ -41,7 +41,7 @@ func TestParseHeader_Errors(t *testing.T) {
 		{"empty name", "preset:", `selector "preset:" is malformed`},
 		{"trailing comma", "preset:none,", `selector "" is malformed`},
 		{"whitespace in name", "tool:x k8s", `selector "tool:x k8s" is malformed`},
-		{"too many", strings.Join(tooMany, ","), "has 33 selectors, more than the 32 allowed inline; define a preset"},
+		{"too many", strings.Join(tooMany, ","), "has 129 selectors, more than the 128 allowed inline; define a preset"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -66,4 +66,31 @@ func TestParseInline_NamesAreCaseSensitiveAndMayContainColons(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "X_K8s_Get", ts.Selectors[0].Name)
 	assert.Equal(t, "ns:name", ts.Selectors[1].Name)
+}
+
+func TestParseInline_EncodedByteLimit(t *testing.T) {
+	for _, testCase := range []struct {
+		name      string
+		selectors []string
+		wantBytes int
+	}{
+		{"at limit", []string{"tool:" + strings.Repeat("x", 8187)}, 8192},
+		{"over limit", []string{"tool:" + strings.Repeat("x", 8188)}, 8193},
+		{"commas count", []string{"tool:" + strings.Repeat("x", 8181), "tool:x"}, 8193},
+		{"UTF-8 at limit", []string{"tool:" + strings.Repeat("é", 4093) + "x"}, 8192},
+		{"UTF-8 over limit", []string{"tool:" + strings.Repeat("é", 4094)}, 8193},
+		{"whitespace trimmed", []string{"  tool:" + strings.Repeat("x", 8187) + "  "}, 8192},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, inlineError := ParseInline(testCase.selectors)
+			_, headerError := ParseHeader(strings.Join(testCase.selectors, ","))
+			for _, err := range []error{inlineError, headerError} {
+				if testCase.wantBytes <= 8192 {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, fmt.Sprintf("encodes to %d bytes, more than the 8192 allowed inline", testCase.wantBytes))
+				}
+			}
+		})
+	}
 }

@@ -4,14 +4,15 @@ concept: "mcpserver"
 description: |
   The sign-in check is as strong as the weakest connector it signs in
   through, so it uses a session's connector only when the operator lists it
-  in dex.identityCheckConnectors. A session from an unlisted connector is
-  checked through muster's configured connector, as before, and its subject
-  cannot match there.
+  in dex.identityCheckConnectors. A session from an unlisted connector would
+  be checked through muster's configured connector, where its subject cannot
+  match, so muster issues it no sign-in link at all.
 
   1. Alice's forwarded token was issued through ldap; muster's connector is
      github and only azure-ad is allowed for the check.
-  2. Alice signing in at the check is sent to github, gets another subject
-     and is refused.
+  2. core_auth_login answers a tool error naming the reason, with no link.
+  3. A tool call of the server answers auth_required with the same reason
+     and no link.
 tags: ["oauth", "authentication", "security", "token-forwarding", "mcpserver"]
 timeout: "3m"
 
@@ -80,20 +81,26 @@ steps:
       success: true
       wait_for_state: "30s"
 
-  - id: alice-signs-in
-    description: "Alice signs in at the check as herself; muster sends her to github, not ldap, so her subject does not match"
-    tool: "test_simulate_oauth_callback"
-    args:
-      server: "connector"
-      signed_in_with_user: "alice"
+  - id: alice-is-refused-a-link
+    description: "No browser can pass the check for Alice's session, so no link is issued"
+    tool: "core_auth_login"
+    args: {server: "connector"}
     expected:
       success: false
       contains:
-        - "different account or login method"
+        - "Cannot sign in to 'connector'"
+        - "cannot confirm that you are the person signing in"
+      not_contains:
+        - "/oauth/proxy/start"
 
   - id: alice-still-signed-out
+    description: "A gated call answers auth_required with the refusal and no link"
     tool: "x_connector_get_me"
     args: {}
     expected:
       success: false
-      error_contains: ["auth_required"]
+      error_contains:
+        - "auth_required"
+        - "cannot confirm that you are the person signing in"
+      not_contains:
+        - "/oauth/proxy/start"

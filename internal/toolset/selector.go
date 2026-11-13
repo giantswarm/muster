@@ -11,7 +11,10 @@ const HeaderName = "X-Muster-Toolset"
 
 // MaxInlineSelectors caps the number of selectors a toolset may carry inline
 // (in the header or the filter_tools argument). Larger selections are presets.
-const MaxInlineSelectors = 32
+const MaxInlineSelectors = 128
+
+// MaxInlineBytes leaves room for authentication in an HTTP/2 header list.
+const MaxInlineBytes = 8 << 10
 
 // Inline selector kinds.
 const (
@@ -90,6 +93,13 @@ func ParseInline(list []string) (Toolset, error) {
 	if len(ts.Raw) > MaxInlineSelectors {
 		return Toolset{}, fmt.Errorf("toolset %s has %d selectors, more than the %d allowed inline; define a preset",
 			ts, len(ts.Raw), MaxInlineSelectors)
+	}
+	encodedBytes := len(ts.Raw) - 1
+	for _, raw := range ts.Raw {
+		encodedBytes += len(raw)
+	}
+	if encodedBytes > MaxInlineBytes {
+		return Toolset{}, fmt.Errorf("toolset encodes to %d bytes, more than the %d allowed inline; define a preset", encodedBytes, MaxInlineBytes)
 	}
 	for _, raw := range ts.Raw {
 		kind, name, hasColon := strings.Cut(raw, ":")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"sync"
 	"time"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -55,9 +56,10 @@ func (a *AggregatorServer) registerAuthStatusResource() {
 // The MCPServer CRD State only reflects infrastructure state (Running/Connected/Failed/etc.),
 // while this resource shows the per-user state.
 //
-// Note: SSO connections for servers with forwardToken: true are established on demand
-// when the user first accesses tools, not during auth status reads.
-// This ensures auth://status is a pure read operation without side effects.
+// The read starts no SSO connect: a server that forwards or exchanges the
+// person's token connects when its tools are first used. It does connect the
+// session to a subject-scoped server whose grant the person already holds, as
+// a listing does, so that server is reported connected.
 func (a *AggregatorServer) handleAuthStatusResource(ctx context.Context, request mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 	response := a.sessionAuthStatus(ctx)
 	data, err := json.Marshal(response)
@@ -104,8 +106,15 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 		}
 	}
 	suspended := suspendedServers(ctx, servers)
+	// Evaluated only for a server awaiting a grant: the check logs every
+	// refusal, and most reads have none to report.
+	signInRefusal := sync.OnceValue(func() error { return api.SignInCheckRefusal(ctx) })
 	if hasSession {
 		a.awaitGrantAdoptions(ctx, sessionID, servers)
+		// A grant the person completed after the session's start, through
+		// another server of the same issuer or another session, connects the
+		// session as a listing would, so the status reports it connected.
+		a.adoptSubjectGrants(ctx, sessionID, sub)
 	}
 	response := pkgoauth.AuthStatusResponse{
 		Servers:      make([]pkgoauth.ServerAuthStatus, 0, len(servers)),
@@ -162,8 +171,14 @@ func (a *AggregatorServer) sessionAuthStatus(ctx context.Context) pkgoauth.AuthS
 			// core_auth_login refuses SSO servers in every state, so it is
 			// only advertised where it can succeed: an SSO server's
 			// reauth_required is fixed by re-authenticating to muster.
+			// A sign-in the check cannot pass for this session is refused by
+			// core_auth_login, so none is advertised and error says why.
 			if status.Kind == pkgoauth.ServerAuthKindGrant {
-				status.AuthTool = "core_auth_login"
+				if refusal := signInRefusal(); refusal != nil {
+					status.Error = signInCheckRefusedMessage(name, refusal)
+				} else {
+					status.AuthTool = "core_auth_login"
+				}
 			}
 		}
 

@@ -40,18 +40,14 @@ func (p *AuthToolProvider) grantDeviceCodeApp(ctx context.Context, sessionID, su
 		}
 	}
 	if err := a.providerApps.pin(ctx, app.Name); err != nil {
-		if a.authMetrics != nil {
-			a.authMetrics.RecordLoginFailure(flow, sub, "authorization_server_pin_failed")
-		}
+		recordLoginFailure(ctx, a.authMetrics, flow, sub, "authorization_server_pin_failed")
 		return &api.CallToolResult{Content: []any{fmt.Sprintf("Cannot grant provider App '%s': %v", app.Name, err)}, IsError: true}
 	}
 	code, err := a.deviceSignIns.start(ctx, sub, app, func(token *pkgoauth.Token) {
 		a.fileDeviceCodeGrant(sessionID, sub, app, token)
 	})
 	if err != nil {
-		if a.authMetrics != nil {
-			a.authMetrics.RecordLoginFailure(flow, sub, "device_code_request_failed")
-		}
+		recordLoginFailure(ctx, a.authMetrics, flow, sub, "device_code_request_failed")
 		return &api.CallToolResult{
 			Content:           []any{fmt.Sprintf("Cannot connect provider App '%s': %v", app.Name, err)},
 			IsError:           true,

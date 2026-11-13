@@ -130,8 +130,9 @@ func listChangedFilter(capabilities mcp.ServerCapabilities) mcp.SubscriptionFilt
 // doubles up to listChangedRetryMax. What the backend changed while the
 // stream was down reached nobody, and a stream drops when another process
 // takes over behind the address, so once the backend acknowledges the
-// reopened stream the OnSessionRecovered handler is told, as after a
-// recovered 2025-11-25 session. A client in listen mode holds its own stream,
+// reopened stream the client runs server/discover again (rediscover) and the
+// OnSessionRecovered handler is told, as after a recovered 2025-11-25
+// session. A client in listen mode holds its own stream,
 // and an earlier revision delivers notifications without one. Caller holds
 // b.mu for writing, after recordHandshake.
 func (b *baseMCPClient) startListChangedStream(mcpClient *client.Client, server string) {
@@ -170,5 +171,48 @@ func (b *baseMCPClient) stopListChangedStream() {
 	if b.stopListChanged != nil {
 		b.stopListChanged()
 		b.stopListChanged = nil
+	}
+}
+
+// rediscover runs server/discover on a 2026-07-28 connection whose reopened
+// list-changes stream was acknowledged, and records the result as the
+// connection's handshake: the process now behind the address may declare
+// another serverInfo. The OnSessionRecovered handler is told afterwards,
+// also when the discover failed.
+func (b *baseMCPClient) rediscover() {
+	defer b.notifyRecovered()
+
+	b.mu.RLock()
+	current := b.client
+	protocolVersion := b.negotiatedProtocolVersion
+	b.mu.RUnlock()
+	discoverer, ok := current.(interface {
+		Discover(context.Context, mcp.DiscoverRequest) (*mcp.DiscoverResult, error)
+	})
+	if !ok {
+		return
+	}
+
+	ctx, cancel, _ := b.operationContext(context.Background())
+	defer cancel()
+	result, err := discoverer.Discover(ctx, mcp.DiscoverRequest{})
+	if err != nil {
+		logging.Debug("MCPClient", "server/discover after the list-changes stream reopened failed: %v", err)
+		return
+	}
+
+	handshake := &mcp.InitializeResult{
+		ProtocolVersion: protocolVersion,
+		Capabilities:    result.Capabilities,
+		Instructions:    result.Instructions,
+	}
+	if info := result.GetResultMeta().ServerInfo(); info != nil {
+		handshake.ServerInfo = *info
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.connected && b.client == current {
+		b.recordHandshake(handshake)
 	}
 }

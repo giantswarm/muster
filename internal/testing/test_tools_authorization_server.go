@@ -96,7 +96,7 @@ func (h *TestToolsHandler) handlePinMCPServerAuthorizationServer(ctx context.Con
 		if !ok {
 			return nil, fmt.Errorf("issuer_ref names no mock OAuth server: %q", issuerRef)
 		}
-		pin = map[string]interface{}{"issuer": issuer.IssuerURL}
+		pin = map[string]interface{}{keyIssuer: issuer.IssuerURL}
 		if scopes, _ := args["scopes"].(string); scopes != "" {
 			pin["scopes"] = scopes
 		}

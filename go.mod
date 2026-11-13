@@ -15,7 +15,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/giantswarm/go-selfupdate v1.7.7
-	github.com/giantswarm/mcp-oauth v1.13.5
+	github.com/giantswarm/mcp-oauth v1.13.10
 	github.com/giantswarm/mcp-toolkit v0.5.3
 	github.com/giantswarm/pagekit v0.3.8
 	github.com/go-jose/go-jose/v4 v4.1.9
@@ -24,7 +24,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/itchyny/gojq v0.12.20
 	github.com/jedib0t/go-pretty/v6 v6.8.3
-	github.com/mark3labs/mcp-go v1.5.1-0.20261109144041-2f5b9637ea84
+	github.com/mark3labs/mcp-go v1.5.1-0.20261112150913-5968243dcce1
 	github.com/mark3labs/mcp-go/otel v0.54.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1

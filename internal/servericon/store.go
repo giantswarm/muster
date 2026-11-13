@@ -52,13 +52,6 @@ var defaultStore = newStore(newFetcher(publicAddr, nil))
 // resolved in the background. Never blocks on the network.
 func Record(key string, impl mcp.Implementation) { defaultStore.Record(key, impl) }
 
-// RecordClient records the server info of a client that exposes it.
-func RecordClient(key string, client any) {
-	if c, ok := client.(interface{ ServerImplementation() mcp.Implementation }); ok {
-		Record(key, c.ServerImplementation())
-	}
-}
-
 // Lookup returns the server's icon, "" when it sent no usable one; ok is
 // false while muster has not learned it.
 func Lookup(key string) (string, bool) { return defaultStore.Lookup(key) }

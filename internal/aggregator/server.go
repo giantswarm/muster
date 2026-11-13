@@ -23,7 +23,6 @@ import (
 	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 	"github.com/giantswarm/muster/v5/internal/server"
-	"github.com/giantswarm/muster/v5/internal/servericon"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 	"github.com/giantswarm/muster/v5/pkg/observability"
@@ -1409,6 +1408,9 @@ func (a *AggregatorServer) RegisterServer(ctx context.Context, registration Serv
 	a.observeSharedRecovery(registration.Name, client)
 
 	if err := a.registry.Register(ctx, registration, client); err != nil {
+		if observer, ok := client.(sessionRecoveryObserver); ok {
+			observer.OnSessionRecovered(nil)
+		}
 		return err
 	}
 	a.reconnects.settled(registration.Name)
@@ -1772,17 +1774,20 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 
 	var oauthHTTPServer oauthServer
 	var browserIdentity api.BrowserIdentity
+	var sessionSubjects api.SessionSubjectResolver
 	inner, err := server.NewOAuthHTTPServer(cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
 	if err != nil {
 		logging.Warn("Aggregator", "OIDC discovery failed at startup, starting in degraded mode (OAuth unavailable until Dex recovers): %v", err)
 		lazy := server.NewLazyOAuthHTTPServer(a.ctx, cfg, mcpHandler, a.config.Debug, a.ssoLifecycleOptions()...)
-		oauthHTTPServer, browserIdentity = lazy, lazy
+		oauthHTTPServer, browserIdentity, sessionSubjects = lazy, lazy, lazy
 	} else {
-		oauthHTTPServer, browserIdentity = inner, inner
+		oauthHTTPServer, browserIdentity, sessionSubjects = inner, inner, inner
 	}
 	// The OAuth proxy start endpoint checks with it that the person signing
 	// in to a server is the person the sign-in was started for.
 	api.RegisterBrowserIdentity(browserIdentity)
+	// The token broker releases a grant by the subject it was filed under.
+	api.RegisterSessionSubjectResolver(sessionSubjects)
 
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer
@@ -3593,6 +3598,7 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName string) 
 		return
 	}
 
+	a.recordHandshakes(serverName, client)
 	if err := client.Initialize(ctx); err != nil {
 		_ = client.Close()
 		logging.WarnWithAttrs("Aggregator", "Background refresh: client init failed",
@@ -3601,7 +3607,6 @@ func (a *AggregatorServer) backgroundTokenRefresh(sessionID, serverName string) 
 			slog.String("error", err.Error()))
 		return
 	}
-	servericon.RecordClient(serverName, client)
 
 	if a.connPool != nil {
 		a.connPool.PutWithDeferredClose(sessionID, serverName, client, tokenExpiry, deferredCloseDelay)
@@ -3839,6 +3844,9 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 	view := api.CallerVisibility(ctx)
 
 	var authRequired []api.ServerAuthInfo
+	// Evaluated only for a server awaiting a sign-in: the check logs every
+	// refusal.
+	signInRefusal := sync.OnceValue(func() error { return api.SignInCheckRefusal(ctx) })
 
 	for name, info := range servers {
 		if !needsManualLogin(info) || info.IsDown() || !view.Sees(name) {
@@ -3852,13 +3860,20 @@ func (a *AggregatorServer) ListServersRequiringAuth(ctx context.Context) []api.S
 			}
 		}
 
-		authRequired = append(authRequired, api.ServerAuthInfo{
+		entry := api.ServerAuthInfo{
 			Name:       name,
 			Status:     "auth_required",
 			AuthTool:   "core_auth_login",
 			ToolPrefix: a.registry.ExposedToolPrefix(name),
 			Family:     a.registry.GroupedFamily(name),
-		})
+		}
+		// core_auth_login refuses a sign-in the check cannot pass, so it is
+		// not advertised for one.
+		if refusal := signInRefusal(); refusal != nil {
+			entry.AuthTool = ""
+			entry.Error = signInCheckRefusedMessage(name, refusal)
+		}
+		authRequired = append(authRequired, entry)
 	}
 
 	logging.DebugWithAttrs("Aggregator", "ListServersRequiringAuth",

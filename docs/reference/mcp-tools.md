@@ -36,7 +36,8 @@ the request's [toolset](toolsets.md)), `truncated` (more tools exist beyond this
 them with `offset` + `limit`), `filtered_count` (entries in this page), `filters` (the `limit`
 and `offset` applied), `toolset` (the request's `X-muster-Toolset` selectors when it declared
 one) and `servers_requiring_auth` (the servers a `core_auth_login` would unlock; neither paged
-nor narrowed by a toolset). A client that wants every tool — the `muster`
+nor narrowed by a toolset). An entry with no `auth_tool` and an `error` is a sign-in that cannot
+pass for this session (see `core_auth_status`): show the `error`, do not call `core_auth_login`. A client that wants every tool — the `muster`
 CLI and REPL listings do — pages until `truncated` is `false`, or asks for a large `limit`.
 
 Use `list_tools` for a bounded look at what is there; use `filter_tools` to *find* a tool and
@@ -100,9 +101,9 @@ through `call_tool`, and only through `call_tool`.
 
 The response carries `total` (matches across the caller's catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present), the owning `server` (omitted for workflows and core tools), the `kind` (`tool` | `workflow` | `core`) and the tool's `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` as the server declared them; for a workflow the derived `readOnlyHint` when every step tool is read-only; omitted when none). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it — it carries the same `server`, `kind` and `annotations`.
 
-It also carries `servers_requiring_auth` when a sign-in would unlock a server whose tools the `pattern` could match once they are listed — every such server without a pattern; with `x_slack_*`, the `slack` server alone — each with `name`, `status`, `auth_tool` (`core_auth_login`), `tool_prefix` and, for a family member, `family`, as `list_tools` reports them. Neither the toolset (`toolset_requiring_auth`, see [Toolsets](toolsets.md)) nor the other filters narrow it, and it is not paged. A tool you cannot find may be one of theirs: an agent that filters for `*slack*` before the person has signed in to Slack gets no tool and `servers_requiring_auth: [{"name": "slack", "auth_tool": "core_auth_login", …}]`, and calls `core_auth_login` with `server: slack`.
+It also carries `servers_requiring_auth` when a sign-in would unlock a server whose tools the `pattern` could match once they are listed — every such server without a pattern; with `x_slack_*`, the `slack` server alone — each with `name`, `status`, `auth_tool` (`core_auth_login`, or `error` instead when the sign-in cannot pass for this session), `tool_prefix` and, for a family member, `family`, as `list_tools` reports them. Neither the toolset (`toolset_requiring_auth`, see [Toolsets](toolsets.md)) nor the other filters narrow it, and it is not paged. A tool you cannot find may be one of theirs: an agent that filters for `*slack*` before the person has signed in to Slack gets no tool and `servers_requiring_auth: [{"name": "slack", "auth_tool": "core_auth_login", …}]`, and calls `core_auth_login` with `server: slack`.
 
-When the request declares a toolset (`X-muster-Toolset` header), every discovery meta-tool reads the catalogue intersected with it, `call_tool` refuses anything outside it (`tool "<name>" is outside the toolset [<selectors>]`), and an invalid toolset (empty, unknown preset, reserved `toolset:`, inline `label:`, more than 32 selectors, malformed) is an error result on every meta-tool call. Without the header nothing changes.
+When the request declares a toolset (`X-muster-Toolset` header), every discovery meta-tool reads the catalogue intersected with it, `call_tool` refuses anything outside it (`tool "<name>" is outside the toolset [<selectors>]`), and an invalid toolset (empty, unknown preset, reserved `toolset:`, inline `label:`, more than 128 selectors, more than 8192 UTF-8 bytes joined by commas, malformed) is an error result on every meta-tool call. Without the header nothing changes.
 
 ```bash
 # Rank workflows by intent instead of guessing a pattern
@@ -267,12 +268,22 @@ sign-in) reads the person's state on every server in one call. The answer is the
   `spec.auth.authorizationServer.grantScope` is `subject` for a pinned issuer, or, for a
   discovered issuer, once muster knows the issuer and its pin is subject-scoped; `session` (the
   session that completed it) otherwise, among them a discovered issuer that is not known yet or
-  that an operator's session-scoped pin describes;
+  that an operator's session-scoped pin describes. A `subject` server whose issuer the person
+  already holds a grant for is connected by the read and reported `connected`, whichever server's
+  sign-in or session created the grant, as a listing connects it;
 - `auth_url`, with `auth_urls: true`, for every `grant` server in `auth_required` or
   `reauth_required` that is not suspended: the link `core_auth_login` would issue for it, with the
   same expiry and the same `redirect` parameter on `/oauth/proxy/start`. A server whose grant the
   person already holds is connected by the call and reported `connected`; one the login refuses
   carries the reason in `error`.
+
+A `grant` server or a provider App in `auth_required` or `reauth_required` with no `auth_tool` and
+an `error` is a sign-in that cannot pass for this session (`list_tools` and `filter_tools` report it
+the same way in `servers_requiring_auth`): muster's sign-in check cannot confirm
+the person for it (their login method is not one the check may use, or their session comes from
+another identity provider). Every read reports it, with or without `auth_urls`, and no link is
+issued; `error` is worded for the person (`Cannot sign in to '<server>': <reason>.`) and is meant
+to be shown as is. It is decided per request, so another session of the person may still sign in.
 
 Issuing the links counts as one authentication attempt for the rate limit. Each link is a bearer
 link for the caller's session: show it to the person only.

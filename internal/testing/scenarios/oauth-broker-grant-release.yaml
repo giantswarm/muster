@@ -63,6 +63,9 @@ pre_configuration:
     grant_targets:
       github:
         oauth_server_ref: "github-idp"
+        # The portal's tokens come from another issuer than muster's own,
+        # which a grant target accepts only when it lists it.
+        subject_issuer_refs: ["portal-idp"]
 
   mcp_servers:
     - name: "github-style"

@@ -113,8 +113,12 @@ type ServerAuthInfo struct {
 	Name string `json:"name"`
 	// Status is the current auth status (typically "auth_required")
 	Status string `json:"status"`
-	// AuthTool is the tool to use for authentication (typically "core_auth_login")
-	AuthTool string `json:"auth_tool"`
+	// AuthTool is the tool to use for authentication ("core_auth_login");
+	// empty when the sign-in cannot pass for the caller's session.
+	AuthTool string `json:"auth_tool,omitempty"`
+	// Error says why the caller's session cannot sign in to the server,
+	// worded for the person; set exactly when AuthTool is empty.
+	Error string `json:"error,omitempty"`
 	// ToolPrefix is the exposed prefix of the server's tools (x_<server>_,
 	// or x_<family>_ for a member of a family whose tools are grouped), so a
 	// caller can tell which tool names the sign-in would unlock before the

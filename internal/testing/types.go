@@ -142,12 +142,24 @@ type TestScenario struct {
 }
 
 // InstanceLogExpectation defines what the captured muster serve output must and
-// must not contain once the scenario has run. At least one list must be set.
+// must not contain or match once the scenario has run. At least one list must
+// be set.
 type InstanceLogExpectation struct {
 	// Contains lists substrings the combined stdout+stderr must include.
 	Contains []string `yaml:"contains,omitempty"`
 	// NotContains lists substrings the combined stdout+stderr must not include.
 	NotContains []string `yaml:"not_contains,omitempty"`
+	// NotMatches lists RE2 regular expressions no part of the combined
+	// stdout+stderr may match: a credential asserted absent by its shape (a
+	// JWT is two dot-joined base64url JSON segments) rather than by a prefix
+	// any random identifier can contain.
+	NotMatches []string `yaml:"not_matches,omitempty"`
+	// NotContainsIssuedCredentials asserts that no credential the scenario's
+	// mock OAuth servers handed out (authorization codes, access, refresh and
+	// ID tokens, minted tokens, DCR registration tokens) and not the harness's
+	// own bearer appears verbatim in the combined stdout+stderr: an exact
+	// check for opaque credentials a shape cannot describe.
+	NotContainsIssuedCredentials bool `yaml:"not_contains_issued_credentials,omitempty"`
 	// Occurrences maps a substring to the exact number of lines of the
 	// combined stdout+stderr that must contain it. It is the assertion for
 	// behaviour that has to happen once and only once -- a lifecycle action
@@ -181,6 +193,11 @@ type MusterPreConfiguration struct {
 	// JWT mode (muster signs issued tokens) plus the trusted issuers whose
 	// subject/actor tokens the exchange validates.
 	MusterBroker *MusterBrokerConfig `yaml:"muster_broker,omitempty"`
+
+	// ProviderApps configures aggregator.providerApps, each App backed by a
+	// mock OAuth server: its issuer, /authorize and /token endpoints and
+	// client_id. A person grants an App with core_auth_login app=<name>.
+	ProviderApps []ProviderAppTestConfig `yaml:"provider_apps,omitempty"`
 
 	// Storage selects the store backend the instance runs on. Absent means
 	// memory: every store dies with the process. See StorageConfig.
@@ -268,6 +285,19 @@ type BrokerClientTestConfig struct {
 // target releases grants from.
 type BrokerGrantTargetConfig struct {
 	OAuthServerRef string `yaml:"oauth_server_ref"`
+
+	// SubjectIssuerRefs name the mock OAuth servers whose subject tokens
+	// may release the grant (tokenExchangeBroker.targets.<audience>.
+	// subjectIssuers). Empty keeps muster's default: its own issuer.
+	SubjectIssuerRefs []string `yaml:"subject_issuer_refs,omitempty"`
+}
+
+// ProviderAppTestConfig is one provider App of a test instance, backed by a
+// mock OAuth server.
+type ProviderAppTestConfig struct {
+	Name           string `yaml:"name"`
+	OAuthServerRef string `yaml:"oauth_server_ref"`
+	Scopes         string `yaml:"scopes,omitempty"`
 }
 
 // BrokerTrustedIssuerConfig references a mock OAuth server as a trusted issuer for

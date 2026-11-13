@@ -32,6 +32,7 @@ import (
 
 const (
 	keyEnabled = "enabled"
+	keyIssuer  = "issuer"
 	// Keys of the CR-shaped definitions the harness renders.
 	keyAPIVersion = "apiVersion"
 	keyMetadata   = "metadata"
@@ -1592,6 +1593,8 @@ func (m *musterInstanceManager) stopMockHTTPServers(ctx context.Context, instanc
 // configureOAuthForInstance configures OAuth proxy and server settings for a test instance.
 // This is extracted from generateConfigFilesWithMocks for readability.
 // Uses the consolidated OAuth config structure: oauth.mcpClient + oauth.server
+// A muster_broker or provider_apps section it cannot render fails the
+// scenario's setup instead of starting muster without it.
 func (m *musterInstanceManager) configureOAuthForInstance(
 	aggregatorConfig map[string]interface{},
 	config *MusterPreConfiguration,
@@ -1599,7 +1602,7 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	instanceID string,
 	musterConfigPath string,
 	logger TestLogger,
-) {
+) error {
 	// Build OAuth MCP client/proxy config - this allows muster to handle OAuth flows for protected MCP servers
 	oauthMCPClientConfig := map[string]interface{}{
 		keyEnabled:     true,
@@ -1645,13 +1648,23 @@ func (m *musterInstanceManager) configureOAuthForInstance(
 	if config.MusterBroker != nil {
 		serverConfig, ok := oauthConfig["server"].(map[string]interface{})
 		if !ok {
-			logger.Debug("⚠️  muster_broker set but no mock OAuth server uses use_as_muster_oauth_server; broker not configured\n")
-		} else if err := m.applyBrokerConfig(serverConfig, config, port, instanceID, musterConfigPath, logger); err != nil {
-			logger.Debug("⚠️  Failed to configure muster broker: %v\n", err)
+			return fmt.Errorf("muster_broker needs a mock OAuth server with use_as_muster_oauth_server")
+		}
+		if err := m.applyBrokerConfig(serverConfig, config, port, instanceID, musterConfigPath, logger); err != nil {
+			return fmt.Errorf("configure muster_broker: %w", err)
 		}
 	}
 
 	aggregatorConfig["oauth"] = oauthConfig
+
+	if len(config.ProviderApps) > 0 {
+		apps, err := m.providerAppsConfig(instanceID, config)
+		if err != nil {
+			return fmt.Errorf("configure provider_apps: %w", err)
+		}
+		aggregatorConfig["providerApps"] = apps
+	}
+	return nil
 }
 
 // collectAndWriteCACertificates collects CA certificates from all TLS-enabled OAuth servers
@@ -1756,7 +1769,7 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		"dex":      dexConfig,
 		"storage":  map[string]interface{}{"type": "memory"},
 		"trustedIssuers": []map[string]interface{}{{
-			"issuer": issuerURL, "jwksUrl": issuerURL + "/jwks", "allowPrivateIPJWKS": true,
+			keyIssuer: issuerURL, "jwksUrl": issuerURL + "/jwks", "allowPrivateIPJWKS": true,
 		}},
 		"allowLocalhostRedirectURIs":    true,
 		"allowPublicClientRegistration": true, // Allow dynamic client registration for testing
@@ -1795,7 +1808,9 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 
 	// Configure OAuth if mock OAuth servers are defined
 	if config != nil && len(config.MockOAuthServers) > 0 {
-		m.configureOAuthForInstance(aggregatorConfig, config, port, instanceID, musterConfigPath, logger)
+		if err := m.configureOAuthForInstance(aggregatorConfig, config, port, instanceID, musterConfigPath, logger); err != nil {
+			return err
+		}
 	}
 
 	// Point every backed store at the instance's Valkey stand-in when the
@@ -1964,7 +1979,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							// The pin opts out of RFC 9728 discovery, so the scope the
 							// backend requires has to travel with it.
 							authorizationServer := map[string]interface{}{
-								"issuer": oauthServer.GetIssuerURL() + pin.IdentityPath,
+								keyIssuer: oauthServer.GetIssuerURL() + pin.IdentityPath,
 							}
 							if pin.ExpectedIssuerRef != "" {
 								if !expectedIssuerFound {
@@ -1991,7 +2006,7 @@ func (m *musterInstanceManager) generateConfigFilesWithMocks(configPath string, 
 							authConfig["authorizationServer"] = authorizationServer
 							if m.debug {
 								logger.Debug("🔐 Pinning authorization server %s (grantScope=%q, endpoints from %q, expectedIssuer=%v) for MCPServer %s\n",
-									authorizationServer["issuer"], grantScope, endpointsRef, authorizationServer["expectedIssuer"], mcpServer.Name)
+									authorizationServer[keyIssuer], grantScope, endpointsRef, authorizationServer["expectedIssuer"], mcpServer.Name)
 							}
 						}
 
