@@ -1101,6 +1101,14 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	}
 	defer cancel()
 
+	// The serverInfo of every handshake, a recovered session's included,
+	// reaches status.icon. The client is closed with the service, after
+	// which it completes no handshake.
+	if observer, ok := client.(mcpserver.HandshakeObserver); ok {
+		name := s.GetName()
+		observer.OnHandshake(func(impl mcp.Implementation) { servericon.Record(name, impl) })
+	}
+
 	// Initialize the client
 	if err := client.Initialize(initCtx); err != nil {
 		// Check if this is an authentication required error. errors.As walks
@@ -1116,7 +1124,6 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 	}
 
 	s.client = client
-	servericon.RecordClient(s.GetName(), client)
 	s.LogDebug("%s MCP client initialized successfully for %s", s.definition.Type, s.GetName())
 	return nil
 }

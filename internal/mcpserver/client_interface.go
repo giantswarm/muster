@@ -48,12 +48,27 @@ type MCPClient interface {
 	ServerCapabilities() mcp.ServerCapabilities
 }
 
+// HandshakeObserver is implemented by every client of this package: its
+// owner learns the server info of each handshake the client records.
+type HandshakeObserver interface {
+	// OnHandshake registers a handler called with the serverInfo of every
+	// handshake the client completes: the first, each one after a lost
+	// session, and the server/discover that follows a reopened list-changes
+	// stream. It runs with the client locked, so it must not use the client.
+	OnHandshake(handler func(mcp.Implementation))
+}
+
 // Compile-time interface compliance checks
 var (
 	_ MCPClient = (*StdioClient)(nil)
 	_ MCPClient = (*SSEClient)(nil)
 	_ MCPClient = (*StreamableHTTPClient)(nil)
 	_ MCPClient = (*DynamicAuthClient)(nil)
+
+	_ HandshakeObserver = (*StdioClient)(nil)
+	_ HandshakeObserver = (*SSEClient)(nil)
+	_ HandshakeObserver = (*StreamableHTTPClient)(nil)
+	_ HandshakeObserver = (*DynamicAuthClient)(nil)
 )
 
 // baseMCPClient provides common functionality for all MCP client implementations.
@@ -70,7 +85,6 @@ type baseMCPClient struct {
 	// records them here as it completes the handshake (recordHandshake).
 	negotiatedProtocolVersion string
 	serverCapabilities        mcp.ServerCapabilities
-	serverInfo                mcp.Implementation
 
 	// Session recovery, see client_session_recovery.go. reconnect is set by
 	// the transports whose backend keeps an MCP session (streamable-http); it
@@ -114,6 +128,9 @@ type baseMCPClient struct {
 	// lost MCP session was re-established by a fresh handshake
 	// (OnSessionRecovered).
 	recoveredHandler func()
+	// handshakeHandler is told the serverInfo of every handshake
+	// recordHandshake keeps (OnHandshake).
+	handshakeHandler func(mcp.Implementation)
 
 	// progress routes the server's notifications/progress to the callers of
 	// the tool calls in flight (see progress.go).
@@ -145,6 +162,14 @@ type baseMCPClient struct {
 func (b *baseMCPClient) OnSessionRecovered(handler func()) {
 	b.notifMu.Lock()
 	b.recoveredHandler = handler
+	b.notifMu.Unlock()
+}
+
+// OnHandshake registers the handler told the serverInfo of every handshake
+// the client records (see HandshakeObserver).
+func (b *baseMCPClient) OnHandshake(handler func(mcp.Implementation)) {
+	b.notifMu.Lock()
+	b.handshakeHandler = handler
 	b.notifMu.Unlock()
 }
 
@@ -213,12 +238,18 @@ func (b *baseMCPClient) closeClient() error {
 	return err
 }
 
-// recordHandshake keeps what the server answered the initialize with. Called
-// by each transport with mu held for writing, as it completes the handshake.
+// recordHandshake keeps what the server answered the initialize with and
+// hands its serverInfo to the OnHandshake handler. Called by each transport
+// with mu held for writing, as it completes the handshake.
 func (b *baseMCPClient) recordHandshake(result *mcp.InitializeResult) {
 	b.negotiatedProtocolVersion = result.ProtocolVersion
 	b.serverCapabilities = result.Capabilities
-	b.serverInfo = result.ServerInfo
+	b.notifMu.Lock()
+	handler := b.handshakeHandler
+	b.notifMu.Unlock()
+	if handler != nil {
+		handler(result.ServerInfo)
+	}
 }
 
 // clearHandshake forgets the last initialize result: the connection it
@@ -229,7 +260,6 @@ func (b *baseMCPClient) clearHandshake() {
 	b.legacyBackend = false
 	b.negotiatedProtocolVersion = ""
 	b.serverCapabilities = mcp.ServerCapabilities{}
-	b.serverInfo = mcp.Implementation{}
 }
 
 // NegotiatedProtocolVersion returns the MCP revision the server answered with
@@ -254,18 +284,6 @@ func (b *baseMCPClient) ServerCapabilities() mcp.ServerCapabilities {
 		return mcp.ServerCapabilities{}
 	}
 	return b.serverCapabilities
-}
-
-// ServerImplementation returns the serverInfo of the initialize result
-// (name, version, icons), or the zero value when the client is not connected.
-func (b *baseMCPClient) ServerImplementation() mcp.Implementation {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
-
-	if !b.connected {
-		return mcp.Implementation{}
-	}
-	return b.serverInfo
 }
 
 // listTools returns all available tools from the server
@@ -461,9 +479,10 @@ func (b *baseMCPClient) wireNotificationHandler() {
 	}
 }
 
-// dispatchNotification routes progress to the call it belongs to, tells the
-// OnSessionRecovered handler when a reopened list-changes stream is
-// acknowledged, and passes every other notification to the stored handler.
+// dispatchNotification routes progress to the call it belongs to, re-reads
+// the server's discover result and tells the OnSessionRecovered handler when
+// a reopened list-changes stream is acknowledged (rediscover), and passes
+// every other notification to the stored handler.
 func (b *baseMCPClient) dispatchNotification(notification mcp.JSONRPCNotification) {
 	if notification.Method == string(mcp.MethodNotificationProgress) {
 		b.progress.route(notification)
@@ -471,7 +490,7 @@ func (b *baseMCPClient) dispatchNotification(notification mcp.JSONRPCNotificatio
 	}
 
 	if notification.Method == mcp.MethodNotificationSubscriptionsAcknowledged && b.resyncOnListening.CompareAndSwap(true, false) {
-		b.notifyRecovered()
+		go b.rediscover()
 	}
 
 	b.notifMu.Lock()
