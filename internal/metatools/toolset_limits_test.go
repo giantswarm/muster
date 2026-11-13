@@ -59,3 +59,18 @@ func TestToolsetLimitsAcrossSources(t *testing.T) {
 		})
 	}
 }
+
+func TestToolsetSchemaDeclaresParserLimit(t *testing.T) {
+	for _, definition := range NewProvider().GetTools() {
+		if definition.Name != "filter_tools" {
+			continue
+		}
+		for _, argument := range definition.Args {
+			if argument.Name == "toolset" {
+				require.Equal(t, toolset.MaxInlineSelectors, argument.Schema["maxItems"])
+				return
+			}
+		}
+	}
+	t.Fatal("filter_tools has no toolset argument")
+}

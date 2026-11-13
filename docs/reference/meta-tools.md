@@ -237,10 +237,11 @@ A tool you cannot find may sit behind a sign-in: servers_requiring_auth names ea
       "type": "string"
     },
     "toolset": {
-      "description": "Toolset selectors to resolve for you: preset:<name>, server:<name>, workflow:<name>, tool:<name>, at most 32; never wider than X-Muster-Toolset",
+      "description": "Resolve preset:<name>, server:<name>, workflow:<name> or tool:<name>; 128 selectors, 8192 UTF-8 bytes with commas; within X-Muster-Toolset",
       "items": {
         "type": "string"
       },
+      "maxItems": 128,
       "type": "array"
     }
   },

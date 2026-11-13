@@ -66,6 +66,13 @@ by name (`tool:core_workflow_list` inline, `pattern: core_*` in a preset) and th
 annotations (the built-in `read-only` preset includes the read-only core tools). There is no
 `core` pseudo-server.
 
+Muster's inline parser owns the runtime limits; `filter_tools` publishes its selector
+cap as `inputSchema.properties.toolset.maxItems`. The agent chart expresses the same
+count in its values schema. Agent-manager validates that schema and renders the chart,
+then publishes the count in `create_agent` for Backstage's existing `describe_tool`
+reader. The aggregate UTF-8 byte check remains explicit at those input boundaries
+because JSON Schema counts characters, not comma-joined UTF-8 bytes.
+
 Rejected inline, with an error naming the toolset and the selector:
 
 | Input | Error |
