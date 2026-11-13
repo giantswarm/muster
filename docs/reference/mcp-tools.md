@@ -524,8 +524,14 @@ List all configured MCP servers with their definitions and metadata.
 ### `core_mcpserver_create`
 Create a new MCP server definition that can be started as a service.
 
+In Kubernetes mode, the server key `<namespace>/<name>` targets a namespace
+selected by `mcpServerNamespaceSelector`; a bare name targets muster's own
+namespace. Validate, get, update and delete accept the same key. Writes use
+the caller's Kubernetes permissions in that namespace, and client credentials
+are stored there. Filesystem mode accepts bare names only.
+
 **Arguments:**
-- `name` (string, required) - Unique server name (used as service identifier)
+- `name` (string, required) - Server key: `<namespace>/<name>` in a selected Kubernetes namespace, or a bare name in muster's namespace
 - `type` (string, required) - Server type (`stdio`, `streamable-http`, or `sse`)
 - `displayName` (string, optional) - Human-friendly name UIs show for the server, stored in the `ui.giantswarm.io/display-name` annotation next to the `registered-by` annotations muster stamps. Surrounding whitespace is trimmed; a blank value sets no annotation
 - `tags` (array of strings, optional) - Stored comma-joined in the `ui.giantswarm.io/tags` annotation. Each tag: lowercase letters and digits joined by single hyphens (`^[a-z0-9]+(-[a-z0-9]+)*$`), at most 63 characters, no duplicates; at most 50 tags
@@ -607,7 +613,7 @@ Get detailed information about a specific MCP server definition.
 Update an existing MCP server definition. Only provided fields are updated.
 
 **Arguments:**
-- `name` (string, required) - Name of the MCP server to update
+- `name` (string, required) - Server key of the MCP server to update
 - `type` (string, optional) - Server type
 - `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation, trimmed; an empty or blank string removes it, and omitting it keeps the current one
 - `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones. More than 50 only when none of them is new, so a longer hand-set list can be sent back
@@ -648,7 +654,7 @@ Update an existing MCP server definition. Only provided fields are updated.
 Delete an MCP server definition. Server must be stopped before deletion.
 
 **Arguments:**
-- `name` (string, required) - Name of the MCP server to delete
+- `name` (string, required) - Server key of the MCP server to delete
 
 **Returns:** Deletion confirmation
 

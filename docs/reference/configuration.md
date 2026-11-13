@@ -682,6 +682,18 @@ RBAC authorizes the write, and the audit log records the true subject.
 Reads, `core_mcpserver_validate`, and muster's own controller writes (status
 reconciliation, service registration) are unaffected.
 
+The `name` argument of `core_mcpserver_validate`, `_create`, `_get`, `_update`
+and `_delete` accepts `<namespace>/<name>` for an MCPServer in a namespace
+selected by `mcpServerNamespaceSelector`. A bare name addresses muster's own
+namespace. The namespace is never inferred from the caller's memberships.
+Create, update and delete require the corresponding Kubernetes permission in
+the target namespace. A namespace outside the selector is refused even when
+the caller has write permission there. Filesystem mode accepts bare names
+only. An organization's server keeps its namespace restrictions: it cannot
+forward platform identity, request token exchange, join a family or use
+muster's signing identity. Client credentials are stored in the server's
+namespace.
+
 Service lifecycle actions on MCPServer-backed services are covered the same
 way: `core_service_stop` writes `spec.suspended: true`, `core_service_start`
 clears it (and also writes `spec.restartRequestedAt` when the service is

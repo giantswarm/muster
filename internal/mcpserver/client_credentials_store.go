@@ -19,14 +19,14 @@ import (
 
 // describeSecretWriteError explains a failed Secret write as the caller,
 // naming the missing permission where the API server refused it.
-func (a *Adapter) describeSecretWriteError(err error, name string) string {
-	if msg := callerwrite.DescribeWriteAuthError(err, "create", "Secret", "secrets", name, a.namespace, "mcpserver-editor"); msg != "" {
+func describeSecretWriteError(err error, name, namespace string) string {
+	if msg := callerwrite.DescribeWriteAuthError(err, "create", "Secret", "secrets", name, namespace, "mcpserver-editor"); msg != "" {
 		return msg
 	}
 	if errors.IsAlreadyExists(err) {
-		return fmt.Sprintf("Secret %q already exists in namespace %q; retry to generate another name", name, a.namespace)
+		return fmt.Sprintf("Secret %q already exists in namespace %q; retry to generate another name", name, namespace)
 	}
-	return fmt.Sprintf("failed to create Secret %q in namespace %q: %v", name, a.namespace, err)
+	return fmt.Sprintf("failed to create Secret %q in namespace %q: %v", name, namespace, err)
 }
 
 // createClientSecret creates, as the caller, the Secret holding a server's
@@ -126,7 +126,7 @@ func (a *Adapter) storeClientSecret(ctx context.Context, writer mcpServerWriter,
 	}
 	name, err := createClientSecret(ctx, secrets, server, creds)
 	if err != nil {
-		return "", a.describeSecretWriteError(err, name), err
+		return "", describeSecretWriteError(err, name, server.Namespace), err
 	}
 	if err := a.nameClientSecret(ctx, writer, server, name); err != nil {
 		if err == errServerChanged {

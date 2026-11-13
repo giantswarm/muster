@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -70,7 +69,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = saClient.Close() })
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// mcpserver-editor equivalent, bound to allowed-user only (issue #1058
 	// ships the chart's default binding; the Role shape is the same).
@@ -345,5 +344,8 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 		if _, err := saClient.GetMCPServer(ctx, "victim-server", "default"); err != nil {
 			t.Fatalf("denied delete still removed the CR: %v", err)
 		}
+	})
+	t.Run("namespaced connector writes", func(t *testing.T) {
+		testNamespacedConnectorWrites(t, adminCfg)
 	})
 }

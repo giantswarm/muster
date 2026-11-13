@@ -12,7 +12,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 		tags = api.TagsArg()
 	}
 	return []api.ArgMetadata{
-		{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server name"},
+		{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server name, or <namespace>/<name> for a selected Kubernetes namespace; bare names use muster's namespace"},
 		{Name: "type", Type: api.ArgTypeString, Required: typeRequired, Description: "MCP server type (stdio, streamable-http, or sse)"},
 		{Name: "toolPrefix", Type: api.ArgTypeString, Required: false, Description: "Tool prefix for namespacing"},
 		{Name: "family", Type: api.ArgTypeObject, Required: false, Description: "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)", Schema: map[string]interface{}{
