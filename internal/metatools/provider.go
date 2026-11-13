@@ -139,7 +139,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Name:        "toolset",
 					Type:        api.ArgTypeArray,
 					Required:    false,
-					Description: "Toolset selectors to resolve for you: preset:<name>, server:<name>, workflow:<name>, tool:<name>, at most 32; never wider than X-Muster-Toolset",
+					Description: "Toolset selectors to resolve for you: preset:<name>, server:<name>, workflow:<name>, tool:<name>, at most 128 and 8192 UTF-8 bytes joined by commas; never wider than X-Muster-Toolset",
 					Schema: map[string]any{
 						"type":  "array",
 						"items": map[string]any{"type": "string"},
