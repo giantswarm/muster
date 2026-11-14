@@ -211,8 +211,7 @@ func convertAPIAuthToCRD(src *api.MCPServerAuth) *musterv1alpha1.MCPServerAuth {
 type Adapter struct {
 	client client.MusterClient
 
-	// namespace is muster's namespace: where the core tools write servers,
-	// and the namespace of a bare server key.
+	// namespace is muster's namespace and the namespace of a bare server key.
 	namespace string
 
 	// allNamespaces makes the adapter list and get MCPServer objects of every
@@ -257,9 +256,8 @@ func NewAdapterWithClient(musterClient client.MusterClient, namespace string) *A
 // scope.Namespaces set it lists MCPServer objects of every namespace, serves
 // those of the selected namespaces, and gets a server outside muster's
 // namespace by its key ("<namespace>/<name>", api.MCPServerKey).
-// core_mcpserver_create, update and delete still write in muster's namespace
-// only; the lifecycle tools (core_service_start, stop, restart) write on the
-// server's own object. An object scope.Servers does not select is unknown.
+// Writes use the caller's Kubernetes permissions in the selected namespace.
+// An object scope.Servers does not select is unknown.
 func (a *Adapter) SetScope(scope Scope) {
 	a.scope = scope
 	a.allNamespaces = scope.Namespaces != nil
@@ -332,16 +330,6 @@ func (a *Adapter) logUnservedOnce(namespace, name string) {
 	}
 	logging.Warn("MCPServer", "Ignoring MCPServer %s/%s: mcpServerNamespaceSelector does not select its namespace (muster's namespace is %q)",
 		namespace, name, a.namespace)
-}
-
-// refuseTenantKey answers a core_mcpserver_* write that names a server outside
-// muster's namespace: those tools write in muster's namespace only.
-func refuseTenantKey(name, verb string) *api.CallToolResult {
-	if !api.IsTenantMCPServerKey(name) {
-		return nil
-	}
-	result, _ := simpleError(fmt.Sprintf("Cannot %s MCP server '%s': core_mcpserver_%s writes servers of muster's namespace only; the server is declared in its own namespace", verb, name, verb))
-	return result
 }
 
 // EnableWritesAsCaller switches session-initiated mutations to
@@ -634,14 +622,18 @@ func isUpstream5xx(lowerErr string) bool {
 
 // convertRequestToCRD converts a request to a MCPServer CRD using the flat structure
 func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1alpha1.MCPServer {
+	namespace, name := a.namespace, req.Name
+	if a.client != nil && a.client.IsKubernetesMode() {
+		namespace, name = api.MCPServerObject(req.Name, a.namespace)
+	}
 	crd := &musterv1alpha1.MCPServer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "muster.giantswarm.io/v1alpha1",
 			Kind:       "MCPServer",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      req.Name,
-			Namespace: a.namespace,
+			Name:      name,
+			Namespace: namespace,
 		},
 		Spec: musterv1alpha1.MCPServerSpec{
 			Type:        req.Type,
@@ -733,7 +725,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Annotations: api.WriteAnnotations(true, false),
 			Description: "Delete an MCP server definition",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server to delete"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server key: its name in muster's namespace, <namespace>/<name> elsewhere"},
 			},
 		},
 	}
@@ -747,7 +739,7 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case "mcpserver_get":
 		return a.handleMCPServerGet(ctx, args)
 	case "mcpserver_validate":
-		return a.handleMCPServerValidate(args)
+		return a.handleMCPServerValidate(ctx, args)
 	case "mcpserver_detect":
 		return a.handleMCPServerDetect(ctx, args)
 	case "mcpserver_create":
@@ -872,7 +864,7 @@ func (a *Adapter) handleMCPServerGet(ctx context.Context, args map[string]interf
 }
 
 // handleMCPServerValidate validates an mcpserver definition
-func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.CallToolResult, error) {
+func (a *Adapter) handleMCPServerValidate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
 	var req api.MCPServerValidateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
 		return &api.CallToolResult{
@@ -881,6 +873,9 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		}, nil
 	}
 	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
+		return refused, nil
+	}
+	if refused := a.validateWriteTarget(ctx, req.Name); refused != nil {
 		return refused, nil
 	}
 
@@ -912,6 +907,9 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 			Content: []interface{}{fmt.Sprintf("Validation failed: %v", err)},
 			IsError: true,
 		}, nil
+	}
+	if !a.scope.servesObject(server) {
+		return simpleError("MCP server definition is excluded by mcpServerSelector")
 	}
 
 	return &api.CallToolResult{
@@ -957,6 +955,9 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
 		return refused, nil
 	}
+	if refused := a.validateWriteTarget(ctx, req.Name); refused != nil {
+		return refused, nil
+	}
 
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
@@ -988,6 +989,9 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	// Validate the definition
 	if err := a.validateMCPServer(serverCRD); err != nil {
 		return simpleError(fmt.Sprintf("Invalid MCP server definition: %v", err))
+	}
+	if !a.scope.servesObject(serverCRD) {
+		return simpleError("MCP server definition is excluded by mcpServerSelector")
 	}
 	if refused := a.refuseDescriptionConflict(serverCRD, nil, "create", req.ClientCredentials != nil); refused != nil {
 		return refused, nil
@@ -1042,7 +1046,7 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		return errResult, nil
 	}
 
-	if refused := refuseTenantKey(req.Name, "update"); refused != nil {
+	if refused := a.validateWriteTarget(ctx, req.Name); refused != nil {
 		return refused, nil
 	}
 
@@ -1053,9 +1057,9 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	var refused *api.CallToolResult
 	var client storedClient
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		existing, err := a.client.GetMCPServer(ctx, req.Name, a.namespace)
+		existing, err := a.getServed(ctx, req.Name)
 		if err != nil {
-			if errors.IsNotFound(err) {
+			if api.IsNotFound(err) || errors.IsNotFound(err) {
 				refused = api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(req.Name), "Failed to update MCP server")
 			} else {
 				refused, _ = simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
@@ -1104,7 +1108,7 @@ func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]int
 	if !ok || name == "" {
 		return simpleError("name argument is required")
 	}
-	if refused := refuseTenantKey(name, "delete"); refused != nil {
+	if refused := a.validateWriteTarget(ctx, name); refused != nil {
 		return refused, nil
 	}
 
@@ -1113,8 +1117,14 @@ func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]int
 		return errResult, nil
 	}
 
+	namespace, objectName := api.MCPServerObject(name, a.namespace)
+	if api.IsTenantMCPServerKey(name) || a.scope.Servers != nil {
+		if _, err := a.getServed(ctx, name); err != nil {
+			return api.HandleErrorWithPrefix(err, "Failed to delete MCP server"), nil
+		}
+	}
 	// Delete the MCP server with the resolved write identity
-	if err := writer.DeleteMCPServer(ctx, name, a.namespace); err != nil {
+	if err := writer.DeleteMCPServer(ctx, objectName, namespace); err != nil {
 		if errors.IsNotFound(err) {
 			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to delete MCP server"), nil
 		}

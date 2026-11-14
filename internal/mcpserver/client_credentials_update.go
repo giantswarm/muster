@@ -73,7 +73,7 @@ func (a *Adapter) applyClientUpdate(ctx context.Context, writer mcpServerWriter,
 		name, err := createClientSecret(ctx, secrets, existing, req.ClientCredentials)
 		if err != nil {
 			result, _ := simpleError(fmt.Sprintf("Cannot store the client credentials of MCP server '%s', so it was not updated: %s",
-				existing.Name, a.describeSecretWriteError(err, name)))
+				existing.Name, describeSecretWriteError(err, name, existing.Namespace)))
 			return result
 		}
 		client.name, client.uid = name, existing.UID
