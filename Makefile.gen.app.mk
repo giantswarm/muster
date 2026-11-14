@@ -2,7 +2,7 @@
 #
 #    devctl
 #
-#    https://github.com/giantswarm/devctl/blob/bbc57913962860b1f2b3524a74a9692931c58034/pkg/gen/input/makefile/internal/file/Makefile.gen.app.mk.template
+#    https://github.com/giantswarm/devctl/blob/66b4d346f056174d64f0f5642c4499de8078384d/pkg/gen/input/makefile/internal/file/Makefile.gen.app.mk.template
 #
 
 ##@ App
@@ -88,6 +88,10 @@ HELM_UNITTEST_RETRY_DELAY ?= 5
 # repository: its names render only once a repository created from it fills them in, so
 # its suites cannot pass here and run on the rendered copy instead. It is skipped, as a
 # chart reference with a placeholder is no chart for the catalog either.
+# A wrapper chart's suites render its upstream subchart, and most repositories gitignore
+# `charts/*.tgz`, so a fresh clone (CI) has none. A chart with a missing dependency gets
+# `helm dependency update` before its suites run: unlike `helm dependency build`, it needs
+# no `helm repo add`. A chart whose dependencies are present is not touched.
 helm-test: install-helm-unittest ## Run the chart unit tests (helm-unittest).
 	@echo "====> $@"
 	@found=""; \
@@ -97,6 +101,9 @@ helm-test: install-helm-unittest ## Run the chart unit tests (helm-unittest).
 		case "$$c" in *[{}]*) echo "skipping $$c: a template's placeholder chart"; continue;; esac; \
 		ls "$$d"/*_test.yaml >/dev/null 2>&1 || continue; \
 		found=1; \
+		if helm dependency list "$$c" 2>/dev/null | grep -q 'missing$$'; then \
+			helm dependency update "$$c" || exit 1; \
+		fi; \
 		helm unittest -f "$$(basename "$$d")/*_test.yaml" --with-subchart=false "$$c" || exit 1; \
 	done; \
 	[ -n "$$found" ] || echo "no chart unit tests under helm/"
@@ -110,19 +117,20 @@ helm-test: install-helm-unittest ## Run the chart unit tests (helm-unittest).
 # network error (a connection reset) fails it; the install runs up to
 # HELM_UNITTEST_ATTEMPTS times, HELM_UNITTEST_RETRY_DELAY seconds apart. A failed attempt
 # can leave a half-installed plugin behind that the next install refuses, so it is
-# uninstalled before each retry.
+# uninstalled after every failure, including the last. A matching version must also
+# run its binary: plugin metadata alone survives an interrupted download.
 install-helm-unittest:
 	@have=$$(helm plugin list 2>/dev/null | awk '$$1 == "unittest" {print $$2}'); \
 	want=$$(echo "$(HELM_UNITTEST_VERSION)" | sed 's/^v//'); \
-	if [ "$$have" != "$$want" ]; then \
+	if [ "$$have" != "$$want" ] || ! helm unittest --version >/dev/null 2>&1; then \
 		[ -z "$$have" ] || helm plugin uninstall unittest >/dev/null 2>&1 || true; \
 		verify=""; \
-		helm plugin install --help 2>&1 | grep -q -e '--verify' && verify="--verify=false"; \
+		helm plugin install --help 2>&1 | grep -e '--verify' >/dev/null && verify="--verify=false"; \
 		attempt=1; \
 		until helm plugin install $$verify https://github.com/helm-unittest/helm-unittest --version $(HELM_UNITTEST_VERSION); do \
+			helm plugin uninstall unittest >/dev/null 2>&1 || true; \
 			[ "$$attempt" -lt "$(HELM_UNITTEST_ATTEMPTS)" ] || exit 1; \
 			echo "helm-unittest install failed (attempt $$attempt of $(HELM_UNITTEST_ATTEMPTS)), retrying in $(HELM_UNITTEST_RETRY_DELAY)s" >&2; \
-			helm plugin uninstall unittest >/dev/null 2>&1 || true; \
 			sleep $(HELM_UNITTEST_RETRY_DELAY); \
 			attempt=$$((attempt + 1)); \
 		done; \
@@ -140,7 +148,7 @@ test: helm-test
 # pins aligned with gen circleci; repositories with explicit CI pins override them
 # in Makefile.custom.mk. This target supports ATS 1.x (the generated CI default).
 # renovate: datasource=docker depName=gsoci.azurecr.io/giantswarm/app-test-suite
-ATS_VERSION ?= 1.0.3
+ATS_VERSION ?= 1.1.1
 # renovate: datasource=docker depName=gsoci.azurecr.io/giantswarm/kind-node
 ATS_KIND_NODE_IMAGE_VERSION ?= v1.37.0
 ATS_KIND_NODE_IMAGE ?= gsoci.azurecr.io/giantswarm/kind-node:$(ATS_KIND_NODE_IMAGE_VERSION)
