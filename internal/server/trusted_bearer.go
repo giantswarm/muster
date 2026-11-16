@@ -15,14 +15,12 @@ import (
 func (s *OAuthHTTPServer) serveTrustedIssuer(w http.ResponseWriter, r *http.Request, userInfo *providers.UserInfo, next http.Handler) {
 	identity, err := acceptTrustedIssuerToken(s.oauthServer, r.Context(), extractBearerToken(r))
 	if err != nil {
-		status := http.StatusUnauthorized
-		if errors.Is(err, oauthserver.ErrProviderUnavailable) || errors.Is(err, oauthserver.ErrStorageUnavailable) {
-			status = http.StatusServiceUnavailable
-			w.Header().Set("Retry-After", "1")
-		} else {
-			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+		if isUnavailable(err) {
+			writeUnavailable(w)
+			return
 		}
-		http.Error(w, http.StatusText(status), status)
+		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 	ctx := api.WithSessionID(r.Context(), identity.SessionID)
@@ -30,4 +28,18 @@ func (s *OAuthHTTPServer) serveTrustedIssuer(w http.ResponseWriter, r *http.Requ
 	ctx = api.WithSignInIdentity(ctx, s.signInIdentity(userInfo))
 	s.fireOnAuthenticated(ctx)
 	next.ServeHTTP(w, r.WithContext(ctx))
+}
+
+// isUnavailable reports whether err means the identity provider or the token
+// store did not answer: the bearer was neither validated nor rejected.
+func isUnavailable(err error) bool {
+	return errors.Is(err, oauthserver.ErrProviderUnavailable) || errors.Is(err, oauthserver.ErrStorageUnavailable)
+}
+
+// writeUnavailable answers a request whose bearer could not be checked as 503
+// with Retry-After and no WWW-Authenticate challenge (RFC 9110 §15.6.4), so the
+// client retries the same request instead of discarding its token.
+func writeUnavailable(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "1")
+	http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 }

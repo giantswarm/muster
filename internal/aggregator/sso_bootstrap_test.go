@@ -441,3 +441,20 @@ func TestAuthStatus_SSOReadsPendingGrantIsWaitedFor(t *testing.T) {
 	}
 	assert.True(t, b.connecting("sso"), "the SSO connect is still running")
 }
+
+func TestOnSessionCreated_RetriesServersHeldBackForThePerson(t *testing.T) {
+	// A sign-in brings a new subject token: a failure recorded against the
+	// person's previous one, such as the revocation after a token-store
+	// timeout, must not hold the new session back.
+	gates := newConnectGates("alpha")
+	agg := newBootstrapTestAggregator(t, gates, "alpha")
+	agg.ssoTracker.MarkSSOFailedWithReason("alice", "alpha", "no usable subject token")
+
+	agg.onSessionCreated("alice", "family-relogin", &oauth2.Token{AccessToken: "opaque"})
+
+	require.NotNil(t, agg.sessionBootstrap("family-relogin"), "the sign-in's fan-out includes alpha")
+	assert.False(t, agg.ssoTracker.HasSSOFailed("alice", "alpha"))
+	gates.release("alpha")
+	agg.awaitSessionBootstrap(t.Context(), "family-relogin")
+	assert.Equal(t, int32(1), gates.count("alpha"))
+}
