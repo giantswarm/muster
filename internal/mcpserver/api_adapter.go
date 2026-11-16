@@ -875,7 +875,14 @@ func (a *Adapter) handleMCPServerValidate(ctx context.Context, args map[string]i
 	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
 		return refused, nil
 	}
-	if refused := a.validateWriteTarget(ctx, req.Name, "create"); refused != nil {
+	var writer mcpServerWriter
+	if api.IsTenantMCPServerKey(req.Name) {
+		var errResult *api.CallToolResult
+		if writer, errResult = a.mutationWriter(ctx); errResult != nil {
+			return errResult, nil
+		}
+	}
+	if refused := a.validateWriteTarget(ctx, req.Name, "create", writer); refused != nil {
 		return refused, nil
 	}
 
@@ -958,13 +965,12 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
 		return refused, nil
 	}
-	if refused := a.validateWriteTarget(ctx, req.Name, "create"); refused != nil {
-		return refused, nil
-	}
-
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
 		return errResult, nil
+	}
+	if refused := a.validateWriteTarget(ctx, req.Name, "create", writer); refused != nil {
+		return refused, nil
 	}
 
 	// Convert request to CRD once for reuse
@@ -1052,7 +1058,7 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		return errResult, nil
 	}
 
-	if refused := a.validateWriteTarget(ctx, req.Name, "update"); refused != nil {
+	if refused := a.validateWriteTarget(ctx, req.Name, "update", writer); refused != nil {
 		return refused, nil
 	}
 
@@ -1114,13 +1120,12 @@ func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]int
 	if !ok || name == "" {
 		return simpleError("name argument is required")
 	}
-	if refused := a.validateWriteTarget(ctx, name, "delete"); refused != nil {
-		return refused, nil
-	}
-
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
 		return errResult, nil
+	}
+	if refused := a.validateWriteTarget(ctx, name, "delete", writer); refused != nil {
+		return refused, nil
 	}
 
 	namespace, objectName := api.MCPServerObject(name, a.namespace)

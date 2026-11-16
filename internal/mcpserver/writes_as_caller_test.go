@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -104,7 +106,11 @@ func newCallerHarness(t *testing.T, existing *musterv1alpha1.MCPServer, injectEr
 	h := &callerHarness{sa: &stubMusterClient{existing: existing}}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
-		Create: func(context.Context, ctrlclient.WithWatch, ctrlclient.Object, ...ctrlclient.CreateOption) error {
+		Create: func(_ context.Context, _ ctrlclient.WithWatch, obj ctrlclient.Object, _ ...ctrlclient.CreateOption) error {
+			if review, ok := obj.(*authorizationv1.SelfSubjectAccessReview); ok {
+				review.Status.Allowed = true
+				return nil
+			}
 			if injectErr != nil {
 				return injectErr
 			}

@@ -15,9 +15,10 @@ import (
 )
 
 // validateWriteTarget refuses a key that names no object muster may write
-// with verb: an unsafe name, a namespace the caller may not verb MCPServers
-// in, or a namespace muster does not serve, checked in that order.
-func (a *Adapter) validateWriteTarget(ctx context.Context, key, verb string) *api.CallToolResult {
+// with verb through writer: an unsafe name, a namespace the caller may not
+// verb MCPServers in, or a namespace muster does not serve, checked in that
+// order.
+func (a *Adapter) validateWriteTarget(ctx context.Context, key, verb string, writer mcpServerWriter) *api.CallToolResult {
 	if a.client == nil || !a.client.IsKubernetesMode() {
 		if err := api.ValidateResourceName(key); err != nil {
 			result, _ := simpleError(err.Error())
@@ -28,6 +29,9 @@ func (a *Adapter) validateWriteTarget(ctx context.Context, key, verb string) *ap
 	namespace, name := api.SplitMCPServerKey(key)
 	if !api.IsTenantMCPServerKey(key) {
 		namespace = a.namespace
+	} else if namespace == a.namespace {
+		result, _ := simpleError(fmt.Sprintf("MCP server key %q names a server of muster's namespace: use its bare name %q", key, name))
+		return result
 	}
 	for _, value := range []string{namespace, name} {
 		if err := api.ValidateResourceName(value); err != nil {
@@ -35,7 +39,7 @@ func (a *Adapter) validateWriteTarget(ctx context.Context, key, verb string) *ap
 			return result
 		}
 	}
-	if refused := a.authorizeCaller(ctx, key, verb); refused != nil {
+	if refused := a.authorizeCaller(ctx, writer, key, verb); refused != nil {
 		return refused
 	}
 	_, _, served, err := a.object(ctx, key)
@@ -51,20 +55,18 @@ func (a *Adapter) validateWriteTarget(ctx context.Context, key, verb string) *ap
 }
 
 // authorizeCaller asks the API server, as the caller, whether the caller may
-// verb the MCPServer a key outside muster's namespace names, with a
-// SelfSubjectAccessReview (what `kubectl auth can-i` sends). It runs before
-// muster reads that namespace or its servers as itself, so a refused caller
-// gets the same answer whether or not the namespace or the server exists.
-func (a *Adapter) authorizeCaller(ctx context.Context, key, verb string) *api.CallToolResult {
-	if !api.IsTenantMCPServerKey(key) || !a.gate.Enabled() {
+// verb the MCPServer a key names, with a SelfSubjectAccessReview (what
+// `kubectl auth can-i` sends). It runs before muster reads the namespace or
+// the server as itself (any key outside muster's namespace; an update or a
+// delete in it), so a refused caller gets the same answer whether or not the
+// namespace or the server exists. writer is the caller's client; muster's
+// own client (writes as the caller disabled) asks nothing.
+func (a *Adapter) authorizeCaller(ctx context.Context, writer mcpServerWriter, key, verb string) *api.CallToolResult {
+	caller, ok := writer.(*callerWriter)
+	if !ok || (!api.IsTenantMCPServerKey(key) && verb != "update" && verb != "delete") {
 		return nil
 	}
-	caller, errMsg := a.gate.Resolve(ctx)
-	if errMsg != "" {
-		result, _ := simpleError(errMsg)
-		return result
-	}
-	namespace, name := api.SplitMCPServerKey(key)
+	namespace, name := api.MCPServerObject(key, a.namespace)
 	attributes := &authorizationv1.ResourceAttributes{
 		Namespace: namespace,
 		Verb:      verb,
@@ -78,7 +80,7 @@ func (a *Adapter) authorizeCaller(ctx context.Context, key, verb string) *api.Ca
 	review := &authorizationv1.SelfSubjectAccessReview{
 		Spec: authorizationv1.SelfSubjectAccessReviewSpec{ResourceAttributes: attributes},
 	}
-	if err := caller.Create(ctx, review); err != nil {
+	if err := caller.client.Create(ctx, review); err != nil {
 		if msg := a.describeWriteAuthError(err, verb, key); msg != "" {
 			result, _ := simpleError(msg)
 			return result

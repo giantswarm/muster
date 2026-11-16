@@ -121,7 +121,7 @@ func TestConnectorWritesRefuseUnselectedOrMissingNamespaces(t *testing.T) {
 
 func TestConnectorWritesRespectTheServerSelector(t *testing.T) {
 	for _, operation := range []string{"validate", "create", "update", "delete"} {
-		for _, name := range []string{"test-server", "test-ns/test-server", "organization-a/test-server"} {
+		for _, name := range []string{"test-server", "organization-a/test-server"} {
 			t.Run(operation+"/"+name, func(t *testing.T) {
 				existing := existingServer()
 				if name == "organization-a/test-server" {
@@ -183,6 +183,43 @@ func TestConnectorWritesRefuseShadowedServers(t *testing.T) {
 			})
 			require.True(t, failed, message)
 			require.Contains(t, message, `server "organization-a" of muster's namespace`)
+			require.Empty(t, harness.writes)
+		})
+	}
+}
+
+func TestOwnNamespaceWritesRefuseCallersWithoutAccessAlike(t *testing.T) {
+	for _, operation := range []string{"update", "delete"} {
+		answers := map[bool]string{}
+		for _, exists := range []bool{true, false} {
+			var existing *musterv1alpha1.MCPServer
+			if exists {
+				existing = existingServer()
+			}
+			harness := newCredsHarness(t, existing)
+			harness.accessDenied = true
+			message, failed := harness.call(t, "mcpserver_"+operation, map[string]interface{}{
+				"name": "test-server", "url": "https://example.com/forbidden",
+			})
+			require.True(t, failed, message)
+			require.Contains(t, message, "Permission denied")
+			require.Empty(t, harness.writes)
+			answers[exists] = message
+		}
+		require.Equal(t, answers[true], answers[false], operation)
+	}
+}
+
+func TestConnectorWritesRefuseOwnNamespaceAlias(t *testing.T) {
+	for _, operation := range []string{"validate", "create", "update", "delete"} {
+		t.Run(operation, func(t *testing.T) {
+			harness := newCredsHarness(t, existingServer())
+			harness.adapter.SetScope(Scope{Namespaces: labels.Everything()})
+			message, failed := harness.call(t, "mcpserver_"+operation, map[string]interface{}{
+				"name": "test-ns/test-server", "type": "streamable-http", "url": "https://example.com/mcp",
+			})
+			require.True(t, failed, message)
+			require.Contains(t, message, `use its bare name "test-server"`)
 			require.Empty(t, harness.writes)
 		})
 	}
