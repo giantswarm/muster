@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -138,5 +139,51 @@ func TestConnectorWritesRespectTheServerSelector(t *testing.T) {
 				require.Empty(t, harness.writes)
 			})
 		}
+	}
+}
+
+func TestConnectorWritesRefuseCallersWithoutAccessAlike(t *testing.T) {
+	for _, operation := range []string{"validate", "create", "update", "delete"} {
+		answers := map[string]string{}
+		for _, target := range []string{"existing", "missing-server", "missing-namespace"} {
+			existing := existingServer()
+			existing.Namespace = "organization-a"
+			namespace := "organization-a"
+			switch target {
+			case "missing-server":
+				existing = nil
+			case "missing-namespace":
+				existing, namespace = nil, "organization-z"
+			}
+			harness := newCredsHarness(t, existing, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "organization-a", Labels: map[string]string{"served": "true"}}})
+			harness.adapter.SetScope(Scope{Namespaces: labels.SelectorFromSet(labels.Set{"served": "true"})})
+			harness.accessDenied = true
+			message, failed := harness.call(t, "mcpserver_"+operation, map[string]interface{}{
+				"name": namespace + "/test-server", "type": "streamable-http", "url": "https://example.com/forbidden",
+			})
+			require.True(t, failed, message)
+			require.Contains(t, message, "Permission denied")
+			require.Empty(t, harness.writes)
+			answers[target] = strings.ReplaceAll(message, namespace, "<namespace>")
+		}
+		require.Equal(t, answers["existing"], answers["missing-server"], operation)
+		require.Equal(t, answers["existing"], answers["missing-namespace"], operation)
+	}
+}
+
+func TestConnectorWritesRefuseShadowedServers(t *testing.T) {
+	owner := existingServer()
+	owner.Name = "organization-a"
+	for _, operation := range []string{"validate", "create"} {
+		t.Run(operation, func(t *testing.T) {
+			harness := newCredsHarness(t, owner)
+			harness.adapter.SetScope(Scope{Namespaces: labels.Everything()})
+			message, failed := harness.call(t, "mcpserver_"+operation, map[string]interface{}{
+				"name": "organization-a/github", "type": "streamable-http", "url": "https://example.com/mcp",
+			})
+			require.True(t, failed, message)
+			require.Contains(t, message, `server "organization-a" of muster's namespace`)
+			require.Empty(t, harness.writes)
+		})
 	}
 }

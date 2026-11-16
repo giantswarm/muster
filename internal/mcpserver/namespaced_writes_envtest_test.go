@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,6 +13,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/rest"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/callerwrite"
 	kubernetesclient "github.com/giantswarm/muster/v5/internal/client/kubernetes"
 	"github.com/giantswarm/muster/v5/internal/server"
@@ -69,22 +71,27 @@ func testNamespacedConnectorWrites(t *testing.T, adminConfiguration *rest.Config
 	}
 	for index, caller := range callers {
 		other := callers[1-index]
-		for _, tool := range []string{"mcpserver_create", "mcpserver_update", "mcpserver_delete"} {
-			name := "shared-name"
-			if tool == "mcpserver_create" {
-				name = "forbidden-create"
+		for _, tool := range []string{"mcpserver_validate", "mcpserver_create", "mcpserver_update", "mcpserver_delete"} {
+			answers := map[string]string{}
+			for _, key := range []string{other.namespace + "/shared-name", other.namespace + "/missing-name", "missing-namespace/shared-name"} {
+				result, err := adapter.ExecuteTool(caller.context, tool, map[string]interface{}{
+					"name": key, "type": "streamable-http", "url": "https://example.com/forbidden",
+				})
+				require.NoError(t, err)
+				require.True(t, result.IsError, "%s %s unexpectedly succeeded for %s", tool, key, caller.user)
+				namespace, name := api.SplitMCPServerKey(key)
+				answer := strings.ReplaceAll(resultText(t, result), namespace, "<namespace>")
+				answers[key] = strings.ReplaceAll(answer, name, "<name>")
 			}
-			result, err := adapter.ExecuteTool(caller.context, tool, map[string]interface{}{
-				"name": other.namespace + "/" + name, "type": "streamable-http", "url": "https://example.com/forbidden",
-			})
-			require.NoError(t, err)
-			require.True(t, result.IsError, "%s unexpectedly succeeded for %s", tool, caller.user)
-			require.Contains(t, resultText(t, result), "Permission denied")
+			for key, answer := range answers {
+				require.Contains(t, answer, "Permission denied", "%s %s", tool, key)
+				require.Equal(t, answers[other.namespace+"/shared-name"], answer, "%s tells %s apart", tool, key)
+			}
 		}
 		unchanged, err := client.GetMCPServer(t.Context(), "shared-name", other.namespace)
 		require.NoError(t, err)
 		require.Equal(t, "https://example.com/updated", unchanged.Spec.URL)
-		_, err = client.GetMCPServer(t.Context(), "forbidden-create", other.namespace)
+		_, err = client.GetMCPServer(t.Context(), "missing-name", other.namespace)
 		require.True(t, apierrors.IsNotFound(err), "denied create wrote an object: %v", err)
 	}
 	for _, caller := range callers {

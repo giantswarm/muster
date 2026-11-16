@@ -687,8 +687,13 @@ and `_delete` accepts `<namespace>/<name>` for an MCPServer in a namespace
 selected by `mcpServerNamespaceSelector`. A bare name addresses muster's own
 namespace. The namespace is never inferred from the caller's memberships.
 Create, update and delete require the corresponding Kubernetes permission in
-the target namespace. A namespace outside the selector is refused even when
-the caller has write permission there. Filesystem mode accepts bare names
+the target namespace. For a `<namespace>/<name>` key muster asks the API
+server first, with a `SelfSubjectAccessReview` as the caller, so a caller
+without that permission gets the same refusal whether or not the namespace or
+the server exists; `core_mcpserver_validate` asks for `create`. A namespace
+outside the selector is refused even when the caller has write permission
+there, and so is a server whose exposed names a server of muster's namespace
+takes. Filesystem mode accepts bare names
 only. An organization's server keeps its namespace restrictions: it cannot
 forward platform identity, request token exchange, join a family or use
 muster's signing identity. Client credentials are stored in the server's

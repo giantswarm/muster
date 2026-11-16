@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	authorizationv1 "k8s.io/api/authorization/v1"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
@@ -52,6 +54,8 @@ type credsHarness struct {
 	// deleteUIDs the UID precondition of each delete.
 	createdSuspended []bool
 	deleteUIDs       []types.UID
+	// accessDenied is the answer to the caller's SelfSubjectAccessReviews.
+	accessDenied bool
 }
 
 // storeReader is the SA client of credsHarness: it reads MCPServers from the
@@ -69,6 +73,14 @@ func (r *storeReader) GetMCPServer(ctx context.Context, name, namespace string) 
 	return obj, nil
 }
 
+func (r *storeReader) ListMCPServers(ctx context.Context, namespace string) ([]musterv1alpha1.MCPServer, error) {
+	list := &musterv1alpha1.MCPServerList{}
+	if err := r.store.List(ctx, list, ctrlclient.InNamespace(namespace)); err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
 // Get reads any object, a Secret too, as muster's ServiceAccount may.
 func (r *storeReader) Get(ctx context.Context, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
 	return r.store.Get(ctx, key, obj, opts...)
@@ -79,6 +91,7 @@ func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer, objects .
 	scheme := runtime.NewScheme()
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, musterv1alpha1.AddToScheme(scheme))
+	require.NoError(t, authorizationv1.AddToScheme(scheme))
 
 	h := &credsHarness{sa: &stubMusterClient{}}
 	kind := func(obj ctrlclient.Object) string {
@@ -92,6 +105,10 @@ func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer, objects .
 	}
 	h.store = fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
 		Create: func(ctx context.Context, c ctrlclient.WithWatch, obj ctrlclient.Object, opts ...ctrlclient.CreateOption) error {
+			if review, ok := obj.(*authorizationv1.SelfSubjectAccessReview); ok {
+				review.Status.Allowed = !h.accessDenied
+				return nil
+			}
 			h.writes = append(h.writes, "create "+kind(obj))
 			if _, ok := obj.(*corev1.Secret); ok {
 				if h.onSecret != nil {

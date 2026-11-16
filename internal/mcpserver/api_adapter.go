@@ -725,7 +725,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 			Annotations: api.WriteAnnotations(true, false),
 			Description: "Delete an MCP server definition",
 			Args: []api.ArgMetadata{
-				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server key: its name in muster's namespace, <namespace>/<name> elsewhere"},
+				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "MCP server name, or <namespace>/<name> for a selected Kubernetes namespace; bare names use muster's namespace"},
 			},
 		},
 	}
@@ -875,7 +875,7 @@ func (a *Adapter) handleMCPServerValidate(ctx context.Context, args map[string]i
 	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
 		return refused, nil
 	}
-	if refused := a.validateWriteTarget(ctx, req.Name); refused != nil {
+	if refused := a.validateWriteTarget(ctx, req.Name, "create"); refused != nil {
 		return refused, nil
 	}
 
@@ -910,6 +910,9 @@ func (a *Adapter) handleMCPServerValidate(ctx context.Context, args map[string]i
 	}
 	if !a.scope.servesObject(server) {
 		return simpleError("MCP server definition is excluded by mcpServerSelector")
+	}
+	if refused := a.refuseShadowed(ctx, req.Name, server.Namespace); refused != nil {
+		return refused, nil
 	}
 
 	return &api.CallToolResult{
@@ -955,7 +958,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	if refused := api.InvalidTagsResult(&req.Tags); refused != nil {
 		return refused, nil
 	}
-	if refused := a.validateWriteTarget(ctx, req.Name); refused != nil {
+	if refused := a.validateWriteTarget(ctx, req.Name, "create"); refused != nil {
 		return refused, nil
 	}
 
@@ -992,6 +995,9 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	}
 	if !a.scope.servesObject(serverCRD) {
 		return simpleError("MCP server definition is excluded by mcpServerSelector")
+	}
+	if refused := a.refuseShadowed(ctx, req.Name, serverCRD.Namespace); refused != nil {
+		return refused, nil
 	}
 	if refused := a.refuseDescriptionConflict(serverCRD, nil, "create", req.ClientCredentials != nil); refused != nil {
 		return refused, nil
@@ -1046,7 +1052,7 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 		return errResult, nil
 	}
 
-	if refused := a.validateWriteTarget(ctx, req.Name); refused != nil {
+	if refused := a.validateWriteTarget(ctx, req.Name, "update"); refused != nil {
 		return refused, nil
 	}
 
@@ -1059,8 +1065,8 @@ func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]int
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		existing, err := a.getServed(ctx, req.Name)
 		if err != nil {
-			if api.IsNotFound(err) || errors.IsNotFound(err) {
-				refused = api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(req.Name), "Failed to update MCP server")
+			if api.IsNotFound(err) {
+				refused = api.HandleErrorWithPrefix(err, "Failed to update MCP server")
 			} else {
 				refused, _ = simpleError(fmt.Sprintf("Failed to get existing MCP server: %v", err))
 			}
@@ -1108,7 +1114,7 @@ func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]int
 	if !ok || name == "" {
 		return simpleError("name argument is required")
 	}
-	if refused := a.validateWriteTarget(ctx, name); refused != nil {
+	if refused := a.validateWriteTarget(ctx, name, "delete"); refused != nil {
 		return refused, nil
 	}
 
@@ -1118,7 +1124,7 @@ func (a *Adapter) handleMCPServerDelete(ctx context.Context, args map[string]int
 	}
 
 	namespace, objectName := api.MCPServerObject(name, a.namespace)
-	if api.IsTenantMCPServerKey(name) || a.scope.Servers != nil {
+	if a.scope.Servers != nil {
 		if _, err := a.getServed(ctx, name); err != nil {
 			return api.HandleErrorWithPrefix(err, "Failed to delete MCP server"), nil
 		}
