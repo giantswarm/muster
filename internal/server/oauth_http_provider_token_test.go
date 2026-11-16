@@ -42,7 +42,9 @@ func TestGetProviderToken_StoreErrorDoesNotLogBearer(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
 	req.Header.Set("Authorization", "Bearer "+bearer)
 
-	require.Nil(t, s.getProviderToken(context.Background(), req))
+	token, err := s.getProviderToken(context.Background(), req)
+	require.NoError(t, err)
+	require.Nil(t, token)
 
 	logged := logBuf.String()
 	require.Contains(t, logged, "Failed to get provider token from store", "the failure must still be logged")

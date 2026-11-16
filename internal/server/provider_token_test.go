@@ -5,12 +5,16 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/storage"
 	"github.com/giantswarm/mcp-oauth/storage/memory"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
 	"github.com/giantswarm/muster/v5/pkg/logging"
@@ -41,10 +45,12 @@ func TestGetProviderToken_MissLogLevel(t *testing.T) {
 		store    storage.TokenStore
 		bearer   string
 		wantWarn bool
+		wantErr  bool
 	}{
-		{"trusted-issuer bearer, not stored", store, jwt, false},
-		{"muster access token, not stored", store, "opaque-access-token", true},
-		{"trusted-issuer bearer, store unavailable", failingTokenStore{err: errors.New("valkey: connection refused")}, jwt, true},
+		{"trusted-issuer bearer, not stored", store, jwt, false, false},
+		{"muster access token, not stored", store, "opaque-access-token", true, false},
+		{"trusted-issuer bearer, store unavailable", failingTokenStore{err: errors.New("valkey: connection refused")}, jwt, true, false},
+		{"muster access token, store unavailable", failingTokenStore{err: errors.New("valkey: connection refused")}, "opaque-access-token", true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,11 +61,37 @@ func TestGetProviderToken_MissLogLevel(t *testing.T) {
 			r := httptest.NewRequest("POST", "/mcp", nil)
 			r.Header.Set("Authorization", "Bearer "+tc.bearer)
 
-			assert.Nil(t, s.getProviderToken(context.Background(), r))
+			token, err := s.getProviderToken(context.Background(), r)
+			assert.Nil(t, token)
+			assert.Equal(t, tc.wantErr, err != nil)
 			out := logBuf.String()
 			assert.Equal(t, 1, bytes.Count(logBuf.Bytes(), []byte("Failed to get provider token from store")), out)
 			assert.Equal(t, tc.wantWarn, bytes.Contains(logBuf.Bytes(), []byte("WARN")), out)
 			assert.NotContains(t, out, tc.bearer, "the bearer never reaches the logs")
 		})
 	}
+}
+
+// TestAccessTokenInjector_StoreErrorIsRetryable: a token-store failure says
+// nothing about the person's credentials. The request is answered 503 with
+// Retry-After, and the session is left alone: firing onAuthenticated without
+// a subject token would revoke it and hold the person's servers back.
+func TestAccessTokenInjector_StoreErrorIsRetryable(t *testing.T) {
+	s := &OAuthHTTPServer{tokenStore: failingTokenStore{err: context.DeadlineExceeded}}
+	fired := false
+	s.SetOnAuthenticated(func(context.Context, string) { fired = true })
+	served := false
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { served = true })
+
+	r := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+	r.Header.Set("Authorization", "Bearer opaque-access-token")
+	ctx := oauthhandler.ContextWithUserInfo(r.Context(), &providers.UserInfo{ID: "alice", Email: "alice@example.com"})
+	ctx = oauthhandler.ContextWithSessionID(ctx, "family-1")
+	rec := httptest.NewRecorder()
+	s.createAccessTokenInjectorMiddleware(next).ServeHTTP(rec, r.WithContext(ctx))
+
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.NotEmpty(t, rec.Header().Get("Retry-After"))
+	require.False(t, fired, "onAuthenticated must not run without the subject token")
+	require.False(t, served)
 }
