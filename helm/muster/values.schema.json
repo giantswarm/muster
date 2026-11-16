@@ -489,7 +489,7 @@
                                 },
                                 "existingSecret": {
                                     "type": "string",
-                                    "description": "from-literal=dex-client-secret=<your-dex-client-secret> \\"
+                                    "description": "from-literal=dex-client-secret=<your-dex-client-secret> \\ --from-literal=registration-token=$(openssl rand -hex 32) \\ --from-literal=oauth-encryption-key=$(openssl rand -base64 32) \\ --from-literal=valkey-password=<your-valkey-password>"
                                 },
                                 "existingSecretChecksum": {
                                     "type": "string"

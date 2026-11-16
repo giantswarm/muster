@@ -362,7 +362,14 @@ func (s *OAuthHTTPServer) createAccessTokenInjectorMiddleware(next http.Handler)
 		// token store has the fresh upstream token (with a valid ID token);
 		// the email-keyed entry that was used before is never updated by
 		// mcp-oauth's RefreshAccessToken and becomes stale.
-		token := s.getProviderToken(ctx, r)
+		token, err := s.getProviderToken(ctx, r)
+		if err != nil {
+			// The store did not answer: nothing is known about the person's
+			// credentials. Firing onAuthenticated without the subject token
+			// would revoke the session, so the client retries.
+			writeUnavailable(w)
+			return
+		}
 		if token == nil {
 			// The bearer token was accepted by ValidateToken but muster's token
 			// store has no entry for it. This happens when a client presents a
@@ -478,6 +485,12 @@ func (s *OAuthHTTPServer) injectExternalIDToken(
 				logging.Debug("OAuth", "SSO: forwarded ID token audience mismatch, trying TrustedIssuers path")
 			}
 			acceptance, err = acceptTrustedIssuerToken(s.oauthServer, ctx, bearerToken)
+		}
+		if isUnavailable(err) {
+			// Neither accepted nor rejected: falling back would fire
+			// onAuthenticated without the subject token and revoke the session.
+			writeUnavailable(w)
+			return true
 		}
 		if err != nil {
 			if s.debug {
@@ -905,11 +918,14 @@ func truncateEmail(email string) string {
 // Only muster's own (opaque) access tokens have an entry. A decodable JWT
 // bearer was issued by a trusted issuer and never has one, so its miss is
 // expected -- the caller goes on to injectExternalIDToken -- and is logged at
-// DEBUG; a miss for muster's own token, and any other store failure, at WARN.
-func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request) *oauth2.Token {
+// DEBUG; a miss for muster's own token at WARN. Only a store that did not
+// answer (storage.IsTransientError) for muster's own token returns an error,
+// wrapping oauthserver.ErrStorageUnavailable; any other failure, and any
+// failure for a JWT, returns no token and no error.
+func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request) (*oauth2.Token, error) {
 	bearerToken := extractBearerToken(r)
 	if bearerToken == "" {
-		return nil
+		return nil, nil
 	}
 	token, err := s.tokenStore.GetToken(ctx, bearerToken)
 	if err != nil {
@@ -919,10 +935,14 @@ func (s *OAuthHTTPServer) getProviderToken(ctx context.Context, r *http.Request)
 		if errors.Is(err, storage.ErrTokenNotFound) && isJWT(bearerToken) {
 			log = logging.Debug
 		}
-		log("OAuth", "SSO: Failed to get provider token from store: %s", logging.RedactSecret(err.Error(), bearerToken))
-		return nil
+		redacted := logging.RedactSecret(err.Error(), bearerToken)
+		log("OAuth", "SSO: Failed to get provider token from store: %s", redacted)
+		if !storage.IsTransientError(err) || isJWT(bearerToken) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%w: %s", oauthserver.ErrStorageUnavailable, redacted)
 	}
-	return token
+	return token, nil
 }
 
 // isJWT reports whether token is a decodable JWT, which muster never issues:

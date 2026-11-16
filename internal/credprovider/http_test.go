@@ -2,6 +2,8 @@ package credprovider
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 )
 
 // asPerson stands in for muster's ValidateTokenWithSubject: the person the
@@ -162,16 +165,17 @@ func TestBindRejectsBadToolsets(t *testing.T) {
 	withToolset := func(toolset string) string {
 		return `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"],"toolset":` + toolset + `}`
 	}
-	selectors := make([]string, 33)
+	selectors := make([]string, toolset.MaxInlineSelectors+1)
 	for i := range selectors {
-		selectors[i] = `"tool:t` + strings.Repeat("x", i+1) + `"`
+		selectors[i] = fmt.Sprintf(`"tool:t%d"`, i)
 	}
 	cases := map[string]struct{ toolset, want string }{
 		"empty":     {`[]`, "is empty"},
 		"reserved":  {`["toolset:shared"]`, "reserved for shared toolsets"},
 		"label":     {`["label:tier=infra"]`, "allowed inside presets only"},
 		"malformed": {`["preset:none","garbage"]`, "malformed"},
-		"too many":  {"[" + strings.Join(selectors, ",") + "]", "more than the 32 allowed inline"},
+		"too many":  {"[" + strings.Join(selectors, ",") + "]", "more than the 128 allowed inline"},
+		"too large": {`["tool:` + strings.Repeat("x", 8188) + `"]`, "encodes to 8193 bytes"},
 		"not list":  {`"preset:none"`, "bad request"},
 	}
 	for name, tc := range cases {
@@ -179,6 +183,25 @@ func TestBindRejectsBadToolsets(t *testing.T) {
 			rec := bind(t, p, "alice", withToolset(tc.toolset))
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 			assert.Contains(t, rec.Body.String(), tc.want)
+		})
+	}
+}
+
+func TestBindAcceptsLargerToolsets(t *testing.T) {
+	for _, count := range []int{33, 128} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			provider, store := newTestProvider(t, fakeGrants{})
+			selectors := make([]string, count)
+			for index := range selectors {
+				selectors[index] = fmt.Sprintf("tool:x_example_%d", index)
+			}
+			body, err := json.Marshal(BindRequest{Actor: testActor, Session: "kagent/s1", Providers: []string{"github"}, Toolset: selectors})
+			require.NoError(t, err)
+			response := bind(t, provider, "alice", string(body))
+			require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
+			stored, err := store.Get(t.Context(), testActor)
+			require.NoError(t, err)
+			require.Equal(t, selectors, stored.Toolset)
 		})
 	}
 }

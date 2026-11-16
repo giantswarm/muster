@@ -273,6 +273,11 @@ func (a *AggregatorServer) onSessionCreated(userID, familyID string, token *oaut
 		slog.String("familyID", logging.TruncateIdentifier(familyID)),
 		slog.Bool("hasIDToken", idToken != ""),
 		slog.Int("idTokenLen", len(idToken)))
+	// A sign-in brings a new subject token: failures recorded against the
+	// previous one are not this session's, as on a session's first fan-out.
+	if a.ssoTracker != nil && userID != "" {
+		a.ssoTracker.ClearAllSSOFailed(userID)
+	}
 	// beginSessionBootstrap persists idToken into the OAuth-proxy store
 	// itself, so no separate storeIDTokenForSSO call is needed here.
 	a.beginSessionBootstrap(ssoSession{userID: userID, sessionID: familyID, tokens: server.CallerTokens{IDToken: idToken}})

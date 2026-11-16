@@ -13,7 +13,11 @@ type brandMark struct {
 	color   string
 	domains []string
 	// inCluster are the names that identify the brand on an in-cluster
-	// host: a service name, a namespace or a first path segment.
+	// host: a service name, a namespace or a first path segment. List only
+	// names that no other server plausibly uses: a bare brand name only
+	// where the brand's own deployment owns it (Kyverno's namespace, kagent's
+	// route path), otherwise the MCP server's name (mcp-pagerduty), since a
+	// bare pagerduty service or namespace may run anything.
 	inCluster []string
 	path      string
 }

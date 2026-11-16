@@ -61,10 +61,17 @@ with both. A request that authenticates with a person's bearer is never bound.
 | `tool:<name>` | One tool by its exposed name (`x_<server>_<tool>`, `workflow_<name>`, `core_*`). |
 
 Names are exact and case-sensitive (regex `^(preset|server|workflow|tool):[^\s,]+$`). At most
-**32** selectors inline — larger selections are presets. Core tools (`core_*`) are selectable
+**128** selectors inline, with at most **8192 UTF-8 bytes** when joined by commas — larger selections are presets. Core tools (`core_*`) are selectable
 by name (`tool:core_workflow_list` inline, `pattern: core_*` in a preset) and through their
 annotations (the built-in `read-only` preset includes the read-only core tools). There is no
 `core` pseudo-server.
+
+Muster's inline parser owns the runtime limits; `filter_tools` publishes its selector
+cap as `inputSchema.properties.toolset.maxItems`. The agent chart expresses the same
+count in its values schema. Agent-manager validates that schema and renders the chart,
+then publishes the count in `create_agent` for Backstage's existing `describe_tool`
+reader. The aggregate UTF-8 byte check remains explicit at those input boundaries
+because JSON Schema counts characters, not comma-joined UTF-8 bytes.
 
 Rejected inline, with an error naming the toolset and the selector:
 
@@ -74,7 +81,8 @@ Rejected inline, with an error naming the toolset and the selector:
 | `toolset:<name>` | `… selector "toolset:x" is reserved for shared toolsets` |
 | `label:<k>=<v>` | `… selector "label:…" is allowed inside presets only` |
 | anything else | `… selector "…" is malformed; expected preset:<name>, server:<name>, workflow:<name> or tool:<name>` |
-| more than 32 | `toolset [...] has 33 selectors, more than the 32 allowed inline; define a preset` |
+| more than 128 | `toolset [...] has 129 selectors, more than the 128 allowed inline; define a preset` |
+| encoded value above 8192 bytes | `toolset encodes to 8193 bytes, more than the 8192 allowed inline; define a preset` |
 | unknown preset | `toolset [preset:foo] names unknown preset "foo"; known presets: read-only, none, full, …` |
 
 These are **error results on every meta-tool call** — including `get_resource` and

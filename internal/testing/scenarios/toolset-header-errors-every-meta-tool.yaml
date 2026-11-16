@@ -1,5 +1,5 @@
 name: "toolset-header-errors-every-meta-tool"
-description: "A present but invalid X-Muster-Toolset — empty, unknown preset, reserved toolset:, inline label:, more than 32 selectors, malformed — is an error result on every meta-tool call, naming the toolset and the offending selector; it never falls back to the unscoped catalogue and is not sticky (#1169)"
+description: "A present but invalid X-Muster-Toolset — empty, unknown preset, reserved toolset:, inline label:, more than 128 selectors, malformed — is an error result on every meta-tool call, naming the toolset and the offending selector; it never falls back to the unscoped catalogue and is not sticky (#1169)"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["toolset", "metatools", "errors", "1169"]
@@ -152,16 +152,16 @@ steps:
     tool: "test_call_meta_tool"
     args: { tool: "list_tools" }
     headers:
-      X-Muster-Toolset: "tool:t1,tool:t2,tool:t3,tool:t4,tool:t5,tool:t6,tool:t7,tool:t8,tool:t9,tool:t10,tool:t11,tool:t12,tool:t13,tool:t14,tool:t15,tool:t16,tool:t17,tool:t18,tool:t19,tool:t20,tool:t21,tool:t22,tool:t23,tool:t24,tool:t25,tool:t26,tool:t27,tool:t28,tool:t29,tool:t30,tool:t31,tool:t32,tool:t33"
+      X-Muster-Toolset: "tool:t1,tool:t2,tool:t3,tool:t4,tool:t5,tool:t6,tool:t7,tool:t8,tool:t9,tool:t10,tool:t11,tool:t12,tool:t13,tool:t14,tool:t15,tool:t16,tool:t17,tool:t18,tool:t19,tool:t20,tool:t21,tool:t22,tool:t23,tool:t24,tool:t25,tool:t26,tool:t27,tool:t28,tool:t29,tool:t30,tool:t31,tool:t32,tool:t33,tool:t34,tool:t35,tool:t36,tool:t37,tool:t38,tool:t39,tool:t40,tool:t41,tool:t42,tool:t43,tool:t44,tool:t45,tool:t46,tool:t47,tool:t48,tool:t49,tool:t50,tool:t51,tool:t52,tool:t53,tool:t54,tool:t55,tool:t56,tool:t57,tool:t58,tool:t59,tool:t60,tool:t61,tool:t62,tool:t63,tool:t64,tool:t65,tool:t66,tool:t67,tool:t68,tool:t69,tool:t70,tool:t71,tool:t72,tool:t73,tool:t74,tool:t75,tool:t76,tool:t77,tool:t78,tool:t79,tool:t80,tool:t81,tool:t82,tool:t83,tool:t84,tool:t85,tool:t86,tool:t87,tool:t88,tool:t89,tool:t90,tool:t91,tool:t92,tool:t93,tool:t94,tool:t95,tool:t96,tool:t97,tool:t98,tool:t99,tool:t100,tool:t101,tool:t102,tool:t103,tool:t104,tool:t105,tool:t106,tool:t107,tool:t108,tool:t109,tool:t110,tool:t111,tool:t112,tool:t113,tool:t114,tool:t115,tool:t116,tool:t117,tool:t118,tool:t119,tool:t120,tool:t121,tool:t122,tool:t123,tool:t124,tool:t125,tool:t126,tool:t127,tool:t128,tool:t129"
     expected:
       success: false
-      error_contains: ["has 33 selectors, more than the 32 allowed inline; define a preset"]
-  - id: "thirty-two-is-fine"
+      error_contains: ["has 129 selectors, more than the 128 allowed inline; define a preset"]
+  - id: "one-hundred-twenty-eight-is-fine"
     description: "the cap is inclusive"
     tool: "test_call_meta_tool"
     args: { tool: "filter_tools", arguments: { pattern: "*" } }
     headers:
-      X-Muster-Toolset: "tool:t1,tool:t2,tool:t3,tool:t4,tool:t5,tool:t6,tool:t7,tool:t8,tool:t9,tool:t10,tool:t11,tool:t12,tool:t13,tool:t14,tool:t15,tool:t16,tool:t17,tool:t18,tool:t19,tool:t20,tool:t21,tool:t22,tool:t23,tool:t24,tool:t25,tool:t26,tool:t27,tool:t28,tool:t29,tool:t30,tool:t31,tool:x_k8s_get_pods"
+      X-Muster-Toolset: "tool:t1,tool:t2,tool:t3,tool:t4,tool:t5,tool:t6,tool:t7,tool:t8,tool:t9,tool:t10,tool:t11,tool:t12,tool:t13,tool:t14,tool:t15,tool:t16,tool:t17,tool:t18,tool:t19,tool:t20,tool:t21,tool:t22,tool:t23,tool:t24,tool:t25,tool:t26,tool:t27,tool:t28,tool:t29,tool:t30,tool:t31,tool:t32,tool:t33,tool:t34,tool:t35,tool:t36,tool:t37,tool:t38,tool:t39,tool:t40,tool:t41,tool:t42,tool:t43,tool:t44,tool:t45,tool:t46,tool:t47,tool:t48,tool:t49,tool:t50,tool:t51,tool:t52,tool:t53,tool:t54,tool:t55,tool:t56,tool:t57,tool:t58,tool:t59,tool:t60,tool:t61,tool:t62,tool:t63,tool:t64,tool:t65,tool:t66,tool:t67,tool:t68,tool:t69,tool:t70,tool:t71,tool:t72,tool:t73,tool:t74,tool:t75,tool:t76,tool:t77,tool:t78,tool:t79,tool:t80,tool:t81,tool:t82,tool:t83,tool:t84,tool:t85,tool:t86,tool:t87,tool:t88,tool:t89,tool:t90,tool:t91,tool:t92,tool:t93,tool:t94,tool:t95,tool:t96,tool:t97,tool:t98,tool:t99,tool:t100,tool:t101,tool:t102,tool:t103,tool:t104,tool:t105,tool:t106,tool:t107,tool:t108,tool:t109,tool:t110,tool:t111,tool:t112,tool:t113,tool:t114,tool:t115,tool:t116,tool:t117,tool:t118,tool:t119,tool:t120,tool:t121,tool:t122,tool:t123,tool:t124,tool:t125,tool:t126,tool:t127,tool:x_k8s_get_pods"
     expected:
       success: true
       json_path:
