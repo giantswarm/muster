@@ -1,0 +1,50 @@
+suite: Dex JWKS configuration
+templates:
+  - templates/configmap.yaml
+set:
+  muster.oauth.server.enabled: true
+  muster.oauth.server.baseUrl: https://muster.example.com
+  muster.oauth.server.existingSecret: muster-oauth
+  muster.oauth.server.dex.issuerUrl: https://dex.example.com
+  muster.oauth.server.dex.clientId: muster
+tests:
+  - it: leaves the private-address guard enabled by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPJWKS:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPOIDC:"
+  - it: renders the canonical JWKS setting
+    set:
+      muster.oauth.server.dex.allowPrivateIPJWKS: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPJWKS: true"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPOIDC:"
+  - it: preserves the legacy permission when the canonical setting is false
+    set:
+      muster.oauth.server.dex.allowPrivateIPOIDC: true
+      muster.oauth.server.dex.allowPrivateIPJWKS: false
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPOIDC: true"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPJWKS:"
+  - it: preserves both explicit permissions
+    set:
+      muster.oauth.server.dex.allowPrivateIPOIDC: true
+      muster.oauth.server.dex.allowPrivateIPJWKS: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPOIDC: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPJWKS: true"

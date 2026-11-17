@@ -86,7 +86,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		TrustedAudiences:                      cfg.TrustedAudiences,
 		// The forwarded-ID-token (TrustedAudiences) JWKS fetch is the only
 		// Dex call behind mcp-oauth's private-address guard.
-		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPOIDC,
+		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC,
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.

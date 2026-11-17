@@ -557,13 +557,15 @@ aggregator:
             grantIssuer: https://github.com/login/oauth
 ```
 
-#### Private-IP OIDC Discovery (Dex)
+#### Private-IP JWKS fetches for forwarded ID tokens (Dex)
 
-By default the SSRF guard rejects an OIDC issuer URL that resolves to a private or loopback address. On clusters where the public Dex hostname resolves to an RFC 1918 address (e.g. an Azure internal load balancer, or air-gapped environments), discovery fails with `context deadline exceeded` and the server starts in degraded mode.
+The JWKS fetch that validates forwarded ID tokens through `trustedAudiences` rejects private and loopback addresses by default. Enable `dex.allowPrivateIPJWKS` only when the configured Dex JWKS endpoint resolves to those addresses. This setting does not affect Dex discovery, token or userinfo calls: those operator-configured endpoints already reach private addresses and honor `HTTPS_PROXY` and `NO_PROXY`. TLS certificate verification remains enabled on both paths.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `dex.allowPrivateIPOIDC` | `bool` | `false` | Let the JWKS fetch that validates forwarded ID tokens (`trustedAudiences`) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it and honor `HTTPS_PROXY`/`NO_PROXY`. |
+| `dex.allowPrivateIPJWKS` | `bool` | `false` | Let the JWKS fetch that validates forwarded ID tokens (`trustedAudiences`) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it and honor `HTTPS_PROXY`/`NO_PROXY`. |
+
+`dex.allowPrivateIPOIDC` is a deprecated alias for `dex.allowPrivateIPJWKS`; setting it to `true` logs a startup warning. Either key set to `true` permits private-address JWKS fetching. Setting the canonical key to `false` does not disable a true alias: remove the old key when migrating, or set both to `false` to keep the private-address guard enabled. The alias is removed in v5.64.0, scheduled for 2027-02-17. The ignored `allowLocalhostRedirectURIs` chart value has the same removal schedule; loopback redirects need no setting.
 
 #### Sign-in check connectors (Dex)
 

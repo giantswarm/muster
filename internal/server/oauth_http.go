@@ -672,6 +672,9 @@ type oauthServerComponents struct {
 // createOAuthServer creates an OAuth server using mcp-oauth library.
 func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) (*oauthServerComponents, error) {
 	logger := slog.Default()
+	if cfg.Dex.AllowPrivateIPOIDC {
+		logger.Warn("dex.allowPrivateIPOIDC is deprecated; use dex.allowPrivateIPJWKS; the alias will be removed in v5.64.0 (2027-02-17)")
+	}
 
 	// mcp-oauth v1+ no longer reads a CA installed on http.DefaultTransport for
 	// its permissive JWKS / OIDC-discovery clients (private-IP trusted issuers,

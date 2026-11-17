@@ -124,16 +124,19 @@ func TestNewOAuthServerConfig_AllowedOriginsSplitAndTrimmed(t *testing.T) {
 	}
 }
 
-func TestNewOAuthServerConfig_AllowPrivateIPJWKSMirrorsDexFlag(t *testing.T) {
+func TestNewOAuthServerConfig_DexJWKSSettingAliases(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name string
-		in   bool
-		want bool
+		name      string
+		canonical bool
+		alias     bool
+		want      bool
 	}{
-		{name: "private-IP Dex enables forwarded-token JWKS private IPs", in: true, want: true},
-		{name: "public Dex leaves forwarded-token JWKS private IPs disabled", in: false, want: false},
+		{name: "default guard enabled"},
+		{name: "canonical permission", canonical: true, want: true},
+		{name: "alias permission", alias: true, want: true},
+		{name: "both permissions", canonical: true, alias: true, want: true},
 	}
 
 	for _, tc := range cases {
@@ -142,13 +145,12 @@ func TestNewOAuthServerConfig_AllowPrivateIPJWKSMirrorsDexFlag(t *testing.T) {
 
 			cfg := config.OAuthServerConfig{
 				BaseURL: "https://muster.example.com",
-				Dex:     config.DexConfig{AllowPrivateIPOIDC: tc.in},
+				Dex:     config.DexConfig{AllowPrivateIPJWKS: tc.canonical, AllowPrivateIPOIDC: tc.alias},
 			}
 
 			got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 
-			require.Equal(t, tc.want, got.AllowPrivateIPJWKS,
-				"AllowPrivateIPJWKS must mirror Dex.AllowPrivateIPOIDC")
+			require.Equal(t, tc.want, got.AllowPrivateIPJWKS)
 		})
 	}
 }

@@ -407,6 +407,7 @@
                                 },
                                 "allowLocalhostRedirectURIs": {
                                     "type": "boolean",
+                                    "description": "Deprecated, no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3). Accepted so existing values keep rendering; removed in v5.64.0, scheduled for 2027-02-17.",
                                     "deprecated": true
                                 },
                                 "allowPrivateIPClientMetadata": {
@@ -453,8 +454,14 @@
                                     "type": "object",
                                     "additionalProperties": false,
                                     "properties": {
+                                        "allowPrivateIPJWKS": {
+                                            "type": "boolean",
+                                            "description": "Let the JWKS fetch that validates forwarded ID tokens (trustedAudiences) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it."
+                                        },
                                         "allowPrivateIPOIDC": {
-                                            "type": "boolean"
+                                            "type": "boolean",
+                                            "description": "Deprecated alias for allowPrivateIPJWKS. Either true value permits private-address JWKS fetching. Remove this key to disable the alias; setting allowPrivateIPJWKS to false does not override a true alias. Removed in v5.64.0, scheduled for 2027-02-17.",
+                                            "deprecated": true
                                         },
                                         "clientId": {
                                             "type": "string"

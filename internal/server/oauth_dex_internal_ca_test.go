@@ -92,18 +92,18 @@ func startLabDex(t *testing.T) (issuerURL string, caPool *x509.CertPool) {
 
 // TestNewDexProviderConfig_LabDexInternalCA pins that the --extra-ca-file pool
 // reaches the Dex discovery client through dex.Config.RootCAs, whether or not
-// dex.allowPrivateIPOIDC is set.
+// dex.allowPrivateIPJWKS is set.
 func TestNewDexProviderConfig_LabDexInternalCA(t *testing.T) {
 	issuer, caPool := startLabDex(t)
 
-	newProvider := func(t *testing.T, allowPrivateIPOIDC bool, pool *x509.CertPool) error {
+	newProvider := func(t *testing.T, allowPrivateIPJWKS bool, pool *x509.CertPool) error {
 		t.Helper()
 		cfg := config.OAuthServerConfig{
 			Dex: config.DexConfig{
 				IssuerURL:          issuer,
 				ClientID:           "muster",
 				ClientSecret:       "secret",
-				AllowPrivateIPOIDC: allowPrivateIPOIDC,
+				AllowPrivateIPJWKS: allowPrivateIPJWKS,
 			},
 		}
 		dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", pool, noAudiences)
@@ -114,11 +114,11 @@ func TestNewDexProviderConfig_LabDexInternalCA(t *testing.T) {
 		return err
 	}
 
-	for _, allowPrivateIPOIDC := range []bool{false, true} {
-		t.Run(fmt.Sprintf("allowPrivateIPOIDC=%t", allowPrivateIPOIDC), func(t *testing.T) {
-			require.NoError(t, newProvider(t, allowPrivateIPOIDC, caPool))
+	for _, allowPrivateIPJWKS := range []bool{false, true} {
+		t.Run(fmt.Sprintf("allowPrivateIPJWKS=%t", allowPrivateIPJWKS), func(t *testing.T) {
+			require.NoError(t, newProvider(t, allowPrivateIPJWKS, caPool))
 
-			err := newProvider(t, allowPrivateIPOIDC, nil)
+			err := newProvider(t, allowPrivateIPJWKS, nil)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "certificate")
 		})

@@ -587,11 +587,16 @@ muster:
         # authenticate a person. muster's Dex client must be allowed to use
         # each of them.
         identityCheckConnectors: []  # @schema item: string
-        # Let the JWKS fetch that validates forwarded ID tokens
+        # -- Let the JWKS fetch that validates forwarded ID tokens
         # (trustedAudiences) reach a Dex whose issuer resolves to a private or
         # loopback address. Discovery, token and userinfo calls reach such a Dex
         # without it.
-        allowPrivateIPOIDC: false
+        allowPrivateIPJWKS: false
+        # -- Deprecated alias for allowPrivateIPJWKS. Either true value permits
+        # private-address JWKS fetching. Remove this key to disable the alias;
+        # setting allowPrivateIPJWKS to false does not override a true alias.
+        # Removed in v5.64.0, scheduled for 2027-02-17.
+        allowPrivateIPOIDC: false  # @schema deprecated: true
 
       # Google OAuth provider configuration (used when provider is "google")
       google:
@@ -761,9 +766,9 @@ muster:
       # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
       enableCIMD: true
 
-      # Deprecated, no effect: loopback redirect URIs are always allowed on any
+      # -- Deprecated, no effect: loopback redirect URIs are always allowed on any
       # port (RFC 8252 §7.3). Accepted so existing values keep rendering;
-      # removed in the next release.
+      # removed in v5.64.0, scheduled for 2027-02-17.
       allowLocalhostRedirectURIs: true  # @schema deprecated: true
 
       # -- How much lifetime the provider (Dex) token muster holds for a user

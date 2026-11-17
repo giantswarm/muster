@@ -105,6 +105,9 @@ data:
             identityCheckConnectors:
               {{- toYaml . | nindent 14 }}
             {{- end }}
+            {{- if .Values.muster.oauth.server.dex.allowPrivateIPJWKS }}
+            allowPrivateIPJWKS: true
+            {{- end }}
             {{- if .Values.muster.oauth.server.dex.allowPrivateIPOIDC }}
             allowPrivateIPOIDC: true
             {{- end }}

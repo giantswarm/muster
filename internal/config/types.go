@@ -846,10 +846,14 @@ type DexConfig struct {
 	// use each of them.
 	IdentityCheckConnectors []string `yaml:"identityCheckConnectors,omitempty"`
 
-	// AllowPrivateIPOIDC lets the JWKS fetch that validates forwarded ID tokens
+	// AllowPrivateIPJWKS lets the JWKS fetch that validates forwarded ID tokens
 	// (TrustedAudiences) reach a Dex whose issuer resolves to a private or
 	// loopback address. Discovery, token and userinfo calls reach such a Dex
 	// without it.
+	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
+
+	// AllowPrivateIPOIDC is the deprecated alias for AllowPrivateIPJWKS.
+	// Either true value enables private-address JWKS fetching.
 	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
 }
 

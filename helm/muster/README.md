@@ -139,7 +139,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.dex.clientSecret | string | `""` |  |
 | muster.oauth.server.dex.connectorId | string | `""` |  |
 | muster.oauth.server.dex.identityCheckConnectors | list | `[]` |  |
-| muster.oauth.server.dex.allowPrivateIPOIDC | bool | `false` |  |
+| muster.oauth.server.dex.allowPrivateIPJWKS | bool | `false` | Let the JWKS fetch that validates forwarded ID tokens (trustedAudiences) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it. |
+| muster.oauth.server.dex.allowPrivateIPOIDC | bool | `false` | Deprecated alias for allowPrivateIPJWKS. Either true value permits private-address JWKS fetching. Remove this key to disable the alias; setting allowPrivateIPJWKS to false does not override a true alias. Removed in v5.64.0, scheduled for 2027-02-17. |
 | muster.oauth.server.google.clientId | string | `""` |  |
 | muster.oauth.server.google.clientSecret | string | `""` |  |
 | muster.oauth.server.existingSecret | string | `""` |  |
@@ -160,7 +161,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.trustedPublicRegistrationSchemes | list | `[]` |  |
 | muster.oauth.server.trustedPublicRegistrationRedirectURIs | list | `[]` |  |
 | muster.oauth.server.enableCIMD | bool | `true` |  |
-| muster.oauth.server.allowLocalhostRedirectURIs | bool | `true` |  |
+| muster.oauth.server.allowLocalhostRedirectURIs | bool | `true` | Deprecated, no effect: loopback redirect URIs are always allowed on any port (RFC 8252 §7.3). Accepted so existing values keep rendering; removed in v5.64.0, scheduled for 2027-02-17. |
 | muster.oauth.server.providerTokenRefreshThreshold | string | `""` | How much lifetime the provider (Dex) token muster holds for a user must have left before muster hands it out as is; a token closer to its expiry is refreshed at the provider first. Governs the token forwarded to downstream servers and the one a client's refresh returns. Raise it when a caller needs a forwarded token that outlives a long operation (e.g. "25m" for agent turns of 20 minutes); keep it below the provider's token lifetime (Dex idTokens, 30m by default), or every request refreshes at the provider. Go duration of at least 1s. Empty: the mcp-oauth default of 5m. |
 | muster.oauth.server.allowPrivateIPClientMetadata | bool | `false` |  |
 | muster.oauth.server.allowPrivateIPClientMetadataHosts | list | `[]` |  |
