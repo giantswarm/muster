@@ -64,7 +64,7 @@ func TestLockForStopCancelsTheConnectAndWaits(t *testing.T) {
 
 		locked := make(chan func())
 		go func() {
-			unlock, err := svc.lockForStop(t.Context())
+			unlock, err := svc.lockForStop(t.Context(), false)
 			if err == nil {
 				locked <- unlock
 			}
@@ -94,7 +94,7 @@ func TestStartDuringStopDoesNotConnect(t *testing.T) {
 		return nil
 	}
 
-	unlock, err := svc.lockForStop(t.Context())
+	unlock, err := svc.lockForStop(t.Context(), false)
 	require.NoError(t, err)
 	started := make(chan error, 1)
 	go func() { started <- svc.runStart(t.Context(), start) }()
@@ -127,7 +127,7 @@ func TestLockForStopGivesUpWithItsContext(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
-		_, err := svc.lockForStop(ctx)
+		_, err := svc.lockForStop(ctx, false)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		close(release)
 	})
@@ -190,6 +190,33 @@ func TestStopDuringRestartGraceStaysStopped(t *testing.T) {
 
 		require.NoError(t, svc.Stop(t.Context()))
 		require.ErrorIs(t, <-restarted, services.ErrStopRequested)
+		require.Equal(t, services.StateDisconnected, svc.GetState())
+		require.Nil(t, svc.GetMCPClient())
+	})
+}
+
+// Remove ends a start attempt in flight and refuses every later start with
+// ErrServiceRemoved: a retry that still holds a removed service cannot
+// reconnect it.
+func TestRemoveRefusesEveryLaterStart(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		svc, err := NewService(&api.MCPServer{
+			Name:      "removed",
+			Namespace: "muster",
+			Type:      api.MCPServerTypeStreamableHTTP,
+			URL:       "http://backend.invalid/mcp",
+		})
+		require.NoError(t, err)
+		svc.UpdateState(services.StateFailed, services.HealthUnhealthy, nil)
+
+		restarted := make(chan error, 1)
+		go func() { restarted <- svc.Restart(t.Context()) }()
+		synctest.Wait()
+
+		require.NoError(t, svc.Remove(t.Context()))
+		require.ErrorIs(t, <-restarted, services.ErrServiceRemoved)
+		require.ErrorIs(t, svc.Start(t.Context()), services.ErrServiceRemoved)
+		require.ErrorIs(t, svc.Restart(t.Context()), services.ErrServiceRemoved)
 		require.Equal(t, services.StateDisconnected, svc.GetState())
 		require.Nil(t, svc.GetMCPClient())
 	})

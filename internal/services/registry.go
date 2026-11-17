@@ -20,6 +20,10 @@ var ErrServiceAlreadyRegistered = errors.New("already registered")
 // start did not fail.
 var ErrStopRequested = errors.New("stop requested while the service was starting")
 
+// ErrServiceRemoved is wrapped by a Start or Restart of a service that a
+// Remover removed. Its definition is gone; the start did not fail.
+var ErrServiceRemoved = errors.New("service removed")
+
 // registry is a simple implementation of ServiceRegistry
 type registry struct {
 	mu       sync.RWMutex

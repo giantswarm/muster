@@ -73,6 +73,15 @@ type StateUpdater interface {
 	UpdateState(state ServiceState, health HealthStatus, err error)
 }
 
+// Remover is an optional interface for services that are stopped for good
+// when their definition is deleted.
+type Remover interface {
+	// Remove stops the service like Stop, and every Start or Restart that
+	// has not connected yet, or comes later, returns ErrServiceRemoved
+	// instead of connecting.
+	Remove(ctx context.Context) error
+}
+
 // ServiceDataProvider is an optional interface for services that expose additional data
 type ServiceDataProvider interface {
 	// GetServiceData returns service-specific data that can be accessed via the API layer

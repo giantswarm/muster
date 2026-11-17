@@ -133,12 +133,13 @@ type Service struct {
 	sessionAuth      sessionAuthState
 
 	// startInFlight is the start attempt running now, nil while none is,
-	// and stopsInFlight the number of Stops in progress (see
-	// start_attempt.go). Both protected by startMutex. lifecycleMutex is held
+	// stopsInFlight the number of Stops in progress, and removed whether
+	// Remove ran (see start_attempt.go). All protected by startMutex. lifecycleMutex is held
 	// by a start attempt and by a stop, so the two never interleave.
 	startMutex     sync.Mutex
 	startInFlight  *startAttempt
 	stopsInFlight  int
+	removed        bool
 	lifecycleMutex sync.Mutex
 }
 
@@ -478,7 +479,7 @@ func (s *Service) discardAnonymousProbe(ctx context.Context) error {
 // A start attempt in flight has its connect cancelled and is waited for; the
 // stop then closes whatever client it opened.
 func (s *Service) Stop(ctx context.Context) error {
-	unlock, err := s.lockForStop(ctx)
+	unlock, err := s.lockForStop(ctx, false)
 	if err != nil {
 		return err
 	}

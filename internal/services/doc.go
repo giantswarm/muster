@@ -62,6 +62,13 @@
 //	    UpdateState(state ServiceState, health HealthStatus, err error)
 //	}
 //
+// Remover: For services that are stopped for good when their definition is
+// deleted
+//
+//	type Remover interface {
+//	    Remove(ctx context.Context) error
+//	}
+//
 // # Service Lifecycle
 //
 //  1. Creation: Service created with static configuration

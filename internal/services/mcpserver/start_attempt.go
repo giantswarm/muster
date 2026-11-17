@@ -35,6 +35,10 @@ func (s *Service) runStart(ctx context.Context, start func(ctx, connectCtx conte
 			return ctx.Err()
 		}
 	}
+	if s.removed {
+		s.startMutex.Unlock()
+		return fmt.Errorf("start of MCP server %s: %w", s.GetName(), services.ErrServiceRemoved)
+	}
 	connectCtx, cancel := context.WithCancelCause(ctx)
 	if s.stopsInFlight > 0 {
 		cancel(services.ErrStopRequested)
@@ -64,18 +68,40 @@ func (s *Service) runStart(ctx context.Context, start func(ctx, connectCtx conte
 // stopRequested returns the error a start attempt ends with once a Stop
 // cancelled its connectCtx, nil while none did.
 func (s *Service) stopRequested(connectCtx context.Context) error {
-	if errors.Is(context.Cause(connectCtx), services.ErrStopRequested) {
-		return fmt.Errorf("start of MCP server %s: %w", s.GetName(), services.ErrStopRequested)
+	if !errors.Is(context.Cause(connectCtx), services.ErrStopRequested) {
+		return nil
 	}
+	s.startMutex.Lock()
+	removed := s.removed
+	s.startMutex.Unlock()
+	if removed {
+		return fmt.Errorf("start of MCP server %s: %w", s.GetName(), services.ErrServiceRemoved)
+	}
+	return fmt.Errorf("start of MCP server %s: %w", s.GetName(), services.ErrStopRequested)
+}
+
+// Remove stops the service for good: like Stop, and every start attempt
+// that has not connected yet or begins later returns
+// services.ErrServiceRemoved.
+func (s *Service) Remove(ctx context.Context) error {
+	unlock, err := s.lockForStop(ctx, true)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	s.stop()
 	return nil
 }
 
 // lockForStop cancels the connect of the attempt in flight, waits until that
 // attempt returned and takes lifecycleMutex; every attempt that begins before
-// the returned unlock is called is cancelled before it connects. It gives up
-// when ctx ends before the attempt in flight returned.
-func (s *Service) lockForStop(ctx context.Context) (unlock func(), err error) {
+// the returned unlock is called is cancelled before it connects. With remove,
+// the service is marked removed first, even when ctx ends before the attempt
+// in flight returned. It gives up when ctx ends before the attempt in flight
+// returned.
+func (s *Service) lockForStop(ctx context.Context, remove bool) (unlock func(), err error) {
 	s.startMutex.Lock()
+	s.removed = s.removed || remove
 	s.stopsInFlight++
 	inFlight := s.startInFlight
 	s.startMutex.Unlock()
