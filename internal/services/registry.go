@@ -15,6 +15,11 @@ import (
 // for it with errors.Is and leaves the service to whoever registered it.
 var ErrServiceAlreadyRegistered = errors.New("already registered")
 
+// ErrStopRequested is wrapped by a Start or Restart that a Stop of the same
+// service ended before it connected. The service is stopped, as asked; the
+// start did not fail.
+var ErrStopRequested = errors.New("stop requested while the service was starting")
+
 // registry is a simple implementation of ServiceRegistry
 type registry struct {
 	mu       sync.RWMutex

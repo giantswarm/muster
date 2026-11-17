@@ -45,33 +45,75 @@ func TestConcurrentStartsConnectOnce(t *testing.T) {
 	})
 }
 
-// A Stop cancels the connect of the Start in flight with errStopRequested and
-// returns only after that Start returned.
-func TestAbortStartCancelsTheConnectAndWaits(t *testing.T) {
+// A Stop cancels the connect of the attempt in flight with ErrStopRequested
+// and holds the lifecycle only once that attempt returned.
+func TestLockForStopCancelsTheConnectAndWaits(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		svc := &Service{}
+		svc := &Service{BaseService: services.NewBaseService("starting", services.TypeMCPServer, nil)}
 		var cause error
-		startReturned := false
+		release := make(chan struct{})
 		go func() {
 			_ = svc.runStart(t.Context(), func(_, connectCtx context.Context) error {
 				<-connectCtx.Done()
 				cause = context.Cause(connectCtx)
-				time.Sleep(time.Second)
-				startReturned = true
+				<-release
 				return cause
 			})
 		}()
 		synctest.Wait()
 
-		require.NoError(t, svc.abortStart(t.Context()))
-		require.True(t, startReturned, "abortStart returns after the Start")
-		require.ErrorIs(t, cause, errStopRequested)
-		require.NoError(t, svc.abortStart(t.Context()), "nothing in flight")
+		locked := make(chan func())
+		go func() {
+			unlock, err := svc.lockForStop(t.Context())
+			if err == nil {
+				locked <- unlock
+			}
+		}()
+		synctest.Wait()
+		require.ErrorIs(t, cause, services.ErrStopRequested)
+		select {
+		case <-locked:
+			t.Fatal("lockForStop returned before the attempt in flight")
+		default:
+		}
+
+		close(release)
+		unlock := <-locked
+		unlock()
 	})
 }
 
-// A Stop whose context ends before the Start in flight returns says so.
-func TestAbortStartGivesUpWithItsContext(t *testing.T) {
+// A start attempt that begins while a Stop is in progress does not connect:
+// of a Start and a Stop that overlap, the Stop wins. A Start after the Stop
+// connects again.
+func TestStartDuringStopDoesNotConnect(t *testing.T) {
+	svc := &Service{BaseService: services.NewBaseService("stopping", services.TypeMCPServer, nil)}
+	var calls atomic.Int32
+	start := func(context.Context, context.Context) error {
+		calls.Add(1)
+		return nil
+	}
+
+	unlock, err := svc.lockForStop(t.Context())
+	require.NoError(t, err)
+	started := make(chan error, 1)
+	go func() { started <- svc.runStart(t.Context(), start) }()
+	require.Eventually(t, func() bool {
+		svc.startMutex.Lock()
+		defer svc.startMutex.Unlock()
+		return svc.startInFlight != nil
+	}, 5*time.Second, time.Millisecond)
+	unlock()
+
+	require.ErrorIs(t, <-started, services.ErrStopRequested)
+	require.Zero(t, calls.Load())
+
+	require.NoError(t, svc.runStart(t.Context(), start))
+	require.Equal(t, int32(1), calls.Load())
+}
+
+// A Stop whose context ends before the attempt in flight returns says so.
+func TestLockForStopGivesUpWithItsContext(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		svc := &Service{BaseService: services.NewBaseService("stuck", services.TypeMCPServer, nil)}
 		release := make(chan struct{})
@@ -85,13 +127,14 @@ func TestAbortStartGivesUpWithItsContext(t *testing.T) {
 
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 		defer cancel()
-		require.ErrorIs(t, svc.abortStart(ctx), context.DeadlineExceeded)
+		_, err := svc.lockForStop(ctx)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 		close(release)
 	})
 }
 
 // A Stop during a connect that hangs ends that connect, leaves no client and
-// settles the server stopped; the Start returns errStopRequested instead of
+// settles the server stopped; the Start returns ErrStopRequested instead of
 // counting a connection failure.
 func TestStopDuringConnectSettlesStopped(t *testing.T) {
 	entered := make(chan struct{})
@@ -122,13 +165,32 @@ func TestStopDuringConnectSettlesStopped(t *testing.T) {
 	require.Equal(t, services.StateStarting, svc.GetState())
 
 	require.NoError(t, svc.Stop(t.Context()))
-	select {
-	case err := <-started:
-		require.ErrorIs(t, err, errStopRequested)
-	default:
-		t.Fatal("Stop returned before the Start in flight")
-	}
+	require.ErrorIs(t, <-started, services.ErrStopRequested)
 	require.Equal(t, services.StateDisconnected, svc.GetState())
 	require.Nil(t, svc.GetMCPClient())
 	require.Zero(t, svc.GetConsecutiveFailures(), "a cancelled connect is not a connection failure")
+}
+
+// A Stop that arrives while a Restart waits out its grace period ends the
+// restart: the server stays stopped instead of reconnecting after the Stop.
+func TestStopDuringRestartGraceStaysStopped(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		svc, err := NewService(&api.MCPServer{
+			Name:      "restarting",
+			Namespace: "muster",
+			Type:      api.MCPServerTypeStreamableHTTP,
+			URL:       "http://backend.invalid/mcp",
+		})
+		require.NoError(t, err)
+		svc.UpdateState(services.StateFailed, services.HealthUnhealthy, nil)
+
+		restarted := make(chan error, 1)
+		go func() { restarted <- svc.Restart(t.Context()) }()
+		synctest.Wait()
+
+		require.NoError(t, svc.Stop(t.Context()))
+		require.ErrorIs(t, <-restarted, services.ErrStopRequested)
+		require.Equal(t, services.StateDisconnected, svc.GetState())
+		require.Nil(t, svc.GetMCPClient())
+	})
 }

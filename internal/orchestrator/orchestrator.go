@@ -228,6 +228,10 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 				// Pending auth registration happens in the auth-required hook.
 				return
 			}
+			if errors.Is(err, services.ErrStopRequested) {
+				logging.Debug("Orchestrator", "MCPServer %s was stopped while starting", mcpServerInfo.ServerKey())
+				return
+			}
 			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.ServerKey())
 		} else {
 			logging.Info("Orchestrator", "Started MCPServer service: %s", mcpServerInfo.ServerKey())
@@ -530,6 +534,10 @@ func (o *Orchestrator) attemptReconnectFailedServers(ctx context.Context) {
 			if err := service.Restart(o.ctx); err != nil {
 				if api.IsAuthRequiredError(err) {
 					// Pending auth registration happens in the auth-required hook inside Start.
+					return
+				}
+				if errors.Is(err, services.ErrStopRequested) {
+					logging.Debug("Orchestrator", "MCPServer %s was stopped while reconnecting", service.GetName())
 					return
 				}
 				logging.Warn("Orchestrator", "Failed to reconnect MCPServer %s: %v (will retry after backoff)", service.GetName(), err)
