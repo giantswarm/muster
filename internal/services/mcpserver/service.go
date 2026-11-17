@@ -131,6 +131,11 @@ type Service struct {
 	// sessionAuthMutex.
 	sessionAuthMutex sync.Mutex
 	sessionAuth      sessionAuthState
+
+	// startInFlight is the Start running now, nil while none is (see
+	// start_attempt.go). Protected by startMutex.
+	startMutex    sync.Mutex
+	startInFlight *startAttempt
 }
 
 // HealthCheckFailureThreshold is the number of consecutive failed health
@@ -193,6 +198,12 @@ func NewService(definition *api.MCPServer, opts ...Option) (*Service, error) {
 // For remote servers, this method tracks consecutive connection failures and
 // transitions to StateUnreachable after UnreachableThreshold failures.
 func (s *Service) Start(ctx context.Context) error {
+	return s.runStart(ctx, s.start)
+}
+
+// start is one start attempt. connectCtx bounds the backend connect only; a
+// Stop cancels it with errStopRequested.
+func (s *Service) start(ctx, connectCtx context.Context) error {
 	if s.IsRunning() {
 		return fmt.Errorf("service %s is already running", s.GetName())
 	}
@@ -215,7 +226,12 @@ func (s *Service) Start(ctx context.Context) error {
 	s.generateEvent(events.ReasonMCPServerStarting, events.EventData{})
 
 	// Create and initialize the MCP client (this starts the process AND establishes MCP communication)
-	if err := s.createAndInitializeClient(ctx); err != nil {
+	if err := s.createAndInitializeClient(connectCtx); err != nil {
+		// A Stop cancelled the connect: the state is the Stop's to settle,
+		// and the cancelled connect is neither a failure nor a 401.
+		if errors.Is(context.Cause(connectCtx), errStopRequested) {
+			return fmt.Errorf("start of MCP server %s: %w", s.GetName(), errStopRequested)
+		}
 		// Check if this is an auth required error - this is a special case
 		// where the server exists but needs OAuth before it can connect.
 		//
@@ -455,6 +471,9 @@ func (s *Service) discardAnonymousProbe(ctx context.Context) error {
 // Stop stops the MCP server service by closing the MCP client
 // The client handles both MCP protocol cleanup and process termination
 func (s *Service) Stop(ctx context.Context) error {
+	if err := s.abortStart(ctx); err != nil {
+		return err
+	}
 	currentState := s.GetState()
 
 	// Already stopped: nothing to do and nothing to announce. A remote
