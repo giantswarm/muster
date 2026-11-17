@@ -1153,8 +1153,8 @@ func (s *Service) closeClient() error {
 	return nil
 }
 
-// GetMCPClient returns the MCP client for this service (used by aggregator)
-// This is now much simpler since the client IS the process manager
+// GetMCPClient returns the service's initialized MCP client, nil while none
+// is. It does not wait for a connect in flight.
 func (s *Service) GetMCPClient() interface{} {
 	if held := s.connected.Load(); held != nil {
 		return held.client
@@ -1162,7 +1162,8 @@ func (s *Service) GetMCPClient() interface{} {
 	return nil
 }
 
-// IsClientReady returns whether the MCP client is initialized and ready
+// IsClientReady reports whether the service holds an initialized MCP client.
+// It does not wait for a connect in flight.
 func (s *Service) IsClientReady() bool {
 	return s.connected.Load() != nil
 }
