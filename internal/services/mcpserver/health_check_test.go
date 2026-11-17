@@ -104,7 +104,7 @@ func newConnectedService(t *testing.T, def *api.MCPServer, client interface{}) (
 	require.NoError(t, err)
 	svc.UpdateState(services.StateConnected, services.HealthHealthy, nil)
 	if client != nil {
-		svc.client = client
+		svc.connected.Store(&connectedClient{client: client})
 	}
 
 	rec := &transitionRecorder{}

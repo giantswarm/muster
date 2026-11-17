@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -74,9 +75,13 @@ const RestartGracePeriod = 200 * time.Millisecond
 // The MCP client now handles both process management AND MCP communication
 type Service struct {
 	*services.BaseService
-	definition      *api.MCPServer
-	client          interface{} // MCP client that manages the process AND handles MCP communication
-	clientInitMutex sync.Mutex  // Protects client operations
+	definition *api.MCPServer
+	// connected is the initialized MCP client (it manages the process and the
+	// MCP communication), nil while none is. It is published once the connect
+	// completed, so readers never wait for clientInitMutex, which serializes
+	// connects and closes and is held across the network connect.
+	connected       atomic.Pointer[connectedClient]
+	clientInitMutex sync.Mutex
 
 	// Connection failure tracking for exponential backoff.
 	// These fields are protected by failureMutex for thread-safe access.
@@ -765,15 +770,14 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	}
 
 	// Add client to service data if available and ready
-	s.clientInitMutex.Lock()
-	if s.client != nil {
-		data["client"] = s.client
+	if client := s.GetMCPClient(); client != nil {
+		data["client"] = client
 		data["clientReady"] = true
 		// The negotiated revision can be older than the one muster asks for,
 		// so it is reported per backend rather than assumed. An empty value
 		// means the handshake has not completed; the key stays absent so that
 		// core_service_status and core_mcpserver_get agree.
-		if versioned, ok := s.client.(interface{ NegotiatedProtocolVersion() string }); ok {
+		if versioned, ok := client.(interface{ NegotiatedProtocolVersion() string }); ok {
 			if version := versioned.NegotiatedProtocolVersion(); version != "" {
 				data[api.ServiceDataProtocolVersion] = version
 			}
@@ -781,7 +785,6 @@ func (s *Service) GetServiceData() map[string]interface{} {
 	} else {
 		data["clientReady"] = false
 	}
-	s.clientInitMutex.Unlock()
 
 	// Add tool prefix, family and namespace for aggregator registration. The
 	// namespace is the default for the definition's Secret references; it is
@@ -1123,7 +1126,7 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize %s MCP client: %w", s.definition.Type, err)
 	}
 
-	s.client = client
+	s.connected.Store(&connectedClient{client: client})
 	s.LogDebug("%s MCP client initialized successfully for %s", s.definition.Type, s.GetName())
 	return nil
 }
@@ -1133,12 +1136,13 @@ func (s *Service) closeClient() error {
 	s.clientInitMutex.Lock()
 	defer s.clientInitMutex.Unlock()
 
-	if s.client == nil {
+	held := s.connected.Swap(nil)
+	if held == nil {
 		return nil
 	}
 
 	// Close the client - this handles both MCP protocol cleanup and process termination
-	if closer, ok := s.client.(interface{ Close() error }); ok {
+	if closer, ok := held.client.(interface{ Close() error }); ok {
 		if err := closer.Close(); err != nil {
 			s.LogWarn("Error closing MCP client: %v", err)
 			return err
@@ -1146,24 +1150,26 @@ func (s *Service) closeClient() error {
 			s.LogDebug("MCP client closed successfully")
 		}
 	}
-
-	s.client = nil
 	return nil
 }
 
 // GetMCPClient returns the MCP client for this service (used by aggregator)
 // This is now much simpler since the client IS the process manager
 func (s *Service) GetMCPClient() interface{} {
-	s.clientInitMutex.Lock()
-	defer s.clientInitMutex.Unlock()
-	return s.client
+	if held := s.connected.Load(); held != nil {
+		return held.client
+	}
+	return nil
 }
 
 // IsClientReady returns whether the MCP client is initialized and ready
 func (s *Service) IsClientReady() bool {
-	s.clientInitMutex.Lock()
-	defer s.clientInitMutex.Unlock()
-	return s.client != nil
+	return s.connected.Load() != nil
+}
+
+// connectedClient boxes an MCP client for Service.connected.
+type connectedClient struct {
+	client interface{}
 }
 
 // generateEvent creates a Kubernetes event for this MCPServer service

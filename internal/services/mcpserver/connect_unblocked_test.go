@@ -90,47 +90,93 @@ func rbacFactory(rejected string, allowed ...string) callerwrite.ClientFactory {
 	}
 }
 
-// A backend whose connect hangs holds its client lock for the whole connect.
-// Fresh callers must still learn which servers they see, from the served
-// objects alone: they wait for neither that connect nor its lock, keep the
-// RBAC answer of each namespace, and a rejected token still sees nothing.
-func TestCallerVisibilityDoesNotWaitForABackendConnect(t *testing.T) {
+// hangingConnect starts a service whose backend never answers initialize
+// until the test ends, and returns once that connect is in flight, which
+// holds the service's clientInitMutex. connectEnded closes when Start returns.
+func hangingConnect(t *testing.T, name string) (svc *Service, connectEnded <-chan struct{}) {
+	t.Helper()
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	var once sync.Once
+	var enterOnce, releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		once.Do(func() { close(entered) })
+		enterOnce.Do(func() { close(entered) })
 		select {
 		case <-release:
 		case <-r.Context().Done():
 		}
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
-	var releaseOnce sync.Once
-	unblock := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(backend.Close)
-	t.Cleanup(unblock)
 
-	hanging, err := NewService(&api.MCPServer{
-		Name:      "hanging",
+	svc, err := NewService(&api.MCPServer{
+		Name:      name,
 		Namespace: "muster",
 		Type:      api.MCPServerTypeStreamableHTTP,
 		URL:       backend.URL + "/mcp",
 	})
 	require.NoError(t, err)
+
+	ended := make(chan struct{})
+	go func() {
+		defer close(ended)
+		_ = svc.Start(context.WithoutCancel(t.Context()))
+	}()
+	t.Cleanup(func() { unblock(); <-ended; _ = svc.Stop(context.Background()) })
+	<-entered
+	return svc, ended
+}
+
+// answeredWhileConnecting fails the test when answer has not returned within
+// a bound, while the connect of the service is still in flight.
+func answeredWhileConnecting(t *testing.T, connectEnded <-chan struct{}, what string, answer func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { defer close(done); answer() }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("%s waited for a backend's connect", what)
+	}
+	select {
+	case <-connectEnded:
+		t.Fatal("the backend connect ended before the answer; the test no longer holds the connect lock")
+	default:
+	}
+}
+
+// Status readers answer while the service connects: the connect holds the
+// client lock for its whole network round trip, and the service data, the
+// client and its readiness are read without that lock.
+func TestServiceReadersDoNotWaitForTheConnect(t *testing.T) {
+	svc, connectEnded := hangingConnect(t, "hanging")
+
+	var data map[string]any
+	var client any
+	var ready bool
+	answeredWhileConnecting(t, connectEnded, "the service's readers", func() {
+		data = svc.GetServiceData()
+		client = svc.GetMCPClient()
+		ready = svc.IsClientReady()
+	})
+	require.Equal(t, false, data["clientReady"])
+	require.NotContains(t, data, "client")
+	require.NotContains(t, data, api.ServiceDataProtocolVersion)
+	require.Nil(t, client)
+	require.False(t, ready)
+}
+
+// A backend whose connect hangs holds its client lock for the whole connect.
+// Fresh callers must still learn which servers they see, from the served
+// objects alone: they wait for neither that connect nor its lock, keep the
+// RBAC answer of each namespace, and a rejected token still sees nothing.
+func TestCallerVisibilityDoesNotWaitForABackendConnect(t *testing.T) {
+	hanging, connectEnded := hangingConnect(t, "hanging")
 	registry := services.NewRegistry()
 	require.NoError(t, registry.Register(hanging))
 	previous := api.GetServiceRegistry()
 	api.RegisterServiceRegistry(services.NewRegistryAdapter(registry))
 	t.Cleanup(func() { api.RegisterServiceRegistry(previous) })
-
-	started := make(chan struct{})
-	go func() {
-		defer close(started)
-		_ = hanging.Start(context.WithoutCancel(t.Context()))
-	}()
-	t.Cleanup(func() { unblock(); <-started; _ = hanging.Stop(context.Background()) })
-	<-entered // the connect is in flight and holds the client lock
 
 	objects := &servedObjects{servers: []musterv1alpha1.MCPServer{
 		{ObjectMeta: metav1.ObjectMeta{Name: "hanging", Namespace: "muster"}},
@@ -146,24 +192,13 @@ func TestCallerVisibilityDoesNotWaitForABackendConnect(t *testing.T) {
 	views := make([]api.ServerVisibility, callers+1)
 	var wg sync.WaitGroup
 	for i := range callers {
-		wg.Go(func() {
-			ctx := server.ContextWithIDToken(t.Context(), callerJWT(t, fmt.Sprintf("caller-%d", i)))
-			views[i] = visibility.CallerVisibility(ctx)
-		})
+		ctx := server.ContextWithIDToken(t.Context(), callerJWT(t, fmt.Sprintf("caller-%d", i)))
+		wg.Go(func() { views[i] = visibility.CallerVisibility(ctx) })
 	}
 	wg.Go(func() {
 		views[callers] = visibility.CallerVisibility(server.ContextWithIDToken(t.Context(), rejected))
 	})
-	answered := make(chan struct{})
-	go func() { wg.Wait(); close(answered) }()
-
-	select {
-	case <-answered:
-	case <-time.After(10 * time.Second):
-		unblock()
-		<-answered
-		t.Fatal("caller visibility waited for an unrelated backend's connect")
-	}
+	answeredWhileConnecting(t, connectEnded, "caller visibility", wg.Wait)
 
 	for i := range callers {
 		require.True(t, views[i].Sees("hanging"), "caller %d sees muster's namespace", i)
@@ -174,10 +209,4 @@ func TestCallerVisibilityDoesNotWaitForABackendConnect(t *testing.T) {
 	require.False(t, denied.Sees("hanging"), "a rejected token sees no server")
 	require.False(t, denied.Sees("team-a/github"), "a rejected token sees no server")
 	require.Contains(t, denied.Reason, "sign in again")
-
-	select {
-	case <-started:
-		t.Fatal("the backend connect ended before the callers were answered; the test no longer holds the lock")
-	default:
-	}
 }
