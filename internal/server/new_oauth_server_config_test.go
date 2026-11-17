@@ -69,7 +69,6 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 		AllowPublicClientRegistration:         false,
 		RegistrationToken:                     "tok",
 		EnableCIMD:                            true,
-		AllowLocalhostRedirectURIs:            true,
 		AllowPrivateIPClientMetadata:          true,
 		AllowPrivateIPClientMetadataHosts:     []string{"gateway.internal.example"},
 		AllowPrivateIPRedirectURIs:            true,
@@ -84,7 +83,6 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 	require.False(t, got.AllowPublicClientRegistration)
 	require.Equal(t, "tok", got.RegistrationAccessToken)
 	require.True(t, got.EnableClientIDMetadataDocuments)
-	require.True(t, got.AllowLocalhostRedirectURIs)
 	require.True(t, got.AllowPrivateIPClientMetadata)
 	require.Equal(t, []string{"gateway.internal.example"}, got.AllowPrivateIPClientMetadataHosts)
 	require.True(t, got.AllowPrivateIPRedirectURIs)

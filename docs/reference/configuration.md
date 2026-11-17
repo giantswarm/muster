@@ -563,7 +563,7 @@ By default the SSRF guard rejects an OIDC issuer URL that resolves to a private 
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `dex.allowPrivateIPOIDC` | `bool` | `false` | Allow the Dex issuer URL to resolve to a private/loopback IP during OIDC discovery. This is the discovery-path counterpart to `allowPrivateIPJWKS`. Emits a CWE-918 startup warning when set; only enable it when the issuer is genuinely fronted by an internal-only load balancer. |
+| `dex.allowPrivateIPOIDC` | `bool` | `false` | Let the JWKS fetch that validates forwarded ID tokens (`trustedAudiences`) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it and honor `HTTPS_PROXY`/`NO_PROXY`. |
 
 #### Sign-in check connectors (Dex)
 

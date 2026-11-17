@@ -80,17 +80,12 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		EnableUserInfoEndpoint:                true,
 		TrustedPublicRegistrationSchemes:      cfg.TrustedPublicRegistrationSchemes,
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
-		AllowLocalhostRedirectURIs:            cfg.AllowLocalhostRedirectURIs,
 		AllowPrivateIPClientMetadata:          cfg.AllowPrivateIPClientMetadata,
 		AllowPrivateIPClientMetadataHosts:     cfg.AllowPrivateIPClientMetadataHosts,
 		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirectURIs,
 		TrustedAudiences:                      cfg.TrustedAudiences,
-		// The forwarded-ID-token (TrustedAudiences) JWKS validation in
-		// mcp-oauth is gated on this top-level flag. Mirror the provider-side
-		// intent: when the operator has opted into a private-IP Dex via
-		// Dex.AllowPrivateIPOIDC, the forwarded-token JWKS client must accept
-		// the same private-IP issuer instead of rejecting it as a DNS-rebinding
-		// attack. Public-hostname Dex deployments are unaffected.
+		// The forwarded-ID-token (TrustedAudiences) JWKS fetch is the only
+		// Dex call behind mcp-oauth's private-address guard.
 		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPOIDC,
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see

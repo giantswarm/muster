@@ -51,10 +51,9 @@ func GetDefaultConfigWithRoles() MusterConfig {
 					// auto-derives from PublicURL. Setting a default would prevent self-hosted CIMD.
 				},
 				Server: OAuthServerConfig{
-					Enabled:                    false, // Disabled by default, requires explicit enablement
-					Provider:                   DefaultOAuthServerProvider,
-					EnableCIMD:                 true, // Enable CIMD by default for MCP 2025-11-25 compliance
-					AllowLocalhostRedirectURIs: true, // Enable localhost redirects for native apps per RFC 8252
+					Enabled:    false, // Disabled by default, requires explicit enablement
+					Provider:   DefaultOAuthServerProvider,
+					EnableCIMD: true, // Enable CIMD by default for MCP 2025-11-25 compliance
 					Storage: OAuthStorageConfig{
 						Type: DefaultOAuthStorageType,
 					},

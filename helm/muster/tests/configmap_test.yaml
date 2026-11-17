@@ -321,3 +321,16 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "toolsetPresets:\n  agent-platform:\n    include:\n    - server: agent-manager\n    - pattern: core_\\*\n  infrastructure:\n    description: Every infrastructure server\n    exclude:\n    - pattern: '\\*_delete'\n    include:\n    - server: mcp-kubernetes\n    - pattern: x_mcp-prometheus_\\*"
+
+  - it: ignores the deprecated allowLocalhostRedirectURIs value
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.allowLocalhostRedirectURIs: true
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowLocalhostRedirectURIs"

@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"net/http"
@@ -89,50 +90,37 @@ func startLabDex(t *testing.T) (issuerURL string, caPool *x509.CertPool) {
 	return issuer, pool
 }
 
-// TestNewDexProviderConfig_LabDexInternalCA pins how the two knobs of the lab
-// Dex path combine at the pinned mcp-oauth version: the --extra-ca-file pool
-// reaches the OIDC discovery client through dex.Config.RootCAs, and since
-// mcp-oauth v1.3.3 (giantswarm/mcp-oauth#556) every discovery client honors
-// that pool — the SSRF-safe default client included. dex.allowPrivateIPOIDC
-// only selects which client performs discovery; it no longer gates whether
-// the CA pool applies.
-//
-// The private-IP guard itself is not covered here, and no knob lifts it: the
-// block on private and loopback addresses lives in mcp-oauth's static issuer
-// validation, which rejects an IP-literal issuer URL whatever AllowPrivateIP
-// is set to.
+// TestNewDexProviderConfig_LabDexInternalCA pins that the --extra-ca-file pool
+// reaches the Dex discovery client through dex.Config.RootCAs, whether or not
+// dex.allowPrivateIPOIDC is set.
 func TestNewDexProviderConfig_LabDexInternalCA(t *testing.T) {
 	issuer, caPool := startLabDex(t)
 
-	newProvider := func(t *testing.T, allowPrivateIP bool, pool *x509.CertPool) error {
+	newProvider := func(t *testing.T, allowPrivateIPOIDC bool, pool *x509.CertPool) error {
 		t.Helper()
 		cfg := config.OAuthServerConfig{
 			Dex: config.DexConfig{
 				IssuerURL:          issuer,
 				ClientID:           "muster",
 				ClientSecret:       "secret",
-				AllowPrivateIPOIDC: allowPrivateIP,
+				AllowPrivateIPOIDC: allowPrivateIPOIDC,
 			},
 		}
 		dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", pool, noAudiences)
-		require.Equal(t, allowPrivateIP, dexConfig.AllowPrivateIP)
+		require.Nil(t, dexConfig.HTTPClient)
 		require.Same(t, pool, dexConfig.RootCAs)
 
 		_, err := dex.NewProvider(dexConfig)
 		return err
 	}
 
-	t.Run("both knobs set completes discovery", func(t *testing.T) {
-		require.NoError(t, newProvider(t, true, caPool))
-	})
+	for _, allowPrivateIPOIDC := range []bool{false, true} {
+		t.Run(fmt.Sprintf("allowPrivateIPOIDC=%t", allowPrivateIPOIDC), func(t *testing.T) {
+			require.NoError(t, newProvider(t, allowPrivateIPOIDC, caPool))
 
-	t.Run("without the CA pool TLS verification fails", func(t *testing.T) {
-		err := newProvider(t, true, nil)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "certificate")
-	})
-
-	t.Run("without allowPrivateIPOIDC the CA pool is still honored", func(t *testing.T) {
-		require.NoError(t, newProvider(t, false, caPool))
-	})
+			err := newProvider(t, allowPrivateIPOIDC, nil)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "certificate")
+		})
+	}
 }

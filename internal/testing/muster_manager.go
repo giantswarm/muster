@@ -1771,7 +1771,6 @@ func (m *musterInstanceManager) buildMusterOAuthServerConfig(
 		"trustedIssuers": []map[string]interface{}{{
 			keyIssuer: issuerURL, "jwksUrl": issuerURL + "/jwks", "allowPrivateIPJWKS": true,
 		}},
-		"allowLocalhostRedirectURIs":    true,
 		"allowPublicClientRegistration": true, // Allow dynamic client registration for testing
 	}
 }

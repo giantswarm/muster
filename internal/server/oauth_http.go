@@ -127,11 +127,7 @@ func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPo
 		ConnectorID:      cfg.Dex.ConnectorID,
 		Scopes:           slices.Clone(dexOAuthScopes),
 		AudienceResolver: resolveAudiences,
-		AllowPrivateIP:   cfg.Dex.AllowPrivateIPOIDC,
-		// Verify an internal-CA Dex during OIDC discovery / token calls
-		// against the operator's extra CA (only consulted when
-		// AllowPrivateIP is set and no explicit HTTPClient is provided).
-		RootCAs: caPool,
+		RootCAs:          caPool,
 	}
 }
 
