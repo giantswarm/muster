@@ -397,6 +397,38 @@ func (a *Adapter) Close() error {
 
 // ListMCPServers returns all MCP server definitions
 func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error) {
+	servers, err := a.listServed(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]api.MCPServerInfo, 0, len(servers))
+	for i := range servers {
+		result = append(result, a.toInfo(&servers[i]))
+	}
+	return result, nil
+}
+
+// ServedNamespaces returns the namespaces that hold a served MCPServer
+// object. It reads the objects only, never a backend's connection state, so
+// a backend that is connecting does not delay it.
+func (a *Adapter) ServedNamespaces(ctx context.Context) ([]string, error) {
+	servers, err := a.listServed(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var namespaces []string
+	for i := range servers {
+		if namespace := servers[i].Namespace; namespace != "" && !seen[namespace] {
+			seen[namespace] = true
+			namespaces = append(namespaces, namespace)
+		}
+	}
+	return namespaces, nil
+}
+
+// listServed returns the MCPServer objects the scope selects.
+func (a *Adapter) listServed(ctx context.Context) ([]musterv1alpha1.MCPServer, error) {
 	servers, err := a.client.ListMCPServers(ctx, a.listNamespace())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list MCPServers: %w", err)
@@ -409,7 +441,7 @@ func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, erro
 			return nil, err
 		}
 	}
-	result := make([]api.MCPServerInfo, 0, len(servers))
+	result := make([]musterv1alpha1.MCPServer, 0, len(servers))
 	for i := range servers {
 		if !served(servers[i].Namespace) {
 			a.logUnservedOnce(servers[i].Namespace, servers[i].Name)
@@ -418,9 +450,8 @@ func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, erro
 		if !a.scope.servesObject(&servers[i]) {
 			continue
 		}
-		result = append(result, a.toInfo(&servers[i]))
+		result = append(result, servers[i])
 	}
-
 	return result, nil
 }
 

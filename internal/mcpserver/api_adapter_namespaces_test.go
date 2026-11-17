@@ -157,6 +157,9 @@ func TestAdapterServesTheSelectedNamespaces(t *testing.T) {
 	adapter.SetScope(Scope{Namespaces: selector})
 
 	assert.ElementsMatch(t, []string{"github", "agents-a-x7k2p/github"}, listedKeys(t, adapter))
+	namespaces, err := adapter.ServedNamespaces(t.Context())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"agent-platform", "agents-a-x7k2p"}, namespaces, "the namespaces of the listed servers")
 
 	served, err := adapter.GetMCPServer(t.Context(), "agents-a-x7k2p/github")
 	require.NoError(t, err)
