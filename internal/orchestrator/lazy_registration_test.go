@@ -9,6 +9,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/internal/services"
 )
 
 // mockMCPServerManager implements api.MCPServerManagerHandler for testing
@@ -116,13 +117,17 @@ func TestRemoveServiceUnregistersService(t *testing.T) {
 		Timeout:   1,
 	}
 	_ = o.StartService("doomed-mcp")
-	_, exists := o.registry.Get("doomed-mcp")
+	svc, exists := o.registry.Get("doomed-mcp")
 	require.True(t, exists, "precondition: service must be registered")
 
 	require.NoError(t, o.RemoveService("doomed-mcp"))
 
 	_, exists = o.registry.Get("doomed-mcp")
 	assert.False(t, exists, "service must be gone from the registry after RemoveService")
+
+	// A retry or a boot start that still holds the removed service cannot
+	// reconnect it behind the registry's back.
+	require.ErrorIs(t, svc.Restart(t.Context()), services.ErrServiceRemoved)
 
 	// Removing an unknown service reports not found.
 	err := o.RemoveService("doomed-mcp")

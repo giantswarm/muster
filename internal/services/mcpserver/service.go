@@ -131,6 +131,16 @@ type Service struct {
 	// sessionAuthMutex.
 	sessionAuthMutex sync.Mutex
 	sessionAuth      sessionAuthState
+
+	// startInFlight is the start attempt running now, nil while none is,
+	// stopsInFlight the number of Stops in progress, and removed whether
+	// Remove ran (see start_attempt.go). All protected by startMutex. lifecycleMutex is held
+	// by a start attempt and by a stop, so the two never interleave.
+	startMutex     sync.Mutex
+	startInFlight  *startAttempt
+	stopsInFlight  int
+	removed        bool
+	lifecycleMutex sync.Mutex
 }
 
 // HealthCheckFailureThreshold is the number of consecutive failed health
@@ -193,6 +203,12 @@ func NewService(definition *api.MCPServer, opts ...Option) (*Service, error) {
 // For remote servers, this method tracks consecutive connection failures and
 // transitions to StateUnreachable after UnreachableThreshold failures.
 func (s *Service) Start(ctx context.Context) error {
+	return s.runStart(ctx, s.start)
+}
+
+// start is one start attempt. connectCtx bounds the backend connect only; a
+// Stop cancels it with services.ErrStopRequested.
+func (s *Service) start(ctx, connectCtx context.Context) error {
 	if s.IsRunning() {
 		return fmt.Errorf("service %s is already running", s.GetName())
 	}
@@ -215,7 +231,12 @@ func (s *Service) Start(ctx context.Context) error {
 	s.generateEvent(events.ReasonMCPServerStarting, events.EventData{})
 
 	// Create and initialize the MCP client (this starts the process AND establishes MCP communication)
-	if err := s.createAndInitializeClient(ctx); err != nil {
+	if err := s.createAndInitializeClient(connectCtx); err != nil {
+		// A Stop cancelled the connect: the state is the Stop's to settle,
+		// and the cancelled connect is neither a failure nor a 401.
+		if stopErr := s.stopRequested(connectCtx); stopErr != nil {
+			return stopErr
+		}
 		// Check if this is an auth required error - this is a special case
 		// where the server exists but needs OAuth before it can connect.
 		//
@@ -454,7 +475,22 @@ func (s *Service) discardAnonymousProbe(ctx context.Context) error {
 
 // Stop stops the MCP server service by closing the MCP client
 // The client handles both MCP protocol cleanup and process termination
+//
+// A start attempt in flight has its connect cancelled and is waited for; the
+// stop then closes whatever client it opened.
 func (s *Service) Stop(ctx context.Context) error {
+	unlock, err := s.lockForStop(ctx, false)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	s.stop()
+	return nil
+}
+
+// stop closes the client and settles the stopped state. The caller holds
+// lifecycleMutex.
+func (s *Service) stop() {
 	currentState := s.GetState()
 
 	// Already stopped: nothing to do and nothing to announce. A remote
@@ -465,7 +501,7 @@ func (s *Service) Stop(ctx context.Context) error {
 	// MCPServerStopped each time (issue #1212).
 	if currentState == services.StateStopped || currentState == s.stoppedState() {
 		s.LogDebug("Service %s is already stopped (%s)", s.GetName(), currentState)
-		return nil
+		return
 	}
 
 	// Not running/connected and not failed: nothing to stop, the service
@@ -475,7 +511,7 @@ func (s *Service) Stop(ctx context.Context) error {
 		s.UpdateState(s.stoppedState(), services.HealthUnknown, nil)
 		// Generate stopped event for state transition
 		s.generateEvent(events.ReasonMCPServerStopped, events.EventData{})
-		return nil
+		return
 	}
 
 	s.UpdateState(services.StateStopping, s.GetHealth(), nil)
@@ -497,8 +533,6 @@ func (s *Service) Stop(ctx context.Context) error {
 
 	// Generate stopped event
 	s.generateEvent(events.ReasonMCPServerStopped, events.EventData{})
-
-	return nil
 }
 
 // stoppedState is the state a stop of this service settles in: Disconnected
@@ -522,20 +556,29 @@ func (s *Service) Restart(ctx context.Context) error {
 	// Generate recovery started event for restart operations
 	s.generateEvent(events.ReasonMCPServerRecoveryStarted, events.EventData{})
 
-	if s.IsRunning() {
-		if err := s.Stop(ctx); err != nil {
-			// Generate recovery failed event
-			s.generateEvent(events.ReasonMCPServerRecoveryFailed, events.EventData{
-				Error: err.Error(),
-			})
-			return fmt.Errorf("failed to stop service during restart: %w", err)
+	// The stop, the grace period and the start are one start attempt: a
+	// Stop that arrives during any of them ends the restart, instead of the
+	// start reconnecting the server after it was stopped.
+	err := s.runStart(ctx, func(ctx, connectCtx context.Context) error {
+		if s.IsRunning() {
+			s.stop()
 		}
+		grace := time.NewTimer(RestartGracePeriod)
+		defer grace.Stop()
+		select {
+		case <-grace.C:
+		case <-connectCtx.Done():
+			if stopErr := s.stopRequested(connectCtx); stopErr != nil {
+				return stopErr
+			}
+			return connectCtx.Err()
+		}
+		return s.start(ctx, connectCtx)
+	})
+	if errors.Is(err, services.ErrStopRequested) {
+		return err
 	}
-
-	// Grace period between stop and start (see RestartGracePeriod constant for rationale)
-	time.Sleep(RestartGracePeriod)
-
-	if err := s.Start(ctx); err != nil {
+	if err != nil {
 		// A 401 that Start settled in Auth Required is the outcome of this
 		// recovery, not its failure: the server is reachable and answered as
 		// configured, and a server whose callers bring their own credentials

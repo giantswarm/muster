@@ -228,6 +228,10 @@ func (o *Orchestrator) createMCPServerService(ctx context.Context, mcpServerInfo
 				// Pending auth registration happens in the auth-required hook.
 				return
 			}
+			if errors.Is(err, services.ErrStopRequested) || errors.Is(err, services.ErrServiceRemoved) {
+				logging.Debug("Orchestrator", "MCPServer %s was stopped or removed while starting: %v", mcpServerInfo.ServerKey(), err)
+				return
+			}
 			logging.Error("Orchestrator", err, "Failed to start MCPServer service: %s", mcpServerInfo.ServerKey())
 		} else {
 			logging.Info("Orchestrator", "Started MCPServer service: %s", mcpServerInfo.ServerKey())
@@ -532,6 +536,10 @@ func (o *Orchestrator) attemptReconnectFailedServers(ctx context.Context) {
 					// Pending auth registration happens in the auth-required hook inside Start.
 					return
 				}
+				if errors.Is(err, services.ErrStopRequested) || errors.Is(err, services.ErrServiceRemoved) {
+					logging.Debug("Orchestrator", "MCPServer %s was stopped or removed while reconnecting: %v", service.GetName(), err)
+					return
+				}
 				logging.Warn("Orchestrator", "Failed to reconnect MCPServer %s: %v (will retry after backoff)", service.GetName(), err)
 			} else {
 				logging.Info("Orchestrator", "Successfully reconnected MCPServer: %s", service.GetName())
@@ -658,7 +666,13 @@ func (o *Orchestrator) RemoveService(name string) error {
 		return api.NewServiceNotFoundError(name)
 	}
 
-	if err := service.Stop(o.ctx); err != nil {
+	// A Remover refuses every later start, so a retry or a boot start that
+	// still holds the service cannot reconnect it once it is unregistered.
+	stop := service.Stop
+	if remover, ok := service.(services.Remover); ok {
+		stop = remover.Remove
+	}
+	if err := stop(o.ctx); err != nil {
 		return fmt.Errorf("failed to stop service %s: %w", name, err)
 	}
 
