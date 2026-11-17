@@ -166,7 +166,7 @@ func TestBackendProtocol_UpgradedBackendIsProbedAgain(t *testing.T) {
 	defer cancel()
 	var handler atomic.Pointer[http.Handler]
 	serve := func(versions ...string) {
-		var h http.Handler = server.NewStreamableHTTPServer(server.NewMCPServer("backend", "test"), server.WithStateful(true), server.WithStreamableHTTPProtocolVersions(versions...))
+		var h http.Handler = server.NewStreamableHTTPServer(server.NewMCPServer("backend", "test", server.WithToolCapabilities(false)), server.WithStateful(true), server.WithStreamableHTTPProtocolVersions(versions...))
 		handler.Store(&h)
 	}
 	serve(mcp.LATEST_LEGACY_PROTOCOL_VERSION)
@@ -176,8 +176,8 @@ func TestBackendProtocol_UpgradedBackendIsProbedAgain(t *testing.T) {
 	require.Equal(t, mcp.LATEST_LEGACY_PROTOCOL_VERSION, c.NegotiatedProtocolVersion())
 
 	serve()
-	ts.CloseClientConnections()
-	_, _ = c.ListTools(ctx)
+	_, err := c.ListTools(ctx)
+	require.NoError(t, err)
 
 	require.Equal(t, mcp.ProtocolVersion20260728, c.NegotiatedProtocolVersion())
 }
