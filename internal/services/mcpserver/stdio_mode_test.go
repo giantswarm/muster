@@ -37,7 +37,7 @@ func TestStdioRefusedInKubernetesMode(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, api.ErrStdioNotAllowedInKubernetesMode),
 		"Start must refuse the stdio definition, got: %v", err)
-	assert.Nil(t, svc.client, "no MCP client may be created for a refused definition")
+	assert.Nil(t, svc.GetMCPClient(), "no MCP client may be created for a refused definition")
 }
 
 // TestStdioAllowedInFilesystemMode pins the local-CLI half: the same definition

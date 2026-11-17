@@ -46,7 +46,7 @@ const visibilityListConcurrency = 8
 // ServiceAccount gets no new right and muster keeps no copy of the claim
 // mapping: RBAC answers.
 type Visibility struct {
-	servers         servedMCPServers
+	served          servedNamespaces
 	factory         callerwrite.ClientFactory
 	audience        string
 	musterNamespace string
@@ -80,22 +80,23 @@ type cachedVisibility struct {
 	expires time.Time
 }
 
-// servedMCPServers lists the MCPServers muster serves, of every selected
-// namespace (Adapter.ListMCPServers).
-type servedMCPServers interface {
-	ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error)
+// servedNamespaces lists the namespaces that hold an MCPServer muster serves
+// (Adapter.ServedNamespaces). It reads object metadata only: a backend's
+// connection state must not delay a caller's visibility.
+type servedNamespaces interface {
+	ServedNamespaces(ctx context.Context) ([]string, error)
 }
 
-// NewVisibility returns the visibility handler. servers lists the served
-// MCPServers as muster (to learn which namespaces hold servers); factory
+// NewVisibility returns the visibility handler. served lists, as muster, the
+// namespaces that hold served MCPServers; factory
 // builds a client with the caller's token; audience is the audience the API
 // server needs on that token (empty: the default).
-func NewVisibility(servers servedMCPServers, factory callerwrite.ClientFactory, audience, musterNamespace string) *Visibility {
+func NewVisibility(served servedNamespaces, factory callerwrite.ClientFactory, audience, musterNamespace string) *Visibility {
 	if audience == "" {
 		audience = callerwrite.DefaultKubernetesAudience
 	}
 	return &Visibility{
-		servers:         servers,
+		served:          served,
 		factory:         factory,
 		audience:        audience,
 		musterNamespace: musterNamespace,
@@ -239,16 +240,14 @@ func (v *Visibility) namespacesWithServers(ctx context.Context) (namespaces []st
 	result, _, _ := v.flights.Do("namespaces", func() (any, error) {
 		set := map[string]bool{v.musterNamespace: true}
 		ok := true
-		if v.servers != nil {
-			servers, err := v.servers.ListMCPServers(ctx)
+		if v.served != nil {
+			served, err := v.served.ServedNamespaces(ctx)
 			if err != nil {
 				ok = false
 				logging.Warn("MCPServerVisibility", "Cannot list the namespaces that hold MCP servers: %v", err)
 			}
-			for i := range servers {
-				if servers[i].Namespace != "" {
-					set[servers[i].Namespace] = true
-				}
+			for _, namespace := range served {
+				set[namespace] = true
 			}
 		}
 		read := make([]string, 0, len(set))
