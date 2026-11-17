@@ -22,18 +22,18 @@ import (
 const codexState = "amXAojVgd6OlYylADsqKFg"
 
 // TestOAuthAuthorize_StateLength sends authorization requests through the
-// /oauth/authorize route of the server NewOAuthHTTPServer builds.
+// /oauth/authorize route of the server NewOAuthHTTPServer builds. The client's
+// state is opaque: any length reaches the provider.
 func TestOAuthAuthorize_StateLength(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		state        string
-		wantHost     string
-		wantErrorKey string
+		name     string
+		state    string
+		wantHost string
 	}{
 		{name: "the Codex state is sent on to the provider", state: codexState, wantHost: "accounts.google.com"},
-		{name: "a 21-character state is refused", state: codexState[:21], wantErrorKey: "invalid_request"},
+		{name: "a 21-character state is sent on to the provider", state: codexState[:21], wantHost: "accounts.google.com"},
 	}
 
 	for _, tt := range tests {
@@ -41,14 +41,6 @@ func TestOAuthAuthorize_StateLength(t *testing.T) {
 			t.Parallel()
 
 			response, mux := authorizeWithState(t, tt.state)
-			if tt.wantErrorKey != "" {
-				require.Equal(t, http.StatusFound, response.Code)
-				target, err := url.Parse(response.Header().Get("Location"))
-				require.NoError(t, err)
-				require.Equal(t, tt.wantErrorKey, target.Query().Get("error"))
-				require.Equal(t, tt.state, target.Query().Get("state"))
-				return
-			}
 			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 			match := regexp.MustCompile(`name="consent_id" value="([^"]+)"`).FindStringSubmatch(response.Body.String())
 			require.Len(t, match, 2)
@@ -65,7 +57,7 @@ func TestOAuthAuthorize_StateLength(t *testing.T) {
 			location, err := url.Parse(response.Header().Get("Location"))
 			require.NoError(t, err)
 			require.Equal(t, tt.wantHost, location.Host, "redirect: %s", location)
-			require.Equal(t, tt.wantErrorKey, location.Query().Get("error"), "error_description: %s", location.Query().Get("error_description"))
+			require.Empty(t, location.Query().Get("error"), "error_description: %s", location.Query().Get("error_description"))
 		})
 	}
 }
@@ -75,11 +67,10 @@ func authorizeWithState(t *testing.T, state string) (*httptest.ResponseRecorder,
 	const redirectURI = "http://127.0.0.1:54650/callback"
 
 	srv, err := NewOAuthHTTPServer(config.OAuthServerConfig{
-		Enabled:                    true,
-		BaseURL:                    "https://muster.example.com",
-		Provider:                   OAuthProviderGoogle,
-		Google:                     config.GoogleConfig{ClientID: "muster", ClientSecret: "secret"},
-		AllowLocalhostRedirectURIs: true,
+		Enabled:  true,
+		BaseURL:  "https://muster.example.com",
+		Provider: OAuthProviderGoogle,
+		Google:   config.GoogleConfig{ClientID: "muster", ClientSecret: "secret"},
 	}, http.NotFoundHandler(), false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = srv.Shutdown(context.WithoutCancel(t.Context())) })

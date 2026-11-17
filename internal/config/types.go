@@ -521,11 +521,6 @@ type OAuthServerConfig struct {
 	// Default: true
 	EnableCIMD bool `yaml:"enableCIMD,omitempty"`
 
-	// AllowLocalhostRedirectURIs allows http://localhost and http://127.0.0.1 redirect URIs.
-	// Required for native apps (like muster agent) per RFC 8252 Section 7.3.
-	// Default: true (native app support enabled by default)
-	AllowLocalhostRedirectURIs bool `yaml:"allowLocalhostRedirectURIs,omitempty"`
-
 	// AllowPrivateIPClientMetadata lets a CIMD client_id URL (the Client ID
 	// Metadata Document a client self-hosts) resolve to a private, loopback or
 	// link-local address. Needed where the platform's own hostnames resolve to
@@ -851,11 +846,14 @@ type DexConfig struct {
 	// use each of them.
 	IdentityCheckConnectors []string `yaml:"identityCheckConnectors,omitempty"`
 
-	// AllowPrivateIPOIDC allows the Dex issuer URL to resolve to a private or
-	// loopback IP address during OIDC discovery. Required when Dex is fronted by
-	// an internal-only load balancer (e.g. Azure internal LB, air-gapped clusters)
-	// where the public hostname resolves to an RFC 1918 address.
-	// Emits a CWE-918 startup warning when set.
+	// AllowPrivateIPJWKS lets the JWKS fetch that validates forwarded ID tokens
+	// (TrustedAudiences) reach a Dex whose issuer resolves to a private or
+	// loopback address. Discovery, token and userinfo calls reach such a Dex
+	// without it.
+	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
+
+	// AllowPrivateIPOIDC is the deprecated alias for AllowPrivateIPJWKS.
+	// Either true value enables private-address JWKS fetching.
 	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
 }
 

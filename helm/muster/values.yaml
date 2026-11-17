@@ -587,11 +587,16 @@ muster:
         # authenticate a person. muster's Dex client must be allowed to use
         # each of them.
         identityCheckConnectors: []  # @schema item: string
-        # Allow the Dex issuer URL to resolve to a private/loopback IP during
-        # OIDC discovery. Required when Dex is fronted by an internal-only load
-        # balancer (e.g. Azure internal LB) where the public hostname resolves to
-        # an RFC 1918 address. Emits a CWE-918 startup warning when set.
-        allowPrivateIPOIDC: false
+        # -- Let the JWKS fetch that validates forwarded ID tokens
+        # (trustedAudiences) reach a Dex whose issuer resolves to a private or
+        # loopback address. Discovery, token and userinfo calls reach such a Dex
+        # without it.
+        allowPrivateIPJWKS: false
+        # -- Deprecated alias for allowPrivateIPJWKS. Either true value permits
+        # private-address JWKS fetching. Remove this key to disable the alias;
+        # setting allowPrivateIPJWKS to false does not override a true alias.
+        # Removed in v5.64.0, scheduled for 2027-02-17.
+        allowPrivateIPOIDC: false  # @schema deprecated: true
 
       # Google OAuth provider configuration (used when provider is "google")
       google:
@@ -761,9 +766,10 @@ muster:
       # Enable Client ID Metadata Documents (CIMD) per MCP 2025-11-25 spec
       enableCIMD: true
 
-      # Allow localhost/loopback redirect URIs for native apps (RFC 8252).
-      # Required for muster agent and other local OAuth clients. Default: true.
-      allowLocalhostRedirectURIs: true
+      # -- Deprecated, no effect: loopback redirect URIs are always allowed on any
+      # port (RFC 8252 §7.3). Accepted so existing values keep rendering;
+      # removed in v5.64.0, scheduled for 2027-02-17.
+      allowLocalhostRedirectURIs: true  # @schema deprecated: true
 
       # -- How much lifetime the provider (Dex) token muster holds for a user
       # must have left before muster hands it out as is; a token closer to its

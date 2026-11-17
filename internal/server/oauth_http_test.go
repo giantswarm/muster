@@ -1,12 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,6 +48,29 @@ func TestNewOAuthHTTPServer_DisabledReturnsError(t *testing.T) {
 	_, err := NewOAuthHTTPServer(cfg, http.DefaultServeMux, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not enabled")
+}
+
+func TestNewOAuthHTTPServerWarnsForDexJWKSSettingAlias(t *testing.T) {
+	previousLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	for _, alias := range []bool{false, true} {
+		var output bytes.Buffer
+		slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+		_, err := NewOAuthHTTPServer(config.OAuthServerConfig{
+			Enabled:  true,
+			BaseURL:  "https://muster.example.com",
+			Provider: "unsupported",
+			Dex:      config.DexConfig{AllowPrivateIPOIDC: alias},
+		}, http.NotFoundHandler(), false)
+		require.ErrorContains(t, err, "unsupported OAuth provider")
+		if alias {
+			require.Contains(t, output.String(), "level=WARN")
+			require.Contains(t, output.String(), "dex.allowPrivateIPOIDC is deprecated; use dex.allowPrivateIPJWKS")
+			require.Contains(t, output.String(), "v5.64.0 (2027-02-17)")
+		} else {
+			require.NotContains(t, output.String(), "dex.allowPrivateIPOIDC")
+		}
+	}
 }
 
 func TestNewOAuthHTTPServer_InvalidProviderReturnsError(t *testing.T) {

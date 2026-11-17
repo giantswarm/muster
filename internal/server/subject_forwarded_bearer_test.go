@@ -40,7 +40,7 @@ func TestSubjectEndpointValidatesForwardedBearer(t *testing.T) {
 			IssuerURL:          dexServer.issuer,
 			ClientID:           "muster",
 			ClientSecret:       "secret",
-			AllowPrivateIPOIDC: true,
+			AllowPrivateIPJWKS: true,
 		},
 	}, http.NotFoundHandler(), false)
 	require.NoError(t, err)

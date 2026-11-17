@@ -21,7 +21,7 @@ func TestApproveClientConsentCompletesBrowserFlow(t *testing.T) {
 	transport := httptest.NewServer(mux)
 	t.Cleanup(transport.Close)
 	authorizationServer, err := server.NewWithCombined(mock.NewProvider(), memory.New(), &server.Config{
-		Issuer: transport.URL, AllowLocalhostRedirectURIs: true, DisableNonceEchoRequirement: true,
+		Issuer: transport.URL, DisableNonceEchoRequirement: true,
 	}, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, authorizationServer.Shutdown(context.WithoutCancel(t.Context()))) })

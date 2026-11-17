@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -15,15 +17,14 @@ import (
 	"github.com/giantswarm/muster/v5/internal/config"
 )
 
-// newAlwaysFailingConfig returns a Dex config pointing at an unreachable issuer
-// so that NewOAuthHTTPServer fails with an OIDC discovery error.
+// newAlwaysFailingConfig uses a statically rejected issuer to avoid depending on DNS.
 func newAlwaysFailingConfig() config.OAuthServerConfig {
 	return config.OAuthServerConfig{
 		Enabled:  true,
 		Provider: OAuthProviderDex,
 		BaseURL:  "https://localhost:19999", // nothing listening here
 		Dex: config.DexConfig{
-			IssuerURL:    "https://dex.unreachable.invalid",
+			IssuerURL:    "https://127.0.0.1:1",
 			ClientID:     "test-client",
 			ClientSecret: "test-secret",
 		},
@@ -102,15 +103,9 @@ func TestLazyOAuthHTTPServer_SetOnAuthenticated_StoredBeforeReady(t *testing.T) 
 	require.NotNil(t, cb)
 }
 
-// TestLazyOAuthHTTPServer_DegradedWhileRetryingReachableEndpoint verifies that the
-// server stays degraded and shuts down cleanly while the background loop is actively
-// hitting a reachable (but TLS-failing) endpoint. This guards against deadlocks in the
-// retry path.
 func TestLazyOAuthHTTPServer_DegradedWhileRetryingReachableEndpoint(t *testing.T) {
-	// Spin up a minimal OIDC discovery stub. dex.NewProvider rejects self-signed certs
-	// on non-loopback addresses (SSRF protection), so discovery will keep failing even
-	// though the endpoint is reachable — which is exactly the condition we want to test.
-	oidcStub := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	connected := make(chan struct{}, 1)
+	oidcStub := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/.well-known/openid-configuration" {
 			w.Header().Set("Content-Type", "application/json")
 			base := "https://" + r.Host
@@ -127,12 +122,32 @@ func TestLazyOAuthHTTPServer_DegradedWhileRetryingReachableEndpoint(t *testing.T
 		}
 		http.NotFound(w, r)
 	}))
+	oidcStub.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			select {
+			case connected <- struct{}{}:
+			default:
+			}
+		}
+	}
+	oidcStub.StartTLS()
 	defer oidcStub.Close()
 
 	cfg := newAlwaysFailingConfig()
-	cfg.Dex.IssuerURL = oidcStub.URL
+	issuer, err := url.Parse(oidcStub.URL)
+	require.NoError(t, err)
+	issuer.Host = net.JoinHostPort("localhost", issuer.Port())
+	cfg.Dex.IssuerURL = issuer.String()
 
 	lazy := NewLazyOAuthHTTPServer(t.Context(), cfg, http.NotFoundHandler(), false)
+	require.Eventually(t, func() bool {
+		select {
+		case <-connected:
+			return true
+		default:
+			return false
+		}
+	}, 2*time.Second, 10*time.Millisecond)
 
 	// While the loop is running, /health must return degraded.
 	mux := lazy.CreateMux()

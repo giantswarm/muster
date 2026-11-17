@@ -142,7 +142,7 @@ func TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID(t *testin
 						IssuerURL:          issuer,
 						ClientID:           "muster",
 						ClientSecret:       "secret",
-						AllowPrivateIPOIDC: true,
+						AllowPrivateIPJWKS: true,
 					},
 				},
 			},
