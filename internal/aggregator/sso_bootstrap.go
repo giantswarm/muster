@@ -10,6 +10,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/server"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
+	"github.com/giantswarm/mcp-oauth/providers"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"golang.org/x/oauth2"
 )
@@ -340,10 +341,10 @@ func (a *AggregatorServer) beginSessionBootstrap(sso ssoSession) *ssoBootstrap {
 	b := newSSOBootstrap(sso.sessionID, plan.serverNames())
 	if a.ssoBootstraps == nil {
 		a.ssoBootstraps = make(map[string]*ssoBootstrap)
-		a.ssoBootstrapped = make(map[string]time.Time)
+		a.ssoBootstrapped = make(map[string]ssoBootstrapMark)
 	}
 	a.ssoBootstraps[sso.sessionID] = b
-	a.ssoBootstrapped[sso.sessionID] = b.started
+	a.ssoBootstrapped[sso.sessionID] = ssoBootstrapMark{started: b.started}
 	a.ssoBootstrapsMu.Unlock()
 
 	logging.Info("Aggregator", "SSO: Connecting %d servers for session %s in the background (%d SSO, %d subject-scoped grants)",
@@ -376,6 +377,9 @@ func (a *AggregatorServer) runSessionBootstrap(b *ssoBootstrap, sso ssoSession, 
 		defer wg.Done()
 		start := time.Now()
 		outcome := connect(bgCtx, info)
+		if outcome == ssoConnected {
+			a.markSessionAuthenticated(b.sessionID)
+		}
 		b.serverFinished(info.Name)
 		results <- ssoServerResult{name: info.Name, outcome: outcome, took: time.Since(start)}
 	}
@@ -554,20 +558,56 @@ func (a *AggregatorServer) adoptSubjectGrantForBootstrap(ctx context.Context, in
 // idle for longer is treated as new again.
 const ssoBootstrappedRetention = 2 * ssoBackoffMaxTTL
 
-// sessionBootstrapped reports whether the session started a fan-out within
-// ssoBootstrappedRetention. Entries past the retention are dropped as a side
-// effect, which bounds the record to the sessions of the last hour.
-func (a *AggregatorServer) sessionBootstrapped(sessionID string) bool {
+// ssoBootstrapMark is what a pod remembers of a session's last fan-out: when
+// it started, and whether one of its connects succeeded, which gave the
+// session auth state. The auth state itself is shared (Valkey); the mark is
+// this pod's.
+type ssoBootstrapMark struct {
+	started       time.Time
+	authenticated bool
+}
+
+// markSessionAuthenticated records that a connect of the session's last
+// fan-out succeeded. A session with no mark is left alone.
+func (a *AggregatorServer) markSessionAuthenticated(sessionID string) {
+	a.ssoBootstrapsMu.Lock()
+	defer a.ssoBootstrapsMu.Unlock()
+	if m, ok := a.ssoBootstrapped[sessionID]; ok && !m.authenticated {
+		m.authenticated = true
+		a.ssoBootstrapped[sessionID] = m
+	}
+}
+
+// claimSessionBootstrap reports whether a request of a session with no auth
+// state may clear the person's SSO failures and start the session's fan-out:
+// the session started no fan-out within ssoBootstrappedRetention, or a connect
+// of its last fan-out succeeded and the auth state that gave it has ended (the
+// resource bearer expired, a logout, a revoked refresh) while the session ID
+// stayed the same. A session whose last fan-out connected nothing (every
+// connect failed) is not claimed: its requests retry on the tracker's backoff,
+// not on each request. A claim of an ended session consumes the mark's
+// authenticated flag, so of concurrent requests one claims it. Entries past
+// the retention are dropped as a side effect, which bounds the record to the
+// sessions of the last hour.
+func (a *AggregatorServer) claimSessionBootstrap(sessionID string) bool {
 	a.ssoBootstrapsMu.Lock()
 	defer a.ssoBootstrapsMu.Unlock()
 	cutoff := time.Now().Add(-ssoBootstrappedRetention)
-	for id, at := range a.ssoBootstrapped {
-		if at.Before(cutoff) {
+	for id, m := range a.ssoBootstrapped {
+		if m.started.Before(cutoff) {
 			delete(a.ssoBootstrapped, id)
 		}
 	}
-	_, ok := a.ssoBootstrapped[sessionID]
-	return ok
+	m, ok := a.ssoBootstrapped[sessionID]
+	if !ok {
+		return true
+	}
+	if !m.authenticated {
+		return false
+	}
+	m.authenticated = false
+	a.ssoBootstrapped[sessionID] = m
+	return true
 }
 
 // sessionBootstrap returns the fan-out in flight for the session, or nil.
@@ -695,4 +735,89 @@ func (a *AggregatorServer) connectToolOwnersOnCall(ctx context.Context, sessionI
 		}
 	}
 	return connected + a.adoptSubjectGrants(ctx, sessionID, sub)
+}
+
+// onRequestAuthenticated runs on every authenticated request. It extends the
+// session's capability store TTL and, if the session is new or has expired
+// (e.g. user returns after inactivity, or Valkey was restarted), starts its
+// SSO fan-out in the background and answers the request meanwhile: tools/list
+// returns the meta-tools, which need none of the connections, and a call for
+// a server still connecting waits for that server alone (#1226).
+// Also detects broken upstream refresh chains: when authAlive is true but
+// the ID token has disappeared, SSO connections are evicted to stop the
+// mcp-go retry loop from spamming errors with expired tokens.
+func (a *AggregatorServer) onRequestAuthenticated(ctx context.Context, sessionID string) {
+	if a.capabilityStore == nil {
+		return
+	}
+	var authAlive bool
+	if a.authStore != nil {
+		authAlive, _ = a.authStore.Touch(ctx, sessionID)
+	}
+	_, _ = a.capabilityStore.Touch(ctx, sessionID)
+
+	sso := ssoSessionFromContext(ctx, sessionID)
+	a.bindBearerSession(sso)
+
+	logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
+		slog.Any("session", sso),
+		slog.Bool("authAlive", authAlive))
+
+	if authAlive {
+		if !sso.canBootstrapSSO() {
+			if sso.tokenSource == providers.TokenSourceTrustedIssuer {
+				return
+			}
+			// No usable subject token: the upstream credential is gone.
+			// Evict stale SSO connections to stop mcp-go's infinite
+			// 1-second retry loop.
+			a.handleUpstreamRefreshFailure(sessionID, sso.userID, "onAuthenticated: no usable subject token for active session")
+			return
+		}
+		// After a pod restart the auth store survives in Valkey but the
+		// in-memory conn pool is empty. Trigger SSO re-init if any
+		// token-exchange server is registered but has no pooled client.
+		// Failure backoff is intentionally NOT cleared here: the tracker is
+		// in-memory, so after a restart there are no stale failures, and
+		// clearing it on every request would retry a persistently failing
+		// exchange per-request instead of on the backoff schedule.
+		// A fan-out already running for the session (a sign-in's, whose
+		// fast servers made the session live) covers the misses.
+		if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil &&
+			a.ssoPoolMissNeedingInitOf(sso.userID, sessionID, seesFunc(api.CallerVisibility(sso.connectContext(context.Background())))) {
+			logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
+				slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+			a.beginSessionBootstrap(sso)
+		}
+		return
+	}
+
+	if !sso.canBootstrapSSO() {
+		logging.InfoWithAttrs("Aggregator", "SSO: skipping bootstrap, no usable subject token",
+			slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
+		return
+	}
+
+	// A session's first fan-out clears the person's prior SSO failures so
+	// all servers are retried: servers that failed during a previous init
+	// (e.g. before a pod restart or after a transient token-storage error)
+	// would otherwise be skipped for ssoTrackerFailureTTL although the
+	// cause may be gone. Only the first: a session whose every connect
+	// failed has no connected server and lands here on each request, and
+	// clearing then would retry the failing exchange per request instead
+	// of on the tracker's backoff -- and, with the fan-out in the
+	// background, show the server as pending on every status read.
+	// A session that held auth state which then ended (its forwarded ID
+	// token expired and ended the session, a logout) lands here too, with
+	// the same session ID: the session ID of a forwarded token is derived
+	// from its principal, not its bytes. It starts once more, as a new
+	// session does.
+	if !a.claimSessionBootstrap(sessionID) {
+		return
+	}
+	if a.ssoTracker != nil && sso.userID != "" {
+		a.ssoTracker.ClearAllSSOFailed(sso.userID)
+	}
+
+	a.beginSessionBootstrap(sso)
 }
