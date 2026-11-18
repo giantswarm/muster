@@ -408,9 +408,7 @@ func countingConnect(agg *AggregatorServer, outcome ssoConnectOutcome, calls *at
 	return func(ctx context.Context, info *ServerInfo, _ string) ssoConnectOutcome {
 		calls.Add(1)
 		if outcome == ssoConnected {
-			if err := agg.authStore.MarkAuthenticated(ctx, getSessionIDFromContext(ctx), info.Name); err != nil {
-				return ssoConnectFailed
-			}
+			agg.markSessionAuthenticatedTo(ctx, getSessionIDFromContext(ctx), info.Name)
 		} else {
 			agg.ssoTracker.MarkSSOFailed(getUserSubjectFromContext(ctx), info.Name)
 		}
@@ -418,40 +416,97 @@ func countingConnect(agg *AggregatorServer, outcome ssoConnectOutcome, calls *at
 	}
 }
 
-func TestOnRequestAuthenticated_StartsTheFanOutAgainAfterTheSessionsAuthStateEnded(t *testing.T) {
-	// A forwarded ID token expires and ends its session: the session's auth
-	// state and connections go. The person's next token has the same
-	// principal and so the same session ID. Its first request must connect
-	// the session again, without a restart of the pod.
+// newReplica is a muster pod for the session tests: its own connection pool,
+// fan-out marks and failure tracker, and the auth store all pods share.
+func newReplica(t *testing.T, authStore oauthstore.SessionAuthStore) *AggregatorServer {
+	t.Helper()
 	agg := newBootstrapTestAggregator(t, newConnectGates(), "agent-manager")
+	agg.authStore = authStore
 	agg.capabilityStore = oauthstore.NewInMemoryCapabilityStore(oauthstore.DefaultCapabilityStoreTTL)
-	var calls atomic.Int32
-	agg.ssoConnect = countingConnect(agg, ssoConnected, &calls)
+	return agg
+}
+
+func TestOnRequestAuthenticated_StartsTheFanOutAgainAfterTheSessionsAuthStateEnded(t *testing.T) {
+	// A forwarded ID token expires and ends its session on every pod: the
+	// session's auth state and connections go. The person's next token has
+	// the same principal and so the same session ID. Its first request must
+	// connect the session again, without a restart of the pod -- however the
+	// session got its auth state before.
 	const sessionID = "ext-c86c50de8f400823"
-	ctx := authenticatedRequest(t, "alice")
+	tests := []struct {
+		name string
+		// authenticate gives the session auth state, starting from replica's
+		// first request; the replica's connects end in outcome.
+		outcome      ssoConnectOutcome
+		authenticate func(ctx context.Context, replica, other *AggregatorServer)
+	}{
+		{
+			name:    "its fan-out connected it",
+			outcome: ssoConnected,
+			authenticate: func(ctx context.Context, replica, _ *AggregatorServer) {
+				replica.onRequestAuthenticated(ctx, sessionID)
+				replica.awaitSessionBootstrap(ctx, sessionID)
+			},
+		},
+		{
+			name:    "its fan-out failed and a later connect of the pod succeeded",
+			outcome: ssoConnectFailed,
+			authenticate: func(ctx context.Context, replica, _ *AggregatorServer) {
+				replica.onRequestAuthenticated(ctx, sessionID)
+				replica.awaitSessionBootstrap(ctx, sessionID)
+				// What a retry or a tool call's connect does when it succeeds.
+				replica.markSessionAuthenticatedTo(ctx, sessionID, "agent-manager")
+			},
+		},
+		{
+			name:    "the other replica connected it",
+			outcome: ssoConnectFailed,
+			authenticate: func(ctx context.Context, replica, other *AggregatorServer) {
+				other.onRequestAuthenticated(ctx, sessionID)
+				other.awaitSessionBootstrap(ctx, sessionID)
+				// This pod sees the shared auth state alive; its own
+				// pool-miss fan-out fails.
+				replica.onRequestAuthenticated(ctx, sessionID)
+				replica.awaitSessionBootstrap(ctx, sessionID)
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shared := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
+			t.Cleanup(shared.Stop)
+			replica, other := newReplica(t, shared), newReplica(t, shared)
+			var calls, otherCalls atomic.Int32
+			replica.ssoConnect = countingConnect(replica, tt.outcome, &calls)
+			other.ssoConnect = countingConnect(other, ssoConnected, &otherCalls)
+			ctx := authenticatedRequest(t, "alice")
 
-	agg.onRequestAuthenticated(ctx, sessionID)
-	agg.awaitSessionBootstrap(ctx, sessionID)
-	require.Equal(t, int32(1), calls.Load(), "the session's first request connects it")
+			tt.authenticate(ctx, replica, other)
+			authed, _ := shared.IsAuthenticated(ctx, sessionID, "agent-manager")
+			require.True(t, authed, "the session holds auth state")
 
-	agg.tearDownSession(ctx, sessionID)
-	authed, _ := agg.authStore.IsAuthenticated(ctx, sessionID, "agent-manager")
-	require.False(t, authed, "the session's auth state ended")
+			replica.tearDownSession(ctx, sessionID)
+			other.tearDownSession(ctx, sessionID)
+			before := calls.Load()
+			replica.ssoConnect = countingConnect(replica, ssoConnected, &calls)
 
-	agg.onRequestAuthenticated(ctx, sessionID)
-	agg.awaitSessionBootstrap(ctx, sessionID)
+			replica.onRequestAuthenticated(ctx, sessionID)
+			replica.awaitSessionBootstrap(ctx, sessionID)
 
-	assert.Equal(t, int32(2), calls.Load(), "the next request starts the fan-out again")
-	authed, _ = agg.authStore.IsAuthenticated(ctx, sessionID, "agent-manager")
-	assert.True(t, authed, "and the session is authenticated to the server again")
+			assert.Equal(t, before+1, calls.Load(), "the next request starts the fan-out again")
+			authed, _ = shared.IsAuthenticated(ctx, sessionID, "agent-manager")
+			assert.True(t, authed, "and the session is authenticated to the server again")
+		})
+	}
 }
 
 func TestOnRequestAuthenticated_SessionWhoseEveryConnectFailedWaitsForTheBackoff(t *testing.T) {
 	// A session whose every connect failed holds no auth state, so each of
 	// its requests finds it not alive. They must not clear the person's
 	// failures and start the failing connect again each.
-	agg := newBootstrapTestAggregator(t, newConnectGates(), "agent-manager")
-	agg.capabilityStore = oauthstore.NewInMemoryCapabilityStore(oauthstore.DefaultCapabilityStoreTTL)
+	authStore := oauthstore.NewInMemorySessionAuthStore(30 * time.Minute)
+	t.Cleanup(authStore.Stop)
+	agg := newReplica(t, authStore)
 	var calls atomic.Int32
 	agg.ssoConnect = countingConnect(agg, ssoConnectFailed, &calls)
 	const sessionID = "ext-failing"

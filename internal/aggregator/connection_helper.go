@@ -223,12 +223,7 @@ func establishConnection(
 		}
 	}
 
-	if a.authStore != nil {
-		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverName); err != nil {
-			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
-				logging.TruncateIdentifier(sessionID), serverName, err)
-		}
-	}
+	a.markSessionAuthenticatedTo(ctx, sessionID, serverName)
 
 	// Sync service state to Connected now that authentication succeeded
 	notifyMCPServerConnected(serverName, "authentication")
@@ -475,12 +470,7 @@ func EstablishConnectionWithTokenForwarding(
 		}
 	}
 
-	if a.authStore != nil {
-		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverInfo.Name); err != nil {
-			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
-		}
-	}
+	a.markSessionAuthenticatedTo(ctx, sessionID, serverInfo.Name)
 
 	// Sync service state to Connected now that SSO succeeded
 	notifyMCPServerConnected(serverInfo.Name, "SSO token forwarding")
@@ -795,12 +785,7 @@ func EstablishConnectionWithTokenExchange(
 		}
 	}
 
-	if a.authStore != nil {
-		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverInfo.Name); err != nil {
-			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
-				logging.TruncateIdentifier(sessionID), serverInfo.Name, err)
-		}
-	}
+	a.markSessionAuthenticatedTo(ctx, sessionID, serverInfo.Name)
 
 	// Sync service state to Connected now that token exchange succeeded
 	notifyMCPServerConnected(serverInfo.Name, "RFC 8693 token exchange")

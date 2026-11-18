@@ -195,7 +195,7 @@ type AggregatorServer struct {
 	// ssoBootstrap): a session's first request starts it and is answered
 	// while it runs; a later request of the session waits here for the
 	// servers it needs. ssoBootstrapped records when a session's fan-out
-	// last started and whether one of its connects succeeded, so
+	// last started and whether the session held auth state since then, so
 	// the requests of a session that ended up with no connected server
 	// (every connect failed) do not clear the person's failure backoff and
 	// start a fan-out each -- the first request of a session does that

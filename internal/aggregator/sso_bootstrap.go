@@ -341,6 +341,8 @@ func (a *AggregatorServer) beginSessionBootstrap(sso ssoSession) *ssoBootstrap {
 	b := newSSOBootstrap(sso.sessionID, plan.serverNames())
 	if a.ssoBootstraps == nil {
 		a.ssoBootstraps = make(map[string]*ssoBootstrap)
+	}
+	if a.ssoBootstrapped == nil {
 		a.ssoBootstrapped = make(map[string]ssoBootstrapMark)
 	}
 	a.ssoBootstraps[sso.sessionID] = b
@@ -377,9 +379,6 @@ func (a *AggregatorServer) runSessionBootstrap(b *ssoBootstrap, sso ssoSession, 
 		defer wg.Done()
 		start := time.Now()
 		outcome := connect(bgCtx, info)
-		if outcome == ssoConnected {
-			a.markSessionAuthenticated(b.sessionID)
-		}
 		b.serverFinished(info.Name)
 		results <- ssoServerResult{name: info.Name, outcome: outcome, took: time.Since(start)}
 	}
@@ -559,16 +558,19 @@ func (a *AggregatorServer) adoptSubjectGrantForBootstrap(ctx context.Context, in
 const ssoBootstrappedRetention = 2 * ssoBackoffMaxTTL
 
 // ssoBootstrapMark is what a pod remembers of a session's last fan-out: when
-// it started, and whether one of its connects succeeded, which gave the
-// session auth state. The auth state itself is shared (Valkey); the mark is
+// it started, and whether the session held auth state since then -- this pod
+// connected the session to a server (in the fan-out, a retry or a tool call),
+// or a request of the session found its shared auth state alive (a connect on
+// another replica). The auth state itself is shared (Valkey); the mark is
 // this pod's.
 type ssoBootstrapMark struct {
 	started       time.Time
 	authenticated bool
 }
 
-// markSessionAuthenticated records that a connect of the session's last
-// fan-out succeeded. A session with no mark is left alone.
+// markSessionAuthenticated records that the session holds auth state since
+// its last fan-out started. A session with no mark is left alone: it has no
+// fan-out to start again.
 func (a *AggregatorServer) markSessionAuthenticated(sessionID string) {
 	a.ssoBootstrapsMu.Lock()
 	defer a.ssoBootstrapsMu.Unlock()
@@ -578,13 +580,27 @@ func (a *AggregatorServer) markSessionAuthenticated(sessionID string) {
 	}
 }
 
+// markSessionAuthenticatedTo records in the shared auth store that the
+// session authenticated to the server, and in this pod's fan-out mark that
+// the session holds auth state. Every connect that authenticates a session
+// calls it.
+func (a *AggregatorServer) markSessionAuthenticatedTo(ctx context.Context, sessionID, serverName string) {
+	if a.authStore != nil {
+		if err := a.authStore.MarkAuthenticated(ctx, sessionID, serverName); err != nil {
+			logging.Warn("Connection", "Failed to mark auth for %s/%s: %v",
+				logging.TruncateIdentifier(sessionID), serverName, err)
+		}
+	}
+	a.markSessionAuthenticated(sessionID)
+}
+
 // claimSessionBootstrap reports whether a request of a session with no auth
 // state may clear the person's SSO failures and start the session's fan-out:
-// the session started no fan-out within ssoBootstrappedRetention, or a connect
-// of its last fan-out succeeded and the auth state that gave it has ended (the
-// resource bearer expired, a logout, a revoked refresh) while the session ID
-// stayed the same. A session whose last fan-out connected nothing (every
-// connect failed) is not claimed: its requests retry on the tracker's backoff,
+// the session started no fan-out within ssoBootstrappedRetention, or it held
+// auth state since its last fan-out started (see ssoBootstrapMark) and that
+// state has ended (the resource bearer expired, a logout, a revoked refresh)
+// while the session ID stayed the same. A session that held no auth state
+// since its last fan-out (every connect failed) is not claimed: its requests retry on the tracker's backoff,
 // not on each request. A claim of an ended session consumes the mark's
 // authenticated flag, so of concurrent requests one claims it. Entries past
 // the retention are dropped as a side effect, which bounds the record to the
@@ -789,6 +805,9 @@ func (a *AggregatorServer) onRequestAuthenticated(ctx context.Context, sessionID
 				slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
 			a.beginSessionBootstrap(sso)
 		}
+		// The shared auth state is alive: whichever replica connected the
+		// session, this pod starts the fan-out again once it ends.
+		a.markSessionAuthenticated(sessionID)
 		return
 	}
 
