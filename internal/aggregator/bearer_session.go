@@ -34,11 +34,13 @@ type bearerSessions struct {
 	stopped  bool
 }
 
-// bearerSession is one bound session: the bearer's exp and the timer that
-// ends the session at it.
+// bearerSession is one bound session: the bearer's exp, the timer that
+// ends the session at it, and the latest exp this replica recorded for the
+// other replicas.
 type bearerSession struct {
-	exp   time.Time
-	timer *time.Timer
+	exp      time.Time
+	timer    *time.Timer
+	recorded time.Time
 }
 
 func newBearerSessions() *bearerSessions {
@@ -48,35 +50,56 @@ func newBearerSessions() *bearerSessions {
 // bind records that sessionID's authority ends at exp and schedules end for
 // that instant (at once when exp has passed). A session already bound moves
 // to exp only when exp is later than its bound exp: the old timer stops and a
-// new one starts. It reports whether the binding was made or moved.
-func (b *bearerSessions) bind(sessionID string, exp time.Time, end func()) bool {
+// new one starts.
+func (b *bearerSessions) bind(sessionID string, exp time.Time, end func()) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.stopped {
-		return false
+		return
 	}
 	if s, ok := b.sessions[sessionID]; ok {
 		if !exp.After(s.exp) {
-			return false
+			return
 		}
 		s.timer.Stop()
 		s.exp = exp
 		s.timer = time.AfterFunc(time.Until(exp), end)
-		return true
+		return
 	}
 	b.sessions[sessionID] = &bearerSession{
 		exp:   exp,
 		timer: time.AfterFunc(time.Until(exp), end),
 	}
-	return true
 }
 
-// bound reports whether sessionID is bound to a bearer.
-func (b *bearerSessions) bound(sessionID string) bool {
+// unrecorded returns sessionID's bound exp while this replica has not
+// recorded it for the other replicas.
+func (b *bearerSessions) unrecorded(sessionID string) (time.Time, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	_, ok := b.sessions[sessionID]
-	return ok
+	s, ok := b.sessions[sessionID]
+	if !ok || !s.exp.After(s.recorded) {
+		return time.Time{}, false
+	}
+	return s.exp, true
+}
+
+// markRecorded notes that exp is recorded for sessionID's other replicas.
+func (b *bearerSessions) markRecorded(sessionID string, exp time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if s, ok := b.sessions[sessionID]; ok && exp.After(s.recorded) {
+		s.recorded = exp
+	}
+}
+
+// live reports whether sessionID is bound to a bearer whose exp has not
+// passed at now.
+func (b *bearerSessions) live(sessionID string, now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	s, ok := b.sessions[sessionID]
+	return ok && now.Before(s.exp)
 }
 
 // expired reports whether sessionID is bound to a bearer whose exp has
@@ -133,17 +156,22 @@ func (a *AggregatorServer) bindBearerSession(ctx context.Context, sso ssoSession
 }
 
 // bindBearerExpiry binds sessionID to exp, or moves its binding to exp when
-// exp is later, and then records exp for the other replicas.
+// exp is later, and then records the bound exp for the other replicas. A
+// record that failed is tried again on the session's next request.
 func (a *AggregatorServer) bindBearerExpiry(ctx context.Context, sessionID string, exp time.Time) {
-	if !a.bearerSessions.bind(sessionID, exp, func() { a.endBearerSession(sessionID) }) {
+	a.bearerSessions.bind(sessionID, exp, func() { a.endBearerSession(sessionID) })
+	if a.bearerExpiries == nil {
 		return
 	}
-	if a.bearerExpiries == nil {
+	bound, ok := a.bearerSessions.unrecorded(sessionID)
+	if !ok {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), bearerSessionStoreTimeout)
 	defer cancel()
-	if err := a.bearerExpiries.extend(ctx, sessionID, exp); err != nil {
+	if err := a.bearerExpiries.extend(ctx, sessionID, bound); err == nil {
+		a.bearerSessions.markRecorded(sessionID, bound)
+	} else {
 		// The other replica then ends the session at the exp it saw; the
 		// session's next request connects it again there.
 		logging.Warn("Aggregator", "Session %s: bearer exp not shared with the other replicas: %v",
@@ -153,12 +181,16 @@ func (a *AggregatorServer) bindBearerExpiry(ctx context.Context, sessionID strin
 
 // endExpiredBearerSession ends sessionID when it is bound to a forwarded
 // bearer that has expired, and reports whether it was: the capability poll
-// asks it before it lists through one of the session's connections.
+// asks it before it lists through one of the session's connections. A
+// session whose binding moved to a later bearer's exp is not ended; one that
+// another path is ending at the same time is, so the poll does not list
+// through it.
 func (a *AggregatorServer) endExpiredBearerSession(sessionID string) bool {
 	if a.bearerSessions == nil || !a.bearerSessions.expired(sessionID, time.Now()) {
 		return false
 	}
-	return a.endBearerSession(sessionID)
+	a.endBearerSession(sessionID)
+	return !a.bearerSessions.live(sessionID, time.Now())
 }
 
 // endBearerSession ends a session whose resource bearer has expired, once:
@@ -177,6 +209,7 @@ func (a *AggregatorServer) endBearerSession(sessionID string) bool {
 		logging.Debug("Aggregator", "Session %s: a later resource bearer reached another replica; it now ends at %s",
 			logging.TruncateIdentifier(sessionID), latest.UTC().Format(time.RFC3339))
 		a.bearerSessions.bind(sessionID, latest, func() { a.endBearerSession(sessionID) })
+		a.bearerSessions.markRecorded(sessionID, latest)
 		return false
 	}
 	exp, ok := a.bearerSessions.release(sessionID, time.Now())

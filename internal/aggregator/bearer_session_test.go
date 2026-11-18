@@ -16,6 +16,12 @@ import (
 	"github.com/giantswarm/muster/v5/internal/server"
 )
 
+// isBound reports whether sessionID is bound to a bearer: any bound exp is
+// after the zero time.
+func isBound(b *bearerSessions, sessionID string) bool {
+	return b.live(sessionID, time.Time{})
+}
+
 // TestBearerSessions_EndsOnceAtExp: a bound session is ended by its timer at
 // the bearer's exp and only then, and exactly once -- the timer's end and a
 // later release do not both get it.
@@ -36,7 +42,7 @@ func TestBearerSessions_EndsOnceAtExp(t *testing.T) {
 	require.Eventually(t, func() bool { return ended.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
 	_, ok = b.release("s", time.Now())
 	assert.False(t, ok, "a session is released once")
-	assert.False(t, b.bound("s"))
+	assert.False(t, isBound(b, "s"))
 }
 
 // TestBearerSessions_StopCancelsPendingEnds: shutdown cancels the timers and
@@ -50,8 +56,8 @@ func TestBearerSessions_StopCancelsPendingEnds(t *testing.T) {
 
 	time.Sleep(150 * time.Millisecond)
 	assert.Equal(t, int32(0), ended.Load())
-	assert.False(t, b.bound("s"))
-	assert.False(t, b.bound("t"))
+	assert.False(t, isBound(b, "s"))
+	assert.False(t, isBound(b, "t"))
 }
 
 // TestBindBearerSession_OnlyForwardedBearersWithExp: a session is bound when
@@ -72,9 +78,9 @@ func TestBindBearerSession_OnlyForwardedBearersWithExp(t *testing.T) {
 		a.bindBearerSession(context.Background(), ssoSession{sessionID: sessionID, tokens: server.CallerTokens{Bearer: bearer}})
 	}
 
-	assert.True(t, a.bearerSessions.bound("ext-with-exp"))
-	assert.False(t, a.bearerSessions.bound("ext-without-exp"))
-	assert.False(t, a.bearerSessions.bound("family-opaque"))
+	assert.True(t, isBound(a.bearerSessions, "ext-with-exp"))
+	assert.False(t, isBound(a.bearerSessions, "ext-without-exp"))
+	assert.False(t, isBound(a.bearerSessions, "family-opaque"))
 }
 
 // bearerSessionFixture is an aggregator with two forwarding servers and a
@@ -180,79 +186,122 @@ func (c *countingListClient) ListTools(ctx context.Context) ([]mcp.Tool, error) 
 	return c.MCPClient.ListTools(ctx)
 }
 
-// bearerTick is the time scale of the tests that let a bound bearer expire.
-const bearerTick = 200 * time.Millisecond
+// bindBearer runs agg's binding for a request of sessionID whose bearer
+// expires at exp.
+func bindBearer(t *testing.T, agg *AggregatorServer, sessionID string, exp time.Time) {
+	t.Helper()
+	bearer := unsignedJWT(t, map[string]any{"sub": "agent", "exp": exp.Unix()})
+	agg.bindBearerSession(context.Background(), ssoSession{sessionID: sessionID, tokens: server.CallerTokens{Bearer: bearer}})
+}
 
-// TestBindBearerExpiry_SessionEndsAtTheLatestBearerExp: a session keyed by
-// its principal gets a refreshed bearer before the old one expires; it ends
-// at the exp of the latest valid bearer, never earlier (an older bearer
-// replayed after a newer one) and never later.
-func TestBindBearerExpiry_SessionEndsAtTheLatestBearerExp(t *testing.T) {
+// TestBindBearerSession_SessionEndsAtTheLatestBearerExp: a session keyed by
+// its principal gets a refreshed bearer before the old one expires; its
+// binding ends at the exp of the latest bearer, never earlier (an older
+// bearer replayed after a newer one) and never later.
+func TestBindBearerSession_SessionEndsAtTheLatestBearerExp(t *testing.T) {
 	for name, tc := range map[string]struct {
-		binds []int // the bearers' exps, in bearerTicks from now
-		endAt int   // the exp the session ends at
+		binds []time.Duration // the bearers' exps from now, in request order
+		endAt time.Duration   // the exp the session's binding ends at
 	}{
-		"no later bearer: ends at the bound exp": {binds: []int{1}, endAt: 1},
-		"a later bearer moves the end":           {binds: []int{1, 3}, endAt: 3},
-		"an older bearer does not move it":       {binds: []int{3, 1}, endAt: 3},
+		"no later bearer: ends at the bound exp": {binds: []time.Duration{time.Hour}, endAt: time.Hour},
+		"a later bearer moves the end":           {binds: []time.Duration{time.Hour, 2 * time.Hour}, endAt: 2 * time.Hour},
+		"an older bearer does not move it":       {binds: []time.Duration{2 * time.Hour, time.Hour}, endAt: 2 * time.Hour},
 	} {
 		t.Run(name, func(t *testing.T) {
-			a, _ := bearerSessionFixture(t)
+			a := &AggregatorServer{bearerSessions: newBearerSessions()}
+			t.Cleanup(a.bearerSessions.stop)
 			now := time.Now()
-			for _, ticks := range tc.binds {
-				a.bindBearerExpiry(context.Background(), "live", now.Add(time.Duration(ticks)*bearerTick))
+			for _, d := range tc.binds {
+				bindBearer(t, a, "s", now.Add(d))
 			}
 
-			time.Sleep(time.Until(now.Add(time.Duration(tc.endAt)*bearerTick - bearerTick/2)))
-			_, ok := a.connPool.Get("live", "shared")
-			require.True(t, ok, "the session holds its connection before the latest bearer's exp")
-
-			require.Eventually(t, func() bool { return len(a.connPool.Snapshot("live")) == 0 },
-				2*time.Second, 10*time.Millisecond, "the session ends at the latest bearer's exp")
+			assert.True(t, a.bearerSessions.live("s", now.Add(tc.endAt-time.Minute)), "bound before the latest bearer's exp")
+			assert.False(t, a.bearerSessions.live("s", now.Add(tc.endAt)), "not bound past the latest bearer's exp")
 		})
 	}
 }
 
-// TestBindBearerExpiry_TwoReplicas_LaterBearerOnOneKeepsTheSessionOnBoth:
-// both replicas bound the session to its first bearer; the person's later
-// requests, with a refreshed bearer, all reach replica b. Replica a's timer
-// at the first bearer's exp must not end the session: its teardown would
-// revoke the shared auth state that b's connections stand on. Both end it
-// at the refreshed bearer's exp.
-func TestBindBearerExpiry_TwoReplicas_LaterBearerOnOneKeepsTheSessionOnBoth(t *testing.T) {
-	a, _ := bearerSessionFixture(t)
-	authStore := oauthstore.NewInMemorySessionAuthStore(time.Hour)
+// TestBearerSessions_MovedBindingEndsAtTheNewExp: the timer of a moved
+// binding ends the session at the new exp; the old one does not.
+func TestBearerSessions_MovedBindingEndsAtTheNewExp(t *testing.T) {
+	b := newBearerSessions()
+	t.Cleanup(b.stop)
+	var ended atomic.Int32
+	end := func() {
+		if _, ok := b.release("s", time.Now()); ok {
+			ended.Add(1)
+		}
+	}
+	b.bind("s", time.Now().Add(50*time.Millisecond), end)
+	b.bind("s", time.Now().Add(300*time.Millisecond), end)
+
+	require.Eventually(t, func() bool { return ended.Load() == 1 }, 2*time.Second, 10*time.Millisecond)
+}
+
+// twoBearerReplicas is two aggregators that share the session auth state and
+// the bearer exp record, as two muster replicas do through Valkey; each has
+// its own pool holding session "live"'s connection to "shared".
+func twoBearerReplicas(t *testing.T) (a, b *AggregatorServer, authStore *oauthstore.InMemorySessionAuthStore) {
+	t.Helper()
+	a, _ = bearerSessionFixture(t)
+	authStore = oauthstore.NewInMemorySessionAuthStore(time.Hour)
 	t.Cleanup(authStore.Stop)
 	expiries := newValkeyBearerExpiryStore(newTestValkeyClient(t), "muster:")
 	a.authStore, a.bearerExpiries = authStore, expiries
 	poolB := NewSessionConnectionPool(time.Hour)
 	t.Cleanup(func() { poolB.Stop(); poolB.DrainAll() })
-	b := &AggregatorServer{registry: a.registry, connPool: poolB, bearerSessions: newBearerSessions(),
+	poolB.Put("live", "shared", &noopMCPClient{})
+	b = &AggregatorServer{registry: a.registry, connPool: poolB, bearerSessions: newBearerSessions(),
 		authStore: authStore, bearerExpiries: expiries}
 	t.Cleanup(b.bearerSessions.stop)
+	require.NoError(t, authStore.MarkAuthenticated(context.Background(), "live", "shared"))
+	return a, b, authStore
+}
 
+// TestBindBearerSession_TwoReplicas_LaterBearerOnOneKeepsTheSessionOnBoth:
+// both replicas bound the session to its first bearer; the person's later
+// requests, with a refreshed bearer, all reach replica b. Replica a's timer
+// at the first bearer's exp must not end the session: its teardown would
+// revoke the shared auth state that b's connections stand on. Replica a
+// moves its binding to the refreshed bearer's exp instead.
+func TestBindBearerSession_TwoReplicas_LaterBearerOnOneKeepsTheSessionOnBoth(t *testing.T) {
+	a, b, authStore := twoBearerReplicas(t)
 	ctx := context.Background()
-	require.NoError(t, authStore.MarkAuthenticated(ctx, "live", "shared"))
-	poolB.Put("live", "shared", &noopMCPClient{})
 	now := time.Now()
-	a.bindBearerExpiry(ctx, "live", now.Add(bearerTick))
-	b.bindBearerExpiry(ctx, "live", now.Add(bearerTick))
-	b.bindBearerExpiry(ctx, "live", now.Add(3*bearerTick))
+	first := time.Unix(now.Add(2*time.Second).Unix(), 0)
+	bindBearer(t, a, "live", first)
+	bindBearer(t, b, "live", first)
+	bindBearer(t, b, "live", now.Add(time.Hour))
 	// A third replica whose first request carries the first bearer records
 	// it after b recorded the refreshed one.
-	require.NoError(t, expiries.extend(ctx, "live", now.Add(bearerTick)))
+	require.NoError(t, b.bearerExpiries.extend(ctx, "live", first))
 
-	time.Sleep(time.Until(now.Add(2 * bearerTick)))
-	_, onA := a.connPool.Get("live", "shared")
-	_, onB := poolB.Get("live", "shared")
-	authenticated, err := authStore.IsAuthenticated(ctx, "live", "shared")
-	require.NoError(t, err)
-	assert.True(t, onA && onB && authenticated, "past the first bearer's exp the session is live on both replicas")
-
-	require.Eventually(t, func() bool {
+	require.Never(t, func() bool {
+		_, onA := a.connPool.Get("live", "shared")
+		_, onB := b.connPool.Get("live", "shared")
 		authenticated, _ := authStore.IsAuthenticated(ctx, "live", "shared")
-		return len(a.connPool.Snapshot("live")) == 0 && len(poolB.Snapshot("live")) == 0 && !authenticated
-	}, 2*time.Second, 10*time.Millisecond, "both replicas end the session at the refreshed bearer's exp")
+		return !onA || !onB || !authenticated
+	}, time.Until(first)+time.Second, 20*time.Millisecond, "past the first bearer's exp the session is live on both replicas")
+	assert.True(t, a.bearerSessions.live("live", now.Add(time.Hour-time.Minute)), "replica a now ends it at the refreshed bearer's exp")
+}
+
+// TestBindBearerSession_FailedRecordIsTriedAgain: a refreshed bearer whose
+// exp the shared record did not take (Valkey did not answer) is recorded on
+// the session's next request, so the other replica does not end the session
+// at the old exp.
+func TestBindBearerSession_FailedRecordIsTriedAgain(t *testing.T) {
+	_, b, _ := twoBearerReplicas(t)
+	expiries := b.bearerExpiries
+	refreshed := time.Unix(time.Now().Add(time.Hour).Unix(), 0)
+
+	b.bearerExpiries = unreadableBearerExpiries{}
+	bindBearer(t, b, "live", refreshed)
+	b.bearerExpiries = expiries
+	bindBearer(t, b, "live", refreshed)
+
+	latest, err := expiries.latest(context.Background(), "live")
+	require.NoError(t, err)
+	assert.Equal(t, refreshed, latest)
 }
 
 // TestEndBearerSession_SharedRecordUnreadable_EndsAtThisReplicasExp: when
