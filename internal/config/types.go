@@ -377,8 +377,9 @@ type OAuthTokenExchangeClientConfig struct {
 	// internal-only load balancer, as on a private management cluster.
 	// Loopback, link-local and unspecified addresses stay refused, and every
 	// other host keeps the SSRF guard. Hosts match exactly (no port, no
-	// wildcard), case-insensitively. Ignored with --extra-ca-file, which
-	// lifts the guard for every host.
+	// wildcard), case-insensitively. With --extra-ca-file the listed hosts
+	// also trust that CA; with --extra-ca-file and no host listed every token
+	// endpoint may resolve to any private address.
 	AllowPrivateIPTokenEndpointHosts []string `yaml:"allowPrivateIPTokenEndpointHosts,omitempty"`
 }
 

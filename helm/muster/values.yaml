@@ -539,14 +539,15 @@ muster:
         # -- Deprecated: list the hosts in allowPrivateIPTokenEndpointHosts.
         # Lets every token endpoint resolve to any private, loopback or
         # link-local address and overrides allowPrivateIPTokenEndpointHosts.
-        # Implied when extraCaFile is set. Still accepted; logs a startup
-        # warning.
+        # Implied when extraCaFile is set and no host is listed. Still
+        # accepted; logs a startup warning.
         allowPrivateIP: false  # @schema deprecated: true
         # -- Token endpoint hostnames that may resolve to RFC 1918 or RFC 4193
         # addresses: a remote Dex behind an internal-only load balancer.
         # Loopback and link-local stay refused, and every other host keeps the
-        # SSRF guard. Exact match, no port, no wildcard. Ignored when
-        # extraCaFile is set, which lifts the guard for every token endpoint.
+        # SSRF guard. Exact match, no port, no wildcard. With extraCaFile the
+        # listed hosts also trust that CA; with extraCaFile and no host listed
+        # every token endpoint may resolve to any private address (warned).
         # Example:
         #   - dex.example.internal
         allowPrivateIPTokenEndpointHosts: []  # @schema item: string

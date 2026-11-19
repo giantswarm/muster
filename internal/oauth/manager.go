@@ -2,6 +2,7 @@ package oauth
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/tlsutil"
 )
 
 // AuthCompletionCallback is called after successful OAuth authentication.
@@ -540,36 +542,50 @@ func (m *Manager) Stop() {
 }
 
 // tokenExchangerOptions selects the client for RFC 8693 cross-cluster SSO.
-// With --extra-ca-file this muster talks to in-cluster TLS endpoints (a hub
-// reaching a private installation's Dex through a ClusterIP Service), so the
-// client dials on the process-wide transport, which carries the extra CA,
-// with no private-address guard. Otherwise
-// tokenExchange.allowPrivateIPTokenEndpointHosts lets the listed token
-// endpoint hosts resolve to RFC 1918 and RFC 4193 addresses and keeps the
-// SSRF guard for every other host; an MCPServer chooses its token endpoint,
-// so the guard stays on by default.
+// An MCPServer chooses its token endpoint, so the SSRF guard stays on by
+// default. tokenExchange.allowPrivateIPTokenEndpointHosts lets the listed
+// token endpoint hosts resolve to RFC 1918 and RFC 4193 addresses and keeps
+// the guard for every other host; with --extra-ca-file that client also
+// trusts the extra CA. With --extra-ca-file and no listed hosts the client
+// dials on the process-wide transport, which carries the extra CA, with no
+// private-address guard, and a startup warning says to list the hosts.
 func tokenExchangerOptions(cfg config.OAuthMCPClientConfig) TokenExchangerOptions {
 	hosts := cfg.TokenExchange.AllowPrivateIPTokenEndpointHosts
+	processTransport := &http.Client{Transport: http.DefaultTransport, Timeout: 30 * time.Second}
 	switch {
-	case cfg.ExtraCAFile != "":
-		if len(hosts) > 0 {
-			logging.Warn("OAuth", "oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts is ignored: --extra-ca-file lets every token endpoint resolve to a private address")
-		}
-		return TokenExchangerOptions{
-			AllowPrivateIP: true,
-			HTTPClient:     &http.Client{Transport: http.DefaultTransport, Timeout: 30 * time.Second},
-		}
 	case cfg.TokenExchange.AllowPrivateIP: //nolint:staticcheck // SA1019: accepted until no installation sets it
 		logging.Warn("OAuth", "DEPRECATED: oauth.mcpClient.tokenExchange.allowPrivateIP lifts the private-IP check for every token endpoint; list the hosts in oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts instead")
 		if len(hosts) > 0 {
 			logging.Warn("OAuth", "oauth.mcpClient.tokenExchange.allowPrivateIP overrides allowPrivateIPTokenEndpointHosts %v: every token endpoint may resolve to a private address", hosts)
 		}
+		if cfg.ExtraCAFile != "" {
+			return TokenExchangerOptions{AllowPrivateIP: true, HTTPClient: processTransport}
+		}
 		return TokenExchangerOptions{AllowPrivateIP: true}
 	case len(hosts) > 0:
 		return TokenExchangerOptions{
-			HTTPClient: oidc.NewHostScopedPrivateIPHTTPClient(hosts, oidc.DefaultHTTPTimeout, nil),
+			HTTPClient: oidc.NewHostScopedPrivateIPHTTPClient(hosts, oidc.DefaultHTTPTimeout, extraCAPool(cfg.ExtraCAFile)),
 		}
+	case cfg.ExtraCAFile != "":
+		logging.Warn("OAuth", "--extra-ca-file without oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts lets every token endpoint resolve to any private, loopback or link-local address; list the token endpoint hosts that resolve privately: a later release keeps the SSRF guard on here")
+		return TokenExchangerOptions{AllowPrivateIP: true, HTTPClient: processTransport}
 	default:
 		return TokenExchangerOptions{}
 	}
+}
+
+// extraCAPool returns the system roots plus the PEM file at path, or nil
+// (the system roots) when path is empty or cannot be read. Bootstrap has
+// already loaded the same file into the process-wide transport and fails
+// startup when it cannot.
+func extraCAPool(path string) *x509.CertPool {
+	if path == "" {
+		return nil
+	}
+	pool, err := tlsutil.LoadCAPool(path)
+	if err != nil {
+		logging.Error("OAuth", err, "Token exchange: cannot load --extra-ca-file %s; the host-scoped client trusts the system roots only", path)
+		return nil
+	}
+	return pool
 }

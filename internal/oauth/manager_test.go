@@ -2,9 +2,12 @@ package oauth
 
 import (
 	"context"
+	"encoding/pem"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
@@ -13,6 +16,7 @@ import (
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/tlsutil"
 )
 
 const (
@@ -90,8 +94,19 @@ func TestTokenExchangerOptions(t *testing.T) {
 			wantAllowPrivate: true,
 		},
 		{
-			name:             "an extra CA file dials on the process transport and ignores listed hosts",
-			cfg:              config.OAuthMCPClientConfig{ExtraCAFile: "/etc/muster/ca.pem", TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: hosts}},
+			name:           "an extra CA file keeps listed hosts on the host-scoped client",
+			cfg:            config.OAuthMCPClientConfig{ExtraCAFile: "/etc/muster/ca.pem", TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: hosts}},
+			wantHostScoped: true,
+		},
+		{
+			name:             "an extra CA file without listed hosts dials on the process transport",
+			cfg:              config.OAuthMCPClientConfig{ExtraCAFile: "/etc/muster/ca.pem"},
+			wantAllowPrivate: true,
+			wantDefaultDial:  true,
+		},
+		{
+			name:             "the blanket with an extra CA file dials on the process transport",
+			cfg:              config.OAuthMCPClientConfig{ExtraCAFile: "/etc/muster/ca.pem", TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIP: true}}, //nolint:staticcheck // SA1019: covers the deprecated setting
 			wantAllowPrivate: true,
 			wantDefaultDial:  true,
 		},
@@ -132,6 +147,41 @@ func TestTokenExchangerOptions_HostScopedClientRefusesUnlistedAndLoopback(t *tes
 	for _, target := range []string{
 		"http://localhost:" + port + "/token",
 		"http://10.0.0.1:" + port + "/token",
+	} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, target, nil)
+		require.NoError(t, err)
+		_, err = client.Do(req)
+		require.ErrorIs(t, err, oidc.ErrRestrictedAddress, target)
+	}
+}
+
+// With --extra-ca-file the host-scoped client trusts the extra CA and still
+// refuses a listed host that resolves to loopback and an unlisted private
+// address before it connects.
+func TestTokenExchangerOptions_ExtraCAFileKeepsTheHostScopedGuard(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(upstream.Close)
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: upstream.Certificate().Raw}), 0o600))
+	_, port, err := net.SplitHostPort(upstream.Listener.Addr().String())
+	require.NoError(t, err)
+
+	client := tokenExchangerOptions(config.OAuthMCPClientConfig{
+		ExtraCAFile:   caFile,
+		TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: []string{"localhost"}},
+	}).HTTPClient
+	require.NotNil(t, client)
+
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, transport.TLSClientConfig)
+	want, err := tlsutil.LoadCAPool(caFile)
+	require.NoError(t, err)
+	require.True(t, want.Equal(transport.TLSClientConfig.RootCAs), "the host-scoped client must trust the extra CA")
+
+	for _, target := range []string{
+		"https://localhost:" + port + "/token",
+		"https://10.0.0.1:" + port + "/token",
 	} {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, target, nil)
 		require.NoError(t, err)
