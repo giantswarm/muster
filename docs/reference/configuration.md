@@ -514,7 +514,7 @@ Policy enforced by the broker path (mcp-oauth): client authentication is mandato
 | `clientAudiences` | `map[string][]string` | `{}` | Per-client audience allowlist: broker client ID → audiences it may request. A miss returns `invalid_target`. |
 | `targets` | `map[string]BrokerTargetConfig` | `{}` | Audience name (e.g. a cluster name) → downstream target: a Dex exchange (`dexTokenEndpoint`) or the release of the person's own grant (`grantIssuer`). |
 | `brokerClients` | `map[string]BrokerClientConfig` | `{}` | Confidential broker clients seeded at startup, keyed by client id: `clientCredentialsSecretRef` (a Kubernetes Secret with `client-id`/`client-secret`) or `clientSecretFile` (a file holding the secret, for deployments without a Kubernetes Secret store), plus optional informational `scopes`. |
-| `allowPrivateIP` | `bool` | `false` | Deprecated, no effect: the broker dials any address a target's hostname resolves to, and a target endpoint is never an IP literal. Still accepted; logs a startup warning. |
+| `allowPrivateIP` | `bool` | `false` | Deprecated: lets a target's token endpoint be a private IP literal (`https://10.0.0.1/token`). A hostname needs no setting: the broker dials any address a target's hostname resolves to. Name each endpoint by hostname, then remove it. Still accepted; logs a startup warning. |
 
 **BrokerTargetConfig fields (Dex exchange target):**
 

@@ -395,7 +395,7 @@ func logDeprecatedPrivateIPSettings(cfg config.OAuthServerConfig, logger *slog.L
 		logger.Warn("DEPRECATED: dex.allowPrivateIPJWKS lets the forwarded-token JWKS fetch reach any private, loopback or link-local address; the Dex issuer host may resolve to an RFC 1918 or RFC 4193 address without it, so remove it unless Dex resolves to loopback or link-local")
 	}
 	if cfg.TokenExchangeBroker.AllowPrivateIP { //nolint:staticcheck // SA1019: accepted until no installation sets it
-		logger.Warn("DEPRECATED: tokenExchangeBroker.allowPrivateIP has no effect; remove it")
+		logger.Warn("DEPRECATED: tokenExchangeBroker.allowPrivateIP only lets a target token endpoint be a private IP literal; name each endpoint by hostname, then remove it")
 	}
 }
 

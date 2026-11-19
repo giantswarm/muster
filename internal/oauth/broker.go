@@ -49,13 +49,15 @@ func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, defaultSubjectIssu
 	// Targets are operator configuration, and a hub reaches a private
 	// installation's Dex through a ClusterIP Service, so the client dials on
 	// the process-wide transport (which carries --extra-ca-file) with no
-	// private-address guard. The timeout keeps a downstream call from
-	// blocking indefinitely.
+	// private-address guard. mcp-oauth still refuses a token endpoint written
+	// as a private IP literal unless AllowPrivateIP is set. The timeout keeps
+	// a downstream call from blocking indefinitely.
 	return &BrokerExchanger{
 		cfg:                  cfg,
 		defaultSubjectIssuer: defaultSubjectIssuer,
 		exchanger: NewTokenExchangerWithOptions(TokenExchangerOptions{
-			HTTPClient: &http.Client{Transport: http.DefaultTransport, Timeout: 30 * time.Second},
+			AllowPrivateIP: cfg.AllowPrivateIP, //nolint:staticcheck // SA1019: accepted until no installation sets it
+			HTTPClient:     &http.Client{Transport: http.DefaultTransport, Timeout: 30 * time.Second},
 		}),
 	}
 }

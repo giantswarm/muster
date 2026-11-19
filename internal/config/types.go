@@ -691,11 +691,12 @@ type TokenExchangeBrokerConfig struct {
 	// to the downstream credential provider target.
 	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
 
-	// AllowPrivateIP has no effect: the broker's client dials any address a
-	// target's hostname resolves to, and a target endpoint is never an IP
-	// literal.
+	// AllowPrivateIP lets a target's token endpoint be a private IP literal
+	// (https://10.0.0.1/token). A hostname needs no setting: the broker's
+	// client dials any address a target's hostname resolves to.
 	//
-	// Deprecated: remove it. Still accepted; setting it logs a startup warning.
+	// Deprecated: name each target's token endpoint by hostname, then remove
+	// it. Still accepted; setting it logs a startup warning.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
 
 	// DefaultSecretNamespace is the namespace used for target credential
