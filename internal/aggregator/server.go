@@ -240,6 +240,9 @@ type AggregatorServer struct {
 	// bearerSessions ends each session keyed by a resource bearer when that
 	// bearer expires (bearer_session.go).
 	bearerSessions *bearerSessions
+	// bearerExpiries is the latest bearer exp of each bound session, shared
+	// by the replicas; nil without Valkey (bearer_expiry_store.go).
+	bearerExpiries bearerExpiryStore
 
 	// eventFollows tracks active `muster events --follow` streams per MCP
 	// session so they can be cancelled when the session disconnects or starts a
@@ -840,8 +843,10 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 	setAppOwnedIssuers(providerApps)
 
 	var deviceStore deviceSignInStore = newMemoryDeviceSignInStore()
+	var bearerExpiries bearerExpiryStore
 	if stores.valkeyClient != nil {
 		deviceStore = newValkeyDeviceSignInStore(stores.valkeyClient, stores.keyPrefix, stores.encryptor)
+		bearerExpiries = newValkeyBearerExpiryStore(stores.valkeyClient, stores.keyPrefix)
 	}
 
 	return &AggregatorServer{
@@ -861,6 +866,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		ssoTracker:        newSSOTracker(),
 		subjectSessions:   newSubjectSessionTracker(),
 		bearerSessions:    newBearerSessions(),
+		bearerExpiries:    bearerExpiries,
 		eventFollows:      make(map[string]*eventFollow),
 		valkeyClient:      stores.valkeyClient,
 		valkeyKeyPrefix:   stores.keyPrefix,
