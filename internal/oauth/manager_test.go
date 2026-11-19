@@ -2,9 +2,12 @@ package oauth
 
 import (
 	"context"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/stretchr/testify/require"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
@@ -83,7 +86,7 @@ func TestTokenExchangerOptions(t *testing.T) {
 		},
 		{
 			name:             "the blanket overrides listed hosts",
-			cfg:              config.OAuthMCPClientConfig{TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIP: true, AllowPrivateIPTokenEndpointHosts: hosts}},
+			cfg:              config.OAuthMCPClientConfig{TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIP: true, AllowPrivateIPTokenEndpointHosts: hosts}}, //nolint:staticcheck // SA1019: covers the deprecated setting
 			wantAllowPrivate: true,
 		},
 		{
@@ -109,6 +112,31 @@ func TestTokenExchangerOptions(t *testing.T) {
 				require.Nil(t, got.HTTPClient)
 			}
 		})
+	}
+}
+
+// A listed host may resolve only to RFC 1918 or RFC 4193 addresses, so the
+// host-scoped client refuses a listed host that resolves to loopback, and an
+// unlisted private address, before it connects.
+func TestTokenExchangerOptions_HostScopedClientRefusesUnlistedAndLoopback(t *testing.T) {
+	upstream := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(upstream.Close)
+	_, port, err := net.SplitHostPort(upstream.Listener.Addr().String())
+	require.NoError(t, err)
+
+	client := tokenExchangerOptions(config.OAuthMCPClientConfig{
+		TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: []string{"localhost"}},
+	}).HTTPClient
+	require.NotNil(t, client)
+
+	for _, target := range []string{
+		"http://localhost:" + port + "/token",
+		"http://10.0.0.1:" + port + "/token",
+	} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, target, nil)
+		require.NoError(t, err)
+		_, err = client.Do(req)
+		require.ErrorIs(t, err, oidc.ErrRestrictedAddress, target)
 	}
 }
 

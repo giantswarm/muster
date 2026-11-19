@@ -131,7 +131,7 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 		AllowedAudiences:        []string{"aud1", "aud2"},
 		AllowedScopes:           []string{"read", "write"},
 		SubjectClaim:            "email",
-		AllowPrivateIPJWKS:      true,
+		AllowPrivateIPJWKS:      true, //nolint:staticcheck // SA1019: covers the deprecated setting
 		AllowPrivateIPJWKSHosts: []string{"dex.example.com"},
 		AcceptedTypHeaders:      []string{""},
 	}
@@ -141,7 +141,7 @@ func TestToTrustedIssuer_MapsAllFields(t *testing.T) {
 	require.Equal(t, in.AllowedAudiences, got.AllowedAudiences)
 	require.Equal(t, in.AllowedScopes, got.AllowedScopes)
 	require.Equal(t, in.SubjectClaim, got.SubjectClaim)
-	require.True(t, got.AllowPrivateIPJWKS)
+	require.True(t, got.AllowPrivateIPJWKS) //nolint:staticcheck // SA1019: covers the deprecated setting
 	require.Equal(t, in.AllowPrivateIPJWKSHosts, got.AllowPrivateIPJWKSHosts)
 	require.Equal(t, in.AcceptedTypHeaders, got.AcceptedTypHeaders)
 }

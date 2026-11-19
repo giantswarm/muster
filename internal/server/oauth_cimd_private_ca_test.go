@@ -85,18 +85,18 @@ func TestCreateOAuthServer_CIMDPrivateHostAndCA(t *testing.T) {
 	}
 
 	t.Run("a private client under the extra CA resolves", func(t *testing.T) {
-		require.NoError(t, resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadata: true}, true))
+		require.NoError(t, resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadata: true}, true)) //nolint:staticcheck // SA1019: covers the deprecated setting
 	})
 	t.Run("without the extra CA TLS verification fails", func(t *testing.T) {
-		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadata: true}, false)
+		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadata: true}, false) //nolint:staticcheck // SA1019: covers the deprecated setting
 		require.ErrorContains(t, err, "certificate")
 	})
 	t.Run("a listed host resolving to loopback is refused", func(t *testing.T) {
-		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadataHosts: []string{"localhost"}}, true)
+		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadataHosts: []string{"localhost"}}, true) //nolint:staticcheck // SA1019: covers the deprecated setting
 		require.ErrorContains(t, err, "only RFC 1918 and RFC 4193 are lifted")
 	})
 	t.Run("unlisted private host is refused", func(t *testing.T) {
-		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadataHosts: []string{"gateway.internal.example"}}, true)
+		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadataHosts: []string{"gateway.internal.example"}}, true) //nolint:staticcheck // SA1019: covers the deprecated setting
 		require.ErrorContains(t, err, "private")
 	})
 	t.Run("no listed host is refused", func(t *testing.T) {

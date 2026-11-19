@@ -559,7 +559,7 @@ func tokenExchangerOptions(cfg config.OAuthMCPClientConfig) TokenExchangerOption
 			AllowPrivateIP: true,
 			HTTPClient:     &http.Client{Transport: http.DefaultTransport, Timeout: 30 * time.Second},
 		}
-	case cfg.TokenExchange.AllowPrivateIP:
+	case cfg.TokenExchange.AllowPrivateIP: //nolint:staticcheck // SA1019: accepted until no installation sets it
 		logging.Warn("OAuth", "DEPRECATED: oauth.mcpClient.tokenExchange.allowPrivateIP lifts the private-IP check for every token endpoint; list the hosts in oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts instead")
 		if len(hosts) > 0 {
 			logging.Warn("OAuth", "oauth.mcpClient.tokenExchange.allowPrivateIP overrides allowPrivateIPTokenEndpointHosts %v: every token endpoint may resolve to a private address", hosts)

@@ -60,7 +60,7 @@ func TestNewOAuthHTTPServerWarnsForDexJWKSSettingAlias(t *testing.T) {
 			Enabled:  true,
 			BaseURL:  "https://muster.example.com",
 			Provider: "unsupported",
-			Dex:      config.DexConfig{AllowPrivateIPOIDC: alias},
+			Dex:      config.DexConfig{AllowPrivateIPOIDC: alias}, //nolint:staticcheck // SA1019: covers the deprecated setting
 		}, http.NotFoundHandler(), false)
 		require.ErrorContains(t, err, "unsupported OAuth provider")
 		if alias {
@@ -83,7 +83,7 @@ func TestNewOAuthHTTPServerWarnsForBrokerAllowPrivateIP(t *testing.T) {
 			Enabled:             true,
 			BaseURL:             "https://muster.example.com",
 			Provider:            "unsupported",
-			TokenExchangeBroker: config.TokenExchangeBrokerConfig{AllowPrivateIP: set},
+			TokenExchangeBroker: config.TokenExchangeBrokerConfig{AllowPrivateIP: set}, //nolint:staticcheck // SA1019: covers the deprecated setting
 		}, http.NotFoundHandler(), false)
 		require.ErrorContains(t, err, "unsupported OAuth provider")
 		if set {

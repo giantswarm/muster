@@ -154,6 +154,13 @@ data:
           {{- if .Values.muster.oauth.server.preRegisterPublicClients }}
           {{- $pinned = concat .Values.muster.oauth.server.publicClientMetadata $pinned }}
           {{- end }}
+          {{- $pinnedIDs := dict }}
+          {{- range $pinned }}
+          {{- if hasKey $pinnedIDs .client_id }}{{ fail (printf "muster.oauth.server pins client_id %s twice: override the entry in publicClientMetadata instead of pinning it again in preRegisteredClientMetadata" .client_id) }}{{- end }}
+          {{- $_ := set $pinnedIDs .client_id true }}
+          {{- end }}
+          {{- if and .Values.muster.oauth.server.restrictClientMetadata (not $pinned) (not .Values.muster.oauth.server.clientMetadataHosts) }}{{ fail "muster.oauth.server.restrictClientMetadata needs a pinned document (preRegisteredClientMetadata or preRegisterPublicClients) or a clientMetadataHosts entry: it would refuse every URL client_id" }}{{- end }}
+          {{- if and .Values.muster.oauth.server.clientMetadataHosts (not .Values.muster.oauth.server.restrictClientMetadata) }}{{ fail "muster.oauth.server.clientMetadataHosts needs restrictClientMetadata: true" }}{{- end }}
           {{- with $pinned }}
           preRegisteredClientMetadata:
             {{- toYaml . | nindent 12 }}

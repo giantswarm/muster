@@ -540,15 +540,20 @@ type OAuthServerConfig struct {
 	// Reduces SSRF protection for CIMD fetches; mcp-oauth logs a startup
 	// warning when set. PKCE and redirect-URI checks are unchanged.
 	// Default: false
-	// Prefer AllowPrivateIPClientMetadataHosts when only known hosts are private.
+	//
+	// Deprecated: pin the clients in PreRegisteredClientMetadata. Setting it
+	// logs a startup warning.
 	AllowPrivateIPClientMetadata bool `yaml:"allowPrivateIPClientMetadata,omitempty"`
 
 	// AllowPrivateIPClientMetadataHosts is the host-scoped alternative to
-	// AllowPrivateIPClientMetadata: a CIMD client_id URL may resolve to a
-	// private, loopback or link-local address only when its hostname is listed
-	// (exact match, no port, no wildcard); every other host keeps the SSRF
-	// guard, at validation and at connection time. mcp-oauth logs a startup
-	// warning when set. Default: empty
+	// AllowPrivateIPClientMetadata: a CIMD client_id URL may resolve to an
+	// RFC 1918 or RFC 4193 address only when its hostname is listed (exact
+	// match, no port, no wildcard); loopback and link-local stay refused, and
+	// every other host keeps the SSRF guard, at validation and at connection
+	// time. Default: empty
+	//
+	// Deprecated: pin the clients in PreRegisteredClientMetadata; a pinned
+	// client needs no fetch. Setting it logs a startup warning.
 	AllowPrivateIPClientMetadataHosts []string `yaml:"allowPrivateIPClientMetadataHosts,omitempty"`
 
 	// PreRegisteredClientMetadata pins Client ID Metadata Documents: a client
@@ -567,7 +572,8 @@ type OAuthServerConfig struct {
 
 	// ClientMetadataHosts lists the hosts whose documents RestrictClientMetadata
 	// still lets the server fetch, under the SSRF guard (no private-address
-	// allowance). Exact hostnames, no port, no wildcard.
+	// allowance). Exact hostnames, no port, no wildcard. Requires
+	// RestrictClientMetadata.
 	ClientMetadataHosts []string `yaml:"clientMetadataHosts,omitempty"`
 
 	// AllowPrivateIPRedirectURIs lets a client's redirect URI resolve to a
@@ -577,8 +583,10 @@ type OAuthServerConfig struct {
 	// client's callback with "redirect_uri: hostname resolves to private IP
 	// address (DNS rebinding protection)" even though the client itself was
 	// accepted. Reduces open-redirect/SSRF protection for redirect targets;
-	// mcp-oauth logs a startup warning when set. Default: false
-	// Prefer AllowPrivateIPRedirectURIHosts when only known hosts are private.
+	// Default: false
+	//
+	// Deprecated: list the hosts in AllowPrivateIPRedirectURIHosts. Setting it
+	// logs a startup warning.
 	AllowPrivateIPRedirectURIs bool `yaml:"allowPrivateIPRedirectURIs,omitempty"`
 
 	// AllowPrivateIPRedirectURIHosts is the host-scoped alternative to
@@ -812,8 +820,10 @@ type TrustedIssuerConfig struct {
 	// non-string is rejected.
 	SubjectClaim string `yaml:"subjectClaim,omitempty"`
 	// AllowPrivateIPJWKS allows the JwksURL to resolve to a private or loopback
-	// address, for a Dex on a private network. Emits a startup warning when set
-	// (mcp-oauth dev-override flag). Default: false.
+	// address, for a Dex on a private network. Default: false.
+	//
+	// Deprecated: list the host in AllowPrivateIPJWKSHosts. Setting it logs a
+	// startup warning.
 	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
 	// AllowPrivateIPJWKSHosts is the host-scoped alternative to AllowPrivateIPJWKS:
 	// the JwksURL may resolve to a private IP only when its hostname matches one of
@@ -957,7 +967,8 @@ type ValkeyConfig struct {
 }
 
 // ClientMetadataDocument is a Client ID Metadata Document with its JSON field
-// names, so a document can be pinned verbatim.
+// names, so a document can be pinned verbatim. Members mcp-oauth does not use,
+// such as application_type, are ignored.
 type ClientMetadataDocument struct {
 	ClientID                string   `yaml:"client_id"`
 	ClientName              string   `yaml:"client_name,omitempty"`
@@ -970,5 +981,4 @@ type ClientMetadataDocument struct {
 	Scope                   string   `yaml:"scope,omitempty"`
 	Contacts                []string `yaml:"contacts,omitempty"`
 	JWKSURI                 string   `yaml:"jwks_uri,omitempty"`
-	ApplicationType         string   `yaml:"application_type,omitempty"`
 }

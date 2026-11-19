@@ -600,20 +600,20 @@ The SSRF guard also covers Client ID Metadata Documents (CIMD): a `client_id` th
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `allowPrivateIPClientMetadataHosts` | `[]string` | `[]` | Host-scoped allowance: a CIMD `client_id` URL may resolve to a private/loopback/link-local IP only when its hostname is listed (exact match, no port, no wildcard); every other host keeps the SSRF guard, at validation and at connection time. Emits a startup warning when set. Helm: `muster.oauth.server.allowPrivateIPClientMetadataHosts`. |
-| `allowPrivateIPClientMetadata` | `bool` | `false` | Allow every CIMD `client_id` URL to resolve to a private/loopback/link-local IP. Prefer `allowPrivateIPClientMetadataHosts`; keep this for an installation where every hostname is private. Emits a startup warning when set. PKCE and redirect-URI validation are unchanged. Helm: `muster.oauth.server.allowPrivateIPClientMetadata`. |
+| `allowPrivateIPClientMetadataHosts` | `[]string` | `[]` | Deprecated: pin the clients in `preRegisteredClientMetadata`. A CIMD `client_id` URL may resolve to an RFC 1918 or RFC 4193 address only when its hostname is listed (exact match, no port, no wildcard); loopback and link-local stay refused, and every other host keeps the SSRF guard, at validation and at connection time. Logs a startup warning. Helm: `muster.oauth.server.allowPrivateIPClientMetadataHosts`. |
+| `allowPrivateIPClientMetadata` | `bool` | `false` | Deprecated: pin the clients in `preRegisteredClientMetadata`. Allows every CIMD `client_id` URL to resolve to a private/loopback/link-local IP. Logs a startup warning. PKCE and redirect-URI validation are unchanged. Helm: `muster.oauth.server.allowPrivateIPClientMetadata`. |
 
 The CIMD fetch verifies the client's TLS certificate against the system roots, plus the CA of `--extra-ca-file` when it is set (Helm: `muster.extraCaFile`), so a CIMD client served under an internal CA needs no further setting. The same pool verifies the JWKS of a private-IP Dex.
 
 #### Pinned CIMD Clients
 
-A pinned client is served from a document in muster's configuration and never fetched (CIMD draft 03 section 9.2). Pin a client whose document muster cannot or must not fetch: one on a private address (klaus-gateway), or any client where egress goes through a proxy that allows by domain, which refuses the CIMD fetch's CONNECT to an IP. Pinning replaces `allowPrivateIPClientMetadataHosts`, which mcp-oauth now reports as deprecated.
+A pinned client is served from a document in muster's configuration and never fetched (CIMD draft 03 section 9.2). Pin a client whose document muster cannot or must not fetch: one on a private address (klaus-gateway), or any client where egress goes through a proxy that allows by domain, which refuses the CIMD fetch's CONNECT to an IP. Pinning replaces `allowPrivateIPClientMetadata` and `allowPrivateIPClientMetadataHosts`, both deprecated.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `preRegisteredClientMetadata` | `[]object` | `[]` | Pinned documents, each with its JSON field names (`client_id`, `redirect_uris`, `grant_types`, ...). Pin only a document reviewed against its live URL; a change to the live document needs a new pin and a restart. Helm: `muster.oauth.server.preRegisteredClientMetadata`, plus `preRegisterPublicClients: true` to add the chart's documents for claude.ai, Claude Code and VS Code (`publicClientMetadata`). |
 | `restrictClientMetadata` | `bool` | `false` | Accept a URL `client_id` only when it is pinned or its host is in `clientMetadataHosts`; every other one is refused as `invalid_client` before any DNS lookup. With neither a pin nor a host the OAuth server is not created: muster stays in degraded mode, answers protected requests with 503 and logs the error. Helm: `muster.oauth.server.restrictClientMetadata`. |
-| `clientMetadataHosts` | `[]string` | `[]` | Hosts whose documents `restrictClientMetadata` still lets muster fetch, under the SSRF guard (no private-address allowance). Exact hostnames. Helm: `muster.oauth.server.clientMetadataHosts`. |
+| `clientMetadataHosts` | `[]string` | `[]` | Hosts whose documents `restrictClientMetadata` still lets muster fetch, under the SSRF guard (no private-address allowance). Exact hostnames. Requires `restrictClientMetadata`; the chart refuses to render either inconsistent combination. Helm: `muster.oauth.server.clientMetadataHosts`. |
 
 #### Private-IP Redirect URIs
 
@@ -622,7 +622,7 @@ A client's redirect URI is validated again when the authorization flow starts: a
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `allowPrivateIPRedirectURIHosts` | `[]string` | `[]` | Host-scoped allowance: a redirect URI may resolve to an RFC 1918 or RFC 4193 address only when its hostname is listed (exact match, no port, no wildcard). `allowPrivateIPRedirectURIs` overrides it. Helm: `muster.oauth.server.allowPrivateIPRedirectURIHosts`. |
-| `allowPrivateIPRedirectURIs` | `bool` | `false` | Allow every redirect URI that is, or resolves to, a private IP address. Prefer `allowPrivateIPRedirectURIHosts`. Emits a startup warning when set. Exact redirect-URI matching against the client's registration is unchanged. Helm: `muster.oauth.server.allowPrivateIPRedirectURIs`. |
+| `allowPrivateIPRedirectURIs` | `bool` | `false` | Deprecated: list the hosts in `allowPrivateIPRedirectURIHosts`. Allows every redirect URI that is, or resolves to, a private IP address. Logs a startup warning. Exact redirect-URI matching against the client's registration is unchanged. Helm: `muster.oauth.server.allowPrivateIPRedirectURIs`. |
 
 #### Silent Re-Authentication (CLI Flag)
 

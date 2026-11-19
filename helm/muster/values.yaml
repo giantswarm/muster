@@ -790,26 +790,15 @@ muster:
       # mcp-oauth default of 5m.
       providerTokenRefreshThreshold: ""  # @schema pattern: ^$|^([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+$
 
-      # Let a CIMD client_id URL (the Client ID Metadata Document a client
-      # self-hosts) resolve to a private, loopback or link-local address. Needed
-      # where the platform's own hostnames resolve to an internal load balancer
-      # (a management cluster reachable only over VPN) -- otherwise the SSRF guard
-      # rejects such a client with "client_id metadata URL resolves to
-      # private/internal IP address". Reduces SSRF protection for CIMD fetches;
-      # muster logs a startup warning when set. Prefer
-      # allowPrivateIPClientMetadataHosts; keep this for an installation where
-      # every hostname is private. Default: false.
-      allowPrivateIPClientMetadata: false
+      # -- Deprecated: pin the clients in preRegisteredClientMetadata. Lets every
+      # CIMD client_id URL resolve to a private, loopback or link-local address.
+      # Still accepted; logs a startup warning.
+      allowPrivateIPClientMetadata: false  # @schema deprecated: true
 
-      # The host-scoped alternative to allowPrivateIPClientMetadata: a CIMD
-      # client_id URL may resolve to a private, loopback or link-local address
-      # only when its hostname is listed (exact match, no port, no wildcard);
-      # every other host keeps the SSRF guard. A CIMD client served under an
-      # internal CA is verified against extraCaFile (plus the system roots).
-      # muster logs a startup warning when set. Default: empty.
-      # Example:
-      #   - gateway.internal.example
-      allowPrivateIPClientMetadataHosts: []  # @schema item: string
+      # -- Deprecated: pin the clients in preRegisteredClientMetadata; a pinned
+      # client needs no fetch. Lets the listed CIMD client_id hosts resolve to
+      # an RFC 1918 or RFC 4193 address. Still accepted; logs a startup warning.
+      allowPrivateIPClientMetadataHosts: []  # @schema item: string ; deprecated: true
 
       # -- Pinned Client ID Metadata Documents for this installation (CIMD
       # draft 03 section 9.2): a pinned client is served from its document here
@@ -887,17 +876,13 @@ muster:
       restrictClientMetadata: false
       # -- Hosts whose documents restrictClientMetadata still lets muster fetch,
       # under the SSRF guard (no private-address allowance). Exact hostnames.
+      # Requires restrictClientMetadata.
       clientMetadataHosts: []  # @schema item: string
 
-      # Let a client's redirect URI resolve to a private address (a literal
-      # RFC 1918 host or a hostname that resolves to one). Needed where the
-      # platform's own hostnames resolve to an internal load balancer -- the
-      # authorization-time check otherwise rejects the client's callback with
-      # "redirect_uri: hostname resolves to private IP address (DNS rebinding
-      # protection)". Reduces open-redirect/SSRF protection for redirect targets;
-      # muster logs a startup warning when set. Default: false. Prefer
-      # allowPrivateIPRedirectURIHosts.
-      allowPrivateIPRedirectURIs: false
+      # -- Deprecated: list the hosts in allowPrivateIPRedirectURIHosts. Lets
+      # every redirect URI resolve to a private address and overrides
+      # allowPrivateIPRedirectURIHosts. Still accepted; logs a startup warning.
+      allowPrivateIPRedirectURIs: false  # @schema deprecated: true
 
       # -- The host-scoped alternative to allowPrivateIPRedirectURIs: a redirect
       # URI may resolve to an RFC 1918 or RFC 4193 address only when its

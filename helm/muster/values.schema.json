@@ -420,10 +420,14 @@
                                     "deprecated": true
                                 },
                                 "allowPrivateIPClientMetadata": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "description": "Deprecated: pin the clients in preRegisteredClientMetadata. Lets every CIMD client_id URL resolve to a private, loopback or link-local address. Still accepted; logs a startup warning.",
+                                    "deprecated": true
                                 },
                                 "allowPrivateIPClientMetadataHosts": {
                                     "type": "array",
+                                    "description": "Deprecated: pin the clients in preRegisteredClientMetadata; a pinned client needs no fetch. Lets the listed CIMD client_id hosts resolve to an RFC 1918 or RFC 4193 address. Still accepted; logs a startup warning.",
+                                    "deprecated": true,
                                     "items": {
                                         "type": "string"
                                     }
@@ -436,7 +440,9 @@
                                     }
                                 },
                                 "allowPrivateIPRedirectURIs": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "description": "Deprecated: list the hosts in allowPrivateIPRedirectURIHosts. Lets every redirect URI resolve to a private address and overrides allowPrivateIPRedirectURIHosts. Still accepted; logs a startup warning.",
+                                    "deprecated": true
                                 },
                                 "allowPublicClientRegistration": {
                                     "type": "boolean"
@@ -446,7 +452,7 @@
                                 },
                                 "clientMetadataHosts": {
                                     "type": "array",
-                                    "description": "Hosts whose documents restrictClientMetadata still lets muster fetch, under the SSRF guard (no private-address allowance). Exact hostnames.",
+                                    "description": "Hosts whose documents restrictClientMetadata still lets muster fetch, under the SSRF guard (no private-address allowance). Exact hostnames. Requires restrictClientMetadata.",
                                     "items": {
                                         "type": "string"
                                     }

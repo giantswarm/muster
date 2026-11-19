@@ -81,6 +81,37 @@ tests:
       - notMatchRegex:
           path: data["config.yaml"]
           pattern: "claude\\.ai/oauth"
+  - it: refuses restrict mode with no pin and no host
+    set:
+      muster.oauth.server.restrictClientMetadata: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "restrictClientMetadata needs a pinned document"
+  - it: accepts restrict mode with only the public clients pinned
+    set:
+      muster.oauth.server.restrictClientMetadata: true
+      muster.oauth.server.preRegisterPublicClients: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "restrictClientMetadata: true"
+  - it: refuses clientMetadataHosts without restrict mode
+    set:
+      muster.oauth.server.clientMetadataHosts:
+        - clients.example
+    asserts:
+      - failedTemplate:
+          errorPattern: "clientMetadataHosts needs restrictClientMetadata: true"
+  - it: refuses a public client pinned again in preRegisteredClientMetadata
+    set:
+      muster.oauth.server.preRegisterPublicClients: true
+      muster.oauth.server.preRegisteredClientMetadata:
+        - client_id: https://claude.ai/oauth/mcp-oauth-client-metadata
+          redirect_uris:
+            - https://claude.ai/api/mcp/auth_callback
+    asserts:
+      - failedTemplate:
+          errorPattern: "pins client_id https://claude.ai/oauth/mcp-oauth-client-metadata twice"
   - it: renders restrict mode and its hosts
     set:
       muster.oauth.server.restrictClientMetadata: true

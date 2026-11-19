@@ -80,15 +80,15 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		EnableUserInfoEndpoint:                true,
 		TrustedPublicRegistrationSchemes:      cfg.TrustedPublicRegistrationSchemes,
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
-		AllowPrivateIPClientMetadata:          cfg.AllowPrivateIPClientMetadata, //nolint:staticcheck // accepted until no installation sets it; mcp-oauth warns
-		AllowPrivateIPClientMetadataHosts:     cfg.AllowPrivateIPClientMetadataHosts,
-		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirectURIs, //nolint:staticcheck // accepted until no installation sets it; mcp-oauth warns
+		AllowPrivateIPClientMetadata:          cfg.AllowPrivateIPClientMetadata,      //nolint:staticcheck // SA1019: accepted until no installation sets it
+		AllowPrivateIPClientMetadataHosts:     cfg.AllowPrivateIPClientMetadataHosts, //nolint:staticcheck // SA1019: accepted until no installation sets it
+		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirectURIs,        //nolint:staticcheck // SA1019: accepted until no installation sets it
 		AllowPrivateIPRedirectURIHosts:        cfg.AllowPrivateIPRedirectURIHosts,
 		PreRegisteredClientMetadata:           preRegisteredClientMetadata(cfg.PreRegisteredClientMetadata),
 		RestrictClientMetadata:                cfg.RestrictClientMetadata,
 		ClientMetadataHosts:                   cfg.ClientMetadataHosts,
 		TrustedAudiences:                      cfg.TrustedAudiences,
-		AllowPrivateIPJWKS:                    cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC, //nolint:staticcheck // accepted until forward mode goes; muster and mcp-oauth warn
+		AllowPrivateIPJWKS:                    cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC, //nolint:staticcheck // SA1019: accepted until forward mode goes
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
@@ -324,7 +324,7 @@ func toTrustedIssuer(iss config.TrustedIssuerConfig, caPool *x509.CertPool) oaut
 		AllowedAudiences:        iss.AllowedAudiences,
 		AllowedScopes:           iss.AllowedScopes,
 		SubjectClaim:            iss.SubjectClaim,
-		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS, //nolint:staticcheck // accepted until no installation sets it; mcp-oauth warns
+		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS, //nolint:staticcheck // SA1019: accepted until no installation sets it
 		AllowPrivateIPJWKSHosts: iss.AllowPrivateIPJWKSHosts,
 		AcceptedTypHeaders:      iss.AcceptedTypHeaders,
 		RootCAs:                 caPool,
@@ -388,19 +388,18 @@ func logEnabledOAuthOptions(logger *slog.Logger) {
 // logDeprecatedPrivateIPSettings warns about each deprecated private-address
 // setting in use.
 func logDeprecatedPrivateIPSettings(cfg config.OAuthServerConfig, logger *slog.Logger) {
-	if cfg.Dex.AllowPrivateIPOIDC {
+	if cfg.Dex.AllowPrivateIPOIDC { //nolint:staticcheck // SA1019: accepted until no installation sets it
 		logger.Warn("DEPRECATED: dex.allowPrivateIPOIDC is the former name of dex.allowPrivateIPJWKS; remove it")
 	}
-	if cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC {
+	if cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC { //nolint:staticcheck // SA1019: accepted until no installation sets it
 		logger.Warn("DEPRECATED: dex.allowPrivateIPJWKS lets the forwarded-token JWKS fetch reach any private, loopback or link-local address; the Dex issuer host may resolve to an RFC 1918 or RFC 4193 address without it, so remove it unless Dex resolves to loopback or link-local")
 	}
-	if cfg.TokenExchangeBroker.AllowPrivateIP {
+	if cfg.TokenExchangeBroker.AllowPrivateIP { //nolint:staticcheck // SA1019: accepted until no installation sets it
 		logger.Warn("DEPRECATED: tokenExchangeBroker.allowPrivateIP has no effect; remove it")
 	}
 }
 
 // preRegisteredClientMetadata maps the pinned documents onto mcp-oauth's type.
-// application_type has no field there and is dropped.
 func preRegisteredClientMetadata(documents []config.ClientMetadataDocument) []oauthserver.ClientMetadata {
 	if len(documents) == 0 {
 		return nil
