@@ -69,9 +69,9 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 		AllowPublicClientRegistration:         false,
 		RegistrationToken:                     "tok",
 		EnableCIMD:                            true,
-		AllowPrivateIPClientMetadata:          true,
-		AllowPrivateIPClientMetadataHosts:     []string{"gateway.internal.example"},
-		AllowPrivateIPRedirectURIs:            true,
+		AllowPrivateIPClientMetadata:          true,                                 //nolint:staticcheck // SA1019: covers the deprecated setting
+		AllowPrivateIPClientMetadataHosts:     []string{"gateway.internal.example"}, //nolint:staticcheck // SA1019: covers the deprecated setting
+		AllowPrivateIPRedirectURIs:            true,                                 //nolint:staticcheck // SA1019: covers the deprecated setting
 		TrustedPublicRegistrationSchemes:      []string{"cursor", "vscode"},
 		TrustedPublicRegistrationRedirectURIs: []string{"https://claude.ai/api/mcp/auth_callback"},
 		TrustedAudiences:                      []string{"upstream-client-id"},
@@ -83,9 +83,9 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 	require.False(t, got.AllowPublicClientRegistration)
 	require.Equal(t, "tok", got.RegistrationAccessToken)
 	require.True(t, got.EnableClientIDMetadataDocuments)
-	require.True(t, got.AllowPrivateIPClientMetadata)
-	require.Equal(t, []string{"gateway.internal.example"}, got.AllowPrivateIPClientMetadataHosts)
-	require.True(t, got.AllowPrivateIPRedirectURIs)
+	require.True(t, got.AllowPrivateIPClientMetadata)                                             //nolint:staticcheck // SA1019: covers the deprecated setting
+	require.Equal(t, []string{"gateway.internal.example"}, got.AllowPrivateIPClientMetadataHosts) //nolint:staticcheck // SA1019: covers the deprecated setting
+	require.True(t, got.AllowPrivateIPRedirectURIs)                                               //nolint:staticcheck // SA1019: covers the deprecated setting
 	require.Equal(t, []string{"cursor", "vscode"}, got.TrustedPublicRegistrationSchemes)
 	require.Equal(t, []string{"https://claude.ai/api/mcp/auth_callback"}, got.TrustedPublicRegistrationRedirectURIs)
 	require.Equal(t, []string{"upstream-client-id"}, got.TrustedAudiences)
@@ -145,12 +145,12 @@ func TestNewOAuthServerConfig_DexJWKSSettingAliases(t *testing.T) {
 
 			cfg := config.OAuthServerConfig{
 				BaseURL: "https://muster.example.com",
-				Dex:     config.DexConfig{AllowPrivateIPJWKS: tc.canonical, AllowPrivateIPOIDC: tc.alias},
+				Dex:     config.DexConfig{AllowPrivateIPJWKS: tc.canonical, AllowPrivateIPOIDC: tc.alias}, //nolint:staticcheck // SA1019: covers the deprecated setting
 			}
 
 			got := newOAuthServerConfig(cfg, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 
-			require.Equal(t, tc.want, got.AllowPrivateIPJWKS)
+			require.Equal(t, tc.want, got.AllowPrivateIPJWKS) //nolint:staticcheck // SA1019: covers the deprecated setting
 		})
 	}
 }
@@ -160,9 +160,23 @@ func TestNewOAuthServerConfig_AllowPrivateIPClientMetadataDefaultsOff(t *testing
 
 	got := newOAuthServerConfig(config.OAuthServerConfig{BaseURL: "https://muster.example.com"}, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
 
-	require.False(t, got.AllowPrivateIPClientMetadata, "the CIMD SSRF guard must stay on unless the operator opts out")
-	require.Empty(t, got.AllowPrivateIPClientMetadataHosts, "no CIMD host may skip the SSRF guard unless the operator lists it")
-	require.False(t, got.AllowPrivateIPRedirectURIs, "the redirect-URI private-IP guard must stay on unless the operator opts out")
+	require.False(t, got.AllowPrivateIPClientMetadata, "the CIMD SSRF guard must stay on unless the operator opts out")             //nolint:staticcheck // SA1019: covers the deprecated setting
+	require.Empty(t, got.AllowPrivateIPClientMetadataHosts, "no CIMD host may skip the SSRF guard unless the operator lists it")    //nolint:staticcheck // SA1019: covers the deprecated setting
+	require.False(t, got.AllowPrivateIPRedirectURIs, "the redirect-URI private-IP guard must stay on unless the operator opts out") //nolint:staticcheck // SA1019: covers the deprecated setting
+	require.Empty(t, got.AllowPrivateIPRedirectURIHosts, "no redirect host may resolve privately unless the operator lists it")
+}
+
+func TestNewOAuthServerConfig_AllowPrivateIPRedirectURIHosts(t *testing.T) {
+	t.Parallel()
+
+	hosts := []string{"agentgateway.example.internal"}
+	got := newOAuthServerConfig(config.OAuthServerConfig{
+		BaseURL:                        "https://muster.example.com",
+		AllowPrivateIPRedirectURIHosts: hosts,
+	}, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
+
+	require.Equal(t, hosts, got.AllowPrivateIPRedirectURIHosts)
+	require.False(t, got.AllowPrivateIPRedirectURIs) //nolint:staticcheck // SA1019: covers the deprecated setting
 }
 
 func TestParseOAuthTokenLifetimes(t *testing.T) {

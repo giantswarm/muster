@@ -2,11 +2,21 @@ package oauth
 
 import (
 	"context"
+	"encoding/pem"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
+	"github.com/stretchr/testify/require"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/tlsutil"
 )
 
 const (
@@ -47,40 +57,136 @@ func TestNewManager_Enabled(t *testing.T) {
 	}
 }
 
-// The token-exchange client keeps mcp-oauth's SSRF guard unless the operator
-// lifts it: explicitly for a remote Dex behind an internal-only load balancer
-// (oauth.mcpClient.tokenExchange.allowPrivateIP) or implicitly through
-// --extra-ca-file (in-cluster TLS endpoints).
-func TestNewManager_TokenExchangeAllowPrivateIP(t *testing.T) {
-	base := config.OAuthMCPClientConfig{
+func TestNewManager_TokenExchangeKeepsSSRFGuardByDefault(t *testing.T) {
+	manager := NewManager(config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "https://external.example.com/oauth-client.json",
 		CallbackPath: "/oauth/proxy/callback",
-	}
+	})
+	require.NotNil(t, manager)
+	defer manager.Stop()
+
+	require.False(t, manager.tokenExchanger.allowPrivateIP)
+}
+
+func TestTokenExchangerOptions(t *testing.T) {
+	hosts := []string{"dex.example.internal"}
 
 	cases := []struct {
-		name   string
-		mutate func(*config.OAuthMCPClientConfig)
-		want   bool
+		name             string
+		cfg              config.OAuthMCPClientConfig
+		wantAllowPrivate bool
+		wantHostScoped   bool
+		wantDefaultDial  bool
 	}{
-		{name: "default keeps the SSRF guard", mutate: func(*config.OAuthMCPClientConfig) {}, want: false},
-		{name: "tokenExchange.allowPrivateIP lifts it", mutate: func(c *config.OAuthMCPClientConfig) { c.TokenExchange.AllowPrivateIP = true }, want: true},
-		{name: "extra CA file implies it", mutate: func(c *config.OAuthMCPClientConfig) { c.ExtraCAFile = "/etc/muster/ca.pem" }, want: true},
+		{
+			name: "default keeps the SSRF guard",
+		},
+		{
+			name:           "listed hosts get the host-scoped client",
+			cfg:            config.OAuthMCPClientConfig{TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: hosts}},
+			wantHostScoped: true,
+		},
+		{
+			name:             "the blanket overrides listed hosts",
+			cfg:              config.OAuthMCPClientConfig{TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIP: true, AllowPrivateIPTokenEndpointHosts: hosts}}, //nolint:staticcheck // SA1019: covers the deprecated setting
+			wantAllowPrivate: true,
+		},
+		{
+			name:           "an extra CA file keeps listed hosts on the host-scoped client",
+			cfg:            config.OAuthMCPClientConfig{ExtraCAFile: "/etc/muster/ca.pem", TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: hosts}},
+			wantHostScoped: true,
+		},
+		{
+			name:             "an extra CA file without listed hosts dials on the process transport",
+			cfg:              config.OAuthMCPClientConfig{ExtraCAFile: "/etc/muster/ca.pem"},
+			wantAllowPrivate: true,
+			wantDefaultDial:  true,
+		},
+		{
+			name:             "the blanket with an extra CA file dials on the process transport",
+			cfg:              config.OAuthMCPClientConfig{ExtraCAFile: "/etc/muster/ca.pem", TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIP: true}}, //nolint:staticcheck // SA1019: covers the deprecated setting
+			wantAllowPrivate: true,
+			wantDefaultDial:  true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := base
-			tc.mutate(&cfg)
-			manager := NewManager(cfg)
-			if manager == nil {
-				t.Fatal("Expected non-nil manager when OAuth is enabled")
-			}
-			defer manager.Stop()
-			if got := manager.tokenExchanger.allowPrivateIP; got != tc.want {
-				t.Errorf("tokenExchanger.allowPrivateIP = %v, want %v", got, tc.want)
+			got := tokenExchangerOptions(tc.cfg)
+
+			require.Equal(t, tc.wantAllowPrivate, got.AllowPrivateIP)
+			switch {
+			case tc.wantDefaultDial:
+				require.NotNil(t, got.HTTPClient)
+				require.Same(t, http.DefaultTransport, got.HTTPClient.Transport)
+			case tc.wantHostScoped:
+				require.NotNil(t, got.HTTPClient)
+				require.NotSame(t, http.DefaultTransport, got.HTTPClient.Transport)
+			default:
+				require.Nil(t, got.HTTPClient)
 			}
 		})
+	}
+}
+
+// A listed host may resolve only to RFC 1918 or RFC 4193 addresses, so the
+// host-scoped client refuses a listed host that resolves to loopback, and an
+// unlisted private address, before it connects.
+func TestTokenExchangerOptions_HostScopedClientRefusesUnlistedAndLoopback(t *testing.T) {
+	upstream := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(upstream.Close)
+	_, port, err := net.SplitHostPort(upstream.Listener.Addr().String())
+	require.NoError(t, err)
+
+	client := tokenExchangerOptions(config.OAuthMCPClientConfig{
+		TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: []string{"localhost"}},
+	}).HTTPClient
+	require.NotNil(t, client)
+
+	for _, target := range []string{
+		"http://localhost:" + port + "/token",
+		"http://10.0.0.1:" + port + "/token",
+	} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, target, nil)
+		require.NoError(t, err)
+		_, err = client.Do(req)
+		require.ErrorIs(t, err, oidc.ErrRestrictedAddress, target)
+	}
+}
+
+// With --extra-ca-file the host-scoped client trusts the extra CA and still
+// refuses a listed host that resolves to loopback and an unlisted private
+// address before it connects.
+func TestTokenExchangerOptions_ExtraCAFileKeepsTheHostScopedGuard(t *testing.T) {
+	upstream := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(upstream.Close)
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: upstream.Certificate().Raw}), 0o600))
+	_, port, err := net.SplitHostPort(upstream.Listener.Addr().String())
+	require.NoError(t, err)
+
+	client := tokenExchangerOptions(config.OAuthMCPClientConfig{
+		ExtraCAFile:   caFile,
+		TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: []string{"localhost"}},
+	}).HTTPClient
+	require.NotNil(t, client)
+
+	transport, ok := client.Transport.(*http.Transport)
+	require.True(t, ok)
+	require.NotNil(t, transport.TLSClientConfig)
+	want, err := tlsutil.LoadCAPool(caFile)
+	require.NoError(t, err)
+	require.True(t, want.Equal(transport.TLSClientConfig.RootCAs), "the host-scoped client must trust the extra CA")
+
+	for _, target := range []string{
+		"https://localhost:" + port + "/token",
+		"https://10.0.0.1:" + port + "/token",
+	} {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, target, nil)
+		require.NoError(t, err)
+		_, err = client.Do(req)
+		require.ErrorIs(t, err, oidc.ErrRestrictedAddress, target)
 	}
 }
 

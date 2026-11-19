@@ -142,7 +142,7 @@ func TestCreateHTTPMux_ForwardedIDTokenAuditCarriesRequestAndSessionID(t *testin
 						IssuerURL:          issuer,
 						ClientID:           "muster",
 						ClientSecret:       "secret",
-						AllowPrivateIPJWKS: true,
+						AllowPrivateIPJWKS: true, //nolint:staticcheck // SA1019: covers the deprecated setting
 					},
 				},
 			},

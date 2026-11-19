@@ -514,7 +514,7 @@ Policy enforced by the broker path (mcp-oauth): client authentication is mandato
 | `clientAudiences` | `map[string][]string` | `{}` | Per-client audience allowlist: broker client ID → audiences it may request. A miss returns `invalid_target`. |
 | `targets` | `map[string]BrokerTargetConfig` | `{}` | Audience name (e.g. a cluster name) → downstream target: a Dex exchange (`dexTokenEndpoint`) or the release of the person's own grant (`grantIssuer`). |
 | `brokerClients` | `map[string]BrokerClientConfig` | `{}` | Confidential broker clients seeded at startup, keyed by client id: `clientCredentialsSecretRef` (a Kubernetes Secret with `client-id`/`client-secret`) or `clientSecretFile` (a file holding the secret, for deployments without a Kubernetes Secret store), plus optional informational `scopes`. |
-| `allowPrivateIP` | `bool` | `false` | Allow downstream token endpoints to resolve to private/loopback IPs. Reduces SSRF protection; internal deployments only. |
+| `allowPrivateIP` | `bool` | `false` | Deprecated, no effect: the broker dials any address a target's hostname resolves to, and a target endpoint is never an IP literal. Still accepted; logs a startup warning. |
 
 **BrokerTargetConfig fields (Dex exchange target):**
 
@@ -559,13 +559,13 @@ aggregator:
 
 #### Private-IP JWKS fetches for forwarded ID tokens (Dex)
 
-The JWKS fetch that validates forwarded ID tokens through `trustedAudiences` rejects private and loopback addresses by default. Enable `dex.allowPrivateIPJWKS` only when the configured Dex JWKS endpoint resolves to those addresses. This setting does not affect Dex discovery, token or userinfo calls: those operator-configured endpoints already reach private addresses and honor `HTTPS_PROXY` and `NO_PROXY`. TLS certificate verification remains enabled on both paths.
+The JWKS fetch that validates forwarded ID tokens through `trustedAudiences` may reach the Dex issuer host, which also serves Dex's `jwks_uri`, at an RFC 1918 or RFC 4193 address. Every other host, and loopback or link-local addresses on any host, are refused. Dex discovery, token and userinfo calls are not guarded: they reach private addresses and honor `HTTPS_PROXY` and `NO_PROXY`. TLS certificate verification remains enabled on both paths.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `dex.allowPrivateIPJWKS` | `bool` | `false` | Let the JWKS fetch that validates forwarded ID tokens (`trustedAudiences`) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it and honor `HTTPS_PROXY`/`NO_PROXY`. |
+| `dex.allowPrivateIPJWKS` | `bool` | `false` | Deprecated. Lets the forwarded-token JWKS fetch reach any private, loopback or link-local address. Remove it unless Dex resolves to loopback or link-local. Logs a startup warning. It goes when muster stops accepting forwarded ID tokens. |
 
-`dex.allowPrivateIPOIDC` is a deprecated alias for `dex.allowPrivateIPJWKS`; setting it to `true` logs a startup warning. Either key set to `true` permits private-address JWKS fetching. Setting the canonical key to `false` does not disable a true alias: remove the old key when migrating, or set both to `false` to keep the private-address guard enabled. The alias is removed in v5.64.0, scheduled for 2027-02-17. The ignored `allowLocalhostRedirectURIs` chart value has the same removal schedule; loopback redirects need no setting.
+`dex.allowPrivateIPOIDC` is the former name of `dex.allowPrivateIPJWKS`: either key set to `true` enables it, and setting it logs a startup warning. Its removal waits until no installation sets it. The ignored `allowLocalhostRedirectURIs` chart value is removed in v5.64.0, scheduled for 2027-02-17; loopback redirects need no setting.
 
 #### Sign-in check connectors (Dex)
 
@@ -591,7 +591,8 @@ The same guard applies to the token endpoint of a remote Dex that muster exchang
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `mcpClient.tokenExchange.allowPrivateIP` | `bool` | `false` | Allow a remote Dex token endpoint to resolve to a private/loopback IP. Implied by `--extra-ca-file` (in-cluster TLS endpoints). Emits a startup warning when set; only enable it when the remote Dex is genuinely fronted by an internal-only load balancer. TLS verification is unchanged. |
+| `mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts` | `[]string` | `[]` | Token endpoint hostnames that may resolve to RFC 1918 or RFC 4193 addresses. Loopback and link-local stay refused, and every other host keeps the SSRF guard. Exact match, no port, no wildcard. With `--extra-ca-file` the listed hosts also trust that CA; with `--extra-ca-file` and no host listed, every token endpoint may resolve to any private address and a startup warning says so. The client tunnels through `HTTPS_PROXY` to the checked address, so list a host only when `NO_PROXY` covers it or the proxy accepts a CONNECT to an IP. Helm: `muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts`. |
+| `mcpClient.tokenExchange.allowPrivateIP` | `bool` | `false` | Deprecated: list the hosts in `allowPrivateIPTokenEndpointHosts`. Lets every token endpoint resolve to any private, loopback or link-local address and overrides the host list. Implied by `--extra-ca-file` (in-cluster TLS endpoints). Logs a startup warning. TLS verification is unchanged. |
 
 #### Private-IP CIMD Clients
 
@@ -599,10 +600,20 @@ The SSRF guard also covers Client ID Metadata Documents (CIMD): a `client_id` th
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `allowPrivateIPClientMetadataHosts` | `[]string` | `[]` | Host-scoped allowance: a CIMD `client_id` URL may resolve to a private/loopback/link-local IP only when its hostname is listed (exact match, no port, no wildcard); every other host keeps the SSRF guard, at validation and at connection time. Emits a startup warning when set. Helm: `muster.oauth.server.allowPrivateIPClientMetadataHosts`. |
-| `allowPrivateIPClientMetadata` | `bool` | `false` | Allow every CIMD `client_id` URL to resolve to a private/loopback/link-local IP. Prefer `allowPrivateIPClientMetadataHosts`; keep this for an installation where every hostname is private. Emits a startup warning when set. PKCE and redirect-URI validation are unchanged. Helm: `muster.oauth.server.allowPrivateIPClientMetadata`. |
+| `allowPrivateIPClientMetadataHosts` | `[]string` | `[]` | Deprecated: pin the clients in `preRegisteredClientMetadata`. A CIMD `client_id` URL may resolve to an RFC 1918 or RFC 4193 address only when its hostname is listed (exact match, no port, no wildcard); loopback and link-local stay refused, and every other host keeps the SSRF guard, at validation and at connection time. Logs a startup warning. Helm: `muster.oauth.server.allowPrivateIPClientMetadataHosts`. |
+| `allowPrivateIPClientMetadata` | `bool` | `false` | Deprecated: pin the clients in `preRegisteredClientMetadata`. Allows every CIMD `client_id` URL to resolve to a private/loopback/link-local IP. Logs a startup warning. PKCE and redirect-URI validation are unchanged. Helm: `muster.oauth.server.allowPrivateIPClientMetadata`. |
 
 The CIMD fetch verifies the client's TLS certificate against the system roots, plus the CA of `--extra-ca-file` when it is set (Helm: `muster.extraCaFile`), so a CIMD client served under an internal CA needs no further setting. The same pool verifies the JWKS of a private-IP Dex.
+
+#### Pinned CIMD Clients
+
+A pinned client is served from a document in muster's configuration and never fetched (CIMD draft 03 section 9.2). Pin a client whose document muster cannot or must not fetch: one on a private address (klaus-gateway), or any client where egress goes through a proxy that allows by domain, which refuses the CIMD fetch's CONNECT to an IP. Pinning replaces `allowPrivateIPClientMetadata` and `allowPrivateIPClientMetadataHosts`, both deprecated.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `preRegisteredClientMetadata` | `[]object` | `[]` | Pinned documents, each with its JSON field names (`client_id`, `redirect_uris`, `grant_types`, ...). Pin only a document reviewed against its live URL; a change to the live document needs a new pin and a restart. Helm: `muster.oauth.server.preRegisteredClientMetadata`, plus `preRegisterPublicClients: true` to add the chart's documents for claude.ai, Claude Code and VS Code (`publicClientMetadata`). |
+| `restrictClientMetadata` | `bool` | `false` | Accept a URL `client_id` only when it is pinned or its host is in `clientMetadataHosts`; every other one is refused as `invalid_client` before any DNS lookup. With neither a pin nor a host the OAuth server is not created: muster stays in degraded mode, answers protected requests with 503 and logs the error. Helm: `muster.oauth.server.restrictClientMetadata`. |
+| `clientMetadataHosts` | `[]string` | `[]` | Hosts whose documents `restrictClientMetadata` still lets muster fetch, under the SSRF guard (no private-address allowance). Exact hostnames. Requires `restrictClientMetadata`; the chart refuses to render either inconsistent combination. Helm: `muster.oauth.server.clientMetadataHosts`. |
 
 #### Private-IP Redirect URIs
 
@@ -610,7 +621,8 @@ A client's redirect URI is validated again when the authorization flow starts: a
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `allowPrivateIPRedirectURIs` | `bool` | `false` | Allow redirect URIs that are, or resolve to, private IP addresses. Emits a startup warning when set. Exact redirect-URI matching against the client's registration is unchanged. Helm: `muster.oauth.server.allowPrivateIPRedirectURIs`. |
+| `allowPrivateIPRedirectURIHosts` | `[]string` | `[]` | Host-scoped allowance: a redirect URI may resolve to an RFC 1918 or RFC 4193 address only when its hostname is listed (exact match, no port, no wildcard). `allowPrivateIPRedirectURIs` overrides it. Helm: `muster.oauth.server.allowPrivateIPRedirectURIHosts`. |
+| `allowPrivateIPRedirectURIs` | `bool` | `false` | Deprecated: list the hosts in `allowPrivateIPRedirectURIHosts`. Allows every redirect URI that is, or resolves to, a private IP address. Logs a startup warning. Exact redirect-URI matching against the client's registration is unchanged. Helm: `muster.oauth.server.allowPrivateIPRedirectURIs`. |
 
 #### Silent Re-Authentication (CLI Flag)
 

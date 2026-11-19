@@ -145,7 +145,7 @@ func TestMCPAcceptsAgentgatewayForwardedDexToken(t *testing.T) {
 			IssuerURL:          dexServer.issuer,
 			ClientID:           "muster",
 			ClientSecret:       "secret",
-			AllowPrivateIPJWKS: true,
+			AllowPrivateIPJWKS: true, //nolint:staticcheck // SA1019: covers the deprecated setting
 		},
 	}, mcp, false)
 	require.NoError(t, err)

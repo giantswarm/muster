@@ -74,9 +74,17 @@ data:
           postLoginRedirectAllowlist:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .Values.muster.oauth.mcpClient.tokenExchange.allowPrivateIP }}
+          {{- with .Values.muster.oauth.mcpClient.tokenExchange }}
+          {{- if or .allowPrivateIP .allowPrivateIPTokenEndpointHosts }}
           tokenExchange:
+            {{- if .allowPrivateIP }}
             allowPrivateIP: true
+            {{- end }}
+            {{- with .allowPrivateIPTokenEndpointHosts }}
+            allowPrivateIPTokenEndpointHosts:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+          {{- end }}
           {{- end }}
         {{- end }}
         {{- if .Values.muster.oauth.server.enabled }}
@@ -142,8 +150,34 @@ data:
           allowPrivateIPClientMetadataHosts:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- $pinned := .Values.muster.oauth.server.preRegisteredClientMetadata | default list }}
+          {{- if .Values.muster.oauth.server.preRegisterPublicClients }}
+          {{- $pinned = concat .Values.muster.oauth.server.publicClientMetadata $pinned }}
+          {{- end }}
+          {{- $pinnedIDs := dict }}
+          {{- range $pinned }}
+          {{- if hasKey $pinnedIDs .client_id }}{{ fail (printf "muster.oauth.server pins client_id %s twice: override the entry in publicClientMetadata instead of pinning it again in preRegisteredClientMetadata" .client_id) }}{{- end }}
+          {{- $_ := set $pinnedIDs .client_id true }}
+          {{- end }}
+          {{- if and .Values.muster.oauth.server.restrictClientMetadata (not $pinned) (not .Values.muster.oauth.server.clientMetadataHosts) }}{{ fail "muster.oauth.server.restrictClientMetadata needs a pinned document (preRegisteredClientMetadata or preRegisterPublicClients) or a clientMetadataHosts entry: it would refuse every URL client_id" }}{{- end }}
+          {{- if and .Values.muster.oauth.server.clientMetadataHosts (not .Values.muster.oauth.server.restrictClientMetadata) }}{{ fail "muster.oauth.server.clientMetadataHosts needs restrictClientMetadata: true" }}{{- end }}
+          {{- with $pinned }}
+          preRegisteredClientMetadata:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.muster.oauth.server.restrictClientMetadata }}
+          restrictClientMetadata: true
+          {{- end }}
+          {{- with .Values.muster.oauth.server.clientMetadataHosts }}
+          clientMetadataHosts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if .Values.muster.oauth.server.allowPrivateIPRedirectURIs }}
           allowPrivateIPRedirectURIs: true
+          {{- end }}
+          {{- with .Values.muster.oauth.server.allowPrivateIPRedirectURIHosts }}
+          allowPrivateIPRedirectURIHosts:
+            {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- with .Values.muster.oauth.server.providerTokenRefreshThreshold }}
           providerTokenRefreshThreshold: {{ . | quote }}

@@ -536,11 +536,21 @@ muster:
       # RFC 8693 token exchange against a remote cluster's Dex (MCPServers with
       # spec.auth.tokenExchange; agent-platform-mcps auth.mode: exchange).
       tokenExchange:
-        # Allow the remote Dex token endpoint to resolve to a private/loopback
-        # IP: a management or workload cluster whose Dex sits behind an
-        # internal-only load balancer. Implied when extraCaFile is set. Reduces
-        # the SSRF guard of the token-exchange client; emits a startup warning.
-        allowPrivateIP: false
+        # -- Deprecated: list the hosts in allowPrivateIPTokenEndpointHosts.
+        # Lets every token endpoint resolve to any private, loopback or
+        # link-local address and overrides allowPrivateIPTokenEndpointHosts.
+        # Implied when extraCaFile is set and no host is listed. Still
+        # accepted; logs a startup warning.
+        allowPrivateIP: false  # @schema deprecated: true
+        # -- Token endpoint hostnames that may resolve to RFC 1918 or RFC 4193
+        # addresses: a remote Dex behind an internal-only load balancer.
+        # Loopback and link-local stay refused, and every other host keeps the
+        # SSRF guard. Exact match, no port, no wildcard. With extraCaFile the
+        # listed hosts also trust that CA; with extraCaFile and no host listed
+        # every token endpoint may resolve to any private address (warned).
+        # Example:
+        #   - dex.example.internal
+        allowPrivateIPTokenEndpointHosts: []  # @schema item: string
 
     # Server configuration for protecting the Muster Server itself (ADR 005)
     # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
@@ -587,15 +597,14 @@ muster:
         # authenticate a person. muster's Dex client must be allowed to use
         # each of them.
         identityCheckConnectors: []  # @schema item: string
-        # -- Let the JWKS fetch that validates forwarded ID tokens
-        # (trustedAudiences) reach a Dex whose issuer resolves to a private or
-        # loopback address. Discovery, token and userinfo calls reach such a Dex
-        # without it.
-        allowPrivateIPJWKS: false
-        # -- Deprecated alias for allowPrivateIPJWKS. Either true value permits
-        # private-address JWKS fetching. Remove this key to disable the alias;
-        # setting allowPrivateIPJWKS to false does not override a true alias.
-        # Removed in v5.64.0, scheduled for 2027-02-17.
+        # -- Deprecated: let the JWKS fetch that validates forwarded ID tokens
+        # (trustedAudiences) reach any private, loopback or link-local address.
+        # Without it the Dex issuer host may still resolve to an RFC 1918 or
+        # RFC 4193 address, so remove it unless Dex resolves to loopback or
+        # link-local. Logs a startup warning.
+        allowPrivateIPJWKS: false  # @schema deprecated: true
+        # -- Deprecated: the former name of allowPrivateIPJWKS; either true
+        # value enables it. Logs a startup warning.
         allowPrivateIPOIDC: false  # @schema deprecated: true
 
       # Google OAuth provider configuration (used when provider is "google")
@@ -782,35 +791,107 @@ muster:
       # mcp-oauth default of 5m.
       providerTokenRefreshThreshold: ""  # @schema pattern: ^$|^([0-9]+(\.[0-9]+)?(ns|us|ms|s|m|h))+$
 
-      # Let a CIMD client_id URL (the Client ID Metadata Document a client
-      # self-hosts) resolve to a private, loopback or link-local address. Needed
-      # where the platform's own hostnames resolve to an internal load balancer
-      # (a management cluster reachable only over VPN) -- otherwise the SSRF guard
-      # rejects such a client with "client_id metadata URL resolves to
-      # private/internal IP address". Reduces SSRF protection for CIMD fetches;
-      # muster logs a startup warning when set. Prefer
-      # allowPrivateIPClientMetadataHosts; keep this for an installation where
-      # every hostname is private. Default: false.
-      allowPrivateIPClientMetadata: false
+      # -- Deprecated: pin the clients in preRegisteredClientMetadata. Lets every
+      # CIMD client_id URL resolve to a private, loopback or link-local address.
+      # Still accepted; logs a startup warning.
+      allowPrivateIPClientMetadata: false  # @schema deprecated: true
 
-      # The host-scoped alternative to allowPrivateIPClientMetadata: a CIMD
-      # client_id URL may resolve to a private, loopback or link-local address
-      # only when its hostname is listed (exact match, no port, no wildcard);
-      # every other host keeps the SSRF guard. A CIMD client served under an
-      # internal CA is verified against extraCaFile (plus the system roots).
-      # muster logs a startup warning when set. Default: empty.
+      # -- Deprecated: pin the clients in preRegisteredClientMetadata; a pinned
+      # client needs no fetch. Lets the listed CIMD client_id hosts resolve to
+      # an RFC 1918 or RFC 4193 address. Still accepted; logs a startup warning.
+      allowPrivateIPClientMetadataHosts: []  # @schema item: string ; deprecated: true
+
+      # -- Pinned Client ID Metadata Documents for this installation (CIMD
+      # draft 03 section 9.2): a pinned client is served from its document here
+      # and never fetched. Use it for a client on a private address
+      # (klaus-gateway's agentgateway.<domain>/auth/slack/client.json) or behind
+      # an egress proxy that allows by domain. Pin only a document reviewed
+      # against its live URL. Each entry is the document with its JSON field
+      # names (client_id, redirect_uris, ...).
+      preRegisteredClientMetadata: []  # @schema item: object ; itemRequired: [client_id, redirect_uris] ; itemProperties: {client_id: {type: string}, client_name: {type: string}, client_uri: {type: string}, logo_uri: {type: string}, redirect_uris: {type: array, items: {type: string}}, grant_types: {type: array, items: {type: string}}, response_types: {type: array, items: {type: string}}, token_endpoint_auth_method: {type: string}, scope: {type: string}, contacts: {type: array, items: {type: string}}, jwks_uri: {type: string}, application_type: {type: string}}
+      # -- Also pin the public clients in publicClientMetadata (claude.ai,
+      # Claude Code, VS Code), so muster never fetches their documents. Needed
+      # where egress goes through a proxy that allows by domain.
+      preRegisterPublicClients: false
+      # -- The public clients' documents, as fetched from their client_id URLs.
+      # Pinned only when preRegisterPublicClients is true. Override an entry
+      # here if a live document changed before a chart release carries it.
+      publicClientMetadata:  # @schema item: object ; itemRequired: [client_id, redirect_uris] ; itemProperties: {client_id: {type: string}, client_name: {type: string}, client_uri: {type: string}, logo_uri: {type: string}, redirect_uris: {type: array, items: {type: string}}, grant_types: {type: array, items: {type: string}}, response_types: {type: array, items: {type: string}}, token_endpoint_auth_method: {type: string}, scope: {type: string}, contacts: {type: array, items: {type: string}}, jwks_uri: {type: string}, application_type: {type: string}}
+        - client_id: https://claude.ai/oauth/mcp-oauth-client-metadata
+          client_name: Claude
+          client_uri: https://claude.ai
+          redirect_uris:
+            - https://claude.ai/api/mcp/auth_callback
+          grant_types:
+            - authorization_code
+            - refresh_token
+            - urn:ietf:params:oauth:grant-type:jwt-bearer
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+        - client_id: https://claude.ai/oauth/claude-code-client-metadata
+          client_name: Claude Code
+          client_uri: https://claude.ai
+          redirect_uris:
+            - http://localhost/callback
+            - http://127.0.0.1/callback
+          grant_types:
+            - authorization_code
+            - refresh_token
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+        - client_id: https://vscode.dev/oauth/client-metadata.json
+          client_name: Visual Studio Code
+          client_uri: https://vscode.dev/product
+          logo_uri: https://code.visualstudio.com/assets/branding/code-stable.png
+          application_type: native
+          redirect_uris:
+            - http://127.0.0.1:33418/
+            - https://vscode.dev/redirect
+          grant_types:
+            - authorization_code
+            - refresh_token
+            - urn:ietf:params:oauth:grant-type:device_code
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+        - client_id: https://insiders.vscode.dev/oauth/client-metadata.json
+          client_name: Visual Studio Code
+          client_uri: https://insiders.vscode.dev/product
+          logo_uri: https://code.visualstudio.com/assets/branding/code-stable.png
+          application_type: native
+          redirect_uris:
+            - http://127.0.0.1:33418/
+            - https://insiders.vscode.dev/redirect
+          grant_types:
+            - authorization_code
+            - refresh_token
+            - urn:ietf:params:oauth:grant-type:device_code
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+      # -- Accept a URL client_id only when it is pinned or its host is in
+      # clientMetadataHosts; every other one is refused before any DNS lookup.
+      # Needs at least one pin or host.
+      restrictClientMetadata: false
+      # -- Hosts whose documents restrictClientMetadata still lets muster fetch,
+      # under the SSRF guard (no private-address allowance). Exact hostnames.
+      # Requires restrictClientMetadata.
+      clientMetadataHosts: []  # @schema item: string
+
+      # -- Deprecated: list the hosts in allowPrivateIPRedirectURIHosts. Lets
+      # every redirect URI resolve to a private address and overrides
+      # allowPrivateIPRedirectURIHosts. Still accepted; logs a startup warning.
+      allowPrivateIPRedirectURIs: false  # @schema deprecated: true
+
+      # -- The host-scoped alternative to allowPrivateIPRedirectURIs: a redirect
+      # URI may resolve to an RFC 1918 or RFC 4193 address only when its
+      # hostname is listed (exact match, no port, no wildcard).
+      # allowPrivateIPRedirectURIs overrides it. Default: empty.
       # Example:
-      #   - gateway.internal.example
-      allowPrivateIPClientMetadataHosts: []  # @schema item: string
-
-      # Let a client's redirect URI resolve to a private address (a literal
-      # RFC 1918 host or a hostname that resolves to one). Needed where the
-      # platform's own hostnames resolve to an internal load balancer -- the
-      # authorization-time check otherwise rejects the client's callback with
-      # "redirect_uri: hostname resolves to private IP address (DNS rebinding
-      # protection)". Reduces open-redirect/SSRF protection for redirect targets;
-      # muster logs a startup warning when set. Default: false.
-      allowPrivateIPRedirectURIs: false
+      #   - agentgateway.internal.example
+      allowPrivateIPRedirectURIHosts: []  # @schema item: string
 
       # ---------------------------------------------------------------------------
       # Token acceptance: skip muster's own OAuth flow

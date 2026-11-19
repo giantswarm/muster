@@ -391,7 +391,16 @@
                                     "additionalProperties": false,
                                     "properties": {
                                         "allowPrivateIP": {
-                                            "type": "boolean"
+                                            "type": "boolean",
+                                            "description": "Deprecated: list the hosts in allowPrivateIPTokenEndpointHosts. Lets every token endpoint resolve to any private, loopback or link-local address and overrides allowPrivateIPTokenEndpointHosts. Implied when extraCaFile is set and no host is listed. Still accepted; logs a startup warning.",
+                                            "deprecated": true
+                                        },
+                                        "allowPrivateIPTokenEndpointHosts": {
+                                            "type": "array",
+                                            "description": "Token endpoint hostnames that may resolve to RFC 1918 or RFC 4193 addresses: a remote Dex behind an internal-only load balancer. Loopback and link-local stay refused, and every other host keeps the SSRF guard. Exact match, no port, no wildcard. With extraCaFile the listed hosts also trust that CA; with extraCaFile and no host listed every token endpoint may resolve to any private address (warned). Example: - dex.example.internal",
+                                            "items": {
+                                                "type": "string"
+                                            }
                                         }
                                     }
                                 }
@@ -411,22 +420,42 @@
                                     "deprecated": true
                                 },
                                 "allowPrivateIPClientMetadata": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "description": "Deprecated: pin the clients in preRegisteredClientMetadata. Lets every CIMD client_id URL resolve to a private, loopback or link-local address. Still accepted; logs a startup warning.",
+                                    "deprecated": true
                                 },
                                 "allowPrivateIPClientMetadataHosts": {
                                     "type": "array",
+                                    "description": "Deprecated: pin the clients in preRegisteredClientMetadata; a pinned client needs no fetch. Lets the listed CIMD client_id hosts resolve to an RFC 1918 or RFC 4193 address. Still accepted; logs a startup warning.",
+                                    "deprecated": true,
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "allowPrivateIPRedirectURIHosts": {
+                                    "type": "array",
+                                    "description": "The host-scoped alternative to allowPrivateIPRedirectURIs: a redirect URI may resolve to an RFC 1918 or RFC 4193 address only when its hostname is listed (exact match, no port, no wildcard). allowPrivateIPRedirectURIs overrides it. Default: empty. Example: - agentgateway.internal.example",
                                     "items": {
                                         "type": "string"
                                     }
                                 },
                                 "allowPrivateIPRedirectURIs": {
-                                    "type": "boolean"
+                                    "type": "boolean",
+                                    "description": "Deprecated: list the hosts in allowPrivateIPRedirectURIHosts. Lets every redirect URI resolve to a private address and overrides allowPrivateIPRedirectURIHosts. Still accepted; logs a startup warning.",
+                                    "deprecated": true
                                 },
                                 "allowPublicClientRegistration": {
                                     "type": "boolean"
                                 },
                                 "baseUrl": {
                                     "type": "string"
+                                },
+                                "clientMetadataHosts": {
+                                    "type": "array",
+                                    "description": "Hosts whose documents restrictClientMetadata still lets muster fetch, under the SSRF guard (no private-address allowance). Exact hostnames. Requires restrictClientMetadata.",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 },
                                 "delegation": {
                                     "type": "object",
@@ -456,11 +485,12 @@
                                     "properties": {
                                         "allowPrivateIPJWKS": {
                                             "type": "boolean",
-                                            "description": "Let the JWKS fetch that validates forwarded ID tokens (trustedAudiences) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it."
+                                            "description": "Deprecated: let the JWKS fetch that validates forwarded ID tokens (trustedAudiences) reach any private, loopback or link-local address. Without it the Dex issuer host may still resolve to an RFC 1918 or RFC 4193 address, so remove it unless Dex resolves to loopback or link-local. Logs a startup warning.",
+                                            "deprecated": true
                                         },
                                         "allowPrivateIPOIDC": {
                                             "type": "boolean",
-                                            "description": "Deprecated alias for allowPrivateIPJWKS. Either true value permits private-address JWKS fetching. Remove this key to disable the alias; setting allowPrivateIPJWKS to false does not override a true alias. Removed in v5.64.0, scheduled for 2027-02-17.",
+                                            "description": "Deprecated: the former name of allowPrivateIPJWKS; either true value enables it. Logs a startup warning.",
                                             "deprecated": true
                                         },
                                         "clientId": {
@@ -514,6 +544,72 @@
                                         }
                                     }
                                 },
+                                "preRegisterPublicClients": {
+                                    "type": "boolean",
+                                    "description": "Also pin the public clients in publicClientMetadata (claude.ai, Claude Code, VS Code), so muster never fetches their documents. Needed where egress goes through a proxy that allows by domain."
+                                },
+                                "preRegisteredClientMetadata": {
+                                    "type": "array",
+                                    "description": "Pinned Client ID Metadata Documents for this installation (CIMD draft 03 section 9.2): a pinned client is served from its document here and never fetched. Use it for a client on a private address (klaus-gateway's agentgateway.<domain>/auth/slack/client.json) or behind an egress proxy that allows by domain. Pin only a document reviewed against its live URL. Each entry is the document with its JSON field names (client_id, redirect_uris, ...).",
+                                    "items": {
+                                        "type": "object",
+                                        "required": [
+                                            "client_id",
+                                            "redirect_uris"
+                                        ],
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "application_type": {
+                                                "type": "string"
+                                            },
+                                            "client_id": {
+                                                "type": "string"
+                                            },
+                                            "client_name": {
+                                                "type": "string"
+                                            },
+                                            "client_uri": {
+                                                "type": "string"
+                                            },
+                                            "contacts": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "grant_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "jwks_uri": {
+                                                "type": "string"
+                                            },
+                                            "logo_uri": {
+                                                "type": "string"
+                                            },
+                                            "redirect_uris": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "response_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "scope": {
+                                                "type": "string"
+                                            },
+                                            "token_endpoint_auth_method": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                },
                                 "provider": {
                                     "type": "string"
                                 },
@@ -522,11 +618,77 @@
                                     "description": "How much lifetime the provider (Dex) token muster holds for a user must have left before muster hands it out as is; a token closer to its expiry is refreshed at the provider first. Governs the token forwarded to downstream servers and the one a client's refresh returns. Raise it when a caller needs a forwarded token that outlives a long operation (e.g. \"25m\" for agent turns of 20 minutes); keep it below the provider's token lifetime (Dex idTokens, 30m by default), or every request refreshes at the provider. Go duration of at least 1s. Empty: the mcp-oauth default of 5m.",
                                     "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"
                                 },
+                                "publicClientMetadata": {
+                                    "type": "array",
+                                    "description": "The public clients' documents, as fetched from their client_id URLs. Pinned only when preRegisterPublicClients is true. Override an entry here if a live document changed before a chart release carries it.",
+                                    "items": {
+                                        "type": "object",
+                                        "required": [
+                                            "client_id",
+                                            "redirect_uris"
+                                        ],
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "application_type": {
+                                                "type": "string"
+                                            },
+                                            "client_id": {
+                                                "type": "string"
+                                            },
+                                            "client_name": {
+                                                "type": "string"
+                                            },
+                                            "client_uri": {
+                                                "type": "string"
+                                            },
+                                            "contacts": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "grant_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "jwks_uri": {
+                                                "type": "string"
+                                            },
+                                            "logo_uri": {
+                                                "type": "string"
+                                            },
+                                            "redirect_uris": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "response_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "scope": {
+                                                "type": "string"
+                                            },
+                                            "token_endpoint_auth_method": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                },
                                 "registrationToken": {
                                     "type": "string"
                                 },
                                 "resourceIdentifier": {
                                     "type": "string"
+                                },
+                                "restrictClientMetadata": {
+                                    "type": "boolean",
+                                    "description": "Accept a URL client_id only when it is pinned or its host is in clientMetadataHosts; every other one is refused before any DNS lookup. Needs at least one pin or host."
                                 },
                                 "storage": {
                                     "type": "object",
