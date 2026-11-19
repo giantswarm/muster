@@ -84,6 +84,9 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		AllowPrivateIPClientMetadataHosts:     cfg.AllowPrivateIPClientMetadataHosts,
 		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirectURIs, //nolint:staticcheck // accepted until no installation sets it; mcp-oauth warns
 		AllowPrivateIPRedirectURIHosts:        cfg.AllowPrivateIPRedirectURIHosts,
+		PreRegisteredClientMetadata:           preRegisteredClientMetadata(cfg.PreRegisteredClientMetadata),
+		RestrictClientMetadata:                cfg.RestrictClientMetadata,
+		ClientMetadataHosts:                   cfg.ClientMetadataHosts,
 		TrustedAudiences:                      cfg.TrustedAudiences,
 		AllowPrivateIPJWKS:                    cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC, //nolint:staticcheck // accepted until forward mode goes; muster and mcp-oauth warn
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
@@ -394,4 +397,29 @@ func logDeprecatedPrivateIPSettings(cfg config.OAuthServerConfig, logger *slog.L
 	if cfg.TokenExchangeBroker.AllowPrivateIP {
 		logger.Warn("DEPRECATED: tokenExchangeBroker.allowPrivateIP has no effect; remove it")
 	}
+}
+
+// preRegisteredClientMetadata maps the pinned documents onto mcp-oauth's type.
+// application_type has no field there and is dropped.
+func preRegisteredClientMetadata(documents []config.ClientMetadataDocument) []oauthserver.ClientMetadata {
+	if len(documents) == 0 {
+		return nil
+	}
+	pinned := make([]oauthserver.ClientMetadata, 0, len(documents))
+	for _, d := range documents {
+		pinned = append(pinned, oauthserver.ClientMetadata{
+			ClientID:                d.ClientID,
+			ClientName:              d.ClientName,
+			ClientURI:               d.ClientURI,
+			LogoURI:                 d.LogoURI,
+			RedirectURIs:            slices.Clone(d.RedirectURIs),
+			GrantTypes:              slices.Clone(d.GrantTypes),
+			ResponseTypes:           slices.Clone(d.ResponseTypes),
+			TokenEndpointAuthMethod: d.TokenEndpointAuthMethod,
+			Scope:                   d.Scope,
+			Contacts:                slices.Clone(d.Contacts),
+			JWKSURI:                 d.JWKSURI,
+		})
+	}
+	return pinned
 }

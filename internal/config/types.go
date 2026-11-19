@@ -551,6 +551,25 @@ type OAuthServerConfig struct {
 	// warning when set. Default: empty
 	AllowPrivateIPClientMetadataHosts []string `yaml:"allowPrivateIPClientMetadataHosts,omitempty"`
 
+	// PreRegisteredClientMetadata pins Client ID Metadata Documents: a client
+	// whose client_id is pinned here is served from this document and never
+	// fetched (CIMD draft 03 section 9.2). Use it where the document cannot or
+	// must not be fetched: an egress proxy that allows by domain, or a client
+	// on a private address. Pin only a document reviewed against its live URL;
+	// a change to the live document needs a new pin and a restart.
+	PreRegisteredClientMetadata []ClientMetadataDocument `yaml:"preRegisteredClientMetadata,omitempty"`
+
+	// RestrictClientMetadata accepts a URL client_id only when it is pinned in
+	// PreRegisteredClientMetadata or its host is in ClientMetadataHosts; every
+	// other one is refused before any DNS lookup. Needs at least one pin or
+	// host. Default: false
+	RestrictClientMetadata bool `yaml:"restrictClientMetadata,omitempty"`
+
+	// ClientMetadataHosts lists the hosts whose documents RestrictClientMetadata
+	// still lets the server fetch, under the SSRF guard (no private-address
+	// allowance). Exact hostnames, no port, no wildcard.
+	ClientMetadataHosts []string `yaml:"clientMetadataHosts,omitempty"`
+
 	// AllowPrivateIPRedirectURIs lets a client's redirect URI resolve to a
 	// private address (a literal RFC 1918 host or a hostname that resolves to
 	// one). Needed where the platform's own hostnames resolve to an internal
@@ -935,4 +954,21 @@ type ValkeyConfig struct {
 
 	// DB is the Valkey database number (default: 0).
 	DB int `yaml:"db,omitempty"`
+}
+
+// ClientMetadataDocument is a Client ID Metadata Document with its JSON field
+// names, so a document can be pinned verbatim.
+type ClientMetadataDocument struct {
+	ClientID                string   `yaml:"client_id"`
+	ClientName              string   `yaml:"client_name,omitempty"`
+	ClientURI               string   `yaml:"client_uri,omitempty"`
+	LogoURI                 string   `yaml:"logo_uri,omitempty"`
+	RedirectURIs            []string `yaml:"redirect_uris"`
+	GrantTypes              []string `yaml:"grant_types,omitempty"`
+	ResponseTypes           []string `yaml:"response_types,omitempty"`
+	TokenEndpointAuthMethod string   `yaml:"token_endpoint_auth_method,omitempty"`
+	Scope                   string   `yaml:"scope,omitempty"`
+	Contacts                []string `yaml:"contacts,omitempty"`
+	JWKSURI                 string   `yaml:"jwks_uri,omitempty"`
+	ApplicationType         string   `yaml:"application_type,omitempty"`
 }

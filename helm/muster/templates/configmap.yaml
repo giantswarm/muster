@@ -150,6 +150,21 @@ data:
           allowPrivateIPClientMetadataHosts:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- $pinned := .Values.muster.oauth.server.preRegisteredClientMetadata | default list }}
+          {{- if .Values.muster.oauth.server.preRegisterPublicClients }}
+          {{- $pinned = concat .Values.muster.oauth.server.publicClientMetadata $pinned }}
+          {{- end }}
+          {{- with $pinned }}
+          preRegisteredClientMetadata:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.muster.oauth.server.restrictClientMetadata }}
+          restrictClientMetadata: true
+          {{- end }}
+          {{- with .Values.muster.oauth.server.clientMetadataHosts }}
+          clientMetadataHosts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- if .Values.muster.oauth.server.allowPrivateIPRedirectURIs }}
           allowPrivateIPRedirectURIs: true
           {{- end }}

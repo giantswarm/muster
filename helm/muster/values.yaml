@@ -811,6 +811,84 @@ muster:
       #   - gateway.internal.example
       allowPrivateIPClientMetadataHosts: []  # @schema item: string
 
+      # -- Pinned Client ID Metadata Documents for this installation (CIMD
+      # draft 03 section 9.2): a pinned client is served from its document here
+      # and never fetched. Use it for a client on a private address
+      # (klaus-gateway's agentgateway.<domain>/auth/slack/client.json) or behind
+      # an egress proxy that allows by domain. Pin only a document reviewed
+      # against its live URL. Each entry is the document with its JSON field
+      # names (client_id, redirect_uris, ...).
+      preRegisteredClientMetadata: []  # @schema item: object ; itemRequired: [client_id, redirect_uris] ; itemProperties: {client_id: {type: string}, client_name: {type: string}, client_uri: {type: string}, logo_uri: {type: string}, redirect_uris: {type: array, items: {type: string}}, grant_types: {type: array, items: {type: string}}, response_types: {type: array, items: {type: string}}, token_endpoint_auth_method: {type: string}, scope: {type: string}, contacts: {type: array, items: {type: string}}, jwks_uri: {type: string}, application_type: {type: string}}
+      # -- Also pin the public clients in publicClientMetadata (claude.ai,
+      # Claude Code, VS Code), so muster never fetches their documents. Needed
+      # where egress goes through a proxy that allows by domain.
+      preRegisterPublicClients: false
+      # -- The public clients' documents, as fetched from their client_id URLs.
+      # Pinned only when preRegisterPublicClients is true. Override an entry
+      # here if a live document changed before a chart release carries it.
+      publicClientMetadata:  # @schema item: object ; itemRequired: [client_id, redirect_uris] ; itemProperties: {client_id: {type: string}, client_name: {type: string}, client_uri: {type: string}, logo_uri: {type: string}, redirect_uris: {type: array, items: {type: string}}, grant_types: {type: array, items: {type: string}}, response_types: {type: array, items: {type: string}}, token_endpoint_auth_method: {type: string}, scope: {type: string}, contacts: {type: array, items: {type: string}}, jwks_uri: {type: string}, application_type: {type: string}}
+        - client_id: https://claude.ai/oauth/mcp-oauth-client-metadata
+          client_name: Claude
+          client_uri: https://claude.ai
+          redirect_uris:
+            - https://claude.ai/api/mcp/auth_callback
+          grant_types:
+            - authorization_code
+            - refresh_token
+            - urn:ietf:params:oauth:grant-type:jwt-bearer
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+        - client_id: https://claude.ai/oauth/claude-code-client-metadata
+          client_name: Claude Code
+          client_uri: https://claude.ai
+          redirect_uris:
+            - http://localhost/callback
+            - http://127.0.0.1/callback
+          grant_types:
+            - authorization_code
+            - refresh_token
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+        - client_id: https://vscode.dev/oauth/client-metadata.json
+          client_name: Visual Studio Code
+          client_uri: https://vscode.dev/product
+          logo_uri: https://code.visualstudio.com/assets/branding/code-stable.png
+          application_type: native
+          redirect_uris:
+            - http://127.0.0.1:33418/
+            - https://vscode.dev/redirect
+          grant_types:
+            - authorization_code
+            - refresh_token
+            - urn:ietf:params:oauth:grant-type:device_code
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+        - client_id: https://insiders.vscode.dev/oauth/client-metadata.json
+          client_name: Visual Studio Code
+          client_uri: https://insiders.vscode.dev/product
+          logo_uri: https://code.visualstudio.com/assets/branding/code-stable.png
+          application_type: native
+          redirect_uris:
+            - http://127.0.0.1:33418/
+            - https://insiders.vscode.dev/redirect
+          grant_types:
+            - authorization_code
+            - refresh_token
+            - urn:ietf:params:oauth:grant-type:device_code
+          response_types:
+            - code
+          token_endpoint_auth_method: none
+      # -- Accept a URL client_id only when it is pinned or its host is in
+      # clientMetadataHosts; every other one is refused before any DNS lookup.
+      # Needs at least one pin or host.
+      restrictClientMetadata: false
+      # -- Hosts whose documents restrictClientMetadata still lets muster fetch,
+      # under the SSRF guard (no private-address allowance). Exact hostnames.
+      clientMetadataHosts: []  # @schema item: string
+
       # Let a client's redirect URI resolve to a private address (a literal
       # RFC 1918 host or a hostname that resolves to one). Needed where the
       # platform's own hostnames resolve to an internal load balancer -- the

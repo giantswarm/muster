@@ -43,3 +43,50 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "tokenExchange:\\n\\s+allowPrivateIP: true\\n\\s+allowPrivateIPTokenEndpointHosts:\\n\\s+- dex\\.internal\\.example"
+  - it: pins no client metadata by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "preRegisteredClientMetadata|restrictClientMetadata|clientMetadataHosts"
+  - it: pins the installation's documents and the public clients when asked
+    set:
+      muster.oauth.server.preRegisterPublicClients: true
+      muster.oauth.server.preRegisteredClientMetadata:
+        - client_id: https://agentgateway.internal.example/auth/slack/client.json
+          redirect_uris:
+            - https://agentgateway.internal.example/auth/slack/callback
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "preRegisteredClientMetadata:\\n(.*\\n)*\\s+- client_id: https://claude\\.ai/oauth/mcp-oauth-client-metadata"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "client_id: https://claude\\.ai/oauth/claude-code-client-metadata"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "client_id: https://insiders\\.vscode\\.dev/oauth/client-metadata\\.json"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "client_id: https://agentgateway\\.internal\\.example/auth/slack/client\\.json"
+  - it: pins only the installation's documents while preRegisterPublicClients is off
+    set:
+      muster.oauth.server.preRegisteredClientMetadata:
+        - client_id: https://agentgateway.internal.example/auth/slack/client.json
+          redirect_uris:
+            - https://agentgateway.internal.example/auth/slack/callback
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "client_id: https://agentgateway\\.internal\\.example/auth/slack/client\\.json"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "claude\\.ai/oauth"
+  - it: renders restrict mode and its hosts
+    set:
+      muster.oauth.server.restrictClientMetadata: true
+      muster.oauth.server.clientMetadataHosts:
+        - clients.example
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "restrictClientMetadata: true\\n\\s+clientMetadataHosts:\\n\\s+- clients\\.example"

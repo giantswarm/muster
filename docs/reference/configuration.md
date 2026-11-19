@@ -605,6 +605,16 @@ The SSRF guard also covers Client ID Metadata Documents (CIMD): a `client_id` th
 
 The CIMD fetch verifies the client's TLS certificate against the system roots, plus the CA of `--extra-ca-file` when it is set (Helm: `muster.extraCaFile`), so a CIMD client served under an internal CA needs no further setting. The same pool verifies the JWKS of a private-IP Dex.
 
+#### Pinned CIMD Clients
+
+A pinned client is served from a document in muster's configuration and never fetched (CIMD draft 03 section 9.2). Pin a client whose document muster cannot or must not fetch: one on a private address (klaus-gateway), or any client where egress goes through a proxy that allows by domain, which refuses the CIMD fetch's CONNECT to an IP. Pinning replaces `allowPrivateIPClientMetadataHosts`, which mcp-oauth now reports as deprecated.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `preRegisteredClientMetadata` | `[]object` | `[]` | Pinned documents, each with its JSON field names (`client_id`, `redirect_uris`, `grant_types`, ...). Pin only a document reviewed against its live URL; a change to the live document needs a new pin and a restart. Helm: `muster.oauth.server.preRegisteredClientMetadata`, plus `preRegisterPublicClients: true` to add the chart's documents for claude.ai, Claude Code and VS Code (`publicClientMetadata`). |
+| `restrictClientMetadata` | `bool` | `false` | Accept a URL `client_id` only when it is pinned or its host is in `clientMetadataHosts`; every other one is refused as `invalid_client` before any DNS lookup. With neither a pin nor a host the OAuth server is not created: muster stays in degraded mode, answers protected requests with 503 and logs the error. Helm: `muster.oauth.server.restrictClientMetadata`. |
+| `clientMetadataHosts` | `[]string` | `[]` | Hosts whose documents `restrictClientMetadata` still lets muster fetch, under the SSRF guard (no private-address allowance). Exact hostnames. Helm: `muster.oauth.server.clientMetadataHosts`. |
+
 #### Private-IP Redirect URIs
 
 A client's redirect URI is validated again when the authorization flow starts: a hostname that resolves to a private address is rejected with `redirect_uri: hostname resolves to private IP address (DNS rebinding protection)`, even after the client itself (for example a CIMD client allowed through `allowPrivateIPClientMetadata`) was accepted. On a cluster whose own hostnames resolve to an internal load balancer, every platform-hosted client's callback trips this check.

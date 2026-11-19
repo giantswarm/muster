@@ -444,6 +444,13 @@
                                 "baseUrl": {
                                     "type": "string"
                                 },
+                                "clientMetadataHosts": {
+                                    "type": "array",
+                                    "description": "Hosts whose documents restrictClientMetadata still lets muster fetch, under the SSRF guard (no private-address allowance). Exact hostnames.",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
                                 "delegation": {
                                     "type": "object",
                                     "additionalProperties": false,
@@ -531,6 +538,72 @@
                                         }
                                     }
                                 },
+                                "preRegisterPublicClients": {
+                                    "type": "boolean",
+                                    "description": "Also pin the public clients in publicClientMetadata (claude.ai, Claude Code, VS Code), so muster never fetches their documents. Needed where egress goes through a proxy that allows by domain."
+                                },
+                                "preRegisteredClientMetadata": {
+                                    "type": "array",
+                                    "description": "Pinned Client ID Metadata Documents for this installation (CIMD draft 03 section 9.2): a pinned client is served from its document here and never fetched. Use it for a client on a private address (klaus-gateway's agentgateway.<domain>/auth/slack/client.json) or behind an egress proxy that allows by domain. Pin only a document reviewed against its live URL. Each entry is the document with its JSON field names (client_id, redirect_uris, ...).",
+                                    "items": {
+                                        "type": "object",
+                                        "required": [
+                                            "client_id",
+                                            "redirect_uris"
+                                        ],
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "application_type": {
+                                                "type": "string"
+                                            },
+                                            "client_id": {
+                                                "type": "string"
+                                            },
+                                            "client_name": {
+                                                "type": "string"
+                                            },
+                                            "client_uri": {
+                                                "type": "string"
+                                            },
+                                            "contacts": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "grant_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "jwks_uri": {
+                                                "type": "string"
+                                            },
+                                            "logo_uri": {
+                                                "type": "string"
+                                            },
+                                            "redirect_uris": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "response_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "scope": {
+                                                "type": "string"
+                                            },
+                                            "token_endpoint_auth_method": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                },
                                 "provider": {
                                     "type": "string"
                                 },
@@ -539,11 +612,77 @@
                                     "description": "How much lifetime the provider (Dex) token muster holds for a user must have left before muster hands it out as is; a token closer to its expiry is refreshed at the provider first. Governs the token forwarded to downstream servers and the one a client's refresh returns. Raise it when a caller needs a forwarded token that outlives a long operation (e.g. \"25m\" for agent turns of 20 minutes); keep it below the provider's token lifetime (Dex idTokens, 30m by default), or every request refreshes at the provider. Go duration of at least 1s. Empty: the mcp-oauth default of 5m.",
                                     "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"
                                 },
+                                "publicClientMetadata": {
+                                    "type": "array",
+                                    "description": "The public clients' documents, as fetched from their client_id URLs. Pinned only when preRegisterPublicClients is true. Override an entry here if a live document changed before a chart release carries it.",
+                                    "items": {
+                                        "type": "object",
+                                        "required": [
+                                            "client_id",
+                                            "redirect_uris"
+                                        ],
+                                        "additionalProperties": false,
+                                        "properties": {
+                                            "application_type": {
+                                                "type": "string"
+                                            },
+                                            "client_id": {
+                                                "type": "string"
+                                            },
+                                            "client_name": {
+                                                "type": "string"
+                                            },
+                                            "client_uri": {
+                                                "type": "string"
+                                            },
+                                            "contacts": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "grant_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "jwks_uri": {
+                                                "type": "string"
+                                            },
+                                            "logo_uri": {
+                                                "type": "string"
+                                            },
+                                            "redirect_uris": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "response_types": {
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "scope": {
+                                                "type": "string"
+                                            },
+                                            "token_endpoint_auth_method": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                },
                                 "registrationToken": {
                                     "type": "string"
                                 },
                                 "resourceIdentifier": {
                                     "type": "string"
+                                },
+                                "restrictClientMetadata": {
+                                    "type": "boolean",
+                                    "description": "Accept a URL client_id only when it is pinned or its host is in clientMetadataHosts; every other one is refused before any DNS lookup. Needs at least one pin or host."
                                 },
                                 "storage": {
                                     "type": "object",
