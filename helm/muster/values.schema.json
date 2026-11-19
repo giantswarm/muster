@@ -555,6 +555,7 @@
                                         "type": "object",
                                         "required": [
                                             "client_id",
+                                            "client_name",
                                             "redirect_uris"
                                         ],
                                         "additionalProperties": false,
@@ -566,7 +567,8 @@
                                                 "type": "string"
                                             },
                                             "client_name": {
-                                                "type": "string"
+                                                "type": "string",
+                                                "minLength": 1
                                             },
                                             "client_uri": {
                                                 "type": "string"
@@ -593,7 +595,8 @@
                                                 "type": "array",
                                                 "items": {
                                                     "type": "string"
-                                                }
+                                                },
+                                                "minItems": 1
                                             },
                                             "response_types": {
                                                 "type": "array",
@@ -605,7 +608,10 @@
                                                 "type": "string"
                                             },
                                             "token_endpoint_auth_method": {
-                                                "type": "string"
+                                                "type": "string",
+                                                "enum": [
+                                                    "none"
+                                                ]
                                             }
                                         }
                                     }
@@ -625,6 +631,7 @@
                                         "type": "object",
                                         "required": [
                                             "client_id",
+                                            "client_name",
                                             "redirect_uris"
                                         ],
                                         "additionalProperties": false,
@@ -636,7 +643,8 @@
                                                 "type": "string"
                                             },
                                             "client_name": {
-                                                "type": "string"
+                                                "type": "string",
+                                                "minLength": 1
                                             },
                                             "client_uri": {
                                                 "type": "string"
@@ -663,7 +671,8 @@
                                                 "type": "array",
                                                 "items": {
                                                     "type": "string"
-                                                }
+                                                },
+                                                "minItems": 1
                                             },
                                             "response_types": {
                                                 "type": "array",
@@ -675,7 +684,10 @@
                                                 "type": "string"
                                             },
                                             "token_endpoint_auth_method": {
-                                                "type": "string"
+                                                "type": "string",
+                                                "enum": [
+                                                    "none"
+                                                ]
                                             }
                                         }
                                     }

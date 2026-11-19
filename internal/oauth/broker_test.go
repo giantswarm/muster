@@ -248,3 +248,58 @@ func TestTokenExchangeBrokerConfig_Enabled(t *testing.T) {
 		Targets: map[string]config.BrokerTargetConfig{"a": {}},
 	}.Enabled())
 }
+
+// TestNewBrokerExchanger_PrivateIPLiteral exchanges through the production
+// constructor against a token endpoint written as an IP literal: refused
+// before any request without the deprecated allowPrivateIP, exchanged with it.
+func TestNewBrokerExchanger_PrivateIPLiteral(t *testing.T) {
+	var calls int
+	downstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"access_token":      "downstream-token",
+			"issued_token_type": "urn:ietf:params:oauth:token-type:access_token",
+			"token_type":        "bearer",
+			"expires_in":        1800,
+		})
+	}))
+	defer downstream.Close()
+
+	previous := http.DefaultTransport
+	http.DefaultTransport = downstream.Client().Transport
+	t.Cleanup(func() { http.DefaultTransport = previous })
+	withCredentialsHandler(t, &stubCredentialsHandler{
+		creds: &api.ClientCredentials{ClientID: "exchange-client", ClientSecret: "exchange-secret"},
+	})
+
+	exchange := func(allow bool) (*oauthserver.ExchangerResult, error) {
+		broker := NewBrokerExchanger(config.TokenExchangeBrokerConfig{
+			AllowPrivateIP: allow, //nolint:staticcheck // SA1019: covers the deprecated setting
+			Targets: map[string]config.BrokerTargetConfig{
+				"cluster-a": {
+					DexTokenEndpoint:           downstream.URL + "/token",
+					ConnectorID:                "main-dex",
+					ClientCredentialsSecretRef: &config.BrokerSecretRefConfig{Name: "muster-token-exchange-cluster-a"},
+				},
+			},
+			DefaultSecretNamespace: "muster-system",
+		}, testBrokerSubjectIssuer)
+		return broker.Exchange(t.Context(), &oauthserver.ExchangerRequest{
+			Audience:         "cluster-a",
+			ClientID:         "portal-backend",
+			Subject:          subjectIdentity("user-1"),
+			SubjectToken:     "main-dex-id-token",
+			SubjectTokenType: "urn:ietf:params:oauth:token-type:id_token",
+		})
+	}
+
+	_, err := exchange(false)
+	require.Error(t, err)
+	require.Zero(t, calls, "an IP literal endpoint is refused before any request")
+
+	result, err := exchange(true)
+	require.NoError(t, err)
+	require.Equal(t, "downstream-token", result.AccessToken)
+	require.Equal(t, 1, calls)
+}

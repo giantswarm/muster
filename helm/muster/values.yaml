@@ -808,7 +808,7 @@ muster:
       # an egress proxy that allows by domain. Pin only a document reviewed
       # against its live URL. Each entry is the document with its JSON field
       # names (client_id, redirect_uris, ...).
-      preRegisteredClientMetadata: []  # @schema item: object ; itemRequired: [client_id, redirect_uris] ; itemProperties: {client_id: {type: string}, client_name: {type: string}, client_uri: {type: string}, logo_uri: {type: string}, redirect_uris: {type: array, items: {type: string}}, grant_types: {type: array, items: {type: string}}, response_types: {type: array, items: {type: string}}, token_endpoint_auth_method: {type: string}, scope: {type: string}, contacts: {type: array, items: {type: string}}, jwks_uri: {type: string}, application_type: {type: string}}
+      preRegisteredClientMetadata: []  # @schema item: object ; itemRequired: [client_id, client_name, redirect_uris] ; itemProperties: {client_id: {type: string}, client_name: {type: string, minLength: 1}, client_uri: {type: string}, logo_uri: {type: string}, redirect_uris: {type: array, minItems: 1, items: {type: string}}, grant_types: {type: array, items: {type: string}}, response_types: {type: array, items: {type: string}}, token_endpoint_auth_method: {type: string, enum: [none]}, scope: {type: string}, contacts: {type: array, items: {type: string}}, jwks_uri: {type: string}, application_type: {type: string}}
       # -- Also pin the public clients in publicClientMetadata (claude.ai,
       # Claude Code, VS Code), so muster never fetches their documents. Needed
       # where egress goes through a proxy that allows by domain.
@@ -816,7 +816,7 @@ muster:
       # -- The public clients' documents, as fetched from their client_id URLs.
       # Pinned only when preRegisterPublicClients is true. Override an entry
       # here if a live document changed before a chart release carries it.
-      publicClientMetadata:  # @schema item: object ; itemRequired: [client_id, redirect_uris] ; itemProperties: {client_id: {type: string}, client_name: {type: string}, client_uri: {type: string}, logo_uri: {type: string}, redirect_uris: {type: array, items: {type: string}}, grant_types: {type: array, items: {type: string}}, response_types: {type: array, items: {type: string}}, token_endpoint_auth_method: {type: string}, scope: {type: string}, contacts: {type: array, items: {type: string}}, jwks_uri: {type: string}, application_type: {type: string}}
+      publicClientMetadata:  # @schema item: object ; itemRequired: [client_id, client_name, redirect_uris] ; itemProperties: {client_id: {type: string}, client_name: {type: string, minLength: 1}, client_uri: {type: string}, logo_uri: {type: string}, redirect_uris: {type: array, minItems: 1, items: {type: string}}, grant_types: {type: array, items: {type: string}}, response_types: {type: array, items: {type: string}}, token_endpoint_auth_method: {type: string, enum: [none]}, scope: {type: string}, contacts: {type: array, items: {type: string}}, jwks_uri: {type: string}, application_type: {type: string}}
         - client_id: https://claude.ai/oauth/mcp-oauth-client-metadata
           client_name: Claude
           client_uri: https://claude.ai

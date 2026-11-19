@@ -87,7 +87,7 @@ func TestNewOAuthHTTPServerWarnsForBrokerAllowPrivateIP(t *testing.T) {
 		}, http.NotFoundHandler(), false)
 		require.ErrorContains(t, err, "unsupported OAuth provider")
 		if set {
-			require.Contains(t, output.String(), "DEPRECATED: tokenExchangeBroker.allowPrivateIP has no effect")
+			require.Contains(t, output.String(), "DEPRECATED: tokenExchangeBroker.allowPrivateIP only lets a target token endpoint be a private IP literal")
 		} else {
 			require.NotContains(t, output.String(), "tokenExchangeBroker.allowPrivateIP")
 		}

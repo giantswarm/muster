@@ -53,6 +53,7 @@ tests:
       muster.oauth.server.preRegisterPublicClients: true
       muster.oauth.server.preRegisteredClientMetadata:
         - client_id: https://agentgateway.internal.example/auth/slack/client.json
+          client_name: klaus-gateway
           redirect_uris:
             - https://agentgateway.internal.example/auth/slack/callback
     asserts:
@@ -72,6 +73,7 @@ tests:
     set:
       muster.oauth.server.preRegisteredClientMetadata:
         - client_id: https://agentgateway.internal.example/auth/slack/client.json
+          client_name: klaus-gateway
           redirect_uris:
             - https://agentgateway.internal.example/auth/slack/callback
     asserts:
@@ -107,6 +109,7 @@ tests:
       muster.oauth.server.preRegisterPublicClients: true
       muster.oauth.server.preRegisteredClientMetadata:
         - client_id: https://claude.ai/oauth/mcp-oauth-client-metadata
+          client_name: Claude
           redirect_uris:
             - https://claude.ai/api/mcp/auth_callback
     asserts:
@@ -121,3 +124,42 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "restrictClientMetadata: true\\n\\s+clientMetadataHosts:\\n\\s+- clients\\.example"
+  - it: refuses a pinned document without client_name
+    set:
+      muster.oauth.server.preRegisteredClientMetadata:
+        - client_id: https://agentgateway.internal.example/auth/slack/client.json
+          redirect_uris:
+            - https://agentgateway.internal.example/auth/slack/callback
+    asserts:
+      - failedTemplate:
+          errorPattern: "missing property 'client_name'"
+  - it: refuses a pinned document with an empty client_name
+    set:
+      muster.oauth.server.preRegisteredClientMetadata:
+        - client_id: https://agentgateway.internal.example/auth/slack/client.json
+          client_name: ""
+          redirect_uris:
+            - https://agentgateway.internal.example/auth/slack/callback
+    asserts:
+      - failedTemplate:
+          errorPattern: "client_name"
+  - it: refuses a pinned document without redirect_uris
+    set:
+      muster.oauth.server.preRegisteredClientMetadata:
+        - client_id: https://agentgateway.internal.example/auth/slack/client.json
+          client_name: klaus-gateway
+          redirect_uris: []
+    asserts:
+      - failedTemplate:
+          errorPattern: "redirect_uris"
+  - it: refuses a pinned document with a confidential client authentication method
+    set:
+      muster.oauth.server.preRegisteredClientMetadata:
+        - client_id: https://agentgateway.internal.example/auth/slack/client.json
+          client_name: klaus-gateway
+          redirect_uris:
+            - https://agentgateway.internal.example/auth/slack/callback
+          token_endpoint_auth_method: client_secret_basic
+    asserts:
+      - failedTemplate:
+          errorPattern: "token_endpoint_auth_method': value must be 'none'"
