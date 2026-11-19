@@ -363,13 +363,24 @@ type OAuthMCPClientConfig struct {
 // OAuthTokenExchangeClientConfig configures the outbound RFC 8693
 // token-exchange client (MCPServer spec.auth.tokenExchange).
 type OAuthTokenExchangeClientConfig struct {
-	// AllowPrivateIP allows a remote Dex token endpoint (dexTokenEndpoint) to
-	// resolve to a private or loopback address: a Dex behind an internal-only
-	// load balancer whose public hostname resolves to an RFC 1918 address, as
-	// on a private management or workload cluster. Implied by --extra-ca-file
-	// (in-cluster TLS endpoints). WARNING: reduces the SSRF protection of the
-	// token-exchange client; emits a startup warning when set.
+	// AllowPrivateIP lets every token endpoint (dexTokenEndpoint) resolve to
+	// any private, loopback or link-local address. Implied by --extra-ca-file
+	// (in-cluster TLS endpoints). It overrides
+	// AllowPrivateIPTokenEndpointHosts.
+	//
+	// Deprecated: list the hosts in AllowPrivateIPTokenEndpointHosts. Setting
+	// it logs a startup warning.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
+
+	// AllowPrivateIPTokenEndpointHosts lists the token endpoint hostnames
+	// that may resolve to RFC 1918 and RFC 4193 addresses: a Dex behind an
+	// internal-only load balancer, as on a private management cluster.
+	// Loopback, link-local and unspecified addresses stay refused, and every
+	// other host keeps the SSRF guard. Hosts match exactly (no port, no
+	// wildcard), case-insensitively. With --extra-ca-file the listed hosts
+	// also trust that CA; with --extra-ca-file and no host listed every token
+	// endpoint may resolve to any private address.
+	AllowPrivateIPTokenEndpointHosts []string `yaml:"allowPrivateIPTokenEndpointHosts,omitempty"`
 }
 
 // OAuthCIMDConfig contains Client ID Metadata Document configuration.
@@ -530,16 +541,41 @@ type OAuthServerConfig struct {
 	// Reduces SSRF protection for CIMD fetches; mcp-oauth logs a startup
 	// warning when set. PKCE and redirect-URI checks are unchanged.
 	// Default: false
-	// Prefer AllowPrivateIPClientMetadataHosts when only known hosts are private.
+	//
+	// Deprecated: pin the clients in PreRegisteredClientMetadata. Setting it
+	// logs a startup warning.
 	AllowPrivateIPClientMetadata bool `yaml:"allowPrivateIPClientMetadata,omitempty"`
 
 	// AllowPrivateIPClientMetadataHosts is the host-scoped alternative to
-	// AllowPrivateIPClientMetadata: a CIMD client_id URL may resolve to a
-	// private, loopback or link-local address only when its hostname is listed
-	// (exact match, no port, no wildcard); every other host keeps the SSRF
-	// guard, at validation and at connection time. mcp-oauth logs a startup
-	// warning when set. Default: empty
+	// AllowPrivateIPClientMetadata: a CIMD client_id URL may resolve to an
+	// RFC 1918 or RFC 4193 address only when its hostname is listed (exact
+	// match, no port, no wildcard); loopback and link-local stay refused, and
+	// every other host keeps the SSRF guard, at validation and at connection
+	// time. Default: empty
+	//
+	// Deprecated: pin the clients in PreRegisteredClientMetadata; a pinned
+	// client needs no fetch. Setting it logs a startup warning.
 	AllowPrivateIPClientMetadataHosts []string `yaml:"allowPrivateIPClientMetadataHosts,omitempty"`
+
+	// PreRegisteredClientMetadata pins Client ID Metadata Documents: a client
+	// whose client_id is pinned here is served from this document and never
+	// fetched (CIMD draft 03 section 9.2). Use it where the document cannot or
+	// must not be fetched: an egress proxy that allows by domain, or a client
+	// on a private address. Pin only a document reviewed against its live URL;
+	// a change to the live document needs a new pin and a restart.
+	PreRegisteredClientMetadata []ClientMetadataDocument `yaml:"preRegisteredClientMetadata,omitempty"`
+
+	// RestrictClientMetadata accepts a URL client_id only when it is pinned in
+	// PreRegisteredClientMetadata or its host is in ClientMetadataHosts; every
+	// other one is refused before any DNS lookup. Needs at least one pin or
+	// host. Default: false
+	RestrictClientMetadata bool `yaml:"restrictClientMetadata,omitempty"`
+
+	// ClientMetadataHosts lists the hosts whose documents RestrictClientMetadata
+	// still lets the server fetch, under the SSRF guard (no private-address
+	// allowance). Exact hostnames, no port, no wildcard. Requires
+	// RestrictClientMetadata.
+	ClientMetadataHosts []string `yaml:"clientMetadataHosts,omitempty"`
 
 	// AllowPrivateIPRedirectURIs lets a client's redirect URI resolve to a
 	// private address (a literal RFC 1918 host or a hostname that resolves to
@@ -548,8 +584,18 @@ type OAuthServerConfig struct {
 	// client's callback with "redirect_uri: hostname resolves to private IP
 	// address (DNS rebinding protection)" even though the client itself was
 	// accepted. Reduces open-redirect/SSRF protection for redirect targets;
-	// mcp-oauth logs a startup warning when set. Default: false
+	// Default: false
+	//
+	// Deprecated: list the hosts in AllowPrivateIPRedirectURIHosts. Setting it
+	// logs a startup warning.
 	AllowPrivateIPRedirectURIs bool `yaml:"allowPrivateIPRedirectURIs,omitempty"`
+
+	// AllowPrivateIPRedirectURIHosts is the host-scoped alternative to
+	// AllowPrivateIPRedirectURIs: a redirect URI may resolve to an RFC 1918 or
+	// RFC 4193 address only when its hostname is listed (exact match, no
+	// port, no wildcard). AllowPrivateIPRedirectURIs overrides it. Default:
+	// empty
+	AllowPrivateIPRedirectURIHosts []string `yaml:"allowPrivateIPRedirectURIHosts,omitempty"`
 
 	// SessionDuration is the maximum session duration before re-authentication
 	// is required. This sets the server-side refresh token TTL.
@@ -645,10 +691,11 @@ type TokenExchangeBrokerConfig struct {
 	// to the downstream credential provider target.
 	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
 
-	// AllowPrivateIP allows downstream token endpoints to resolve to private
-	// or loopback IP addresses. WARNING: reduces SSRF protection; only enable
-	// for internal/VPN deployments where the target Dex is reachable via a
-	// private address.
+	// AllowPrivateIP has no effect: the broker's client dials any address a
+	// target's hostname resolves to, and a target endpoint is never an IP
+	// literal.
+	//
+	// Deprecated: remove it. Still accepted; setting it logs a startup warning.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
 
 	// DefaultSecretNamespace is the namespace used for target credential
@@ -774,8 +821,10 @@ type TrustedIssuerConfig struct {
 	// non-string is rejected.
 	SubjectClaim string `yaml:"subjectClaim,omitempty"`
 	// AllowPrivateIPJWKS allows the JwksURL to resolve to a private or loopback
-	// address, for a Dex on a private network. Emits a startup warning when set
-	// (mcp-oauth dev-override flag). Default: false.
+	// address, for a Dex on a private network. Default: false.
+	//
+	// Deprecated: list the host in AllowPrivateIPJWKSHosts. Setting it logs a
+	// startup warning.
 	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
 	// AllowPrivateIPJWKSHosts is the host-scoped alternative to AllowPrivateIPJWKS:
 	// the JwksURL may resolve to a private IP only when its hostname matches one of
@@ -846,14 +895,19 @@ type DexConfig struct {
 	// use each of them.
 	IdentityCheckConnectors []string `yaml:"identityCheckConnectors,omitempty"`
 
-	// AllowPrivateIPJWKS lets the JWKS fetch that validates forwarded ID tokens
-	// (TrustedAudiences) reach a Dex whose issuer resolves to a private or
-	// loopback address. Discovery, token and userinfo calls reach such a Dex
-	// without it.
+	// AllowPrivateIPJWKS lets the JWKS fetch that validates forwarded ID
+	// tokens (TrustedAudiences) resolve to any private, loopback or
+	// link-local address. Without it the Dex issuer host, which also serves
+	// jwks_uri, may still resolve to an RFC 1918 or RFC 4193 address.
+	//
+	// Deprecated: remove it unless Dex resolves to a loopback or link-local
+	// address. Setting it logs a startup warning.
 	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
 
-	// AllowPrivateIPOIDC is the deprecated alias for AllowPrivateIPJWKS.
-	// Either true value enables private-address JWKS fetching.
+	// AllowPrivateIPOIDC is the former name of AllowPrivateIPJWKS. Either true
+	// value enables it.
+	//
+	// Deprecated: remove it. Setting it logs a startup warning.
 	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
 }
 
@@ -911,4 +965,21 @@ type ValkeyConfig struct {
 
 	// DB is the Valkey database number (default: 0).
 	DB int `yaml:"db,omitempty"`
+}
+
+// ClientMetadataDocument is a Client ID Metadata Document with its JSON field
+// names, so a document can be pinned verbatim. Members mcp-oauth does not use,
+// such as application_type, are ignored.
+type ClientMetadataDocument struct {
+	ClientID                string   `yaml:"client_id"`
+	ClientName              string   `yaml:"client_name,omitempty"`
+	ClientURI               string   `yaml:"client_uri,omitempty"`
+	LogoURI                 string   `yaml:"logo_uri,omitempty"`
+	RedirectURIs            []string `yaml:"redirect_uris"`
+	GrantTypes              []string `yaml:"grant_types,omitempty"`
+	ResponseTypes           []string `yaml:"response_types,omitempty"`
+	TokenEndpointAuthMethod string   `yaml:"token_endpoint_auth_method,omitempty"`
+	Scope                   string   `yaml:"scope,omitempty"`
+	Contacts                []string `yaml:"contacts,omitempty"`
+	JWKSURI                 string   `yaml:"jwks_uri,omitempty"`
 }

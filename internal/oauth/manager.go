@@ -2,17 +2,21 @@ package oauth
 
 import (
 	"context"
+	"crypto/x509"
 	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
+
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
+	"github.com/giantswarm/muster/v5/pkg/tlsutil"
 )
 
 // AuthCompletionCallback is called after successful OAuth authentication.
@@ -124,30 +128,7 @@ func NewManager(cfg config.OAuthMCPClientConfig, opts ...ManagerOption) *Manager
 		logging.Info("OAuth", "Post-login redirect allowlist enabled with %d entries", len(prefixes))
 	}
 
-	// Create token exchanger for RFC 8693 cross-cluster SSO.
-	// Outbound TLS is handled by the augmented http.DefaultTransport (see
-	// internal/app/tls.go), so no per-client CA wiring is needed. When
-	// --extra-ca-file is set this muster is talking to in-cluster TLS endpoints,
-	// so allow the token-exchange client to resolve to private/loopback IPs
-	// (otherwise its SSRF guard rejects .svc.cluster.local targets like an
-	// in-cluster Dex). mcp-oauth's NewPrivateIPAllowedHTTPClient builds a fresh
-	// *http.Transport that bypasses the augmented pool, so hand the exchanger
-	// an explicit client backed by the augmented DefaultTransport.
-	// oauth.mcpClient.tokenExchange.allowPrivateIP lifts the same guard for a
-	// remote Dex whose public hostname resolves to a private address (an
-	// internal-only load balancer) without an internal CA: mcp-oauth then builds
-	// its client without the SSRF guard, TLS verification unchanged.
-	var tokenExchangeHTTPClient *http.Client
-	if cfg.ExtraCAFile != "" {
-		tokenExchangeHTTPClient = &http.Client{
-			Transport: http.DefaultTransport,
-			Timeout:   30 * time.Second,
-		}
-	}
-	tokenExchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{
-		AllowPrivateIP: cfg.ExtraCAFile != "" || cfg.TokenExchange.AllowPrivateIP,
-		HTTPClient:     tokenExchangeHTTPClient,
-	})
+	tokenExchanger := NewTokenExchangerWithOptions(tokenExchangerOptions(cfg))
 
 	m := &Manager{
 		config:         cfg,
@@ -558,4 +539,53 @@ func (m *Manager) Stop() {
 
 	m.client.Stop()
 	logging.Info("OAuth", "OAuth manager stopped")
+}
+
+// tokenExchangerOptions selects the client for RFC 8693 cross-cluster SSO.
+// An MCPServer chooses its token endpoint, so the SSRF guard stays on by
+// default. tokenExchange.allowPrivateIPTokenEndpointHosts lets the listed
+// token endpoint hosts resolve to RFC 1918 and RFC 4193 addresses and keeps
+// the guard for every other host; with --extra-ca-file that client also
+// trusts the extra CA. With --extra-ca-file and no listed hosts the client
+// dials on the process-wide transport, which carries the extra CA, with no
+// private-address guard, and a startup warning says to list the hosts.
+func tokenExchangerOptions(cfg config.OAuthMCPClientConfig) TokenExchangerOptions {
+	hosts := cfg.TokenExchange.AllowPrivateIPTokenEndpointHosts
+	processTransport := &http.Client{Transport: http.DefaultTransport, Timeout: 30 * time.Second}
+	switch {
+	case cfg.TokenExchange.AllowPrivateIP: //nolint:staticcheck // SA1019: accepted until no installation sets it
+		logging.Warn("OAuth", "DEPRECATED: oauth.mcpClient.tokenExchange.allowPrivateIP lifts the private-IP check for every token endpoint; list the hosts in oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts instead")
+		if len(hosts) > 0 {
+			logging.Warn("OAuth", "oauth.mcpClient.tokenExchange.allowPrivateIP overrides allowPrivateIPTokenEndpointHosts %v: every token endpoint may resolve to a private address", hosts)
+		}
+		if cfg.ExtraCAFile != "" {
+			return TokenExchangerOptions{AllowPrivateIP: true, HTTPClient: processTransport}
+		}
+		return TokenExchangerOptions{AllowPrivateIP: true}
+	case len(hosts) > 0:
+		return TokenExchangerOptions{
+			HTTPClient: oidc.NewHostScopedPrivateIPHTTPClient(hosts, oidc.DefaultHTTPTimeout, extraCAPool(cfg.ExtraCAFile)),
+		}
+	case cfg.ExtraCAFile != "":
+		logging.Warn("OAuth", "--extra-ca-file without oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts lets every token endpoint resolve to any private, loopback or link-local address; list the token endpoint hosts that resolve privately: a later release keeps the SSRF guard on here")
+		return TokenExchangerOptions{AllowPrivateIP: true, HTTPClient: processTransport}
+	default:
+		return TokenExchangerOptions{}
+	}
+}
+
+// extraCAPool returns the system roots plus the PEM file at path, or nil
+// (the system roots) when path is empty or cannot be read. Bootstrap has
+// already loaded the same file into the process-wide transport and fails
+// startup when it cannot.
+func extraCAPool(path string) *x509.CertPool {
+	if path == "" {
+		return nil
+	}
+	pool, err := tlsutil.LoadCAPool(path)
+	if err != nil {
+		logging.Error("OAuth", err, "Token exchange: cannot load --extra-ca-file %s; the host-scoped client trusts the system roots only", path)
+		return nil
+	}
+	return pool
 }

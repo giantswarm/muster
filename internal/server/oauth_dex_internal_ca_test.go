@@ -103,7 +103,7 @@ func TestNewDexProviderConfig_LabDexInternalCA(t *testing.T) {
 				IssuerURL:          issuer,
 				ClientID:           "muster",
 				ClientSecret:       "secret",
-				AllowPrivateIPJWKS: allowPrivateIPJWKS,
+				AllowPrivateIPJWKS: allowPrivateIPJWKS, //nolint:staticcheck // SA1019: covers the deprecated setting
 			},
 		}
 		dexConfig := newDexProviderConfig(cfg, "https://muster.example.com/oauth/callback", pool, noAudiences)

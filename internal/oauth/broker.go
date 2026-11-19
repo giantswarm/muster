@@ -46,21 +46,16 @@ type BrokerExchanger struct {
 // accepts when it lists no subjectIssuers: the Dex issuer of muster's own
 // sign-in.
 func NewBrokerExchanger(cfg config.TokenExchangeBrokerConfig, defaultSubjectIssuer string) *BrokerExchanger {
-	// Mirror the OAuth manager's internal-deployment handling: mcp-oauth's
-	// private-IP-allowed client bypasses the process-wide augmented transport
-	// (--extra-ca-file), so hand the exchanger an explicit client backed by
-	// http.DefaultTransport when private IPs are allowed. The timeout is
-	// unconditional: downstream API calls must not block indefinitely.
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	if cfg.AllowPrivateIP {
-		httpClient.Transport = http.DefaultTransport
-	}
+	// Targets are operator configuration, and a hub reaches a private
+	// installation's Dex through a ClusterIP Service, so the client dials on
+	// the process-wide transport (which carries --extra-ca-file) with no
+	// private-address guard. The timeout keeps a downstream call from
+	// blocking indefinitely.
 	return &BrokerExchanger{
 		cfg:                  cfg,
 		defaultSubjectIssuer: defaultSubjectIssuer,
 		exchanger: NewTokenExchangerWithOptions(TokenExchangerOptions{
-			AllowPrivateIP: cfg.AllowPrivateIP,
-			HTTPClient:     httpClient,
+			HTTPClient: &http.Client{Transport: http.DefaultTransport, Timeout: 30 * time.Second},
 		}),
 	}
 }
