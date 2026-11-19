@@ -773,7 +773,7 @@ func (a *AggregatorServer) onRequestAuthenticated(ctx context.Context, sessionID
 	_, _ = a.capabilityStore.Touch(ctx, sessionID)
 
 	sso := ssoSessionFromContext(ctx, sessionID)
-	a.bindBearerSession(sso)
+	a.bindBearerSession(ctx, sso)
 
 	logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
 		slog.Any("session", sso),

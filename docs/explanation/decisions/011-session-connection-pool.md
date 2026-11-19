@@ -94,9 +94,11 @@ Every path that invalidates session or server state now covers all three stores:
 | Session revocation | `RevokeSession` | `Delete` | `EvictSession` |
 | Server deregistration | `RevokeServer` | `DeleteServer` | `EvictServer` |
 | User token deletion | `RevokeSession` (per sid) | `Delete` (per sid) | `EvictSession` (per sid) |
-| Forwarded bearer expired (session keyed by it) | `RevokeSession` | `Delete` | `EvictSession` |
+| Latest forwarded bearer of the session expired (session keyed by the principal) | `RevokeSession` | `Delete` | `EvictSession` |
 | Graceful shutdown | `Stop` | `Stop` | `Stop` + `DrainAll` |
 | Idle timeout | TTL timer | TTL timer | Reaper goroutine |
+
+A forwarded or trusted-issuer JWT bearer binds its session's end to its `exp` (#1327). Since #1385 that session is keyed by the bearer's **principal** (`ForwardedSessionIdentityPrincipal`), not its bytes, so every refreshed token of the same person has the same session ID. The session therefore ends at the `exp` of the **latest validated bearer** muster saw for it: a request whose bearer has a later `exp` moves the binding (the timer is replaced), an earlier or equal `exp` changes nothing, and a session that gets no valid bearer after the last bound `exp` ends at that `exp`. Each replica binds from the requests it sees and also records the latest `exp` in Valkey (`{prefix}bearer-exp:{sessionID}`, only ever moved forward). A replica whose timer fires reads that record first: a later, still valid `exp` moves its binding instead of ending the session, so a replica that saw only the first token does not revoke the shared auth state a live session stands on. When the record cannot be read, the replica ends the session at the `exp` it saw.
 
 ### 6. Dead Code Removal
 
