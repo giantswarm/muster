@@ -29,7 +29,6 @@ import (
 
 	oauth "github.com/giantswarm/mcp-oauth"
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
-	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -196,12 +195,14 @@ type AggregatorServer struct {
 	// ssoBootstrap): a session's first request starts it and is answered
 	// while it runs; a later request of the session waits here for the
 	// servers it needs. ssoBootstrapped records when a session's fan-out
-	// last started, so the requests of a session that ended up with no
-	// connected server (every connect failed) do not clear the person's
-	// failure backoff and start a fan-out each -- the first request of a
-	// session does that once. Both guarded by ssoBootstrapsMu.
+	// last started and whether the session held auth state since then, so
+	// the requests of a session that ended up with no connected server
+	// (every connect failed) do not clear the person's failure backoff and
+	// start a fan-out each -- the first request of a session does that
+	// once, and once more after auth state it held has ended (see
+	// claimSessionBootstrap). Both guarded by ssoBootstrapsMu.
 	ssoBootstraps   map[string]*ssoBootstrap
-	ssoBootstrapped map[string]time.Time
+	ssoBootstrapped map[string]ssoBootstrapMark
 	ssoBootstrapsMu sync.Mutex
 
 	// ssoConnect connects one SSO server for a session's fan-out. Nil means
@@ -1792,85 +1793,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	// Store the OAuth HTTP server for cleanup during shutdown
 	a.oauthHTTPServer = oauthHTTPServer
 
-	// On every authenticated request, extend the capability store TTL.
-	// If the session is new or has expired (e.g. user returns after
-	// inactivity, or Valkey was restarted), start its SSO fan-out in the
-	// background and answer the request meanwhile: tools/list returns the
-	// meta-tools, which need none of the connections, and a call for a
-	// server still connecting waits for that server alone (#1226).
-	// Also detects broken upstream refresh chains: when authAlive is true but
-	// the ID token has disappeared, SSO connections are evicted to stop the
-	// mcp-go retry loop from spamming errors with expired tokens.
-	onAuthenticated := func(ctx context.Context, sessionID string) {
-		if a.capabilityStore == nil {
-			return
-		}
-		var authAlive bool
-		if a.authStore != nil {
-			authAlive, _ = a.authStore.Touch(ctx, sessionID)
-		}
-		_, _ = a.capabilityStore.Touch(ctx, sessionID)
-
-		sso := ssoSessionFromContext(ctx, sessionID)
-		a.bindBearerSession(sso)
-
-		logging.InfoWithAttrs("Aggregator", "SSO: onAuthenticated callback",
-			slog.Any("session", sso),
-			slog.Bool("authAlive", authAlive))
-
-		if authAlive {
-			if !sso.canBootstrapSSO() {
-				if sso.tokenSource == providers.TokenSourceTrustedIssuer {
-					return
-				}
-				// No usable subject token: the upstream credential is gone.
-				// Evict stale SSO connections to stop mcp-go's infinite
-				// 1-second retry loop.
-				a.handleUpstreamRefreshFailure(sessionID, sso.userID, "onAuthenticated: no usable subject token for active session")
-				return
-			}
-			// After a pod restart the auth store survives in Valkey but the
-			// in-memory conn pool is empty. Trigger SSO re-init if any
-			// token-exchange server is registered but has no pooled client.
-			// Failure backoff is intentionally NOT cleared here: the tracker is
-			// in-memory, so after a restart there are no stale failures, and
-			// clearing it on every request would retry a persistently failing
-			// exchange per-request instead of on the backoff schedule.
-			// A fan-out already running for the session (a sign-in's, whose
-			// fast servers made the session live) covers the misses.
-			if a.getMusterIssuer() != "" && a.sessionBootstrap(sessionID) == nil &&
-				a.ssoPoolMissNeedingInitOf(sso.userID, sessionID, seesFunc(api.CallerVisibility(sso.connectContext(context.Background())))) {
-				logging.InfoWithAttrs("Aggregator", "SSO: pool miss on live session, triggering SSO re-init",
-					slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-				a.beginSessionBootstrap(sso)
-			}
-			return
-		}
-
-		if !sso.canBootstrapSSO() {
-			logging.InfoWithAttrs("Aggregator", "SSO: skipping bootstrap, no usable subject token",
-				slog.String("sessionID", logging.TruncateIdentifier(sessionID)))
-			return
-		}
-
-		// A session's first fan-out clears the person's prior SSO failures so
-		// all servers are retried: servers that failed during a previous init
-		// (e.g. before a pod restart or after a transient token-storage error)
-		// would otherwise be skipped for ssoTrackerFailureTTL although the
-		// cause may be gone. Only the first: a session whose every connect
-		// failed has no connected server and lands here on each request, and
-		// clearing then would retry the failing exchange per request instead
-		// of on the tracker's backoff -- and, with the fan-out in the
-		// background, show the server as pending on every status read.
-		if a.sessionBootstrapped(sessionID) {
-			return
-		}
-		if a.ssoTracker != nil && sso.userID != "" {
-			a.ssoTracker.ClearAllSSOFailed(sso.userID)
-		}
-
-		a.beginSessionBootstrap(sso)
-	}
+	onAuthenticated := a.onRequestAuthenticated
 	oauthHTTPServer.SetOnAuthenticated(onAuthenticated)
 
 	logging.InfoWithAttrs("Aggregator", "OAuth 2.1 server protection enabled",
