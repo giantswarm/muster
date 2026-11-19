@@ -54,10 +54,10 @@ github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 h1:DklsrG3d
 github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2/go.mod h1:WaHUgvxTVq04UNunO+XhnAqY/wQc+bxr74GqbsZ/Jqw=
 github.com/aws/aws-sdk-go-v2 v1.48.0 h1:tFU7EJVm7MfyaXLsXdYTZ0Vd6vwt9OljCyqq0gqk0Mc=
 github.com/aws/aws-sdk-go-v2 v1.48.0/go.mod h1:oeKU5p+TQBnpeLmU42WZLWvzv+ORLn+74n4QVLnm/Z0=
-github.com/aws/aws-sdk-go-v2/config v1.33.19 h1:M0aPu5EdAMR6lGYN2GvM76WY0yqTyDi+gxV7s7Cdnr8=
-github.com/aws/aws-sdk-go-v2/config v1.33.19/go.mod h1:FSZkRx5fOaq82bZkGZrK+dXFgWvI4iIE0Y6ADmEKDag=
-github.com/aws/aws-sdk-go-v2/credentials v1.21.1 h1:4iuMmYSa42WMeClXjzE+HoZIeBud6o/bd00BN6WM9H4=
-github.com/aws/aws-sdk-go-v2/credentials v1.21.1/go.mod h1:OffaVQod3fyZzhZJyPtw11WpHPF1uIHADc+/MYlXmbA=
+github.com/aws/aws-sdk-go-v2/config v1.33.20 h1:tcppf3ihhY8KsiVN5NJAN4uMlHc9NZrPRhkSuBTkqag=
+github.com/aws/aws-sdk-go-v2/config v1.33.20/go.mod h1:WErTFkC327Fgt5x4SZHD2t1L64HTRb2kW42SqzEWxnA=
+github.com/aws/aws-sdk-go-v2/credentials v1.21.2 h1:PWB8NaorQv2OzyNjXMy6RjBh+HzneyxY2ECC58jV600=
+github.com/aws/aws-sdk-go-v2/credentials v1.21.2/go.mod h1:N/A5a+8LDrdI9pcr4ZjuHuQIHU5km3rtDuVzt+xW2C4=
 github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.9 h1:oH1E0tjN0g+ZRusbX1dsuat4FJ0z05l8hWaycSbDuNc=
 github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.9/go.mod h1:3ZaQGigIoaS45x9HgnLZ4sP475Fs7QoxU3IsZX/J3h4=
 github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.12 h1:W0yUUzKBA8SofGQ0yZafEUuZq9UxfvijRgdc6vcRQPA=
@@ -72,8 +72,8 @@ github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.12 h1:wzAqMZ2O
 github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.14.12/go.mod h1:/0TfyruByHsOlphzP26xDTRe2DKD0J1I1Uyy2TyP8EI=
 github.com/aws/aws-sdk-go-v2/service/kms v1.52.0 h1:QNtg+Mtj1zmepk568+UKBD5DFfqh+ESTUUqQT27JkQc=
 github.com/aws/aws-sdk-go-v2/service/kms v1.52.0/go.mod h1:Y0+uxvxz6ib4KktRdK0V4X45Vcs/JyYoz8H71pO8xeI=
-github.com/aws/aws-sdk-go-v2/service/signin v1.13.1 h1:ssrDA6AKfXEc3h0Pf4EI4vQ8sN5Zd136SrU9Tjr0XPc=
-github.com/aws/aws-sdk-go-v2/service/signin v1.13.1/go.mod h1:LdwHjKqPE9VCC7sTlWcOAizZx3ZJYjmfwC/EW2tIIAE=
+github.com/aws/aws-sdk-go-v2/service/signin v1.14.0 h1:bIEk1HfTd3MGzvDa5YOQUodGr96D9+UTnmBLBB8ZJ10=
+github.com/aws/aws-sdk-go-v2/service/signin v1.14.0/go.mod h1:LdwHjKqPE9VCC7sTlWcOAizZx3ZJYjmfwC/EW2tIIAE=
 github.com/aws/aws-sdk-go-v2/service/sso v1.39.5 h1:ANAoa+qt3/9kXnvQVgUyxcTzhzZf4DqaBS+M2DQrELU=
 github.com/aws/aws-sdk-go-v2/service/sso v1.39.5/go.mod h1:vsMi+SSR7xGQXtV430LVi49qbv/R+U+upHHSp1W/+QI=
 github.com/aws/aws-sdk-go-v2/service/ssooidc v1.44.5 h1:uIOBLMhef4N16WguadoHKuBy9etdz+RKTeqzchXErAI=
@@ -321,8 +321,8 @@ github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
 github.com/letsencrypt/boulder v0.20260309.0 h1:kZynrxK3QfqLGx6hhoz+Rfs3hgltJs1p9Mp+4+VwnY0=
 github.com/letsencrypt/boulder v0.20260309.0/go.mod h1:yG8lj8pNPZ8taq3oNdTpfBS+eC74IaEuiewqzVpXiWE=
-github.com/mark3labs/mcp-go v1.5.1-0.20261117130628-5202ddf3a7d2 h1:YA4+WvwqgrhX4DtHWt8uSh72SjSmdVzmp1qVz5s1B8s=
-github.com/mark3labs/mcp-go v1.5.1-0.20261117130628-5202ddf3a7d2/go.mod h1:6L8eBboqlAMnYrvl8rpbUeV2qE/SJh52aVGrXIomVb0=
+github.com/mark3labs/mcp-go v1.5.1-0.20261118124553-077651fd1132 h1:c43GPOIr7pcYR7k44y3N3+jKR2jWK0/fEmnuLqrd10Q=
+github.com/mark3labs/mcp-go v1.5.1-0.20261118124553-077651fd1132/go.mod h1:6L8eBboqlAMnYrvl8rpbUeV2qE/SJh52aVGrXIomVb0=
 github.com/mark3labs/mcp-go/otel v0.54.0 h1:ZRr8iC9skLwLGXOscFEsbdbIn3f1RdX8O292S5SU7P4=
 github.com/mark3labs/mcp-go/otel v0.54.0/go.mod h1:P16AS19jEeF6qI1yVQ06yxK8aMc5y6dP46apwGnZzKg=
 github.com/mattn/go-colorable v0.1.14 h1:9A9LHSqF/7dyVVX6g0U9cwm9pG3kP9gSzcuIPHPsaIE=
