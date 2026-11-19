@@ -391,7 +391,16 @@
                                     "additionalProperties": false,
                                     "properties": {
                                         "allowPrivateIP": {
-                                            "type": "boolean"
+                                            "type": "boolean",
+                                            "description": "Deprecated: list the hosts in allowPrivateIPTokenEndpointHosts. Lets every token endpoint resolve to any private, loopback or link-local address and overrides allowPrivateIPTokenEndpointHosts. Implied when extraCaFile is set. Still accepted; logs a startup warning.",
+                                            "deprecated": true
+                                        },
+                                        "allowPrivateIPTokenEndpointHosts": {
+                                            "type": "array",
+                                            "description": "Token endpoint hostnames that may resolve to RFC 1918 or RFC 4193 addresses: a remote Dex behind an internal-only load balancer. Loopback and link-local stay refused, and every other host keeps the SSRF guard. Exact match, no port, no wildcard. Ignored when extraCaFile is set, which lifts the guard for every token endpoint. Example: - dex.example.internal",
+                                            "items": {
+                                                "type": "string"
+                                            }
                                         }
                                     }
                                 }
@@ -415,6 +424,13 @@
                                 },
                                 "allowPrivateIPClientMetadataHosts": {
                                     "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "allowPrivateIPRedirectURIHosts": {
+                                    "type": "array",
+                                    "description": "The host-scoped alternative to allowPrivateIPRedirectURIs: a redirect URI may resolve to an RFC 1918 or RFC 4193 address only when its hostname is listed (exact match, no port, no wildcard). allowPrivateIPRedirectURIs overrides it. Default: empty. Example: - agentgateway.internal.example",
                                     "items": {
                                         "type": "string"
                                     }
@@ -456,11 +472,12 @@
                                     "properties": {
                                         "allowPrivateIPJWKS": {
                                             "type": "boolean",
-                                            "description": "Let the JWKS fetch that validates forwarded ID tokens (trustedAudiences) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it."
+                                            "description": "Deprecated: let the JWKS fetch that validates forwarded ID tokens (trustedAudiences) reach any private, loopback or link-local address. Without it the Dex issuer host may still resolve to an RFC 1918 or RFC 4193 address, so remove it unless Dex resolves to loopback or link-local. Logs a startup warning.",
+                                            "deprecated": true
                                         },
                                         "allowPrivateIPOIDC": {
                                             "type": "boolean",
-                                            "description": "Deprecated alias for allowPrivateIPJWKS. Either true value permits private-address JWKS fetching. Remove this key to disable the alias; setting allowPrivateIPJWKS to false does not override a true alias. Removed in v5.64.0, scheduled for 2027-02-17.",
+                                            "description": "Deprecated: the former name of allowPrivateIPJWKS; either true value enables it. Logs a startup warning.",
                                             "deprecated": true
                                         },
                                         "clientId": {

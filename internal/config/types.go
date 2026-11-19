@@ -363,13 +363,23 @@ type OAuthMCPClientConfig struct {
 // OAuthTokenExchangeClientConfig configures the outbound RFC 8693
 // token-exchange client (MCPServer spec.auth.tokenExchange).
 type OAuthTokenExchangeClientConfig struct {
-	// AllowPrivateIP allows a remote Dex token endpoint (dexTokenEndpoint) to
-	// resolve to a private or loopback address: a Dex behind an internal-only
-	// load balancer whose public hostname resolves to an RFC 1918 address, as
-	// on a private management or workload cluster. Implied by --extra-ca-file
-	// (in-cluster TLS endpoints). WARNING: reduces the SSRF protection of the
-	// token-exchange client; emits a startup warning when set.
+	// AllowPrivateIP lets every token endpoint (dexTokenEndpoint) resolve to
+	// any private, loopback or link-local address. Implied by --extra-ca-file
+	// (in-cluster TLS endpoints). It overrides
+	// AllowPrivateIPTokenEndpointHosts.
+	//
+	// Deprecated: list the hosts in AllowPrivateIPTokenEndpointHosts. Setting
+	// it logs a startup warning.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
+
+	// AllowPrivateIPTokenEndpointHosts lists the token endpoint hostnames
+	// that may resolve to RFC 1918 and RFC 4193 addresses: a Dex behind an
+	// internal-only load balancer, as on a private management cluster.
+	// Loopback, link-local and unspecified addresses stay refused, and every
+	// other host keeps the SSRF guard. Hosts match exactly (no port, no
+	// wildcard), case-insensitively. Ignored with --extra-ca-file, which
+	// lifts the guard for every host.
+	AllowPrivateIPTokenEndpointHosts []string `yaml:"allowPrivateIPTokenEndpointHosts,omitempty"`
 }
 
 // OAuthCIMDConfig contains Client ID Metadata Document configuration.
@@ -549,7 +559,15 @@ type OAuthServerConfig struct {
 	// address (DNS rebinding protection)" even though the client itself was
 	// accepted. Reduces open-redirect/SSRF protection for redirect targets;
 	// mcp-oauth logs a startup warning when set. Default: false
+	// Prefer AllowPrivateIPRedirectURIHosts when only known hosts are private.
 	AllowPrivateIPRedirectURIs bool `yaml:"allowPrivateIPRedirectURIs,omitempty"`
+
+	// AllowPrivateIPRedirectURIHosts is the host-scoped alternative to
+	// AllowPrivateIPRedirectURIs: a redirect URI may resolve to an RFC 1918 or
+	// RFC 4193 address only when its hostname is listed (exact match, no
+	// port, no wildcard). AllowPrivateIPRedirectURIs overrides it. Default:
+	// empty
+	AllowPrivateIPRedirectURIHosts []string `yaml:"allowPrivateIPRedirectURIHosts,omitempty"`
 
 	// SessionDuration is the maximum session duration before re-authentication
 	// is required. This sets the server-side refresh token TTL.
@@ -645,10 +663,11 @@ type TokenExchangeBrokerConfig struct {
 	// to the downstream credential provider target.
 	Targets map[string]BrokerTargetConfig `yaml:"targets,omitempty"`
 
-	// AllowPrivateIP allows downstream token endpoints to resolve to private
-	// or loopback IP addresses. WARNING: reduces SSRF protection; only enable
-	// for internal/VPN deployments where the target Dex is reachable via a
-	// private address.
+	// AllowPrivateIP has no effect: the broker's client dials any address a
+	// target's hostname resolves to, and a target endpoint is never an IP
+	// literal.
+	//
+	// Deprecated: remove it. Still accepted; setting it logs a startup warning.
 	AllowPrivateIP bool `yaml:"allowPrivateIP,omitempty"`
 
 	// DefaultSecretNamespace is the namespace used for target credential
@@ -846,14 +865,19 @@ type DexConfig struct {
 	// use each of them.
 	IdentityCheckConnectors []string `yaml:"identityCheckConnectors,omitempty"`
 
-	// AllowPrivateIPJWKS lets the JWKS fetch that validates forwarded ID tokens
-	// (TrustedAudiences) reach a Dex whose issuer resolves to a private or
-	// loopback address. Discovery, token and userinfo calls reach such a Dex
-	// without it.
+	// AllowPrivateIPJWKS lets the JWKS fetch that validates forwarded ID
+	// tokens (TrustedAudiences) resolve to any private, loopback or
+	// link-local address. Without it the Dex issuer host, which also serves
+	// jwks_uri, may still resolve to an RFC 1918 or RFC 4193 address.
+	//
+	// Deprecated: remove it unless Dex resolves to a loopback or link-local
+	// address. Setting it logs a startup warning.
 	AllowPrivateIPJWKS bool `yaml:"allowPrivateIPJWKS,omitempty"`
 
-	// AllowPrivateIPOIDC is the deprecated alias for AllowPrivateIPJWKS.
-	// Either true value enables private-address JWKS fetching.
+	// AllowPrivateIPOIDC is the former name of AllowPrivateIPJWKS. Either true
+	// value enables it.
+	//
+	// Deprecated: remove it. Setting it logs a startup warning.
 	AllowPrivateIPOIDC bool `yaml:"allowPrivateIPOIDC,omitempty"`
 }
 

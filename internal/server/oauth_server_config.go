@@ -80,13 +80,12 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		EnableUserInfoEndpoint:                true,
 		TrustedPublicRegistrationSchemes:      cfg.TrustedPublicRegistrationSchemes,
 		TrustedPublicRegistrationRedirectURIs: cfg.TrustedPublicRegistrationRedirectURIs,
-		AllowPrivateIPClientMetadata:          cfg.AllowPrivateIPClientMetadata,
+		AllowPrivateIPClientMetadata:          cfg.AllowPrivateIPClientMetadata, //nolint:staticcheck // accepted until no installation sets it; mcp-oauth warns
 		AllowPrivateIPClientMetadataHosts:     cfg.AllowPrivateIPClientMetadataHosts,
-		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirectURIs,
+		AllowPrivateIPRedirectURIs:            cfg.AllowPrivateIPRedirectURIs, //nolint:staticcheck // accepted until no installation sets it; mcp-oauth warns
+		AllowPrivateIPRedirectURIHosts:        cfg.AllowPrivateIPRedirectURIHosts,
 		TrustedAudiences:                      cfg.TrustedAudiences,
-		// The forwarded-ID-token (TrustedAudiences) JWKS fetch is the only
-		// Dex call behind mcp-oauth's private-address guard.
-		AllowPrivateIPJWKS: cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC,
+		AllowPrivateIPJWKS:                    cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC, //nolint:staticcheck // accepted until forward mode goes; muster and mcp-oauth warn
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see
 		// buildOAuthServerOptions); a miss returns invalid_target.
@@ -322,7 +321,7 @@ func toTrustedIssuer(iss config.TrustedIssuerConfig, caPool *x509.CertPool) oaut
 		AllowedAudiences:        iss.AllowedAudiences,
 		AllowedScopes:           iss.AllowedScopes,
 		SubjectClaim:            iss.SubjectClaim,
-		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS,
+		AllowPrivateIPJWKS:      iss.AllowPrivateIPJWKS, //nolint:staticcheck // accepted until no installation sets it; mcp-oauth warns
 		AllowPrivateIPJWKSHosts: iss.AllowPrivateIPJWKSHosts,
 		AcceptedTypHeaders:      iss.AcceptedTypHeaders,
 		RootCAs:                 caPool,
@@ -381,4 +380,18 @@ func logEnabledOAuthOptions(logger *slog.Logger) {
 	logger.Info("Client registration rate limiting enabled", "maxClientsPerIP", DefaultMaxClientsPerIP)
 	logger.Info("CIMD metadata-fetch rate limiting enabled", "rate", DefaultMetadataFetchRate, "burst", DefaultMetadataFetchBurst)
 
+}
+
+// logDeprecatedPrivateIPSettings warns about each deprecated private-address
+// setting in use.
+func logDeprecatedPrivateIPSettings(cfg config.OAuthServerConfig, logger *slog.Logger) {
+	if cfg.Dex.AllowPrivateIPOIDC {
+		logger.Warn("DEPRECATED: dex.allowPrivateIPOIDC is the former name of dex.allowPrivateIPJWKS; remove it")
+	}
+	if cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC {
+		logger.Warn("DEPRECATED: dex.allowPrivateIPJWKS lets the forwarded-token JWKS fetch reach any private, loopback or link-local address; the Dex issuer host may resolve to an RFC 1918 or RFC 4193 address without it, so remove it unless Dex resolves to loopback or link-local")
+	}
+	if cfg.TokenExchangeBroker.AllowPrivateIP {
+		logger.Warn("DEPRECATED: tokenExchangeBroker.allowPrivateIP has no effect; remove it")
+	}
 }

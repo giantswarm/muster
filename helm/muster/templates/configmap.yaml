@@ -74,9 +74,17 @@ data:
           postLoginRedirectAllowlist:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- if .Values.muster.oauth.mcpClient.tokenExchange.allowPrivateIP }}
+          {{- with .Values.muster.oauth.mcpClient.tokenExchange }}
+          {{- if or .allowPrivateIP .allowPrivateIPTokenEndpointHosts }}
           tokenExchange:
+            {{- if .allowPrivateIP }}
             allowPrivateIP: true
+            {{- end }}
+            {{- with .allowPrivateIPTokenEndpointHosts }}
+            allowPrivateIPTokenEndpointHosts:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
+          {{- end }}
           {{- end }}
         {{- end }}
         {{- if .Values.muster.oauth.server.enabled }}
@@ -144,6 +152,10 @@ data:
           {{- end }}
           {{- if .Values.muster.oauth.server.allowPrivateIPRedirectURIs }}
           allowPrivateIPRedirectURIs: true
+          {{- end }}
+          {{- with .Values.muster.oauth.server.allowPrivateIPRedirectURIHosts }}
+          allowPrivateIPRedirectURIHosts:
+            {{- toYaml . | nindent 12 }}
           {{- end }}
           {{- with .Values.muster.oauth.server.providerTokenRefreshThreshold }}
           providerTokenRefreshThreshold: {{ . | quote }}

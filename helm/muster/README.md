@@ -129,7 +129,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.mcpClient.cimd.path | string | `"/.well-known/oauth-client.json"` |  |
 | muster.oauth.mcpClient.cimd.scopes | string | `""` |  |
 | muster.oauth.mcpClient.postLoginRedirectAllowlist | list | `[]` |  |
-| muster.oauth.mcpClient.tokenExchange.allowPrivateIP | bool | `false` |  |
+| muster.oauth.mcpClient.tokenExchange.allowPrivateIP | bool | `false` | Deprecated: list the hosts in allowPrivateIPTokenEndpointHosts. Lets every token endpoint resolve to any private, loopback or link-local address and overrides allowPrivateIPTokenEndpointHosts. Implied when extraCaFile is set. Still accepted; logs a startup warning. |
+| muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts | list | `[]` | Token endpoint hostnames that may resolve to RFC 1918 or RFC 4193 addresses: a remote Dex behind an internal-only load balancer. Loopback and link-local stay refused, and every other host keeps the SSRF guard. Exact match, no port, no wildcard. Ignored when extraCaFile is set, which lifts the guard for every token endpoint. Example:   - dex.example.internal |
 | muster.oauth.server.enabled | bool | `false` |  |
 | muster.oauth.server.acknowledgeUnauthenticatedExposure | bool | `false` | Publish muster through ingress or gatewayAPI while enabled is false. Without OAuth every request is served as the synthetic default-user, so the chart refuses to render an Ingress or HTTPRoute unless this is set. Only for a deliberately unauthenticated install behind a trusted proxy that authenticates every request itself. |
 | muster.oauth.server.baseUrl | string | `""` |  |
@@ -139,8 +140,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.dex.clientSecret | string | `""` |  |
 | muster.oauth.server.dex.connectorId | string | `""` |  |
 | muster.oauth.server.dex.identityCheckConnectors | list | `[]` |  |
-| muster.oauth.server.dex.allowPrivateIPJWKS | bool | `false` | Let the JWKS fetch that validates forwarded ID tokens (trustedAudiences) reach a Dex whose issuer resolves to a private or loopback address. Discovery, token and userinfo calls reach such a Dex without it. |
-| muster.oauth.server.dex.allowPrivateIPOIDC | bool | `false` | Deprecated alias for allowPrivateIPJWKS. Either true value permits private-address JWKS fetching. Remove this key to disable the alias; setting allowPrivateIPJWKS to false does not override a true alias. Removed in v5.64.0, scheduled for 2027-02-17. |
+| muster.oauth.server.dex.allowPrivateIPJWKS | bool | `false` | Deprecated: let the JWKS fetch that validates forwarded ID tokens (trustedAudiences) reach any private, loopback or link-local address. Without it the Dex issuer host may still resolve to an RFC 1918 or RFC 4193 address, so remove it unless Dex resolves to loopback or link-local. Logs a startup warning. |
+| muster.oauth.server.dex.allowPrivateIPOIDC | bool | `false` | Deprecated: the former name of allowPrivateIPJWKS; either true value enables it. Logs a startup warning. |
 | muster.oauth.server.google.clientId | string | `""` |  |
 | muster.oauth.server.google.clientSecret | string | `""` |  |
 | muster.oauth.server.existingSecret | string | `""` |  |
@@ -166,6 +167,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.allowPrivateIPClientMetadata | bool | `false` |  |
 | muster.oauth.server.allowPrivateIPClientMetadataHosts | list | `[]` |  |
 | muster.oauth.server.allowPrivateIPRedirectURIs | bool | `false` |  |
+| muster.oauth.server.allowPrivateIPRedirectURIHosts | list | `[]` | The host-scoped alternative to allowPrivateIPRedirectURIs: a redirect URI may resolve to an RFC 1918 or RFC 4193 address only when its hostname is listed (exact match, no port, no wildcard). allowPrivateIPRedirectURIs overrides it. Default: empty. Example:   - agentgateway.internal.example |
 | muster.oauth.server.trustedAudiences | list | `[]` | ------------------------------------------------------------------------- OIDC client IDs (audiences) whose JWTs muster accepts directly as bearer tokens without the client completing muster's own OAuth flow.  The token's aud claim must match one of these values and the signature must validate against the provider's JWKS. SECURITY: only list client IDs you fully trust. |
 | muster.oauth.server.trustedIssuers | list | `[]` |  |
 | muster.oauth.server.delegation.actorToken.enabled | bool | `false` |  |

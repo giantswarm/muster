@@ -65,10 +65,31 @@ func TestNewOAuthHTTPServerWarnsForDexJWKSSettingAlias(t *testing.T) {
 		require.ErrorContains(t, err, "unsupported OAuth provider")
 		if alias {
 			require.Contains(t, output.String(), "level=WARN")
-			require.Contains(t, output.String(), "dex.allowPrivateIPOIDC is deprecated; use dex.allowPrivateIPJWKS")
-			require.Contains(t, output.String(), "v5.64.0 (2027-02-17)")
+			require.Contains(t, output.String(), "DEPRECATED: dex.allowPrivateIPOIDC is the former name of dex.allowPrivateIPJWKS")
+			require.Contains(t, output.String(), "DEPRECATED: dex.allowPrivateIPJWKS lets the forwarded-token JWKS fetch reach any private")
 		} else {
 			require.NotContains(t, output.String(), "dex.allowPrivateIPOIDC")
+		}
+	}
+}
+
+func TestNewOAuthHTTPServerWarnsForBrokerAllowPrivateIP(t *testing.T) {
+	previousLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	for _, set := range []bool{false, true} {
+		var output bytes.Buffer
+		slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+		_, err := NewOAuthHTTPServer(config.OAuthServerConfig{
+			Enabled:             true,
+			BaseURL:             "https://muster.example.com",
+			Provider:            "unsupported",
+			TokenExchangeBroker: config.TokenExchangeBrokerConfig{AllowPrivateIP: set},
+		}, http.NotFoundHandler(), false)
+		require.ErrorContains(t, err, "unsupported OAuth provider")
+		if set {
+			require.Contains(t, output.String(), "DEPRECATED: tokenExchangeBroker.allowPrivateIP has no effect")
+		} else {
+			require.NotContains(t, output.String(), "tokenExchangeBroker.allowPrivateIP")
 		}
 	}
 }

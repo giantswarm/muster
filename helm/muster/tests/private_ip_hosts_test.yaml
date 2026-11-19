@@ -1,0 +1,45 @@
+suite: private-address host lists
+templates:
+  - templates/configmap.yaml
+set:
+  muster.oauth.mcpClient.enabled: true
+  muster.oauth.mcpClient.publicUrl: https://muster.example.test
+  muster.oauth.server.enabled: true
+  muster.oauth.server.baseUrl: https://muster.example.test
+  muster.oauth.server.existingSecret: muster-oauth
+  muster.oauth.server.dex.issuerUrl: https://dex.example.test
+  muster.oauth.server.dex.clientId: muster
+tests:
+  - it: renders no host list and no token exchange block by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPRedirectURIHosts|tokenExchange:"
+  - it: renders allowPrivateIPRedirectURIHosts
+    set:
+      muster.oauth.server.allowPrivateIPRedirectURIHosts:
+        - agentgateway.internal.example
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIPRedirectURIHosts:\\n\\s+- agentgateway\\.internal\\.example"
+  - it: renders allowPrivateIPTokenEndpointHosts under the client's tokenExchange
+    set:
+      muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts:
+        - dex.internal.example
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "tokenExchange:\\n\\s+allowPrivateIPTokenEndpointHosts:\\n\\s+- dex\\.internal\\.example"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowPrivateIP: true"
+  - it: still renders the deprecated tokenExchange.allowPrivateIP beside the list
+    set:
+      muster.oauth.mcpClient.tokenExchange.allowPrivateIP: true
+      muster.oauth.mcpClient.tokenExchange.allowPrivateIPTokenEndpointHosts:
+        - dex.internal.example
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "tokenExchange:\\n\\s+allowPrivateIP: true\\n\\s+allowPrivateIPTokenEndpointHosts:\\n\\s+- dex\\.internal\\.example"

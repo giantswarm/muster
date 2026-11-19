@@ -536,11 +536,20 @@ muster:
       # RFC 8693 token exchange against a remote cluster's Dex (MCPServers with
       # spec.auth.tokenExchange; agent-platform-mcps auth.mode: exchange).
       tokenExchange:
-        # Allow the remote Dex token endpoint to resolve to a private/loopback
-        # IP: a management or workload cluster whose Dex sits behind an
-        # internal-only load balancer. Implied when extraCaFile is set. Reduces
-        # the SSRF guard of the token-exchange client; emits a startup warning.
-        allowPrivateIP: false
+        # -- Deprecated: list the hosts in allowPrivateIPTokenEndpointHosts.
+        # Lets every token endpoint resolve to any private, loopback or
+        # link-local address and overrides allowPrivateIPTokenEndpointHosts.
+        # Implied when extraCaFile is set. Still accepted; logs a startup
+        # warning.
+        allowPrivateIP: false  # @schema deprecated: true
+        # -- Token endpoint hostnames that may resolve to RFC 1918 or RFC 4193
+        # addresses: a remote Dex behind an internal-only load balancer.
+        # Loopback and link-local stay refused, and every other host keeps the
+        # SSRF guard. Exact match, no port, no wildcard. Ignored when
+        # extraCaFile is set, which lifts the guard for every token endpoint.
+        # Example:
+        #   - dex.example.internal
+        allowPrivateIPTokenEndpointHosts: []  # @schema item: string
 
     # Server configuration for protecting the Muster Server itself (ADR 005)
     # When enabled, the Muster Server acts as an OAuth Resource Server, requiring
@@ -587,15 +596,14 @@ muster:
         # authenticate a person. muster's Dex client must be allowed to use
         # each of them.
         identityCheckConnectors: []  # @schema item: string
-        # -- Let the JWKS fetch that validates forwarded ID tokens
-        # (trustedAudiences) reach a Dex whose issuer resolves to a private or
-        # loopback address. Discovery, token and userinfo calls reach such a Dex
-        # without it.
-        allowPrivateIPJWKS: false
-        # -- Deprecated alias for allowPrivateIPJWKS. Either true value permits
-        # private-address JWKS fetching. Remove this key to disable the alias;
-        # setting allowPrivateIPJWKS to false does not override a true alias.
-        # Removed in v5.64.0, scheduled for 2027-02-17.
+        # -- Deprecated: let the JWKS fetch that validates forwarded ID tokens
+        # (trustedAudiences) reach any private, loopback or link-local address.
+        # Without it the Dex issuer host may still resolve to an RFC 1918 or
+        # RFC 4193 address, so remove it unless Dex resolves to loopback or
+        # link-local. Logs a startup warning.
+        allowPrivateIPJWKS: false  # @schema deprecated: true
+        # -- Deprecated: the former name of allowPrivateIPJWKS; either true
+        # value enables it. Logs a startup warning.
         allowPrivateIPOIDC: false  # @schema deprecated: true
 
       # Google OAuth provider configuration (used when provider is "google")
@@ -809,8 +817,17 @@ muster:
       # authorization-time check otherwise rejects the client's callback with
       # "redirect_uri: hostname resolves to private IP address (DNS rebinding
       # protection)". Reduces open-redirect/SSRF protection for redirect targets;
-      # muster logs a startup warning when set. Default: false.
+      # muster logs a startup warning when set. Default: false. Prefer
+      # allowPrivateIPRedirectURIHosts.
       allowPrivateIPRedirectURIs: false
+
+      # -- The host-scoped alternative to allowPrivateIPRedirectURIs: a redirect
+      # URI may resolve to an RFC 1918 or RFC 4193 address only when its
+      # hostname is listed (exact match, no port, no wildcard).
+      # allowPrivateIPRedirectURIs overrides it. Default: empty.
+      # Example:
+      #   - agentgateway.internal.example
+      allowPrivateIPRedirectURIHosts: []  # @schema item: string
 
       # ---------------------------------------------------------------------------
       # Token acceptance: skip muster's own OAuth flow

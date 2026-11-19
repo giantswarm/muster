@@ -2,7 +2,10 @@ package oauth
 
 import (
 	"context"
+	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
@@ -47,38 +50,63 @@ func TestNewManager_Enabled(t *testing.T) {
 	}
 }
 
-// The token-exchange client keeps mcp-oauth's SSRF guard unless the operator
-// lifts it: explicitly for a remote Dex behind an internal-only load balancer
-// (oauth.mcpClient.tokenExchange.allowPrivateIP) or implicitly through
-// --extra-ca-file (in-cluster TLS endpoints).
-func TestNewManager_TokenExchangeAllowPrivateIP(t *testing.T) {
-	base := config.OAuthMCPClientConfig{
+func TestNewManager_TokenExchangeKeepsSSRFGuardByDefault(t *testing.T) {
+	manager := NewManager(config.OAuthMCPClientConfig{
 		Enabled:      true,
 		PublicURL:    "https://muster.example.com",
 		ClientID:     "https://external.example.com/oauth-client.json",
 		CallbackPath: "/oauth/proxy/callback",
-	}
+	})
+	require.NotNil(t, manager)
+	defer manager.Stop()
+
+	require.False(t, manager.tokenExchanger.allowPrivateIP)
+}
+
+func TestTokenExchangerOptions(t *testing.T) {
+	hosts := []string{"dex.example.internal"}
 
 	cases := []struct {
-		name   string
-		mutate func(*config.OAuthMCPClientConfig)
-		want   bool
+		name             string
+		cfg              config.OAuthMCPClientConfig
+		wantAllowPrivate bool
+		wantHostScoped   bool
+		wantDefaultDial  bool
 	}{
-		{name: "default keeps the SSRF guard", mutate: func(*config.OAuthMCPClientConfig) {}, want: false},
-		{name: "tokenExchange.allowPrivateIP lifts it", mutate: func(c *config.OAuthMCPClientConfig) { c.TokenExchange.AllowPrivateIP = true }, want: true},
-		{name: "extra CA file implies it", mutate: func(c *config.OAuthMCPClientConfig) { c.ExtraCAFile = "/etc/muster/ca.pem" }, want: true},
+		{
+			name: "default keeps the SSRF guard",
+		},
+		{
+			name:           "listed hosts get the host-scoped client",
+			cfg:            config.OAuthMCPClientConfig{TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: hosts}},
+			wantHostScoped: true,
+		},
+		{
+			name:             "the blanket overrides listed hosts",
+			cfg:              config.OAuthMCPClientConfig{TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIP: true, AllowPrivateIPTokenEndpointHosts: hosts}},
+			wantAllowPrivate: true,
+		},
+		{
+			name:             "an extra CA file dials on the process transport and ignores listed hosts",
+			cfg:              config.OAuthMCPClientConfig{ExtraCAFile: "/etc/muster/ca.pem", TokenExchange: config.OAuthTokenExchangeClientConfig{AllowPrivateIPTokenEndpointHosts: hosts}},
+			wantAllowPrivate: true,
+			wantDefaultDial:  true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := base
-			tc.mutate(&cfg)
-			manager := NewManager(cfg)
-			if manager == nil {
-				t.Fatal("Expected non-nil manager when OAuth is enabled")
-			}
-			defer manager.Stop()
-			if got := manager.tokenExchanger.allowPrivateIP; got != tc.want {
-				t.Errorf("tokenExchanger.allowPrivateIP = %v, want %v", got, tc.want)
+			got := tokenExchangerOptions(tc.cfg)
+
+			require.Equal(t, tc.wantAllowPrivate, got.AllowPrivateIP)
+			switch {
+			case tc.wantDefaultDial:
+				require.NotNil(t, got.HTTPClient)
+				require.Same(t, http.DefaultTransport, got.HTTPClient.Transport)
+			case tc.wantHostScoped:
+				require.NotNil(t, got.HTTPClient)
+				require.NotSame(t, http.DefaultTransport, got.HTTPClient.Transport)
+			default:
+				require.Nil(t, got.HTTPClient)
 			}
 		})
 	}

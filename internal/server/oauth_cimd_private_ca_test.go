@@ -59,20 +59,18 @@ func startPrivateCIMDClient(t *testing.T) (clientID, redirectURI string, caPEM [
 
 // TestCreateOAuthServer_CIMDPrivateHostAndCA resolves a CIMD client the way
 // /oauth/authorize does, through the server createOAuthServer builds: only a
-// listed private host passes the SSRF guard, and the fetch trusts the
-// --extra-ca-file CA.
+// listed host may resolve to a private address, never to loopback, and the
+// fetch trusts the --extra-ca-file CA. The test client listens on loopback, so
+// the CA cases lift the guard with the blanket.
 func TestCreateOAuthServer_CIMDPrivateHostAndCA(t *testing.T) {
 	clientID, redirectURI, cimdCA := startPrivateCIMDClient(t)
 
-	resolve := func(t *testing.T, hosts []string, withCA bool) error {
+	resolve := func(t *testing.T, cfg config.OAuthServerConfig, withCA bool) error {
 		t.Helper()
-		cfg := config.OAuthServerConfig{
-			BaseURL:                           "https://muster.example.com",
-			Provider:                          OAuthProviderGoogle,
-			Google:                            config.GoogleConfig{ClientID: "muster", ClientSecret: "secret"},
-			EnableCIMD:                        true,
-			AllowPrivateIPClientMetadataHosts: hosts,
-		}
+		cfg.BaseURL = "https://muster.example.com"
+		cfg.Provider = OAuthProviderGoogle
+		cfg.Google = config.GoogleConfig{ClientID: "muster", ClientSecret: "secret"}
+		cfg.EnableCIMD = true
 		if withCA {
 			caFile := filepath.Join(t.TempDir(), "ca.pem")
 			require.NoError(t, os.WriteFile(caFile, cimdCA, 0o600))
@@ -86,19 +84,23 @@ func TestCreateOAuthServer_CIMDPrivateHostAndCA(t *testing.T) {
 		return err
 	}
 
-	t.Run("listed private host under the extra CA resolves", func(t *testing.T) {
-		require.NoError(t, resolve(t, []string{"localhost"}, true))
+	t.Run("a private client under the extra CA resolves", func(t *testing.T) {
+		require.NoError(t, resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadata: true}, true))
+	})
+	t.Run("without the extra CA TLS verification fails", func(t *testing.T) {
+		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadata: true}, false)
+		require.ErrorContains(t, err, "certificate")
+	})
+	t.Run("a listed host resolving to loopback is refused", func(t *testing.T) {
+		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadataHosts: []string{"localhost"}}, true)
+		require.ErrorContains(t, err, "only RFC 1918 and RFC 4193 are lifted")
 	})
 	t.Run("unlisted private host is refused", func(t *testing.T) {
-		err := resolve(t, []string{"gateway.internal.example"}, true)
+		err := resolve(t, config.OAuthServerConfig{AllowPrivateIPClientMetadataHosts: []string{"gateway.internal.example"}}, true)
 		require.ErrorContains(t, err, "private")
 	})
 	t.Run("no listed host is refused", func(t *testing.T) {
-		err := resolve(t, nil, true)
+		err := resolve(t, config.OAuthServerConfig{}, true)
 		require.ErrorContains(t, err, "private")
-	})
-	t.Run("without the extra CA TLS verification fails", func(t *testing.T) {
-		err := resolve(t, []string{"localhost"}, false)
-		require.ErrorContains(t, err, "certificate")
 	})
 }

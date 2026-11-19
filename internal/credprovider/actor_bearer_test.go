@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/giantswarm/mcp-oauth/providers/oidc"
 	"github.com/go-jose/go-jose/v4"
 	josejwt "github.com/go-jose/go-jose/v4/jwt"
 	"github.com/stretchr/testify/assert"
@@ -80,18 +81,39 @@ func (i *actorIssuer) mint(t *testing.T, sub string, mutate func(*josejwt.Claims
 	return token
 }
 
+// verifier checks actor JWTs the way NewOIDCActorTokenVerifier does. The test
+// issuer listens on loopback, which no host list lifts, so its key set client
+// lifts the guard for every host.
+func (i *actorIssuer) verifier() ActorTokenVerifier {
+	client := oidc.NewJWKSClientWithOptions(oidc.JWKSClientOptions{RootCAs: i.pool, AllowPrivateIP: true})
+	return func(ctx context.Context, token string) (string, time.Time, error) {
+		claims, err := oidc.ValidateIDToken(ctx, token, client, i.url+ActorJWKSPath, i.url, []string{testAudience})
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		return claims.Subject, claims.Expiry.Time(), nil
+	}
+}
+
 func (i *actorIssuer) bearer(t *testing.T, store Store) *ActorBearer {
 	t.Helper()
-	verify, err := NewOIDCActorTokenVerifier(OIDCVerifierOptions{
-		Issuer:              i.url,
-		Audience:            testAudience,
-		RootCAs:             i.pool,
-		AllowPrivateIPHosts: []string{i.host},
-	})
-	require.NoError(t, err)
-	ab, err := NewActorBearer(ActorBearerOptions{Issuer: i.url, Verify: verify, Store: store, BindingTTL: time.Hour})
+	ab, err := NewActorBearer(ActorBearerOptions{Issuer: i.url, Verify: i.verifier(), Store: store, BindingTTL: time.Hour})
 	require.NoError(t, err)
 	return ab
+}
+
+func TestOIDCActorTokenVerifierRefusesListedLoopbackHost(t *testing.T) {
+	iss := newActorIssuer(t)
+	verify, err := NewOIDCActorTokenVerifier(OIDCVerifierOptions{
+		Issuer:              iss.url,
+		Audience:            testAudience,
+		RootCAs:             iss.pool,
+		AllowPrivateIPHosts: []string{iss.host},
+	})
+	require.NoError(t, err)
+
+	_, _, err = verify(t.Context(), iss.mint(t, testActorSubject, nil))
+	require.ErrorIs(t, err, oidc.ErrRestrictedAddress)
 }
 
 const testActorSubject = "actor/kagent/session-a" // testActor's sub

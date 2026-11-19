@@ -163,6 +163,20 @@ func TestNewOAuthServerConfig_AllowPrivateIPClientMetadataDefaultsOff(t *testing
 	require.False(t, got.AllowPrivateIPClientMetadata, "the CIMD SSRF guard must stay on unless the operator opts out")
 	require.Empty(t, got.AllowPrivateIPClientMetadataHosts, "no CIMD host may skip the SSRF guard unless the operator lists it")
 	require.False(t, got.AllowPrivateIPRedirectURIs, "the redirect-URI private-IP guard must stay on unless the operator opts out")
+	require.Empty(t, got.AllowPrivateIPRedirectURIHosts, "no redirect host may resolve privately unless the operator lists it")
+}
+
+func TestNewOAuthServerConfig_AllowPrivateIPRedirectURIHosts(t *testing.T) {
+	t.Parallel()
+
+	hosts := []string{"agentgateway.example.internal"}
+	got := newOAuthServerConfig(config.OAuthServerConfig{
+		BaseURL:                        "https://muster.example.com",
+		AllowPrivateIPRedirectURIHosts: hosts,
+	}, oauthTokenLifetimes{refreshTokenTTL: time.Hour})
+
+	require.Equal(t, hosts, got.AllowPrivateIPRedirectURIHosts)
+	require.False(t, got.AllowPrivateIPRedirectURIs)
 }
 
 func TestParseOAuthTokenLifetimes(t *testing.T) {
