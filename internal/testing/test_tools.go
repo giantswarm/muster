@@ -1820,7 +1820,6 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		registerPayload["token_endpoint_auth_signing_alg"] = "ES256"
 		registerPayload["jwks"] = jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &assertionKey.PublicKey, KeyID: "bdd-key", Algorithm: "ES256", Use: "sig"}}}
 	}
-	h.currentInstance.MusterOAuthAssertionKey = assertionKey
 	registerBody, err := json.Marshal(registerPayload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal registration payload: %w", err)
@@ -2016,6 +2015,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	h.currentInstance.MusterOAuthSubject = subject
 	h.currentInstance.MusterOAuthRefreshToken = tokenResult.RefreshToken
 	h.currentInstance.MusterOAuthClientID = registeredClientID
+	h.currentInstance.MusterOAuthAssertionKey = assertionKey
 	if h.mcpClient != nil {
 		_ = h.mcpClient.Close()
 		newClient := NewMCPTestClientWithLogger(h.debug, h.logger)
