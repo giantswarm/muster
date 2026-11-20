@@ -1656,12 +1656,12 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 		if err != nil {
 			return nil, err
 		}
-		if err := addClientAssertion(tokenValues, key, h.currentInstance.MusterOAuthClientID, baseURL+"/oauth/token"); err != nil {
+		if err := addClientAssertion(tokenValues, key, h.currentInstance.MusterOAuthClientID, baseURL); err != nil {
 			return nil, err
 		}
 		return checkForgedClientAssertion(ctx, baseURL+"/oauth/token", tokenValues)
 	}
-	if err := addClientAssertion(tokenValues, h.currentInstance.MusterOAuthAssertionKey, h.currentInstance.MusterOAuthClientID, baseURL+"/oauth/token"); err != nil {
+	if err := addClientAssertion(tokenValues, h.currentInstance.MusterOAuthAssertionKey, h.currentInstance.MusterOAuthClientID, baseURL); err != nil {
 		return nil, err
 	}
 	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", tokenValues)
@@ -1996,7 +1996,7 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		"code_verifier": {pkce.CodeVerifier},
 		"resource":      {baseURL},
 	}
-	if err := addClientAssertion(tokenValues, assertionKey, registeredClientID, baseURL+"/oauth/token"); err != nil {
+	if err := addClientAssertion(tokenValues, assertionKey, registeredClientID, baseURL); err != nil {
 		return nil, err
 	}
 	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", tokenValues)

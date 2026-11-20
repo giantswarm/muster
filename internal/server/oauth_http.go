@@ -138,16 +138,16 @@ func newDexProviderConfig(cfg config.OAuthServerConfig, redirectURL string, caPo
 // It provides both OAuth server functionality (authorization, token issuance)
 // and resource server protection (token validation middleware).
 type OAuthHTTPServer struct {
-	config           config.OAuthServerConfig
-	oauthServer      *oauth.Server
-	oauthHandler     *oauthhandler.Handler
-	tokenStore       storage.TokenStore
-	httpServer       *http.Server
-	mcpHandler       http.Handler
-	debug            bool
-	onAuthenticated  func(ctx context.Context, sessionID string)
-	dpopValkeyClient valkeygo.Client      // non-nil only when DPoP uses Valkey-backed replay cache
-	dexAudiences     *dexAudienceResolver // non-nil only under the Dex provider
+	config             config.OAuthServerConfig
+	oauthServer        *oauth.Server
+	oauthHandler       *oauthhandler.Handler
+	tokenStore         storage.TokenStore
+	httpServer         *http.Server
+	mcpHandler         http.Handler
+	debug              bool
+	onAuthenticated    func(ctx context.Context, sessionID string)
+	replayValkeyClient valkeygo.Client      // shared by the Valkey-backed OAuth replay stores
+	dexAudiences       *dexAudienceResolver // non-nil only under the Dex provider
 }
 
 // NewOAuthHTTPServer creates a new OAuth-enabled HTTP server that wraps
@@ -174,14 +174,14 @@ func NewOAuthHTTPServer(cfg config.OAuthServerConfig, mcpHandler http.Handler, d
 	oauthHandler := oauthhandler.New(components.server, components.server.Logger)
 
 	server := &OAuthHTTPServer{
-		config:           cfg,
-		oauthServer:      components.server,
-		oauthHandler:     oauthHandler,
-		tokenStore:       components.tokenStore,
-		mcpHandler:       mcpHandler,
-		debug:            debug,
-		dpopValkeyClient: components.dpopValkey,
-		dexAudiences:     components.dexAudiences,
+		config:             cfg,
+		oauthServer:        components.server,
+		oauthHandler:       oauthHandler,
+		tokenStore:         components.tokenStore,
+		mcpHandler:         mcpHandler,
+		debug:              debug,
+		replayValkeyClient: components.replayValkey,
+		dexAudiences:       components.dexAudiences,
 	}
 
 	return server, nil
@@ -649,9 +649,9 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// Close the DPoP replay-cache Valkey client if one was created.
-	if s.dpopValkeyClient != nil {
-		s.dpopValkeyClient.Close()
+	// The shared OAuth replay-store client is owned by this server.
+	if s.replayValkeyClient != nil {
+		s.replayValkeyClient.Close()
 	}
 
 	// Shutdown HTTP server if we started one
@@ -662,13 +662,13 @@ func (s *OAuthHTTPServer) Shutdown(ctx context.Context) error {
 }
 
 // oauthServerComponents holds what createOAuthServer builds and the caller owns.
-// dpopValkey is non-nil only when a Valkey-backed DPoP replay cache is created,
+// replayValkey is non-nil only when Valkey-backed OAuth replay stores are created,
 // and dexAudiences only under the Dex provider. The caller closes the first and
 // stops the second.
 type oauthServerComponents struct {
 	server       *oauth.Server
 	tokenStore   storage.TokenStore
-	dpopValkey   valkeygo.Client
+	replayValkey valkeygo.Client
 	dexAudiences *dexAudienceResolver
 }
 
@@ -835,30 +835,26 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		return nil, err
 	}
 
-	// DPoP replay cache is created here (not inside buildOAuthServerOptions) so
-	// that the Valkey client it may create is owned by this function and returned
-	// to the caller for proper lifecycle management.
-	dpopCache, dpopClient, err := newDPoPReplayCache(cfg.Storage)
+	// Both replay stores share one Valkey client owned by the HTTP server.
+	dpopCache, replayClient, err := newDPoPReplayCache(cfg.Storage)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DPoP replay cache: %w", err)
 	}
 	builtOpts = append(builtOpts, oauthserver.WithDPoPReplayCache(dpopCache))
-	assertionStore := oauthserver.NewMemoryClientAssertionReplayStore()
-	if dpopClient != nil {
+	if replayClient != nil {
 		prefix := cfg.Storage.Valkey.KeyPrefix
 		if prefix == "" {
-			prefix = "muster:"
+			prefix = config.DefaultValkeyKeyPrefix
 		}
-		assertionStore = valkey.NewClientAssertionReplayStore(dpopClient, prefix+"client-assertion:")
+		builtOpts = append(builtOpts, oauthserver.WithClientAssertionReplayStore(valkey.NewClientAssertionReplayStore(replayClient, prefix+"client-assertion:")))
 	}
-	builtOpts = append(builtOpts, oauthserver.WithClientAssertionReplayStore(assertionStore))
 
 	builtOpts = append(builtOpts, opts...)
 
 	oauthSrv, err := oauth.NewServerWithCombined(provider, combinedStore, serverConfig, logger, builtOpts...)
 	if err != nil {
-		if dpopClient != nil {
-			dpopClient.Close()
+		if replayClient != nil {
+			replayClient.Close()
 		}
 		return nil, fmt.Errorf("failed to create OAuth server: %w", err)
 	}
@@ -878,7 +874,7 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 	return &oauthServerComponents{
 		server:       oauthSrv,
 		tokenStore:   combinedStore,
-		dpopValkey:   dpopClient,
+		replayValkey: replayClient,
 		dexAudiences: dexAudiences,
 	}, nil
 }

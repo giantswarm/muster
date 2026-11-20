@@ -21,11 +21,11 @@ func newAssertionKey() (*ecdsa.PrivateKey, error) {
 	return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 }
 
-func addClientAssertion(values url.Values, key *ecdsa.PrivateKey, clientID, endpoint string) error {
+func addClientAssertion(values url.Values, key *ecdsa.PrivateKey, clientID, issuer string) error {
 	if key == nil {
 		return nil
 	}
-	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.ES256, Key: jose.JSONWebKey{Key: key, KeyID: "bdd-key"}}, nil)
+	signer, err := jose.NewSigner(jose.SigningKey{Algorithm: jose.ES256, Key: jose.JSONWebKey{Key: key, KeyID: "bdd-key"}}, (&jose.SignerOptions{}).WithType("client-authentication+jwt"))
 	if err != nil {
 		return fmt.Errorf("create assertion signer: %w", err)
 	}
@@ -34,7 +34,7 @@ func addClientAssertion(values url.Values, key *ecdsa.PrivateKey, clientID, endp
 		return fmt.Errorf("create assertion ID: %w", err)
 	}
 	now := time.Now()
-	assertion, err := jwt.Signed(signer).Claims(jwt.Claims{Issuer: clientID, Subject: clientID, Audience: jwt.Audience{endpoint}, IssuedAt: jwt.NewNumericDate(now), Expiry: jwt.NewNumericDate(now.Add(time.Minute)), ID: base64.RawURLEncoding.EncodeToString(nonce[:])}).Serialize()
+	assertion, err := jwt.Signed(signer).Claims(jwt.Claims{Issuer: clientID, Subject: clientID, Audience: jwt.Audience{issuer}, IssuedAt: jwt.NewNumericDate(now), Expiry: jwt.NewNumericDate(now.Add(time.Minute)), ID: base64.RawURLEncoding.EncodeToString(nonce[:])}).Serialize()
 	if err != nil {
 		return fmt.Errorf("sign assertion: %w", err)
 	}
