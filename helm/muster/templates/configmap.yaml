@@ -185,6 +185,9 @@ data:
           {{- if .Values.muster.oauth.server.allowPublicClientRegistration }}
           allowPublicClientRegistration: true
           {{- end }}
+          {{- if .Values.muster.oauth.server.enableClientManagementEndpoint }}
+          enableClientManagementEndpoint: true
+          {{- end }}
           {{- with .Values.muster.oauth.server.trustedPublicRegistrationRedirectURIs }}
           trustedPublicRegistrationRedirectURIs:
             {{- toYaml . | nindent 12 }}

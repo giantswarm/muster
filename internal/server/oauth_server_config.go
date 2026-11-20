@@ -73,6 +73,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		AllowPKCEPlain:                        false,
 		AllowPublicClientRegistration:         cfg.AllowPublicClientRegistration,
 		RegistrationAccessToken:               cfg.RegistrationToken,
+		EnableClientManagementEndpoint:        cfg.EnableClientManagementEndpoint,
 		MaxClientsPerIP:                       DefaultMaxClientsPerIP,
 		EnableClientIDMetadataDocuments:       cfg.EnableCIMD,
 		EnableIntrospectionEndpoint:           true,
