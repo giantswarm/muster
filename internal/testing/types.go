@@ -403,7 +403,7 @@ type MusterInstance struct {
 	// MusterOAuthClientID is the registered client ID from the last OAuth flow.
 	// Used by handleSimulateMusterReauth for the refresh token grant.
 	MusterOAuthClientID     string
-	MusterOAuthAssertionKey *ecdsa.PrivateKey
+	MusterOAuthAssertionKey *ecdsa.PrivateKey `json:"-" yaml:"-"`
 	// ValkeyAddr is the address of the instance's Valkey stand-in when the
 	// scenario runs on valkey storage, "" on memory.
 	ValkeyAddr string
