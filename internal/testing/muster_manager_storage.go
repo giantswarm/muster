@@ -127,12 +127,15 @@ func (v *instanceValkey) down() {
 	v.srv.Close()
 }
 
-// installHooks installs the stand-in's pre-dispatch hook: the CLIENT TRACKING
-// compatibility answer and the per-command count. miniredis builds a fresh
-// server on every start, so this runs after each one.
+// installHooks models standalone discovery, accepts the cache handshake and
+// counts commands. Each server start needs its own pre-dispatch hook.
 func (v *instanceValkey) installHooks() {
 	v.srv.Server().SetPreHook(func(c *server.Peer, cmd string, args ...string) bool {
 		v.countCommand(cmd, args)
+		if strings.EqualFold(cmd, "CLUSTER") {
+			c.WriteError("ERR This instance has cluster support disabled")
+			return true
+		}
 		return answerClientTracking(c, cmd, args)
 	})
 }
