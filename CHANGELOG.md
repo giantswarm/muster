@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Added private_key_jwt client registration and authentication with shared Valkey assertion replay protection.
+
 The changes of each release are in its notes on GitHub Releases:
 https://github.com/giantswarm/muster/releases
 

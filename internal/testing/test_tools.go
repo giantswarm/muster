@@ -5,6 +5,7 @@ package testing
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/go-jose/go-jose/v4"
 
 	pkgoauth "github.com/giantswarm/muster/v5/pkg/oauth"
 
@@ -1642,12 +1645,26 @@ func (h *TestToolsHandler) handleSimulateMusterReauth(ctx context.Context, args 
 
 	baseURL := pkgoauth.NormalizeServerURL(h.currentInstance.Endpoint)
 
-	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", url.Values{
+	tokenValues := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {h.currentInstance.MusterOAuthRefreshToken},
 		"client_id":     {h.currentInstance.MusterOAuthClientID},
 		"resource":      {baseURL},
-	})
+	}
+	if forged, _ := args["forged_assertion"].(bool); forged {
+		key, err := newAssertionKey()
+		if err != nil {
+			return nil, err
+		}
+		if err := addClientAssertion(tokenValues, key, h.currentInstance.MusterOAuthClientID, baseURL+"/oauth/token"); err != nil {
+			return nil, err
+		}
+		return checkForgedClientAssertion(ctx, baseURL+"/oauth/token", tokenValues)
+	}
+	if err := addClientAssertion(tokenValues, h.currentInstance.MusterOAuthAssertionKey, h.currentInstance.MusterOAuthClientID, baseURL+"/oauth/token"); err != nil {
+		return nil, err
+	}
+	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", tokenValues)
 	if err != nil {
 		return nil, fmt.Errorf("token refresh failed: %w", err)
 	}
@@ -1792,6 +1809,18 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 		"client_uri":                 musterClientID,
 	}
 
+	var assertionKey *ecdsa.PrivateKey
+	if method, _ := args["token_endpoint_auth_method"].(string); method == "private_key_jwt" {
+		var err error
+		assertionKey, err = newAssertionKey()
+		if err != nil {
+			return nil, err
+		}
+		registerPayload["token_endpoint_auth_method"] = method
+		registerPayload["token_endpoint_auth_signing_alg"] = "ES256"
+		registerPayload["jwks"] = jose.JSONWebKeySet{Keys: []jose.JSONWebKey{{Key: &assertionKey.PublicKey, KeyID: "bdd-key", Algorithm: "ES256", Use: "sig"}}}
+	}
+	h.currentInstance.MusterOAuthAssertionKey = assertionKey
 	registerBody, err := json.Marshal(registerPayload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal registration payload: %w", err)
@@ -1959,14 +1988,18 @@ func (h *TestToolsHandler) handleMusterAuthLogin(ctx context.Context, args map[s
 	// Step 5: Exchange the muster auth code for a muster access token at /oauth/token.
 	// This stores the upstream provider token under the muster access token key,
 	// which is required for the access-token-keyed provider token lookup after refresh.
-	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", url.Values{
+	tokenValues := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {musterAuthCode},
 		"redirect_uri":  {musterRedirectURI},
 		"client_id":     {registeredClientID},
 		"code_verifier": {pkce.CodeVerifier},
 		"resource":      {baseURL},
-	})
+	}
+	if err := addClientAssertion(tokenValues, assertionKey, registeredClientID, baseURL+"/oauth/token"); err != nil {
+		return nil, err
+	}
+	tokenResult, err := exchangeOAuthToken(ctx, baseURL+"/oauth/token", tokenValues)
 	if err != nil {
 		return nil, fmt.Errorf("code exchange failed: %w", err)
 	}

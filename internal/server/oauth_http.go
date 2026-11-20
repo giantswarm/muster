@@ -843,6 +843,16 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 		return nil, fmt.Errorf("failed to create DPoP replay cache: %w", err)
 	}
 	builtOpts = append(builtOpts, oauthserver.WithDPoPReplayCache(dpopCache))
+	assertionStore := oauthserver.NewMemoryClientAssertionReplayStore()
+	if dpopClient != nil {
+		prefix := cfg.Storage.Valkey.KeyPrefix
+		if prefix == "" {
+			prefix = "muster:"
+		}
+		assertionStore = valkey.NewClientAssertionReplayStore(dpopClient, prefix+"client-assertion:")
+	}
+	builtOpts = append(builtOpts, oauthserver.WithClientAssertionReplayStore(assertionStore))
+
 	builtOpts = append(builtOpts, opts...)
 
 	oauthSrv, err := oauth.NewServerWithCombined(provider, combinedStore, serverConfig, logger, builtOpts...)
