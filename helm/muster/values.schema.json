@@ -516,6 +516,9 @@
                                 "enableCIMD": {
                                     "type": "boolean"
                                 },
+                                "enableClientManagementEndpoint": {
+                                    "type": "boolean"
+                                },
                                 "enabled": {
                                     "type": "boolean"
                                 },

@@ -88,8 +88,9 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsSet(t *testing.T) {
 		},
 		TrustedProxyCIDRs: []string{"127.0.0.1/32"},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	opts, cleanup, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
+	t.Cleanup(cleanup)
 	require.NotEmpty(t, opts)
 }
 
@@ -106,8 +107,9 @@ func TestBuildOAuthServerOptions_AllowPrivateIPJWKSNoError(t *testing.T) {
 			},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	opts, cleanup, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
+	t.Cleanup(cleanup)
 	require.NotEmpty(t, opts)
 }
 
@@ -117,8 +119,9 @@ func TestBuildOAuthServerOptions_NoErrorWhenFieldsAbsent(t *testing.T) {
 	cfg := config.OAuthServerConfig{
 		BaseURL: "https://muster.example.com",
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	opts, cleanup, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
+	t.Cleanup(cleanup)
 	require.NotEmpty(t, opts)
 }
 
@@ -199,7 +202,7 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	_, _, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "trustedIssuers")
 
@@ -210,8 +213,9 @@ func TestBuildOAuthServerOptions_BrokerRequiresTrustedIssuers(t *testing.T) {
 			AllowedAudiences: []string{"portal-frontend"},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	opts, cleanup, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.NoError(t, err)
+	t.Cleanup(cleanup)
 	require.NotEmpty(t, opts)
 }
 
@@ -222,7 +226,7 @@ func TestBuildOAuthServerOptions_InvalidCIDRReturnsError(t *testing.T) {
 		BaseURL:           "https://muster.example.com",
 		TrustedProxyCIDRs: []string{"not-a-cidr"},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	_, _, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "invalid CIDR")
 }
@@ -242,7 +246,7 @@ func TestBuildOAuthServerOptions_BrokerTargetRequiresDexTokenEndpoint(t *testing
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, nil, nil, nil)
+	_, _, err := buildOAuthServerOptions(cfg, nil, nil, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "cluster-a")
 	require.Contains(t, err.Error(), "dexTokenEndpoint")
@@ -305,8 +309,9 @@ func TestBuildOAuthServerOptions_AcceptsGrantTarget(t *testing.T) {
 			},
 		},
 	}
-	opts, err := buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
+	opts, cleanup, err := buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
 	require.NoError(t, err)
+	t.Cleanup(cleanup)
 	require.NotEmpty(t, opts)
 }
 
@@ -323,15 +328,16 @@ func TestBuildOAuthServerOptions_GrantTargetWithoutDexNeedsSubjectIssuers(t *tes
 			},
 		},
 	}
-	_, err := buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
+	_, _, err := buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
 	require.ErrorContains(t, err, "needs subjectIssuers")
 
 	cfg.TokenExchangeBroker.Targets["github"] = config.BrokerTargetConfig{
 		GrantIssuer:    "https://github.com/login/oauth",
 		SubjectIssuers: []string{"https://accounts.google.com"},
 	}
-	_, err = buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
+	_, cleanup, err := buildOAuthServerOptions(cfg, slog.Default(), nil, nil)
 	require.NoError(t, err)
+	t.Cleanup(cleanup)
 }
 
 // An issuer with delegation names the actor issuers its tokens may carry in
