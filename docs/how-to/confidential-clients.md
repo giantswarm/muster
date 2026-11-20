@@ -1,5 +1,11 @@
 # Confidential OAuth clients
 
+Use a muster release containing the corrected client lifecycle from
+[mcp-oauth #745](https://github.com/giantswarm/mcp-oauth/pull/745). Upgrade every
+replica before relying on immediate deletion. Private-key assertion replay
+across replicas also requires the integration in
+[muster #1889](https://github.com/giantswarm/muster/pull/1889).
+
 Register each integration as a separate client of muster's OAuth server. Its
 client ID identifies the integration; its access-token session identifies the
 person and grant. Request shape, user agent and scope names do not authenticate
@@ -29,13 +35,21 @@ For rotation, provision a replacement client, configure and verify the
 integration with it, then DELETE the old registration client URI using its
 registration access token. Successful deletion returns 204. Users authorize the
 replacement client separately. Verify the old access and refresh tokens fail.
-Deletion currently prevents further client authentication but does not revoke
-existing opaque access tokens. Immediate token invalidation requires an
-additional lifecycle change; do not treat deletion alone as an immediate
-access cutoff.
+Deletion permanently retires the client ID and invalidates existing opaque and
+self-issued JWT access tokens. Retirement markers are checked on each request
+and shared through Valkey, so all replicas must run a version supporting this
+check before relying on immediate invalidation. Other clients belonging to the
+same person retain their grants and shared upstream identity-provider tokens.
 
 Dynamic registrations live in OAuth storage. After complete Valkey data loss,
 register a new client, replace the integration's credentials and obtain fresh
 user authorizations. Restoring a snapshot can lose registrations and grants
-created after that snapshot. A PVC alone does not guarantee that recent writes
-have been persisted.
+created after that snapshot and can restore registrations retired since then.
+Retirement markers must be preserved with the rest of OAuth storage. A PVC
+alone does not guarantee that recent writes have been persisted.
+
+If access tokens use self-issued JWTs, loss or rollback of retirement records can
+restore acceptance of unexpired retired-client tokens while signing keys remain
+trusted. Replace the access-token signing keys, or keep protected traffic closed
+until the previous token lifetime has elapsed, before re-provisioning. A complete
+wipe removes opaque grants together with their storage records.
