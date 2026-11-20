@@ -33,6 +33,20 @@ registration client URI in a secret manager. Management authenticates with the
 registration access token, independently of the provisioning token and client
 secret.
 
+Successful management GET and PUT responses include the applicable current
+client secret. PUT rotates the registration access token, so save the returned
+token before making another management request. The client secret stays the
+same. Treat these responses as credentials and do not log them.
+
+Older registrations may contain only a bcrypt hash of the client secret. GET
+then fails explicitly because the server cannot recover the secret. Backfill
+with a PUT containing the matching current `client_secret` and complete client
+metadata, or deliberately provision a replacement registration if the secret
+is lost. Upgrade every replica before using this recovery behavior. Older
+replicas can discard encrypted recovery data during writes; after rollback and
+re-upgrade, affected registrations need the same explicit backfill. See the
+[library migration guidance](https://github.com/giantswarm/mcp-oauth/blob/main/docs/client-management.md).
+
 For `private_key_jwt`, use the authorization-server metadata's `issuer` as the
 assertion's sole audience. The token endpoint URL and additional audiences are
 rejected. Use a fresh `jti` for every request, including retries, and keep every
