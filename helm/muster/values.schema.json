@@ -447,11 +447,6 @@
                                 "allowPublicClientRegistration": {
                                     "type": "boolean"
                                 },
-                                "enableClientManagementEndpoint": {
-                                    "type": "boolean",
-                                    "default": false,
-                                    "description": "Enable RFC 7592 client management authenticated by registration access tokens."
-                                },
                                 "baseUrl": {
                                     "type": "string"
                                 },
@@ -519,6 +514,9 @@
                                     }
                                 },
                                 "enableCIMD": {
+                                    "type": "boolean"
+                                },
+                                "enableClientManagementEndpoint": {
                                     "type": "boolean"
                                 },
                                 "enabled": {
