@@ -15,7 +15,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/giantswarm/go-selfupdate v1.7.7
-	github.com/giantswarm/mcp-oauth v1.16.1-0.20261120105811-6371f41a3174
+	github.com/giantswarm/mcp-oauth v1.16.1-0.20261120111525-fd9d6126289a
 	github.com/giantswarm/mcp-toolkit v0.5.4
 	github.com/giantswarm/pagekit v0.3.8
 	github.com/go-jose/go-jose/v4 v4.1.9
