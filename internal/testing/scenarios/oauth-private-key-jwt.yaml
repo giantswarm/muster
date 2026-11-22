@@ -1,0 +1,104 @@
+name: "oauth-private-key-jwt"
+category: "behavioral"
+concept: "mcpserver"
+description: |
+  Private key client authentication preserves PKCE, refresh and SSO forwarding.
+tags: ["oauth", "sso", "token-forwarding", "authentication", "mcpserver", "regression"]
+timeout: "2m"
+
+pre_configuration:
+  storage:
+    type: valkey
+  mock_oauth_servers:
+    - name: "shared-idp"
+      scopes: ["openid", "profile", "email", "mcp:admin"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "muster-client"
+      client_secret: "muster-secret"
+      use_as_muster_oauth_server: true
+  mcp_servers:
+    - name: "sso-protected-server"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "shared-idp"
+          forward_token: true
+        tools:
+          - name: "protected_operation"
+            description: "Operation requiring SSO authentication"
+            responses:
+              - response:
+                  source: "sso-protected-server"
+                  status: "authenticated-via-forwarded-token"
+                  message: "Token was successfully forwarded from muster"
+
+steps:
+  - id: verify-oauth-server
+    description: "Verify the shared IdP OAuth server is running"
+    tool: "test_get_oauth_server_info"
+    args:
+      server: "shared-idp"
+    expected:
+      success: true
+      contains:
+        - "shared-idp"
+        - "issuer_url"
+  - id: verify-server-registered
+    description: "Verify the SSO protected server is registered"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-protected-server"
+  - id: muster-auth-login
+    description: "Authenticate to muster via shared-idp OAuth (stores ID token in token store)"
+    tool: "test_muster_auth_login"
+    args:
+      token_endpoint_auth_method: private_key_jwt
+    expected:
+      success: true
+      contains:
+        - "success"
+        - "ID token stored"
+  - id: login-with-token-forwarding
+    description: "Login to server - muster should forward its ID token"
+    tool: "core_auth_login"
+    args:
+      server: "sso-protected-server"
+    expected:
+      success: true
+  - id: call-protected-tool
+    description: "Call protected tool authenticated via SSO token forwarding"
+    tool: "x_sso-protected-server_protected_operation"
+    args: {}
+    expected:
+      success: true
+      contains:
+        - "sso-protected-server"
+        - "authenticated"
+
+  - id: forged-assertion
+    description: A forged client assertion is refused
+    tool: test_simulate_muster_reauth
+    args:
+      forged_assertion: true
+    expected:
+      success: true
+      contains: ["invalid_client"]
+  - id: refresh
+    description: Refresh using a fresh signed assertion
+    tool: test_simulate_muster_reauth
+    args: {}
+    expected:
+      success: true
+  - id: forward-after-refresh
+    description: Forward the authenticated identity after refresh
+    tool: x_sso-protected-server_protected_operation
+    args: {}
+    expected:
+      success: true
+      contains: ["authenticated"]
