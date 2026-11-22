@@ -746,6 +746,9 @@ muster:
       # but still a DoS surface. Default: false.
       allowPublicClientRegistration: false
 
+      # Enable RFC 7592 management using each client's registration access token.
+      enableClientManagementEndpoint: false
+
       # Enable token encryption at rest
       # If "true", the encryption key must be provided in the secret (oauth-encryption-key)
       encryptionKey: false

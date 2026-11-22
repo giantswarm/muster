@@ -93,6 +93,7 @@ nav:
       - how-to/README.md
       - Connect MCP clients: how-to/connect-mcp-clients.md
       - Authenticate the CLI: how-to/authenticate-the-cli.md
+      - Manage confidential OAuth clients: how-to/confidential-clients.md
       - Manage MCP servers: how-to/mcp-server-management.md
       - Connect servers without RFC 9728 metadata: how-to/connecting-non-rfc9728-mcp-servers.md
       - Integrate with Kubernetes: how-to/kubernetes-integration.md

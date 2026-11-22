@@ -508,6 +508,9 @@ type OAuthServerConfig struct {
 	// WARNING: This can lead to DoS attacks. Default: false.
 	AllowPublicClientRegistration bool `yaml:"allowPublicClientRegistration,omitempty"`
 
+	// EnableClientManagementEndpoint enables authenticated RFC 7592 client management.
+	EnableClientManagementEndpoint bool `yaml:"enableClientManagementEndpoint,omitempty"`
+
 	// EncryptionKey is the AES-256 key for encrypting tokens at rest (32 bytes, base64-encoded).
 	// Required for production deployments.
 	// For production, use EncryptionKeyFile instead to avoid secrets in config files.
