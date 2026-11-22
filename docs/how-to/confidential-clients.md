@@ -8,6 +8,13 @@ across replicas also requires the integration in
 includes that integration so enabling it cannot expose process-local replay
 protection on a replicated deployment.
 
+Before upgrading existing Valkey storage, stop OAuth traffic and all old writers,
+run the library's [family revocation index migration](https://github.com/giantswarm/mcp-oauth/blob/main/docs/client-management.md#valkey-revocation-index-migration),
+then restart every replica on the new release before restoring traffic. Existing
+namespaces keep the compatibility lookup until migration completes. Old binaries
+must not write to migrated storage; a rollback or snapshot restore requires the
+same stopped-traffic migration before the new release resumes serving.
+
 Register each integration as a separate client of muster's OAuth server. Its
 client ID identifies the integration; its access-token session identifies the
 person and grant. Request shape, user agent and scope names do not authenticate
@@ -62,6 +69,10 @@ tokens. Client deletion markers are checked on each request
 and shared through Valkey, so all replicas must run a version supporting this
 check before relying on immediate invalidation. Other clients belonging to the
 same person retain their grants and shared upstream identity-provider tokens.
+
+These deletion and revocation guarantees apply to tokens bound to the client.
+Self-issued exchange JWTs without a client binding remain valid until expiry
+and cannot be revoked through the client-owned endpoint.
 
 Dynamic registrations live in OAuth storage. After complete Valkey data loss,
 register a new client, replace the integration's credentials and obtain fresh
