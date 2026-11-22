@@ -16,7 +16,7 @@ require (
 	github.com/chzyer/readline v1.5.1
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/giantswarm/go-selfupdate v1.7.7
-	github.com/giantswarm/mcp-oauth v1.15.0
+	github.com/giantswarm/mcp-oauth v1.18.0
 	github.com/giantswarm/mcp-toolkit v0.5.4
 	github.com/giantswarm/pagekit v0.3.8
 	github.com/giantswarm/selfupdate-cosign v0.3.29
@@ -88,6 +88,7 @@ require (
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/fatih/color v1.18.0 // indirect
+	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

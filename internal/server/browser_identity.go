@@ -16,13 +16,12 @@ import (
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
-// signInIdentity is who a validated bearer was issued to. mcp-oauth names the
-// issuer of a trusted-issuer token; every other bearer was issued for a
-// sign-in at muster's own identity provider. ID is the raw sub claim on both
-// paths, never the trusted issuer's subjectClaim mapping.
+// signInIdentity identifies the account the browser confirms. Own OAuth grants
+// use the configured provider; external bearers keep their validated issuer.
+// Subject is the raw sub claim, never a trusted issuer's subjectClaim mapping.
 func (s *OAuthHTTPServer) signInIdentity(userInfo *providers.UserInfo) api.SignInIdentity {
 	issuer := userInfo.Issuer
-	if issuer == "" {
+	if userInfo.TokenSource == providers.TokenSourceOAuth || issuer == "" {
 		issuer = s.musterIssuer()
 	}
 	return api.SignInIdentity{Issuer: issuer, Subject: userInfo.ID}

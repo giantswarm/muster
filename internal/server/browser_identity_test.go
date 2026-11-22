@@ -252,6 +252,29 @@ func TestOAuthHTTPServer_SignInIdentity(t *testing.T) {
 			Issuer: "https://dex.other.example.com", TokenSource: providers.TokenSourceTrustedIssuer}))
 }
 
+func TestOAuthHTTPServer_OwnOAuthGrantMatchesBrowserSignIn(t *testing.T) {
+	server := &OAuthHTTPServer{config: config.OAuthServerConfig{
+		BaseURL:  "https://muster.example.com",
+		Provider: OAuthProviderDex,
+		Dex:      config.DexConfig{IssuerURL: "https://dex.example.com"},
+	}}
+	identity := server.signInIdentity(&providers.UserInfo{
+		ID: "CgVhbGljZRIGZ2l0aHVi", Issuer: "https://muster.example.com", TokenSource: providers.TokenSourceOAuth,
+	})
+	require.NoError(t, server.CheckRefusal(identity))
+	require.Equal(t, api.SignInIdentity{Issuer: "https://dex.example.com", Subject: "CgVhbGljZRIGZ2l0aHVi"}, identity)
+
+	for _, source := range []providers.TokenSource{providers.TokenSourceTrustedIssuer, providers.TokenSourceJWT, providers.TokenSourceSSO} {
+		t.Run(string(source), func(t *testing.T) {
+			identity := server.signInIdentity(&providers.UserInfo{
+				ID: "CgVhbGljZRIGZ2l0aHVi", Issuer: "https://other.example.com", TokenSource: source,
+			})
+			require.Equal(t, "https://other.example.com", identity.Issuer)
+			require.Error(t, server.CheckRefusal(identity))
+		})
+	}
+}
+
 // An API endpoint behind ValidateTokenWithSubject, such as the Session
 // binding agent-manager makes as the person, gets the sign-in identity of the
 // validated bearer beside its subject.

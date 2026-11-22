@@ -9,6 +9,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	oauth "github.com/giantswarm/mcp-oauth"
@@ -140,20 +141,11 @@ func newOAuthInstrumentation() (*instrumentation.Instrumentation, error) {
 // buildOAuthServerOptions assembles the functional options for the mcp-oauth
 // server. inst is the pipeline from newOAuthInstrumentation, shared with the
 // token store; nil leaves the server uninstrumented.
-func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, caPool *x509.CertPool, inst *instrumentation.Instrumentation) ([]oauth.ServerOption, error) {
+// The caller runs cleanup if ownership cannot transfer to a constructed server.
+func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, caPool *x509.CertPool, inst *instrumentation.Instrumentation) ([]oauth.ServerOption, func(), error) {
 	opts := []oauth.ServerOption{
 		oauth.WithInstrumentation(inst),
 		oauth.WithAuditor(security.NewAuditor(logger, true, security.WithPIIRedaction(true))),
-		oauth.WithRateLimiter(security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)),
-		oauth.WithUserRateLimiter(security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)),
-		oauth.WithSecurityEventRateLimiter(security.NewRateLimiter(DefaultSecurityEventRate, DefaultSecurityEventBurst, logger)),
-		oauth.WithClientRegistrationRateLimiter(security.NewClientRegistrationRateLimiterWithConfig(
-			DefaultMaxClientsPerIP,
-			security.DefaultRegistrationWindow,
-			security.DefaultMaxRegistrationEntries,
-			logger,
-		)),
-		oauth.WithMetadataFetchRateLimiter(security.NewRateLimiter(DefaultMetadataFetchRate, DefaultMetadataFetchBurst, logger)),
 	}
 
 	if len(cfg.TrustedIssuers) > 0 {
@@ -166,7 +158,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 
 	if cfg.TokenExchangeBroker.Enabled() {
 		if len(cfg.TrustedIssuers) == 0 {
-			return nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
+			return nil, nil, fmt.Errorf("tokenExchangeBroker requires at least one trustedIssuers entry to validate subject tokens")
 		}
 		// Config loading is lenient YAML: a target missing required keys
 		// loads silently, so check the shape here instead of failing on
@@ -174,7 +166,7 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 		subjectIssuer := defaultSubjectIssuer(cfg)
 		for audience, target := range cfg.TokenExchangeBroker.Targets {
 			if err := validateBrokerTarget(audience, target, cfg.TrustedIssuers, subjectIssuer); err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
 		opts = append(opts, oauthserver.WithExchanger(musteroauth.NewBrokerExchanger(cfg.TokenExchangeBroker, subjectIssuer)))
@@ -190,12 +182,31 @@ func buildOAuthServerOptions(cfg config.OAuthServerConfig, logger *slog.Logger, 
 	if len(cfg.TrustedProxyCIDRs) > 0 {
 		cidrs, err := parseCIDRs(cfg.TrustedProxyCIDRs)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		opts = append(opts, oauthserver.WithTrustedProxyCIDRs(cidrs))
 	}
 
-	return opts, nil
+	ipLimiter := security.NewRateLimiter(DefaultIPRateLimit, DefaultIPBurst, logger)
+	userLimiter := security.NewRateLimiter(DefaultUserRateLimit, DefaultUserBurst, logger)
+	securityLimiter := security.NewRateLimiter(DefaultSecurityEventRate, DefaultSecurityEventBurst, logger)
+	registrationLimiter := security.NewClientRegistrationRateLimiterWithConfig(DefaultMaxClientsPerIP, security.DefaultRegistrationWindow, security.DefaultMaxRegistrationEntries, logger)
+	metadataLimiter := security.NewRateLimiter(DefaultMetadataFetchRate, DefaultMetadataFetchBurst, logger)
+	opts = append(opts,
+		oauth.WithRateLimiter(ipLimiter),
+		oauth.WithUserRateLimiter(userLimiter),
+		oauth.WithSecurityEventRateLimiter(securityLimiter),
+		oauth.WithClientRegistrationRateLimiter(registrationLimiter),
+		oauth.WithMetadataFetchRateLimiter(metadataLimiter),
+	)
+	cleanup := sync.OnceFunc(func() {
+		ipLimiter.Stop()
+		userLimiter.Stop()
+		securityLimiter.Stop()
+		registrationLimiter.Stop()
+		metadataLimiter.Stop()
+	})
+	return opts, cleanup, nil
 }
 
 // validateBrokerTarget checks one broker target: a Dex exchange target needs
