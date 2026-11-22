@@ -146,8 +146,8 @@ github.com/giantswarm/go-selfupdate v1.7.7 h1:VU9EUr+VRlnd/XRPNLy4SVnObdqwuXE7Fn
 github.com/giantswarm/go-selfupdate v1.7.7/go.mod h1:nqRW1Io8Ixo3x8tSnLKkpfenWn2PRf/Zcu548PZp780=
 github.com/giantswarm/mcp-oauth v1.18.0 h1:bkFoxEiBfMg1E1HVMRHDWyHVPPKUzQP6jcakEnSwS9o=
 github.com/giantswarm/mcp-oauth v1.18.0/go.mod h1:CejmfrIg1cGdqzTb/F0N0zwpa1fXgpvH3cpDcswf5yY=
-github.com/giantswarm/mcp-toolkit v0.5.4 h1:xjFj5TxG52O6Aa5P7ZjGMYUSg+feKh4LDcbdv3at5Tc=
-github.com/giantswarm/mcp-toolkit v0.5.4/go.mod h1:zO7ekvBcP+2hXcUFVg5/whbn+BqSX5XP1392p3AdsNY=
+github.com/giantswarm/mcp-toolkit v0.7.0 h1:qaToPE0WkBauqNGpY7JoV6KSFT5Z6x3W8w63MXYVnQA=
+github.com/giantswarm/mcp-toolkit v0.7.0/go.mod h1:o6nUYtYy4g8MVVuGyUl0sJH/MZQdnDuVyhM7WICdpwc=
 github.com/giantswarm/pagekit v0.3.8 h1:vmCbZ0KjQSgQnv9LEI6DRx2WU1BKvFCsOXEJQOUEVNE=
 github.com/giantswarm/pagekit v0.3.8/go.mod h1:bXMRzjARa/TewLywz4naTh8YsGzbfSLUoGlEfM92oPQ=
 github.com/giantswarm/selfupdate-cosign v0.3.29 h1:Cm3xZLfifdBW9Vn+zdLFeJbi0IEazQOSAxtSQPAa2Uc=
@@ -243,8 +243,8 @@ github.com/google/go-querystring v1.2.0/go.mod h1:8IFJqpSRITyJ8QhQ13bmbeMBDfmeEJ
 github.com/google/gofuzz v1.0.0/go.mod h1:dBl0BpW6vV/+mYPU4Po3pmUjxk6FQPldtuIdl/M65Eg=
 github.com/google/gofuzz v1.2.0 h1:xRy4A+RhZaiKjJ1bPfwQ8sedCA+YS2YcCHW6ec7JMi0=
 github.com/google/gofuzz v1.2.0/go.mod h1:dBl0BpW6vV/+mYPU4Po3pmUjxk6FQPldtuIdl/M65Eg=
-github.com/google/jsonschema-go v0.4.2 h1:tmrUohrwoLZZS/P3x7ex0WAVknEkBZM46iALbcqoRA8=
-github.com/google/jsonschema-go v0.4.2/go.mod h1:r5quNTdLOYEz95Ru18zA0ydNbBuYoo9tgaYcxEYhJVE=
+github.com/google/jsonschema-go v0.4.3 h1:/DBOLZTfDow7pe2GmaJNhltueGTtDKICi8V8p+DQPd0=
+github.com/google/jsonschema-go v0.4.3/go.mod h1:r5quNTdLOYEz95Ru18zA0ydNbBuYoo9tgaYcxEYhJVE=
 github.com/google/pprof v0.0.0-20260604005048-7023385849c0 h1:h1QTMDl6q9wDvDCJVpKQSjgleGFYnd2fOxmg2K+6BGE=
 github.com/google/pprof v0.0.0-20260604005048-7023385849c0/go.mod h1:MxpfABSjhmINe3F1It9d+8exIHFvUqtLIRCdOGNXqiI=
 github.com/google/s2a-go v0.1.11 h1:7v1V1TraNGP63WptsAkNqr2w8jgm4vM6A6qx6Lsw9iM=
