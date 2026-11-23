@@ -21,7 +21,8 @@ const paramHeaderSchema = `{"type":"object","properties":{"owner":{"type":"strin
 // Mcp-Param-Owner; the mcp-go server refuses a call without it.
 func newParamHeaderBackend(t *testing.T, tools ...string) (*server.MCPServer, string) {
 	t.Helper()
-	srv := server.NewMCPServer("param-header-backend", "test", server.WithToolCapabilities(true))
+	srv := server.NewMCPServer("param-header-backend", "test", server.WithToolCapabilities(true),
+		server.WithMethodCacheHints(mcp.MethodToolsList, 60000, mcp.CacheScopePrivate))
 	for _, name := range tools {
 		addParamHeaderTool(srv, name)
 	}
@@ -86,6 +87,14 @@ func (c *observedToolClient) ListTools(ctx context.Context, request mcp.ListTool
 		return c.list(ctx, request)
 	}
 	return c.MCPClient.ListTools(ctx, request)
+}
+
+func (c *observedToolClient) ListToolsByPage(ctx context.Context, request mcp.ListToolsRequest) (*mcp.ListToolsResult, error) {
+	c.lists.Add(1)
+	if c.list != nil {
+		return c.list(ctx, request)
+	}
+	return c.MCPClient.ListToolsByPage(ctx, request)
 }
 
 func (c *observedToolClient) CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

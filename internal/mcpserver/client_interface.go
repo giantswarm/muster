@@ -80,10 +80,13 @@ type baseMCPClient struct {
 	connected bool
 
 	// mcp-go derives parameter headers from definitions listed by that client.
-	toolsMu        sync.Mutex
-	toolsListedFor client.MCPClient
-	toolsListing   chan struct{}
-	streamableHTTP bool
+	toolsMu           sync.Mutex
+	toolsListedFor    client.MCPClient
+	toolsListing      *toolListing
+	toolsGeneration   uint64
+	toolsInvalidation uint64
+	toolsExpiresAt    time.Time
+	streamableHTTP    bool
 
 	// negotiatedProtocolVersion and serverCapabilities hold the
 	// protocolVersion and the capabilities from the initialize response.
@@ -263,6 +266,7 @@ func (b *baseMCPClient) recordHandshake(result *mcp.InitializeResult) {
 // revision now. Called with mu held for writing.
 func (b *baseMCPClient) clearHandshake() {
 	b.stopListChangedStream()
+	b.invalidateToolDefinitions()
 	b.legacyBackend = false
 	b.negotiatedProtocolVersion = ""
 	b.serverCapabilities = mcp.ServerCapabilities{}
@@ -305,14 +309,14 @@ func (b *baseMCPClient) listToolsOnce(ctx context.Context) ([]mcp.Tool, error) {
 		return nil, err
 	}
 
+	if b.streamableHTTP && mcp.IsModernProtocol(b.negotiatedProtocolVersion) {
+		tools, _, err := b.loadToolDefinitions(ctx, 0, true)
+		return tools, err
+	}
 	result, err := b.client.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
-	b.toolsMu.Lock()
-	b.toolsListedFor = b.client
-	b.toolsMu.Unlock()
-
 	return result.Tools, nil
 }
 
@@ -493,6 +497,9 @@ func (b *baseMCPClient) wireNotificationHandler() {
 // a reopened list-changes stream is acknowledged (rediscover), and passes
 // every other notification to the stored handler.
 func (b *baseMCPClient) dispatchNotification(notification mcp.JSONRPCNotification) {
+	if notification.Method == string(mcp.MethodNotificationToolsListChanged) {
+		b.invalidateToolDefinitions()
+	}
 	if notification.Method == string(mcp.MethodNotificationProgress) {
 		b.progress.route(notification)
 		return
