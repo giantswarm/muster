@@ -122,6 +122,9 @@ type ExchangeResult struct {
 	// IssuedTokenType is the type of the issued token.
 	IssuedTokenType string
 
+	// Scope is the effective scope granted by the downstream issuer.
+	Scope string
+
 	// ExpiresAt is the exchanged token's expiry. Derived from the token
 	// endpoint's expires_in (or, failing that, the token's exp claim).
 	// Zero when neither is available.
@@ -201,6 +204,9 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	}
 
 	tokenType, scopes := getExchangeDefaults(req)
+	if req.Config.Delegation != nil {
+		scopes = withoutCrossClientScopes(scopes)
+	}
 
 	// Check cache first
 	cacheKey := tokencache.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
@@ -210,6 +216,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 		return &ExchangeResult{
 			AccessToken:     cached.AccessToken,
 			IssuedTokenType: cached.IssuedTokenType,
+			Scope:           scopes,
 			ExpiresAt:       cached.ExpiresAt,
 			FromCache:       true,
 		}, nil
@@ -247,7 +254,6 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	if d := req.Config.Delegation; d != nil {
 		exchangeReq.SubjectTokenType = oidc.TokenTypeAccessToken
 		exchangeReq.ConnectorID = ""
-		exchangeReq.Scope = withoutCrossClientScopes(scopes)
 		exchangeReq.ActorToken = d.ActorToken
 		exchangeReq.ActorTokenType = oidc.TokenTypeJWT
 		exchangeReq.Audience = d.Audience
@@ -278,8 +284,12 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 			logging.TruncateIdentifier(req.UserID), expectedIssuer)
 	}
 
-	// Cache the result
-	if resp.ExpiresIn > 0 {
+	grantedScope := resp.Scope
+	if grantedScope == "" {
+		grantedScope = exchangeReq.Scope
+	}
+	// Cache hits infer scope from the request, so only unchanged grants are cached.
+	if resp.ExpiresIn > 0 && grantedScope == exchangeReq.Scope {
 		e.cache.Set(cacheKey, resp.AccessToken, resp.IssuedTokenType, resp.ExpiresIn)
 		logging.Debug("TokenExchange", "Cached exchanged token for user=%s (expires in %ds)",
 			logging.TruncateIdentifier(req.UserID), resp.ExpiresIn)
@@ -298,6 +308,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	return &ExchangeResult{
 		AccessToken:     resp.AccessToken,
 		IssuedTokenType: resp.IssuedTokenType,
+		Scope:           grantedScope,
 		ExpiresAt:       expiresAt,
 		FromCache:       false,
 	}, nil
