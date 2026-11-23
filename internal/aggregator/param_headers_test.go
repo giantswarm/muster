@@ -12,17 +12,12 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// A backend that mirrors a parameter into Mcp-Param-* (SEP-2243), as GitHub's
-// hosted MCP server does, answers a person's call on the connection that
-// adopted the subject grant, on the pooled connection after it, and on the
-// fresh session client of an authenticated session whose pooled connection is
-// gone (evicted, refreshed, or held by another replica).
-func TestCallToolWithTokenExchangeRetry_MirrorsParamHeaders(t *testing.T) {
+func TestSubjectGrantCall_MirrorsParamHeadersAfterPoolEviction(t *testing.T) {
 	mcpSrv := mcpgoserver.NewMCPServer("github", "1.0.0", mcpgoserver.WithToolCapabilities(true))
 	mcpSrv.AddTool(mcp.NewToolWithRawSchema("pull_request_read", "",
 		json.RawMessage(`{"type":"object","properties":{"owner":{"type":"string","x-mcp-header":"Owner"}},"required":["owner"]}`)),
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return mcp.NewToolResultText("diff of " + req.GetString("owner", "")), nil
+		func(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText("diff of " + request.GetString("owner", "")), nil
 		})
 	backend, _ := serveGrantBackend(t, mcpSrv, subjectGrantToken)
 
@@ -33,7 +28,7 @@ func TestCallToolWithTokenExchangeRetry_MirrorsParamHeaders(t *testing.T) {
 	api.RegisterOAuthHandler(handler)
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-	ctx := sessionContext("sess-1", "alice")
+	ctx := api.WithSessionID(api.WithSubject(t.Context(), "alice"), "sess-1")
 	for i := range 3 {
 		if i == 2 {
 			a.connPool.Evict("sess-1", "github")
@@ -46,15 +41,12 @@ func TestCallToolWithTokenExchangeRetry_MirrorsParamHeaders(t *testing.T) {
 	}
 }
 
-// Workflow steps, conditions and pagination call tools through
-// CallToolInternal; on a fresh session client their calls carry the
-// Mcp-Param-* headers too.
-func TestCallToolInternal_MirrorsParamHeadersForWorkflowSteps(t *testing.T) {
+func TestCallToolInternal_MirrorsParamHeadersAfterPoolEviction(t *testing.T) {
 	mcpSrv := mcpgoserver.NewMCPServer("github", "1.0.0", mcpgoserver.WithToolCapabilities(true))
 	mcpSrv.AddTool(mcp.NewToolWithRawSchema("pull_request_read", "",
 		json.RawMessage(`{"type":"object","properties":{"owner":{"type":"string","x-mcp-header":"Owner"}},"required":["owner"]}`)),
-		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			return mcp.NewToolResultText("diff of " + req.GetString("owner", "")), nil
+		func(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			return mcp.NewToolResultText("diff of " + request.GetString("owner", "")), nil
 		})
 	backend, _ := serveGrantBackend(t, mcpSrv, subjectGrantToken)
 
@@ -65,7 +57,7 @@ func TestCallToolInternal_MirrorsParamHeadersForWorkflowSteps(t *testing.T) {
 	api.RegisterOAuthHandler(handler)
 	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
 
-	ctx := sessionContext("sess-1", "alice")
+	ctx := api.WithSessionID(api.WithSubject(t.Context(), "alice"), "sess-1")
 	_, err := a.callToolWithTokenExchangeRetry(ctx, "github", "pull_request_read",
 		map[string]any{"owner": "giantswarm"}, "sess-1", "alice")
 	require.NoError(t, err)
