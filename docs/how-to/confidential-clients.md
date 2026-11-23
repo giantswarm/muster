@@ -8,12 +8,15 @@ across replicas also requires the integration in
 includes that integration so enabling it cannot expose process-local replay
 protection on a replicated deployment.
 
-Before upgrading existing Valkey storage, stop OAuth traffic and all old writers,
-run the library's [family revocation index migration](https://github.com/giantswarm/mcp-oauth/blob/main/docs/client-management.md#valkey-revocation-index-migration),
-then restart every replica on the new release before restoring traffic. Existing
-namespaces keep the compatibility lookup until migration completes. Old binaries
-must not write to migrated storage; a rollback or snapshot restore requires the
-same stopped-traffic migration before the new release resumes serving.
+On standalone Valkey, muster indexes existing storage for the library's
+[family revocation index](https://github.com/giantswarm/mcp-oauth/blob/main/docs/client-management.md#valkey-revocation-index-migration)
+while it serves traffic; replicas switch to indexed lookups once one of them
+completes the walk. Every replica writing to the key prefix must run muster
+v5.65.0 or newer first. The Valkey user needs `INFO`, which ACLs place in
+`@dangerous`. On Valkey Cluster or Sentinel, or after a rollback or snapshot
+restore involving older releases, stop OAuth traffic and every replica, run the
+library's stopped-traffic migration, and restart every replica before restoring
+traffic.
 
 Register each integration as a separate client of muster's OAuth server. Its
 client ID identifies the integration; its access-token session identifies the
