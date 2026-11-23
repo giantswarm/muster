@@ -264,6 +264,7 @@ func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 	}
 
 	c.client = mcpClient
+	c.streamableHTTP = true
 	c.connected = true
 	c.recordHandshake(initResult)
 	c.hadSession = sessionIDOf(mcpClient) != ""
