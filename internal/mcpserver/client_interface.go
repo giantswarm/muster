@@ -80,13 +80,14 @@ type baseMCPClient struct {
 	connected bool
 
 	// mcp-go derives parameter headers from definitions listed by that client.
-	toolsMu           sync.Mutex
-	toolsListedFor    client.MCPClient
-	toolsListing      *toolListing
-	toolsGeneration   uint64
-	toolsInvalidation uint64
-	toolsExpiresAt    time.Time
-	streamableHTTP    bool
+	toolsMu               sync.Mutex
+	toolsListedFor        client.MCPClient
+	toolsListing          *toolListing
+	toolsGeneration       uint64
+	toolsInvalidation     uint64
+	toolsExpiresAt        time.Time
+	toolsHaveParamHeaders bool
+	streamableHTTP        bool
 
 	// negotiatedProtocolVersion and serverCapabilities hold the
 	// protocolVersion and the capabilities from the initialize response.

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -36,11 +37,12 @@ func (b *baseMCPClient) callToolWithParamHeaders(ctx context.Context, request mc
 
 // Caller holds mu for reading, keeping the SDK client stable during listing.
 // A rejected generation may reuse a newer listing even when its TTL is zero.
+// Only catalogs used to generate parameter headers need expiry refreshes.
 func (b *baseMCPClient) loadToolDefinitions(ctx context.Context, refreshAfter uint64, force bool) ([]mcp.Tool, uint64, error) {
 	for {
 		b.toolsMu.Lock()
 		if !force && b.toolsListedFor == b.client &&
-			((refreshAfter == 0 && time.Now().Before(b.toolsExpiresAt)) ||
+			((refreshAfter == 0 && (!b.toolsHaveParamHeaders || time.Now().Before(b.toolsExpiresAt))) ||
 				(refreshAfter != 0 && b.toolsGeneration > refreshAfter)) {
 			generation := b.toolsGeneration
 			b.toolsMu.Unlock()
@@ -76,6 +78,9 @@ func (b *baseMCPClient) loadToolDefinitions(ctx context.Context, refreshAfter ui
 			b.toolsListedFor = b.client
 			b.toolsGeneration++
 			b.toolsExpiresAt = expiresAt
+			b.toolsHaveParamHeaders = slices.ContainsFunc(tools, func(tool mcp.Tool) bool {
+				return len(mcp.ExtractParamHeaderBindings(&tool)) > 0
+			})
 		}
 		pending.tools, pending.generation, pending.err = tools, b.toolsGeneration, err
 		close(pending.done)

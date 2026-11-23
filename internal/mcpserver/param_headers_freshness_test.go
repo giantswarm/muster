@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"testing/synctest"
@@ -14,6 +15,7 @@ import (
 func toolListWithTTL(ttlMillis int64) *mcp.ListToolsResult {
 	result := &mcp.ListToolsResult{}
 	result.SetCacheHints(ttlMillis, mcp.CacheScopePrivate)
+	result.Tools = []mcp.Tool{mcp.NewToolWithRawSchema("read", "", json.RawMessage(paramHeaderSchema))}
 	return result
 }
 
@@ -45,7 +47,7 @@ func TestCallTool_StaleCacheHintsAreNotReused(t *testing.T) {
 		name   string
 		result *mcp.ListToolsResult
 	}{
-		{name: "absent", result: &mcp.ListToolsResult{}},
+		{name: "absent", result: &mcp.ListToolsResult{Tools: toolListWithTTL(0).Tools}},
 		{name: "zero", result: toolListWithTTL(0)},
 		{name: "negative", result: toolListWithTTL(-1)},
 	} {
@@ -101,13 +103,13 @@ func TestCallTool_PaginatedDefinitionsUseEarliestExpiry(t *testing.T) {
 						page := toolListWithTTL(60000)
 						if request.Params.Cursor == "" {
 							page.NextCursor = "second"
-							page.Tools = []mcp.Tool{mcp.NewTool("first")}
+							page.Tools[0].Name = "first"
 							if shorterPage == "first" {
 								page.SetCacheHints(1000, mcp.CacheScopePrivate)
 							}
 						} else {
 							require.Equal(t, mcp.Cursor("second"), request.Params.Cursor)
-							page.Tools = []mcp.Tool{mcp.NewTool("second")}
+							page.Tools[0].Name = "second"
 							if shorterPage == "second" {
 								page.SetCacheHints(1000, mcp.CacheScopePrivate)
 							}

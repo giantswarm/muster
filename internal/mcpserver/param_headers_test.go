@@ -172,3 +172,26 @@ func TestStdioCall_DoesNotPrefetchParamHeaders(t *testing.T) {
 	require.False(t, result.IsError)
 	require.Zero(t, observed.lists.Load())
 }
+
+func TestCallTool_UnannotatedToolsDoNotRefreshUntilHeadersAreRequired(t *testing.T) {
+	backend := server.NewMCPServer("unannotated", "test", server.WithToolCapabilities(false))
+	backend.AddTool(mcp.NewTool("read"), func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcp.NewToolResultText("unannotated"), nil
+	})
+	httpServer := httptest.NewServer(server.NewStreamableHTTPServer(backend))
+	t.Cleanup(httpServer.Close)
+	connection := connect(t, t.Context(), httpServer.URL)
+	observed := &observedToolClient{MCPClient: connection.client}
+	connection.client = observed
+	for range 3 {
+		result, err := connection.CallTool(t.Context(), "read", map[string]any{"owner": "giantswarm"})
+		require.NoError(t, err)
+		require.False(t, result.IsError)
+	}
+	require.EqualValues(t, 1, observed.lists.Load())
+	addParamHeaderTool(backend, "read")
+	result, err := connection.CallTool(t.Context(), "read", map[string]any{"owner": "giantswarm"})
+	require.NoError(t, err)
+	require.Equal(t, "read giantswarm", result.Content[0].(mcp.TextContent).Text)
+	require.EqualValues(t, 2, observed.lists.Load())
+}
