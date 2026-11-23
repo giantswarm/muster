@@ -9,6 +9,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // MCPClient defines the interface for MCP client implementations.
@@ -78,6 +80,15 @@ type baseMCPClient struct {
 	client    client.MCPClient
 	mu        sync.RWMutex
 	connected bool
+
+	// mcp-go mirrors a tool's x-mcp-header parameters into Mcp-Param-*
+	// headers (SEP-2243) only for the tools its own client instance has
+	// listed, and a server that declares them refuses a call without them.
+	// listedTools names the tools listedFor has listed; a call to any other
+	// tool lists first (ensureToolListed). Guarded by toolsMu.
+	toolsMu     sync.Mutex
+	listedFor   client.MCPClient
+	listedTools map[string]bool
 
 	// negotiatedProtocolVersion and serverCapabilities hold the
 	// protocolVersion and the capabilities from the initialize response.
@@ -303,8 +314,49 @@ func (b *baseMCPClient) listToolsOnce(ctx context.Context) ([]mcp.Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
+	b.recordListedTools(b.client, result.Tools, "")
 
 	return result.Tools, nil
+}
+
+// recordListedTools notes the tools mc has listed, and requested, a tool the
+// caller asked for that the listing lacks, so a call to a tool the server does
+// not offer does not list again on every call. A different mc replaces what
+// the previous client listed.
+func (b *baseMCPClient) recordListedTools(mc client.MCPClient, tools []mcp.Tool, requested string) {
+	b.toolsMu.Lock()
+	defer b.toolsMu.Unlock()
+	if b.listedFor != mc || b.listedTools == nil {
+		b.listedFor, b.listedTools = mc, make(map[string]bool, len(tools)+1)
+	}
+	for _, tool := range tools {
+		b.listedTools[tool.Name] = true
+	}
+	if requested != "" {
+		b.listedTools[requested] = true
+	}
+}
+
+// ensureToolListed lists the server's tools on the current client before its
+// first call to name, so that mcp-go knows the tool's x-mcp-header parameters.
+// Only a server on 2026-07-28 or later has them. A failed listing leaves the
+// call to the server, which answers it as it would have. Called with mu held.
+func (b *baseMCPClient) ensureToolListed(ctx context.Context, name string) {
+	if !mcp.IsModernProtocol(b.negotiatedProtocolVersion) {
+		return
+	}
+	b.toolsMu.Lock()
+	listed := b.listedFor == b.client && b.listedTools[name]
+	b.toolsMu.Unlock()
+	if listed {
+		return
+	}
+	result, err := b.client.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		logging.Debug("MCPClient", "Listing tools before calling %s failed: %v", name, err)
+		return
+	}
+	b.recordListedTools(b.client, result.Tools, name)
 }
 
 // callTool executes a specific tool and returns the result
@@ -333,6 +385,7 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 		params.Meta = &mcp.Meta{ProgressToken: token}
 	}
 
+	b.ensureToolListed(ctx, name)
 	ctx = client.WithRequestClientCapabilities(ctx, callerCapabilitiesFrom(ctx))
 	result, err := b.client.CallTool(ctx, mcp.CallToolRequest{Params: params})
 	if err != nil {
