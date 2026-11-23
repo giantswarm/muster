@@ -234,7 +234,10 @@ func TestTokenExchanger_Cache(t *testing.T) {
 		assert.Equal(t, 0, exchanger.cache.Size())
 
 		// Clear specific key should not panic
-		exchanger.ClearCache("https://dex.example.com/token", "connector", "user123")
+		exchanger.ClearCache(&ExchangeRequest{
+			Config: &api.TokenExchangeConfig{DexTokenEndpoint: "https://dex.example.com/token", ConnectorID: "connector"},
+			UserID: "user123",
+		})
 	})
 
 	t.Run("cleanup removes nothing when cache is empty", func(t *testing.T) {

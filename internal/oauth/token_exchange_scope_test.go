@@ -25,8 +25,16 @@ func TestTokenExchangerEffectiveScopes(t *testing.T) {
 			var requests atomic.Int32
 			downstream := httptest.NewTLSServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 				requests.Add(1)
-				require.NoError(t, request.ParseForm())
-				require.Equal(t, "openid groups", request.PostForm.Get("scope"))
+				if err := request.ParseForm(); err != nil {
+					t.Error(err)
+					http.Error(response, "invalid form", http.StatusBadRequest)
+					return
+				}
+				if scope := request.PostForm.Get("scope"); scope != "openid groups" {
+					t.Errorf("unexpected scope %q", scope)
+					http.Error(response, "unexpected scope", http.StatusBadRequest)
+					return
+				}
 				response.Header().Set("Content-Type", "application/json")
 				body := map[string]any{
 					"access_token": "downstream-token", "issued_token_type": "urn:ietf:params:oauth:token-type:id_token",
@@ -35,7 +43,9 @@ func TestTokenExchangerEffectiveScopes(t *testing.T) {
 				if test.responseScope != "" {
 					body["scope"] = test.responseScope
 				}
-				require.NoError(t, json.NewEncoder(response).Encode(body))
+				if err := json.NewEncoder(response).Encode(body); err != nil {
+					t.Error(err)
+				}
 			}))
 			t.Cleanup(downstream.Close)
 			exchanger := NewTokenExchangerWithOptions(TokenExchangerOptions{HTTPClient: downstream.Client(), AllowPrivateIP: true})

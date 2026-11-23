@@ -177,27 +177,7 @@ func validateExchangeRequest(req *ExchangeRequest) error {
 	return nil
 }
 
-// getExchangeDefaults returns the token type and scopes with defaults applied.
-func getExchangeDefaults(req *ExchangeRequest) (tokenType, scopes string) {
-	tokenType = req.SubjectTokenType
-	if tokenType == "" {
-		tokenType = oidc.TokenTypeIDToken
-	}
-	scopes = req.Config.Scopes
-	if scopes == "" {
-		scopes = DefaultOIDCScopes
-	}
-	return tokenType, scopes
-}
-
-// Exchange exchanges a local token for a token valid on a remote cluster.
-// The token is cached to reduce the number of exchange requests.
-//
-// Args:
-//   - ctx: Context for cancellation and timeouts
-//   - req: Exchange request parameters
-//
-// Returns the exchanged token or an error if exchange fails.
+// Exchange obtains and caches a downstream token for the validated request.
 func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*ExchangeResult, error) {
 	if err := validateExchangeRequest(req); err != nil {
 		return nil, err
@@ -209,7 +189,7 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 	}
 
 	// Check cache first
-	cacheKey := tokencache.GenerateCacheKey(req.Config.DexTokenEndpoint, req.Config.ConnectorID, req.UserID)
+	cacheKey := tokenExchangeCacheKey(req)
 	if cached := e.cache.Get(cacheKey); cached != nil {
 		logging.Debug("TokenExchange", "Cache hit for user=%s endpoint=%s",
 			logging.TruncateIdentifier(req.UserID), req.Config.DexTokenEndpoint)
@@ -312,49 +292,6 @@ func (e *TokenExchanger) Exchange(ctx context.Context, req *ExchangeRequest) (*E
 		ExpiresAt:       expiresAt,
 		FromCache:       false,
 	}, nil
-}
-
-// withoutCrossClientScopes drops Dex cross-client audience scopes
-// (audience:server:client_id:<id>) from a scope value: a delegated exchange
-// names its target with the audience parameter instead.
-func withoutCrossClientScopes(scopes string) string {
-	var kept []string
-	for _, scope := range strings.Fields(scopes) {
-		if !strings.HasPrefix(scope, "audience:server:client_id:") {
-			kept = append(kept, scope)
-		}
-	}
-	return strings.Join(kept, " ")
-}
-
-// ClearCache removes a cached token for the given parameters.
-// This is useful when a cached token is rejected by the remote server.
-func (e *TokenExchanger) ClearCache(tokenEndpoint, connectorID, userID string) {
-	cacheKey := tokencache.GenerateCacheKey(tokenEndpoint, connectorID, userID)
-	e.cache.Delete(cacheKey)
-	logging.Debug("TokenExchange", "Cleared cache for user=%s endpoint=%s",
-		logging.TruncateIdentifier(userID), tokenEndpoint)
-}
-
-// ClearAllCache removes all cached tokens.
-func (e *TokenExchanger) ClearAllCache() {
-	e.cache.Clear()
-	logging.Debug("TokenExchange", "Cleared all cached tokens")
-}
-
-// GetCacheStats returns statistics about the token exchange cache.
-func (e *TokenExchanger) GetCacheStats() tokencache.Stats {
-	return e.cache.GetStats()
-}
-
-// Cleanup removes expired tokens from the cache.
-// This should be called periodically for long-running services.
-func (e *TokenExchanger) Cleanup() int {
-	removed := e.cache.Cleanup()
-	if removed > 0 {
-		logging.Debug("TokenExchange", "Cleaned up %d expired cached tokens", removed)
-	}
-	return removed
 }
 
 // GetExpectedIssuer returns the expected issuer URL for token validation.
