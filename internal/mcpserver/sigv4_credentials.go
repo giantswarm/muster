@@ -11,6 +11,8 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 const (
@@ -169,32 +171,46 @@ func (p *backoffCredentialsProvider) Retrieve(ctx context.Context) (aws.Credenti
 // base credentials assume it, one hop per MCPServer, cached for successes
 // because every request on the transport retrieves credentials.
 //
-// Either way the result is wrapped for backoff. The base chain is an STS call
-// too — AssumeRoleWithWebIdentity in a pod — and LoadDefaultConfig caches it
-// for successes only, so the error path needs capping on both branches, not
-// just the assume-role one.
-func sigV4Credentials(ctx context.Context, region, roleARN, serverName string) (aws.CredentialsProvider, error) {
-	cfg, err := baseAWSConfig(ctx, region)
+// With SourceIdentity "caller" the role is assumed once per caller, each
+// session carrying the caller's subject as its source identity.
+//
+// Every provider is wrapped for backoff. The base chain is an STS call too —
+// AssumeRoleWithWebIdentity in a pod — and LoadDefaultConfig caches it for
+// successes only, so the error path needs capping on every branch, not just
+// the assume-role one.
+func sigV4Credentials(ctx context.Context, signing api.MCPServerSigV4, serverName string) (aws.CredentialsProvider, error) {
+	cfg, err := baseAWSConfig(ctx, signing.Region)
 	if err != nil {
 		return nil, err
 	}
 
-	provider := cfg.Credentials
-	if roleARN != "" {
-		stsClient := sts.NewFromConfig(cfg, func(o *sts.Options) {
-			// The base config's region is whichever server connected first, so
-			// pin this server's own rather than inheriting it.
-			o.Region = region
-		})
-		assumed := stscreds.NewAssumeRoleProvider(stsClient, roleARN,
+	if signing.RoleARN == "" {
+		return newBackoffCredentialsProvider(cfg.Credentials, sigV4CredentialErrorBackoff), nil
+	}
+
+	stsClient := sts.NewFromConfig(cfg, func(o *sts.Options) {
+		// The base config's region is whichever server connected first, so
+		// pin this server's own rather than inheriting it.
+		o.Region = signing.Region
+	})
+	assumeRole := func(sourceIdentity string) aws.CredentialsProvider {
+		assumed := stscreds.NewAssumeRoleProvider(stsClient, signing.RoleARN,
 			func(o *stscreds.AssumeRoleOptions) {
 				o.RoleSessionName = sigV4RoleSessionName(serverName)
 				o.Duration = sigV4AssumeRoleDuration
+				if sourceIdentity != "" {
+					o.SourceIdentity = aws.String(sourceIdentity)
+				}
 			})
-		provider = aws.NewCredentialsCache(assumed, func(o *aws.CredentialsCacheOptions) {
+		cached := aws.NewCredentialsCache(assumed, func(o *aws.CredentialsCacheOptions) {
 			o.ExpiryWindow = sigV4ExpiryWindow
 			o.ExpiryWindowJitterFrac = sigV4ExpiryWindowJitter
 		})
+		return newBackoffCredentialsProvider(cached, sigV4CredentialErrorBackoff)
 	}
-	return newBackoffCredentialsProvider(provider, sigV4CredentialErrorBackoff), nil
+
+	if signing.SourceIdentity != api.SigV4SourceIdentityCaller {
+		return assumeRole(""), nil
+	}
+	return newSourceIdentityCredentials(assumeRole, sigV4AssumeRoleDuration), nil
 }

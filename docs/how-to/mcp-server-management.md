@@ -453,6 +453,7 @@ spec:
 | `auth.sigv4.region` | yes | The signing region. It must match the region in `url`, because the endpoint checks the credential scope of the signature. |
 | `auth.sigv4.service` | no | The signing service name. It defaults to the first hostname label of `url`, so `aws-mcp.eu-central-1.api.aws` signs as `aws-mcp`. |
 | `auth.sigv4.roleArn` | no | An IAM role that muster assumes before it signs. Leave it empty to sign as muster's own identity. |
+| `auth.sigv4.sourceIdentity` | no | `caller` assumes `roleArn` once per caller, with the caller's subject as the session's source identity. Needs `roleArn`. See [Source identity](#source-identity). |
 | `requestMeta.AWS_REGION` | yes | The region the AWS MCP server operates in. `requestMeta` is not a SigV4 field: see [Request metadata](#request-metadata). |
 
 muster gets its base credentials from the default AWS credential chain. In
@@ -464,6 +465,36 @@ muster reaches many accounts. Each account gets its own MCPServer, and a shared
 
 The assumed role's session is named `muster-aggregator.<MCPServer name>`, so
 CloudTrail shows which server made a call.
+
+### Source identity
+
+With `sourceIdentity: caller`, muster assumes `roleArn` once per caller and
+sets the caller's subject, the `sub` of the token they signed in to muster
+with, as the session's
+[source identity](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_control-access_monitor.html).
+CloudTrail records it on every call the session makes, and it stays on the
+session through any further role it assumes. A request no person is behind,
+such as the `initialize` muster sends on connect, carries `muster-aggregator`.
+
+Every caller still gets the permissions of `roleArn`. The source identity says
+who made a call, it does not narrow what they can do. AWS takes muster's word
+for it, so it is an audit record, not a check of the person by AWS.
+
+STS refuses the `AssumeRole` unless both muster's identity policy and the
+role's trust policy allow `sts:SetSourceIdentity`. The trust policy can also
+require a source identity, so that no session of the role goes without one:
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::111122223333:role/muster" },
+  "Action": ["sts:AssumeRole", "sts:SetSourceIdentity"],
+  "Condition": { "Null": { "sts:SourceIdentity": "false" } }
+}
+```
+
+A subject STS cannot take as a source identity, anything other than 2 to 256
+characters of letters, digits and `_+=,.@-`, fails the call.
 
 **A SigV4 server must set `requestMeta.AWS_REGION`.** The AWS MCP server takes
 the region it operates in from `params._meta.AWS_REGION`. None of its tools has

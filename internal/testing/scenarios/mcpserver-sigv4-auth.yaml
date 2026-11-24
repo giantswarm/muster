@@ -20,6 +20,7 @@ steps:
       sigv4:
         region: "eu-central-1"
         roleArn: "arn:aws:iam::123456789012:role/ExampleReadOnlyRole"
+        sourceIdentity: "caller"
     requestMeta:
       AWS_REGION: "eu-central-1"
   expected:
@@ -38,6 +39,7 @@ steps:
       - "sigv4"
       - "eu-central-1"
       - "arn:aws:iam::123456789012:role/ExampleReadOnlyRole"
+      - "sourceIdentity"
       - "AWS_REGION"
 
 - id: "create-sigv4-without-region"
@@ -142,6 +144,25 @@ steps:
   expected:
     success: false
     error_contains: ["requestMeta.AWS_REGION"]
+
+- id: "create-sigv4-source-identity-without-role"
+  description: "Reject sourceIdentity without roleArn: STS sets a source identity only when a role is assumed"
+  tool: "core_mcpserver_create"
+  args:
+    name: "sigv4-source-identity-no-role"
+    type: "streamable-http"
+    url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+    autoStart: false
+    auth:
+      type: "sigv4"
+      sigv4:
+        region: "eu-central-1"
+        sourceIdentity: "caller"
+    requestMeta:
+      AWS_REGION: "eu-central-1"
+  expected:
+    success: false
+    error_contains: ["sourceIdentity", "roleArn"]
 
 - id: "create-request-meta-on-plain-streamable-http"
   description: "Accept requestMeta without sigv4: the entries are added by a shared HTTP transport, not by the signer"

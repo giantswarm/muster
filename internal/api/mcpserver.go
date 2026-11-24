@@ -244,7 +244,15 @@ type MCPServerSigV4 struct {
 
 	// RoleARN is the role assumed before signing, if any.
 	RoleARN string `yaml:"roleArn,omitempty" json:"roleArn,omitempty"`
+
+	// SourceIdentity "caller" assumes RoleARN once per caller, with the
+	// caller's subject as the session's STS source identity.
+	SourceIdentity string `yaml:"sourceIdentity,omitempty" json:"sourceIdentity,omitempty"`
 }
+
+// SigV4SourceIdentityCaller sets the caller's subject as the STS source
+// identity of the session a SigV4 request signs with.
+const SigV4SourceIdentityCaller = "caller"
 
 // MCPServerAuthAuthorizationServer pins the OAuth authorization server for an
 // MCP server when RFC 9728 PRM discovery is unavailable.
@@ -698,6 +706,15 @@ func ValidateSigV4(serverType string, auth *MCPServerAuth) error {
 	// filesystem mode rejects it too instead of silently ignoring the block.
 	if auth.AuthorizationServer != nil {
 		return fmt.Errorf("auth.authorizationServer does not apply when auth.type is %q: there is no authorization server in a machine identity flow", MCPServerAuthTypeSigV4)
+	}
+	switch auth.SigV4.SourceIdentity {
+	case "":
+	case SigV4SourceIdentityCaller:
+		if auth.SigV4.RoleARN == "" {
+			return fmt.Errorf("auth.sigv4.sourceIdentity needs auth.sigv4.roleArn: STS sets a source identity only when a role is assumed")
+		}
+	default:
+		return fmt.Errorf("auth.sigv4.sourceIdentity must be %q, not %q", SigV4SourceIdentityCaller, auth.SigV4.SourceIdentity)
 	}
 	return nil
 }

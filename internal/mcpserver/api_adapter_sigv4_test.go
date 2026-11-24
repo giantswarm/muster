@@ -25,9 +25,10 @@ func TestSigV4AndMetaSurviveTheConversionRoundTrip(t *testing.T) {
 		Auth: &api.MCPServerAuth{
 			Type: api.MCPServerAuthTypeSigV4,
 			SigV4: &api.MCPServerSigV4{
-				Region:  testSigV4Region,
-				Service: testSigV4Service,
-				RoleARN: "arn:aws:iam::123456789012:role/ExampleReadOnlyRole",
+				Region:         testSigV4Region,
+				Service:        testSigV4Service,
+				RoleARN:        "arn:aws:iam::123456789012:role/ExampleReadOnlyRole",
+				SourceIdentity: api.SigV4SourceIdentityCaller,
 			},
 		},
 	})
@@ -36,9 +37,10 @@ func TestSigV4AndMetaSurviveTheConversionRoundTrip(t *testing.T) {
 	assert.Nil(t, crd.Spec.Meta) //nolint:staticcheck // SA1019: asserts the deprecated field stays empty
 	require.NotNil(t, crd.Spec.Auth.SigV4)
 	assert.Equal(t, musterv1alpha1.MCPServerSigV4{
-		Region:  testSigV4Region,
-		Service: testSigV4Service,
-		RoleARN: "arn:aws:iam::123456789012:role/ExampleReadOnlyRole",
+		Region:         testSigV4Region,
+		Service:        testSigV4Service,
+		RoleARN:        "arn:aws:iam::123456789012:role/ExampleReadOnlyRole",
+		SourceIdentity: api.SigV4SourceIdentityCaller,
 	}, *crd.Spec.Auth.SigV4)
 
 	info := convertCRDToInfo(crd)

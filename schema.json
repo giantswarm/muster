@@ -232,6 +232,13 @@
                     "service": {
                       "description": "SigV4 signing service name; defaults to the first hostname label of the server URL",
                       "type": "string"
+                    },
+                    "sourceIdentity": {
+                      "description": "caller assumes roleArn once per caller, with the caller's subject as the STS source identity; needs roleArn and sts:SetSourceIdentity on both sides",
+                      "enum": [
+                        "caller"
+                      ],
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -648,6 +655,13 @@
                     "service": {
                       "description": "SigV4 signing service name; defaults to the first hostname label of the server URL",
                       "type": "string"
+                    },
+                    "sourceIdentity": {
+                      "description": "caller assumes roleArn once per caller, with the caller's subject as the STS source identity; needs roleArn and sts:SetSourceIdentity on both sides",
+                      "enum": [
+                        "caller"
+                      ],
+                      "type": "string"
                     }
                   },
                   "required": [
@@ -1009,6 +1023,13 @@
                     },
                     "service": {
                       "description": "SigV4 signing service name; defaults to the first hostname label of the server URL",
+                      "type": "string"
+                    },
+                    "sourceIdentity": {
+                      "description": "caller assumes roleArn once per caller, with the caller's subject as the STS source identity; needs roleArn and sts:SetSourceIdentity on both sides",
+                      "enum": [
+                        "caller"
+                      ],
                       "type": "string"
                     }
                   },

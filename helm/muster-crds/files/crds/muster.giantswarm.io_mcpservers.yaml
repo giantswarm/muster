@@ -345,7 +345,7 @@ spec:
                           Region is the SigV4 signing region. It must match the region in URL,
                           because the signature's credential scope is checked against the
                           endpoint. This is not the region the backend operates in — that is
-                          MCPServerSpec.Meta.
+                          MCPServerSpec.RequestMeta.
                         type: string
                       roleArn:
                         description: |-
@@ -358,9 +358,25 @@ spec:
                           hostname label of URL, which is how AWS's own clients derive it:
                           aws-mcp.eu-central-1.api.aws signs as service "aws-mcp".
                         type: string
+                      sourceIdentity:
+                        description: |-
+                          SourceIdentity "caller" assumes RoleARN once per caller and sets the
+                          caller's subject as the session's STS source identity, so CloudTrail
+                          records who made each call and a trust policy can require it through
+                          sts:SourceIdentity. A request with no caller, such as the initialize
+                          muster sends on connect, carries "muster-aggregator". Every caller still
+                          gets RoleARN's permissions. Both muster's identity policy and RoleARN's
+                          trust policy must allow sts:SetSourceIdentity, or AssumeRole fails.
+                        enum:
+                        - caller
+                        type: string
                     required:
                     - region
                     type: object
+                    x-kubernetes-validations:
+                    - message: 'sourceIdentity needs roleArn: STS sets a source identity
+                        only when a role is assumed'
+                      rule: '!has(self.sourceIdentity) || has(self.roleArn)'
                   tokenExchange:
                     description: |-
                       TokenExchange enables SSO via RFC 8693 Token Exchange for cross-cluster SSO.
