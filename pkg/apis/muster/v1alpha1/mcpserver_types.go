@@ -159,7 +159,6 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^([a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?([.][a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$'))",message="a key must follow the MCP _meta key format: an optional dot-separated prefix ending in '/', then a name that begins and ends with a letter or digit"
 	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.matches('^(?i)[^./]+[.](modelcontextprotocol|mcp)([.][^/]*)?/'))",message="a key prefix whose second label is modelcontextprotocol or mcp is reserved for MCP"
 	// +kubebuilder:validation:XValidation:rule="self.all(k, !(k in ['progressToken', 'traceparent', 'tracestate', 'baggage']))",message="progressToken, traceparent, tracestate and baggage are set by muster and OpenTelemetry, not by configuration"
-	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.matches('^(?i)(authorization|cookie|token|access_token|id_token|refresh_token|password|secret|client_secret|api[-_]?key)$'))",message="requestMeta must not hold a credential: everyone who can read the MCPServer can read it"
 	RequestMeta map[string]string `json:"requestMeta,omitempty" yaml:"requestMeta,omitempty"`
 
 	// Meta is the former name of RequestMeta and is read the same way.
@@ -171,7 +170,6 @@ type MCPServerSpec struct {
 	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^([a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?([.][a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$'))",message="a key must follow the MCP _meta key format: an optional dot-separated prefix ending in '/', then a name that begins and ends with a letter or digit"
 	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.matches('^(?i)[^./]+[.](modelcontextprotocol|mcp)([.][^/]*)?/'))",message="a key prefix whose second label is modelcontextprotocol or mcp is reserved for MCP"
 	// +kubebuilder:validation:XValidation:rule="self.all(k, !(k in ['progressToken', 'traceparent', 'tracestate', 'baggage']))",message="progressToken, traceparent, tracestate and baggage are set by muster and OpenTelemetry, not by configuration"
-	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.matches('^(?i)(authorization|cookie|token|access_token|id_token|refresh_token|password|secret|client_secret|api[-_]?key)$'))",message="requestMeta must not hold a credential: everyone who can read the MCPServer can read it"
 	Meta map[string]string `json:"meta,omitempty" yaml:"meta,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.

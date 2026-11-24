@@ -509,9 +509,10 @@ Rules:
   AWS defined.
 - muster refuses keys it must not set: any prefix whose second label is
   `modelcontextprotocol` or `mcp` (reserved for MCP), `progressToken` (set by
-  muster per call), `traceparent`, `tracestate` and `baggage` (OpenTelemetry),
-  and names that would hold a credential such as `token` or `api_key`. Everyone
-  who can read the MCPServer can read these values.
+  muster per call), and `traceparent`, `tracestate` and `baggage`
+  (OpenTelemetry).
+- Everyone who can read the MCPServer can read these values, so they hold no
+  secret.
 - muster does not forward a caller's `_meta` to the backend, so an entry here
   applies to every call. It never replaces a key muster has already set on the
   request.

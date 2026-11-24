@@ -22,10 +22,6 @@ var (
 	// reservedRequestMetaPrefix matches a prefix whose second label is
 	// modelcontextprotocol or mcp, which MCP reserves for itself.
 	reservedRequestMetaPrefix = regexp.MustCompile(`^(?i)[^./]+[.](modelcontextprotocol|mcp)([.][^/]*)?/`)
-
-	// credentialRequestMetaKey matches key names that would put a credential
-	// in a definition everyone who can read it can read.
-	credentialRequestMetaKey = regexp.MustCompile(`^(?i)(authorization|cookie|token|access_token|id_token|refresh_token|password|secret|client_secret|api[-_]?key)$`)
 )
 
 // reservedRequestMetaKeys are set per request by muster (progressToken) or by
@@ -91,8 +87,6 @@ func ValidateRequestMeta(serverType string, auth *MCPServerAuth, requestMeta map
 			problems = append(problems, fmt.Sprintf("%q uses a prefix reserved for MCP", key))
 		case reservedRequestMetaKeys[key]:
 			problems = append(problems, fmt.Sprintf("%q is set by muster or OpenTelemetry, not by configuration", key))
-		case credentialRequestMetaKey.MatchString(key):
-			problems = append(problems, fmt.Sprintf("%q would hold a credential, which everyone who can read the definition can read", key))
 		}
 	}
 	if len(problems) > 0 {

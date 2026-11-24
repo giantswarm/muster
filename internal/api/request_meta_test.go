@@ -85,16 +85,10 @@ func TestValidateRequestMeta(t *testing.T) {
 			wantError:   "set by muster or OpenTelemetry",
 		},
 		{
-			name:        "credential key",
-			serverType:  MCPServerTypeStreamableHTTP,
-			requestMeta: map[string]string{"API_KEY": "a"},
-			wantError:   "would hold a credential",
-		},
-		{
 			name:        "every problem is reported",
 			serverType:  MCPServerTypeStreamableHTTP,
-			requestMeta: map[string]string{"password": "a", "baggage": "b"},
-			wantError:   `"baggage" is set by muster or OpenTelemetry, not by configuration; "password" would hold a credential`,
+			requestMeta: map[string]string{"traceparent": "a", "baggage": "b"},
+			wantError:   `"baggage" is set by muster or OpenTelemetry, not by configuration; "traceparent" is set by muster or OpenTelemetry`,
 		},
 		{name: "sigv4 with a region", serverType: MCPServerTypeStreamableHTTP, auth: sigv4, requestMeta: region},
 		{

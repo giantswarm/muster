@@ -74,7 +74,7 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 		{Name: "requestMeta", Type: api.ArgTypeObject, Required: false, Description: "Entries added to the params._meta object of every outbound JSON-RPC request that carries params (streamable-http and sse)", Schema: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
-			api.SchemaKeyDescription:          "Server-wide configuration for backends that read it from params._meta instead of from tool arguments. Keys follow the MCP _meta key format; MCP-reserved keys, progressToken, traceparent, tracestate, baggage and credential names are refused. An auth.type sigv4 server must set AWS_REGION.",
+			api.SchemaKeyDescription:          "Server-wide configuration for backends that read it from params._meta instead of from tool arguments. Keys follow the MCP _meta key format; MCP-reserved keys, progressToken, traceparent, tracestate and baggage are refused. Values are readable by everyone who can read the server, so hold no secret. An auth.type sigv4 server must set AWS_REGION.",
 		}},
 		{Name: "meta", Type: api.ArgTypeObject, Required: false, Description: "Deprecated: use requestMeta. Written as requestMeta; setting both is refused", Schema: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),

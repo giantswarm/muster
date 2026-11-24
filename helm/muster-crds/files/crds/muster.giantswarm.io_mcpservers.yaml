@@ -664,9 +664,6 @@ spec:
                     set by muster and OpenTelemetry, not by configuration
                   rule: self.all(k, !(k in ['progressToken', 'traceparent', 'tracestate',
                     'baggage']))
-                - message: 'requestMeta must not hold a credential: everyone who can
-                    read the MCPServer can read it'
-                  rule: self.all(k, !k.matches('^(?i)(authorization|cookie|token|access_token|id_token|refresh_token|password|secret|client_secret|api[-_]?key)$'))
               progress:
                 description: |-
                   Progress configures how progress the server reports on a tool call
@@ -727,9 +724,6 @@ spec:
                     set by muster and OpenTelemetry, not by configuration
                   rule: self.all(k, !(k in ['progressToken', 'traceparent', 'tracestate',
                     'baggage']))
-                - message: 'requestMeta must not hold a credential: everyone who can
-                    read the MCPServer can read it'
-                  rule: self.all(k, !k.matches('^(?i)(authorization|cookie|token|access_token|id_token|refresh_token|password|secret|client_secret|api[-_]?key)$'))
               restartRequestedAt:
                 description: |-
                   RestartRequestedAt requests a one-shot restart of this server's service.

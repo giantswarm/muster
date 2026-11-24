@@ -81,11 +81,6 @@ func TestRequestMetaCELEnvtest(t *testing.T) {
 			spec:     musterv1alpha1.MCPServerSpec{RequestMeta: map[string]string{"traceparent": "a"}},
 			rejected: "set by muster and OpenTelemetry",
 		},
-		{
-			name:     "credential-key",
-			spec:     musterv1alpha1.MCPServerSpec{RequestMeta: map[string]string{"api_key": "a"}},
-			rejected: "must not hold a credential",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
