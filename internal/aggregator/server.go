@@ -3292,7 +3292,7 @@ func (a *AggregatorServer) exchangeTokenAndCreateClient(
 	if err != nil {
 		return nil, time.Time{}, "", err
 	}
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.RequestMeta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 	return client, tokenExpiry, exchangedToken, nil
 }
 

@@ -32,7 +32,7 @@ type DynamicAuthClient struct {
 	clientID     string
 	clientSecret string
 
-	// meta holds the spec.meta entries merged into params._meta of every
+	// meta holds the spec.requestMeta entries merged into params._meta of every
 	// outbound request.
 	meta map[string]string
 

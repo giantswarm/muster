@@ -187,16 +187,16 @@ type PendingAuthRegistration struct {
 	// AuthConfig describes how to forward or exchange tokens, when set.
 	AuthConfig *MCPServerAuth
 
-	// Meta carries MCPServer.Meta to the session-scoped clients. A pending-auth
-	// server serves its tool calls from a per-session client the aggregator
-	// builds, not from the one the client factory built, so the entries have to
-	// travel with the registration or spec.meta would stop applying the moment
-	// a server needs a login.
-	Meta map[string]string
+	// RequestMeta carries MCPServer.RequestMeta to the session-scoped clients.
+	// A pending-auth server serves its tool calls from a per-session client the
+	// aggregator builds, not from the one the client factory built, so the
+	// entries have to travel with the registration or spec.requestMeta would
+	// stop applying the moment a server needs a login.
+	RequestMeta map[string]string
 
 	// Timeout is the server's spec.timeout, the budget every operation on a
 	// per-session client runs under; zero means the client's default. It
-	// travels with the registration for the same reason Meta does.
+	// travels with the registration for the same reason RequestMeta does.
 	Timeout time.Duration
 
 	// MaxCallDuration is the server's spec.progress.maxDuration, how long progress
@@ -207,7 +207,7 @@ type PendingAuthRegistration struct {
 	// Headers carries MCPServer.Headers to the per-session clients: the HTTP
 	// headers the definition sends with every request to the server (a
 	// toolset selector, for one). They travel with the registration for the
-	// same reason Meta does. A session's Authorization header is its own
+	// same reason RequestMeta does. A session's Authorization header is its own
 	// credential, never an entry of the definition.
 	Headers map[string]string
 

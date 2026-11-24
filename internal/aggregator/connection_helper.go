@@ -143,7 +143,7 @@ func establishConnection(
 
 	oauthHandler := api.GetOAuthHandler()
 
-	// spec.meta, spec.headers and spec.timeout belong to the server, not to
+	// spec.requestMeta, spec.headers and spec.timeout belong to the server, not to
 	// the session, so they are read from the registry entry rather than passed
 	// down every call path. The timeout is the budget every operation on this
 	// client runs under -- a tool call above all; without it the client falls
@@ -155,7 +155,7 @@ func establishConnection(
 	var timeout, maxCallDuration time.Duration
 	info := registeredServerInfo(a, serverName)
 	if info != nil {
-		meta, timeout, maxCallDuration = info.Meta, info.Timeout, info.MaxCallDuration
+		meta, timeout, maxCallDuration = info.RequestMeta, info.Timeout, info.MaxCallDuration
 		if headers, err = sessionHeaders(ctx, info); err != nil {
 			return nil, err
 		}
@@ -741,7 +741,7 @@ func EstablishConnectionWithTokenExchange(
 	if err != nil {
 		return nil, err
 	}
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.RequestMeta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 
 	// Try to initialize the client with the exchanged token
 	a.recordHandshakes(serverInfo.Name, client)
@@ -1030,12 +1030,12 @@ func (a *AggregatorServer) newTokenForwardingClient(
 	}
 	presented := &atomic.Pointer[string]{}
 	headerFunc := presentingHeaderFunc(a.sessionHeaderFunc(sessionID, sub, serverInfo, makeTokenForwardingHeaderFunc(sessionID, musterIssuer, serverInfo.Name, token, refresher, onStaleToken)), presented)
-	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.Meta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
+	client := internalmcp.NewStreamableHTTPClientWithHeaderFunc(serverInfo.URL, headerFunc).WithHeaders(headers).WithMeta(serverInfo.RequestMeta).WithTimeout(serverInfo.Timeout).WithMaxCallDuration(serverInfo.MaxCallDuration)
 	return &tokenForwardingClient{StreamableHTTPClient: client, presented: presented}, token, nil
 }
 
 // registeredServerInfo returns the registry entry of a server -- the home of
-// its spec.meta entries and its spec.timeout -- or nil when the aggregator
+// its spec.requestMeta entries and its spec.timeout -- or nil when the aggregator
 // holds none. establishConnection is reached with a name and a URL rather
 // than a registry entry, so it looks the entry up here instead of taking one
 // more parameter through every call path.

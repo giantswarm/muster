@@ -34,6 +34,8 @@ func (u IssuerURL) Normalize() string {
 
 // MCPServerSpec defines the desired state of MCPServer
 // +kubebuilder:validation:XValidation:rule="!has(self.progress) || !has(self.progress.maxDuration) || self.progress.maxDuration >= (has(self.timeout) ? self.timeout : 30)",message="progress.maxDuration must be at least timeout"
+// +kubebuilder:validation:XValidation:rule="!(has(self.meta) && has(self.requestMeta))",message="meta is the deprecated name of requestMeta: set requestMeta only"
+// +kubebuilder:validation:XValidation:rule="!has(self.auth) || !has(self.auth.sigv4) || (has(self.requestMeta) && 'AWS_REGION' in self.requestMeta && size(self.requestMeta['AWS_REGION']) > 0) || (has(self.meta) && 'AWS_REGION' in self.meta && size(self.meta['AWS_REGION']) > 0)",message="a sigv4 server needs requestMeta.AWS_REGION: the AWS MCP server runs every call in us-east-1 without it"
 type MCPServerSpec struct {
 	// Type specifies how this MCP server should be executed.
 	// Supported values: "stdio" for local processes, "streamable-http" for HTTP-based servers, "sse" for Server-Sent Events.
@@ -130,28 +132,46 @@ type MCPServerSpec struct {
 	// +listMapKey=name
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty" yaml:"headersFrom,omitempty"`
 
-	// Meta contains entries merged into the `params._meta` object of every
-	// outbound JSON-RPC request that carries `params`. It carries call-scoped
+	// RequestMeta contains entries added to the `params._meta` object of every
+	// outbound JSON-RPC request that carries `params`. It carries server-wide
 	// configuration to a backend that reads it from the MCP metadata field
 	// instead of from tool arguments.
 	//
-	// An entry already present in a request's `_meta` wins, so a caller can
-	// still override per call. Requests without `params` are left untouched.
+	// Keys follow the MCP `_meta` key format. Keys reserved by MCP, and the
+	// ones muster and OpenTelemetry set themselves, are refused. muster does
+	// not forward a caller's `_meta`, so an entry here applies to every call
+	// unless muster has already set the same key on that request. Requests
+	// without `params` are left untouched.
 	//
-	// The injection happens in an HTTP round tripper shared by every remote
-	// client, so it applies to `streamable-http` and `sse` alike, with or
-	// without auth. For a SigV4 server the round tripper sits in front of the
-	// signer, because the body has to be rewritten before it is signed.
+	// Everyone who can read the MCPServer can read these values, so they hold
+	// no credential.
 	//
-	// A stdio server has no HTTP transport, so the CEL rule above rejects the
-	// field there rather than accepting and dropping it.
+	// The entries are added by an HTTP round tripper shared by every remote
+	// client, so they apply to `streamable-http` and `sse` alike, with or
+	// without auth. For a SigV4 server the round tripper runs before the
+	// signer, because the signature covers a hash of the body.
 	//
-	// The AWS-hosted MCP server is the motivating case: it takes the region it
-	// operates in from `params._meta.AWS_REGION`, and its tools declare no
-	// region argument, so without this a call fails with NoRegionError. That
-	// operating region is a different value from Auth.SigV4.Region, which is
-	// the signing region — the two default to the same string but resolve
-	// independently, endpoint-first for signing and config-first for operating.
+	// The AWS-hosted MCP server reads the region it operates in from
+	// `AWS_REGION` and falls back to us-east-1 without it, so a SigV4 server
+	// must set that key. It is a different value from Auth.SigV4.Region, the
+	// signing region, which must match the endpoint.
+	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^([a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?([.][a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$'))",message="a key must follow the MCP _meta key format: an optional dot-separated prefix ending in '/', then a name that begins and ends with a letter or digit"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.matches('^(?i)[^./]+[.](modelcontextprotocol|mcp)([.][^/]*)?/'))",message="a key prefix whose second label is modelcontextprotocol or mcp is reserved for MCP"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !(k in ['progressToken', 'traceparent', 'tracestate', 'baggage']))",message="progressToken, traceparent, tracestate and baggage are set by muster and OpenTelemetry, not by configuration"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.matches('^(?i)(authorization|cookie|token|access_token|id_token|refresh_token|password|secret|client_secret|api[-_]?key)$'))",message="requestMeta must not hold a credential: everyone who can read the MCPServer can read it"
+	RequestMeta map[string]string `json:"requestMeta,omitempty" yaml:"requestMeta,omitempty"`
+
+	// Meta is the former name of RequestMeta and is read the same way.
+	// Setting both is refused.
+	//
+	// Deprecated: use RequestMeta.
+	//
+	// +kubebuilder:validation:MaxProperties=32
+	// +kubebuilder:validation:XValidation:rule="self.all(k, k.matches('^([a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?([.][a-zA-Z]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*/)?[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$'))",message="a key must follow the MCP _meta key format: an optional dot-separated prefix ending in '/', then a name that begins and ends with a letter or digit"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.matches('^(?i)[^./]+[.](modelcontextprotocol|mcp)([.][^/]*)?/'))",message="a key prefix whose second label is modelcontextprotocol or mcp is reserved for MCP"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !(k in ['progressToken', 'traceparent', 'tracestate', 'baggage']))",message="progressToken, traceparent, tracestate and baggage are set by muster and OpenTelemetry, not by configuration"
+	// +kubebuilder:validation:XValidation:rule="self.all(k, !k.matches('^(?i)(authorization|cookie|token|access_token|id_token|refresh_token|password|secret|client_secret|api[-_]?key)$'))",message="requestMeta must not hold a credential: everyone who can read the MCPServer can read it"
 	Meta map[string]string `json:"meta,omitempty" yaml:"meta,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.
@@ -832,6 +852,7 @@ type MCPServerStatus struct {
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || has(self.spec.url)",message="url is required when type is streamable-http or sse"
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || !has(self.spec.args)",message="args field is only allowed when type is stdio"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.headers)",message="headers field is only allowed when type is streamable-http or sse"
+// +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.requestMeta)",message="requestMeta field is only allowed when type is streamable-http or sse"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.meta)",message="meta field is only allowed when type is streamable-http or sse"
 // +kubebuilder:validation:XValidation:rule="self.spec.type != 'stdio' || !has(self.spec.headersFrom)",message="headersFrom field is only allowed when type is streamable-http or sse"
 // +kubebuilder:validation:XValidation:rule="self.spec.type == 'stdio' || !has(self.spec.env)",message="env field is only allowed when type is stdio: put a remote server's credential in a Secret and refer to it in headersFrom"

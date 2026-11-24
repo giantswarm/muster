@@ -96,7 +96,7 @@ func metaTransportOf(t *testing.T, client *StreamableHTTPClient) *metaTransport 
 
 func TestNewSigV4Client(t *testing.T) {
 	t.Run("the service defaults to the first hostname label", func(t *testing.T) {
-		client, err := newSigV4Client(testSigV4URL, map[string]string{"X-Trace": "on"},
+		client, err := newSigV4Client("aws", testSigV4URL, map[string]string{"X-Trace": "on"},
 			api.MCPServerSigV4{Region: testSigV4Region}, map[string]string{"AWS_REGION": "us-east-1"})
 		require.NoError(t, err)
 		assert.Equal(t, map[string]string{"X-Trace": "on"}, client.headers)
@@ -111,7 +111,7 @@ func TestNewSigV4Client(t *testing.T) {
 	})
 
 	t.Run("an explicit service wins", func(t *testing.T) {
-		client, err := newSigV4Client(testSigV4URL, nil,
+		client, err := newSigV4Client("aws", testSigV4URL, nil,
 			api.MCPServerSigV4{Region: testSigV4Region, Service: "execute-api"}, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "execute-api", transportOf(t, client).service)
@@ -119,7 +119,7 @@ func TestNewSigV4Client(t *testing.T) {
 	})
 
 	t.Run("an underivable service is rejected", func(t *testing.T) {
-		_, err := newSigV4Client("/mcp", nil, api.MCPServerSigV4{Region: testSigV4Region}, nil)
+		_, err := newSigV4Client("aws", "/mcp", nil, api.MCPServerSigV4{Region: testSigV4Region}, nil)
 		require.ErrorContains(t, err, "cannot derive sigv4 service")
 	})
 }
@@ -132,9 +132,9 @@ func TestNewMCPClientFromTypeSigV4(t *testing.T) {
 
 	t.Run("a sigv4 auth type yields a signing client", func(t *testing.T) {
 		client, err := NewMCPClientFromType(api.MCPServerTypeStreamableHTTP, MCPClientConfig{
-			URL:  testSigV4URL,
-			Auth: sigv4Auth,
-			Meta: map[string]string{"AWS_REGION": testSigV4Region},
+			URL:         testSigV4URL,
+			Auth:        sigv4Auth,
+			RequestMeta: map[string]string{"AWS_REGION": testSigV4Region},
 		})
 		require.NoError(t, err)
 
@@ -146,9 +146,10 @@ func TestNewMCPClientFromTypeSigV4(t *testing.T) {
 	t.Run("the server's timeout bounds the session-recovery handshake", func(t *testing.T) {
 		for _, auth := range []*api.MCPServerAuth{nil, sigv4Auth} {
 			client, err := NewMCPClientFromType(api.MCPServerTypeStreamableHTTP, MCPClientConfig{
-				URL:     testSigV4URL,
-				Auth:    auth,
-				Timeout: 90 * time.Second,
+				URL:         testSigV4URL,
+				Auth:        auth,
+				RequestMeta: map[string]string{api.AWSRegionRequestMetaKey: testSigV4Region},
+				Timeout:     90 * time.Second,
 			})
 			require.NoError(t, err)
 			streamable, ok := client.(*StreamableHTTPClient)
@@ -173,6 +174,14 @@ func TestNewMCPClientFromTypeSigV4(t *testing.T) {
 			Auth: sigv4Auth,
 		})
 		require.ErrorContains(t, err, "streamable-http")
+	})
+
+	t.Run("sigv4 without requestMeta.AWS_REGION is rejected", func(t *testing.T) {
+		_, err := NewMCPClientFromType(api.MCPServerTypeStreamableHTTP, MCPClientConfig{
+			URL:  testSigV4URL,
+			Auth: sigv4Auth,
+		})
+		require.ErrorContains(t, err, "needs requestMeta.AWS_REGION")
 	})
 
 	t.Run("another auth type leaves the plain client in place", func(t *testing.T) {

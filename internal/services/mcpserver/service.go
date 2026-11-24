@@ -725,7 +725,7 @@ func (s *Service) ConfigurationChanged(newConfig interface{}) bool {
 		s.LogDebug("Config change detected: headersFrom changed")
 		return true
 	}
-	if !maps.Equal(cur.Meta, newDef.Meta) {
+	if !maps.Equal(cur.RequestMeta, newDef.RequestMeta) {
 		s.LogDebug("Config change detected: meta changed")
 		return true
 	}
@@ -797,7 +797,7 @@ func (s *Service) GetServiceData() map[string]interface{} {
 		"env":             s.definition.Env,
 		"headers":         s.definition.Headers,
 		"headersFrom":     s.definition.HeadersFrom,
-		"meta":            s.definition.Meta,
+		"requestMeta":     s.definition.RequestMeta,
 		"timeout":         s.operationTimeout(),
 		"maxCallDuration": s.definition.ProgressMaxDuration(),
 		"description":     s.definition.Description,
@@ -1118,12 +1118,13 @@ func (s *Service) createAndInitializeClient(ctx context.Context) error {
 
 	// Build client configuration from service definition
 	config := mcpserver.MCPClientConfig{
+		Name:            s.definition.Name,
 		Command:         s.definition.Command,
 		Args:            s.definition.Args,
 		Env:             s.definition.Env,
 		URL:             s.definition.URL,
 		Headers:         headers,
-		Meta:            s.definition.Meta,
+		RequestMeta:     s.definition.RequestMeta,
 		Auth:            s.definition.Auth,
 		Timeout:         s.operationTimeout(),
 		MaxCallDuration: s.definition.ProgressMaxDuration(),

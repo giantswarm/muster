@@ -23,9 +23,8 @@ func newTestMetaTransport(meta map[string]string) (http.RoundTripper, *capturing
 	return newMetaTransport(base, meta), base
 }
 
-// TestMetaTransportInjectsWithoutSigning is the regression test for the finding
-// that spec.meta was a silent no-op on every server that was not signed with
-// SigV4. Injection now lives in its own transport, so a plain server gets it.
+// TestMetaTransportInjectsWithoutSigning pins that a server without SigV4 gets
+// its spec.requestMeta entries too.
 func TestMetaTransportInjectsWithoutSigning(t *testing.T) {
 	transport, base := newTestMetaTransport(testMeta)
 
@@ -47,7 +46,7 @@ func TestMetaTransportInjectsWithoutSigning(t *testing.T) {
 }
 
 // TestNewMetaTransportSkipsTheWrapperWhenThereIsNothingToInject keeps a server
-// without spec.meta on the plain transport instead of paying for a body
+// without spec.requestMeta on the plain transport instead of paying for a body
 // rewrite on every request.
 func TestNewMetaTransportSkipsTheWrapperWhenThereIsNothingToInject(t *testing.T) {
 	base := &capturingRoundTripper{}
@@ -121,8 +120,8 @@ func TestMetaTransportClosesTheRequestBody(t *testing.T) {
 func TestPlainRemoteClientsInjectMeta(t *testing.T) {
 	t.Run("streamable-http", func(t *testing.T) {
 		client, err := NewMCPClientFromType(api.MCPServerTypeStreamableHTTP, MCPClientConfig{
-			URL:  testMetaURL,
-			Meta: testMeta,
+			URL:         testMetaURL,
+			RequestMeta: testMeta,
 		})
 		require.NoError(t, err)
 
@@ -134,8 +133,8 @@ func TestPlainRemoteClientsInjectMeta(t *testing.T) {
 
 	t.Run("sse", func(t *testing.T) {
 		client, err := NewMCPClientFromType(api.MCPServerTypeSSE, MCPClientConfig{
-			URL:  testMetaURL,
-			Meta: testMeta,
+			URL:         testMetaURL,
+			RequestMeta: testMeta,
 		})
 		require.NoError(t, err)
 
@@ -153,13 +152,13 @@ func TestPlainRemoteClientsInjectMeta(t *testing.T) {
 }
 
 // TestStdioRejectsMeta covers the one remote-only field that no transport can
-// inject: a stdio server speaks over a pipe, so accepting the map would drop it.
+// add: a stdio server speaks over a pipe, so accepting the map would drop it.
 func TestStdioRejectsMeta(t *testing.T) {
 	_, err := NewMCPClientFromType(api.MCPServerTypeStdio, MCPClientConfig{
-		Command: "echo",
-		Meta:    testMeta,
+		Command:     "echo",
+		RequestMeta: testMeta,
 	})
-	require.ErrorContains(t, err, "meta is only allowed")
+	require.ErrorContains(t, err, "requestMeta is only allowed")
 }
 
 func TestInjectMeta(t *testing.T) {
