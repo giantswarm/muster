@@ -10,6 +10,9 @@ import (
 // MCPClientConfig contains configuration for creating an MCP client.
 // This provides a unified configuration structure for all client types.
 type MCPClientConfig struct {
+	// Name is the MCPServer's name. A SigV4 server's assumed-role session is
+	// named after it, so CloudTrail shows which server made a call.
+	Name string
 	// Command is the executable path for stdio servers
 	Command string
 	// Args are the command line arguments for stdio servers
@@ -20,9 +23,9 @@ type MCPClientConfig struct {
 	URL string
 	// Headers are HTTP headers for remote servers
 	Headers map[string]string
-	// Meta contains entries merged into the params._meta object of every
+	// RequestMeta contains entries added to the params._meta object of every
 	// outbound JSON-RPC request that carries params
-	Meta map[string]string
+	RequestMeta map[string]string
 	// Auth is the authentication configuration for remote servers. Only the
 	// machine-identity modes are handled here; the session-scoped OAuth modes
 	// are resolved by the aggregator, not by this factory.
@@ -76,7 +79,7 @@ func newClientOfType(serverType api.MCPServerType, config MCPClientConfig) (budg
 	// Same reason: this is the only function that holds both the server type
 	// and the meta map, so a map that no transport would inject is refused
 	// here rather than dropped on the way to the wire.
-	if err := api.ValidateMetaAllowed(string(serverType), config.Meta); err != nil {
+	if err := api.ValidateRequestMeta(string(serverType), config.Auth, config.RequestMeta); err != nil {
 		return nil, err
 	}
 
@@ -93,19 +96,19 @@ func newClientOfType(serverType api.MCPServerType, config MCPClientConfig) (budg
 		}
 		if config.Auth != nil && config.Auth.Type == api.MCPServerAuthTypeSigV4 {
 			// ValidateSigV4 above guarantees a non-nil block with a region.
-			c, err := newSigV4Client(config.URL, config.Headers, *config.Auth.SigV4, config.Meta)
+			c, err := newSigV4Client(config.Name, config.URL, config.Headers, *config.Auth.SigV4, config.RequestMeta)
 			if err != nil {
 				return nil, err
 			}
 			return c, nil
 		}
-		return NewStreamableHTTPClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta), nil
+		return NewStreamableHTTPClientWithHeaders(config.URL, config.Headers).WithMeta(config.RequestMeta), nil
 
 	case api.MCPServerTypeSSE:
 		if config.URL == "" {
 			return nil, fmt.Errorf("url is required for sse type")
 		}
-		return NewSSEClientWithHeaders(config.URL, config.Headers).WithMeta(config.Meta), nil
+		return NewSSEClientWithHeaders(config.URL, config.Headers).WithMeta(config.RequestMeta), nil
 
 	default:
 		return nil, fmt.Errorf("unsupported MCP server type: %s (supported: %s, %s, %s)",

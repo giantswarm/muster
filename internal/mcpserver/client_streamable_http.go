@@ -21,7 +21,7 @@ type StreamableHTTPClient struct {
 	headers    map[string]string
 	headerFunc transport.HTTPHeaderFunc // Dynamic header function called on each request
 
-	// meta holds the spec.meta entries merged into params._meta of every
+	// meta holds the spec.requestMeta entries merged into params._meta of every
 	// outbound request. Consulted only when httpClientFunc is nil, because a
 	// client that builds its own transport chain injects them there.
 	meta map[string]string

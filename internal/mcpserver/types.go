@@ -16,7 +16,7 @@ import (
 
 const (
 	// clientName is how muster identifies itself to a remote MCP server in the
-	// initialize handshake, and the identity sigV4RoleSessionName tracks so
+	// initialize handshake, and the prefix of sigV4RoleSessionName so
 	// CloudTrail separates muster from other callers of the same role. The stdio
 	// client announces "muster" instead, which predates this constant.
 	clientName = "muster-aggregator"

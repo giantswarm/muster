@@ -14,28 +14,28 @@ var testRegistrationMeta = map[string]string{"AWS_REGION": "eu-central-1"}
 // header (#1304).
 var testRegistrationHeaders = map[string]string{"X-MCP-Toolsets": "default,git"}
 
-// TestPendingAuthRegistrationCarriesMeta covers the gap that made spec.meta a
-// silent no-op for a server that needs a login: its tool calls run on a
-// session-scoped client the aggregator builds, not on the one the client
-// factory built, so the entries have to travel with the registration.
+// TestPendingAuthRegistrationCarriesMeta pins that spec.requestMeta reaches a
+// server that needs a login: its tool calls run on a session-scoped client the
+// aggregator builds, not on the one the client factory built, so the entries
+// have to travel with the registration.
 func TestPendingAuthRegistrationCarriesMeta(t *testing.T) {
 	reg := NewServerRegistry("x")
 	require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
 		ServerRegistration: ServerRegistration{Name: "needs-login"},
 		URL:                "https://mcp.example.com/mcp",
 		AuthInfo:           &AuthInfo{Issuer: "https://dex.example.com", Scope: "openid"},
-		Meta:               testRegistrationMeta,
+		RequestMeta:        testRegistrationMeta,
 		Headers:            testRegistrationHeaders,
 	}))
 
 	serverInfo, ok := reg.GetServerInfo("needs-login")
 	require.True(t, ok)
-	assert.Equal(t, testRegistrationMeta, serverInfo.Meta)
+	assert.Equal(t, testRegistrationMeta, serverInfo.RequestMeta)
 	assert.Equal(t, testRegistrationHeaders, serverInfo.Headers, "spec.headers travel with the registration the same way (#1304)")
 }
 
 // TestRegisteredServerInfo covers what establishConnection reads from the
-// registry for the client it builds with a person's grant: spec.meta and
+// registry for the client it builds with a person's grant: spec.requestMeta and
 // spec.timeout. The timeout had the same gap meta once had -- the
 // session-scoped client of an OAuth server ran under the default budget
 // whatever the server declared.
@@ -44,14 +44,14 @@ func TestRegisteredServerInfo(t *testing.T) {
 	require.NoError(t, reg.RegisterPendingAuth(PendingAuthRegistration{
 		ServerRegistration: ServerRegistration{Name: "needs-login", Timeout: 90 * time.Second},
 		URL:                "https://mcp.example.com/mcp",
-		Meta:               testRegistrationMeta,
+		RequestMeta:        testRegistrationMeta,
 		Headers:            testRegistrationHeaders,
 	}))
 	agg := &AggregatorServer{registry: reg}
 
 	info := registeredServerInfo(agg, "needs-login")
 	require.NotNil(t, info)
-	assert.Equal(t, testRegistrationMeta, info.Meta)
+	assert.Equal(t, testRegistrationMeta, info.RequestMeta)
 	assert.Equal(t, testRegistrationHeaders, info.Headers)
 	assert.Equal(t, 90*time.Second, info.Timeout)
 

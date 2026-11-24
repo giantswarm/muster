@@ -10,13 +10,11 @@ import (
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
-// metaTransport merges the configured entries into the params._meta object of
-// every outbound JSON-RPC request that carries params.
+// metaTransport adds a server's spec.requestMeta entries to the params._meta
+// object of every outbound JSON-RPC request that carries params.
 //
 // It is an http.RoundTripper so that every HTTP-based MCP client shares one
-// implementation. It used to live inside the SigV4 signing transport, which
-// made spec.meta a silent no-op on every server that was not signed. The two
-// concerns are now separate, and the chain for a signed server is
+// implementation, whatever its auth. For a signed server the chain is
 // metaTransport -> sigV4Transport -> the real transport: the body has to be
 // rewritten before it is signed, because SigV4 covers a hash of the payload.
 type metaTransport struct {
@@ -28,8 +26,9 @@ type metaTransport struct {
 }
 
 // newMetaTransport wraps base in a metadata-injecting transport, and returns
-// base unchanged when there is nothing to inject. A server without spec.meta
-// keeps the plain transport rather than paying for a body rewrite per request.
+// base unchanged when there is nothing to inject. A server without
+// spec.requestMeta keeps the plain transport rather than paying for a body
+// rewrite per request.
 func newMetaTransport(base http.RoundTripper, meta map[string]string) http.RoundTripper {
 	if len(meta) == 0 {
 		return base
@@ -86,13 +85,14 @@ func (t *metaTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	return t.base.RoundTrip(next)
 }
 
-// injectMeta merges meta into the params._meta object of a JSON-RPC request
-// body and returns the rewritten body. A key already present in _meta wins, so
-// a caller can still override per call, and a merge that adds nothing returns
-// the original bytes rather than a re-marshalled equivalent.
+// injectMeta adds meta to the params._meta object of a JSON-RPC request body
+// and returns the rewritten body. muster does not forward a caller's _meta, so
+// a key already present is one muster set on this request (progressToken), and
+// it is kept. A merge that adds nothing returns the original bytes rather than
+// a re-marshalled equivalent.
 //
 // This is the only place muster reaches into an MCP message payload. It exists
-// because a backend can read call-scoped configuration from the metadata field
+// because a backend can read server-wide configuration from the metadata field
 // rather than from tool arguments: the AWS-hosted MCP server takes the region
 // it operates in from params._meta.AWS_REGION and declares no region argument.
 //

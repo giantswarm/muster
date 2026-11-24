@@ -86,10 +86,10 @@ type MCPServer struct {
 	// here: the values live in the connection's client alone.
 	HeadersFrom []MCPServerHeaderFrom `yaml:"headersFrom,omitempty" json:"headersFrom,omitempty"`
 
-	// Meta contains entries merged into the `params._meta` object of every
+	// RequestMeta contains entries added to the `params._meta` object of every
 	// outbound JSON-RPC request that carries `params`. Remote types only; see
-	// ValidateMetaAllowed and the v1alpha1 CRD field of the same name.
-	Meta map[string]string `yaml:"meta,omitempty" json:"meta,omitempty"`
+	// ValidateRequestMeta and the v1alpha1 CRD field of the same name.
+	RequestMeta map[string]string `yaml:"requestMeta,omitempty" json:"requestMeta,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.
 	// This is only relevant for remote servers (streamable-http or sse).
@@ -490,7 +490,7 @@ func (i MCPServerInfo) ToMCPServer() *MCPServer {
 		Env:         i.Env,
 		Headers:     i.Headers,
 		HeadersFrom: i.HeadersFrom,
-		Meta:        i.Meta,
+		RequestMeta: i.RequestMeta,
 		Timeout:     i.Timeout,
 		Progress:    i.Progress,
 		Auth:        i.Auth,
@@ -581,29 +581,6 @@ func ValidateProviderApps(auth *MCPServerAuth) error {
 // tokens: it names Apps and passes ValidateProviderApps.
 func (a *MCPServerAuth) ReceivesProviderApps() bool {
 	return a != nil && len(a.ProviderApps) > 0 && ValidateProviderApps(a) == nil
-}
-
-// ValidateMetaAllowed reports whether spec.meta is usable with the given
-// server type.
-//
-// Injection happens in an HTTP round tripper, so a stdio server — which speaks
-// over a pipe and has no round tripper — would accept the map and drop it.
-// Rejected rather than ignored, because a dropped entry fails nowhere: the
-// AWS-hosted backend falls back to its own region and returns a correct-looking
-// answer about the wrong one. That silence is the whole reason the field is
-// checked here rather than left to the connect attempt.
-//
-// The CRD states the same rule in CEL, which only runs in Kubernetes mode.
-// Keep the two in step, as ValidateSigV4 and ValidateStdioAllowed do.
-func ValidateMetaAllowed(serverType string, meta map[string]string) error {
-	if len(meta) == 0 {
-		return nil
-	}
-	if serverType == string(MCPServerTypeStdio) {
-		return fmt.Errorf("meta is only allowed when type is %q or %q, not %q: the entries are merged into params._meta by an HTTP transport, which a stdio server does not have",
-			MCPServerTypeStreamableHTTP, MCPServerTypeSSE, serverType)
-	}
-	return nil
 }
 
 // DefaultProgressMaxDurationSeconds is spec.progress.maxDuration when a
@@ -822,9 +799,9 @@ type MCPServerInfo struct {
 	// it connects; references only.
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty"`
 
-	// Meta contains entries merged into the `params._meta` object of every
+	// RequestMeta contains entries added to the `params._meta` object of every
 	// outbound JSON-RPC request that carries `params`.
-	Meta map[string]string `json:"meta,omitempty"`
+	RequestMeta map[string]string `json:"requestMeta,omitempty"`
 
 	// Auth configures authentication behavior for this MCP server.
 	Auth *MCPServerAuth `json:"auth,omitempty"`

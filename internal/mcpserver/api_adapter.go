@@ -513,7 +513,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Env:                   server.Spec.Env,
 		Headers:               server.Spec.Headers,
 		HeadersFrom:           convertCRDHeadersFromToAPI(server.Spec.HeadersFrom),
-		Meta:                  server.Spec.Meta,
+		RequestMeta:           crdRequestMeta(server.Spec),
 		Timeout:               server.Spec.Timeout,
 		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
 		Error:                 server.Status.LastError,
@@ -665,6 +665,7 @@ func isUpstream5xx(lowerErr string) bool {
 
 // convertRequestToCRD converts a request to a MCPServer CRD using the flat structure
 func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1alpha1.MCPServer {
+	requestMeta, meta := requestedRequestMeta(req.RequestMeta, req.Meta)
 	crd := &musterv1alpha1.MCPServer{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "muster.giantswarm.io/v1alpha1",
@@ -686,10 +687,12 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 			Env:         req.Env,
 			Headers:     req.Headers,
 			HeadersFrom: convertAPIHeadersFromToCRD(req.HeadersFrom),
-			Meta:        req.Meta,
-			Timeout:     req.Timeout,
-			Progress:    convertAPIProgressToCRD(req.Progress),
-			Auth:        convertAPIAuthToCRD(req.Auth),
+			RequestMeta: requestMeta,
+			Meta:        meta, //nolint:staticcheck // SA1019: kept only when both names are sent, so validation refuses them
+
+			Timeout:  req.Timeout,
+			Progress: convertAPIProgressToCRD(req.Progress),
+			Auth:     convertAPIAuthToCRD(req.Auth),
 		},
 	}
 	setDisplayName(crd, req.DisplayName)
@@ -931,6 +934,7 @@ func (a *Adapter) handleMCPServerValidate(args map[string]interface{}) (*api.Cal
 		Env:         req.Env,
 		Headers:     req.Headers,
 		HeadersFrom: req.HeadersFrom,
+		RequestMeta: req.RequestMeta,
 		Meta:        req.Meta,
 		Timeout:     req.Timeout,
 		Progress:    req.Progress,
@@ -1215,7 +1219,11 @@ func (a *Adapter) validateMCPServer(server *musterv1alpha1.MCPServer) error {
 	// Reported before the CR is written, so mcpserver_validate and the failing
 	// create/update agree with what the connect attempt would do. The CRD says
 	// the same in CEL, which does not run in filesystem mode.
-	if err := api.ValidateMetaAllowed(server.Spec.Type, server.Spec.Meta); err != nil {
+	requestMeta, err := api.ResolveRequestMeta(server.Spec.RequestMeta, server.Spec.Meta) //nolint:staticcheck // SA1019: the deprecated name is still read
+	if err != nil {
+		return err
+	}
+	if err := api.ValidateRequestMeta(server.Spec.Type, convertCRDAuthToAPI(server.Spec.Auth), requestMeta); err != nil {
 		return err
 	}
 	if err := api.ValidateNoInlineCredential(server.Spec.Type, server.Spec.URL, server.Spec.Headers, server.Spec.Env, a.client != nil && a.client.IsKubernetesMode()); err != nil {

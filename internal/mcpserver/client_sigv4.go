@@ -27,7 +27,7 @@ import (
 //
 // Unexported on purpose: NewMCPClientFromType validates the auth config before
 // calling this, so cfg arrives with a region already checked.
-func newSigV4Client(serverURL string, headers map[string]string, signing api.MCPServerSigV4, meta map[string]string) (*StreamableHTTPClient, error) {
+func newSigV4Client(serverName, serverURL string, headers map[string]string, signing api.MCPServerSigV4, meta map[string]string) (*StreamableHTTPClient, error) {
 	service := signing.Service
 	if service == "" {
 		var err error
@@ -41,7 +41,7 @@ func newSigV4Client(serverURL string, headers map[string]string, signing api.MCP
 		url:     serverURL,
 		headers: headers,
 		httpClientFunc: func(ctx context.Context) (*http.Client, error) {
-			creds, err := sigV4Credentials(ctx, signing.Region, signing.RoleARN)
+			creds, err := sigV4Credentials(ctx, signing.Region, signing.RoleARN, serverName)
 			if err != nil {
 				return nil, err
 			}

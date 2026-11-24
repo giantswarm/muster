@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -33,12 +34,28 @@ const (
 	sigV4CredentialErrorBackoff = 30 * time.Second
 )
 
-// sigV4RoleSessionName is the STS session name every assumed role carries. It
-// tracks the MCP client name deliberately — one identity for muster on the wire
-// — but is declared separately because the two have different constraints: an
-// STS session name is limited to 64 characters of [\w+=,.@-], and renaming it
-// rewrites CloudTrail attribution.
-const sigV4RoleSessionName = clientName
+// sigV4SessionNameInvalid matches the characters an STS session name may not
+// hold.
+var sigV4SessionNameInvalid = regexp.MustCompile(`[^\w+=,.@-]`)
+
+// sigV4MaxSessionNameLength is the longest session name STS accepts.
+const sigV4MaxSessionNameLength = 64
+
+// sigV4RoleSessionName returns the STS session name a server's assumed role
+// carries, "<clientName>.<server name>", so CloudTrail shows which MCPServer
+// made a call and not only that muster did. A session name is at most 64
+// characters of [\w+=,.@-]: other characters become '-' and the name is cut
+// to fit.
+func sigV4RoleSessionName(serverName string) string {
+	if serverName == "" {
+		return clientName
+	}
+	name := clientName + "." + sigV4SessionNameInvalid.ReplaceAllString(serverName, "-")
+	if len(name) > sigV4MaxSessionNameLength {
+		name = name[:sigV4MaxSessionNameLength]
+	}
+	return name
+}
 
 var (
 	baseAWSConfigMu    sync.Mutex
@@ -156,7 +173,7 @@ func (p *backoffCredentialsProvider) Retrieve(ctx context.Context) (aws.Credenti
 // too — AssumeRoleWithWebIdentity in a pod — and LoadDefaultConfig caches it
 // for successes only, so the error path needs capping on both branches, not
 // just the assume-role one.
-func sigV4Credentials(ctx context.Context, region, roleARN string) (aws.CredentialsProvider, error) {
+func sigV4Credentials(ctx context.Context, region, roleARN, serverName string) (aws.CredentialsProvider, error) {
 	cfg, err := baseAWSConfig(ctx, region)
 	if err != nil {
 		return nil, err
@@ -171,7 +188,7 @@ func sigV4Credentials(ctx context.Context, region, roleARN string) (aws.Credenti
 		})
 		assumed := stscreds.NewAssumeRoleProvider(stsClient, roleARN,
 			func(o *stscreds.AssumeRoleOptions) {
-				o.RoleSessionName = sigV4RoleSessionName
+				o.RoleSessionName = sigV4RoleSessionName(serverName)
 				o.Duration = sigV4AssumeRoleDuration
 			})
 		provider = aws.NewCredentialsCache(assumed, func(o *aws.CredentialsCacheOptions) {

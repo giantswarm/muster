@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,9 +101,33 @@ func TestSigV4CredentialsBacksOffOnBothBranches(t *testing.T) {
 			name = "without a roleArn"
 		}
 		t.Run(name, func(t *testing.T) {
-			provider, err := sigV4Credentials(context.Background(), testSigV4Region, roleARN)
+			provider, err := sigV4Credentials(t.Context(), testSigV4Region, roleARN, "aws")
 			require.NoError(t, err)
 			assert.IsType(t, &backoffCredentialsProvider{}, provider)
+		})
+	}
+}
+
+func TestSigV4RoleSessionName(t *testing.T) {
+	tests := []struct {
+		name       string
+		serverName string
+		want       string
+	}{
+		{name: "named after the server", serverName: "giantswarm-gazelle-mc", want: "muster-aggregator.giantswarm-gazelle-mc"},
+		{name: "no server name", want: "muster-aggregator"},
+		{name: "invalid characters replaced", serverName: "aws/root:eu", want: "muster-aggregator.aws-root-eu"},
+		{
+			name:       "cut to the STS limit",
+			serverName: strings.Repeat("a", 80),
+			want:       "muster-aggregator." + strings.Repeat("a", sigV4MaxSessionNameLength-len("muster-aggregator.")),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := sigV4RoleSessionName(tt.serverName)
+			require.Equal(t, tt.want, got)
+			require.LessOrEqual(t, len(got), sigV4MaxSessionNameLength)
 		})
 	}
 }
