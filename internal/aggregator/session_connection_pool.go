@@ -469,6 +469,21 @@ func (p *SessionConnectionPool) SessionsForServer(serverName string) []PooledSes
 	return out
 }
 
+// ClientsOfSession returns the live connections of sessionID by server name.
+// Like SessionsForServer it is not a use of the entries.
+func (p *SessionConnectionPool) ClientsOfSession(sessionID string) map[string]MCPClient {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	out := make(map[string]MCPClient)
+	for key, entry := range p.pool {
+		if key.SessionID == sessionID && entry.Client != nil {
+			out[key.ServerName] = entry.Client
+		}
+	}
+	return out
+}
+
 // Holds reports whether the pool still holds client as the connection of
 // sessionID to serverName. Like SessionsForServer it is not a use of the
 // entry: the capability poller asks it before a listing it planned earlier

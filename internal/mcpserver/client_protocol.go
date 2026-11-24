@@ -28,8 +28,9 @@ import (
 // declares on the call the elicitation capability of the client muster calls
 // for (WithCallerCapabilities), and attaches the inputResponses and
 // requestState of a retry (WithRoundTrip). A 2025-11-25 backend fixes the
-// capabilities at its handshake, where muster declares none: such a backend
-// asks nothing of the person through muster.
+// capabilities at its handshake, where muster declares no elicitation: such a
+// backend asks nothing of the person through muster. muster declares the
+// tool-call metadata extension on both revisions (tool_call_metadata.go).
 
 // listChangedRetryMin and listChangedRetryMax bound the wait before a dropped
 // subscriptions/listen stream for list changes is opened again.
@@ -86,7 +87,10 @@ func roundTripFrom(ctx context.Context) mcp.MultiRoundTripParams {
 // Caller holds b.mu for writing.
 func (b *baseMCPClient) initialize(ctx context.Context, mcpClient *client.Client, clientInfo mcp.Implementation) (*mcp.InitializeResult, error) {
 	client.WithManualInputRoundTrips()(mcpClient)
-	request := mcp.InitializeRequest{Params: mcp.InitializeParams{ClientInfo: clientInfo}}
+	request := mcp.InitializeRequest{Params: mcp.InitializeParams{
+		ClientInfo:   clientInfo,
+		Capabilities: mcp.ClientCapabilities{Extensions: toolCallMetadataClientExtensions()},
+	}}
 	if b.legacyBackend {
 		return b.initializeLegacy(ctx, mcpClient, request)
 	}

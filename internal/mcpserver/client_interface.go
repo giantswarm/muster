@@ -346,8 +346,11 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 		defer done()
 		params.Meta = &mcp.Meta{ProgressToken: token}
 	}
+	params.Meta = withToolCallMetadata(ctx, params.Meta, AcceptedToolCallMetadataKeys(b.serverCapabilities))
 
-	ctx = client.WithRequestClientCapabilities(ctx, callerCapabilitiesFrom(ctx))
+	capabilities := callerCapabilitiesFrom(ctx)
+	capabilities.Extensions = toolCallMetadataClientExtensions()
+	ctx = client.WithRequestClientCapabilities(ctx, capabilities)
 	result, err := b.callToolWithParamHeaders(ctx, mcp.CallToolRequest{Params: params})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call tool: %w", err)

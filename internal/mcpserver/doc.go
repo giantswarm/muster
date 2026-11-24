@@ -43,6 +43,10 @@
 // transport, because the body has to be rewritten before it is signed. See
 // meta_transport.go.
 //
+// A tool call sends a backend the caller's tool-call metadata values of the
+// keys that backend accepts (kagent's dev.kagent/tool-call-metadata MCP
+// extension). See tool_call_metadata.go.
+//
 // # Configuration Structure
 //
 // MCP servers are defined using the MCPServer CRD or YAML configuration files. Each server

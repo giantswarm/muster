@@ -26,7 +26,8 @@ import (
 // the mcp.tools/call server span, which dispatch then labels with the backend
 // the call reached. ProgressRelay sends every downstream tool call a
 // progressToken and bridges its notifications/progress to a caller that sent
-// one.
+// one. ToolCallMetadataRelay keeps the caller's tool-call metadata for the
+// backends that accept its keys.
 func mcpServerOptions() []server.ServerOption {
 	return []server.ServerOption{
 		server.WithToolHandlerMiddleware(RequestSpan()),
@@ -34,6 +35,7 @@ func mcpServerOptions() []server.ServerOption {
 		server.WithToolHandlerMiddleware(Logging()),
 		server.WithToolHandlerMiddleware(Metrics()),
 		server.WithToolHandlerMiddleware(ProgressRelay()),
+		server.WithToolHandlerMiddleware(ToolCallMetadataRelay()),
 	}
 }
 

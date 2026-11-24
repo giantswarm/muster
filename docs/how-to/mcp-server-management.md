@@ -513,9 +513,11 @@ Rules:
   (OpenTelemetry).
 - Everyone who can read the MCPServer can read these values, so they hold no
   secret.
-- muster does not forward a caller's `_meta` to the backend, so an entry here
-  applies to every call. It never replaces a key muster has already set on the
-  request.
+- muster passes on no other caller `_meta` than tool-call metadata (see
+  [Tool-call metadata](#tool-call-metadata)), so an entry here applies to every
+  call. It never replaces a key already set on the request (`progressToken`,
+  the protocol's own `io.modelcontextprotocol/` keys,
+  `dev.kagent/tool-call-metadata`).
 - A request without `params` is left untouched. `initialize` does carry
   `params`, so the handshake gets the entries as well.
 - `type: stdio` rejects the field. A stdio server speaks over a pipe, so no HTTP
@@ -524,6 +526,43 @@ Rules:
 - `meta` is the former name of `requestMeta` and is still read. muster writes
   it as `requestMeta` when it creates or updates a server, and refuses a
   definition that sets both. It will be removed in a later release.
+
+## Tool-call metadata
+
+muster relays kagent's MCP extension for request-scoped tool-call metadata,
+`dev.kagent/tool-call-metadata` (contract in kagent's
+`docs/architecture/mcp-tool-call-metadata-extension.md`). A caller sends
+values for one tool call in `params._meta["dev.kagent/tool-call-metadata"]`,
+an object keyed by metadata key (`com.example/session`); a backend declares
+the keys it accepts. There is nothing to configure on the MCPServer: the
+backend's own declaration decides.
+
+- muster declares the extension with no settings in its client
+  `capabilities.extensions` to every backend: in the `initialize` of a backend
+  on MCP 2025-11-25, on every tool call to one on 2026-07-28.
+- A backend accepts keys by declaring
+  `"dev.kagent/tool-call-metadata": {"keys": ["com.example/session"]}` in its
+  `capabilities.extensions`: in its `initialize` result on 2025-11-25, in its
+  `server/discover` result on 2026-07-28. Settings without a `keys` array
+  accept nothing. `capabilities.experimental` is not read.
+- On a tool call, muster sends a backend
+  `_meta["dev.kagent/tool-call-metadata"]` holding only the caller's values of
+  the keys that backend accepts, and nothing when none is left. Keys that do
+  not follow MCP's `_meta` key grammar with a prefix MCP does not reserve are
+  dropped. The values are passed on unchanged; the backend validates them.
+  Every other entry of the caller's `_meta` stays at muster.
+- A workflow's steps pass on the values of the call that started the workflow
+  the same way, to each step's backend.
+- muster declares the extension to its own clients, in its `initialize` and
+  `server/discover` results, with the union of the keys accepted by the
+  backends the caller can see and muster is connected to, and not at all when
+  none accepts a key. A backend the session signs in to later is counted at
+  the client's next `initialize` or `server/discover`.
+- The values are not credentials. Authorization stays in the `Authorization`
+  header of each hop; muster never passes a caller's token on.
+
+Only tool calls carry the values: prompts, resources, lists and discovery
+never do.
 
 ## Display name
 
