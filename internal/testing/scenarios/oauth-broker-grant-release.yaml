@@ -179,8 +179,8 @@ steps:
     expected:
       success: false
       contains:
-        - "invalid_request"
-        - "client_id is required"
+        - "invalid_client"
+        - "client authentication is required for token exchange"
 
   - id: exchange-for-unlisted-audience
     description: "An audience outside the client's allowlist is invalid_target"

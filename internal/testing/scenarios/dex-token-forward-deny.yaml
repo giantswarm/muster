@@ -30,6 +30,10 @@ pre_configuration:
     trusted_issuers:
       - oauth_server_ref: "workload-idp"
         accepted_typ_headers: [""]
+    clients:
+      - client_id: "sre-agent"
+        client_secret: "sre-agent-secret"
+        audiences: []
 
 steps:
   - id: "mint-trusted-token"
@@ -46,14 +50,17 @@ steps:
     description: |
       muster is not an IdP: the exchange refuses to issue a token even for a
       subject from a trusted issuer, because muster has no signing key and
-      JWT issuance is permanently disabled.
+      JWT issuance is permanently disabled. The caller authenticates as a
+      confidential client, so the refusal is the issuance, not the client.
     tool: "test_broker_token_exchange"
     args:
       subject_token_ref: "trusted-token"
+      client_id: "sre-agent"
+      client_secret: "sre-agent-secret"
     expected:
       success: false
       error_contains:
-        - "invalid_grant"
+        - "invalid_request"
 
   - id: "mint-rogue-token"
     description: "Mint a token on an issuer muster does not trust"
