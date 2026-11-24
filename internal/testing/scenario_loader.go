@@ -6,9 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // scenarioLoader implements the TestScenarioLoader interface
@@ -164,10 +167,19 @@ func (l *scenarioLoader) validateScenario(scenario TestScenario, filePath string
 		return fmt.Errorf("scenario must have at least one step")
 	}
 
+	switch scenario.ProtocolVersion {
+	case "", api.ClientProtocolVersion, api.URLElicitationProtocolVersion:
+	default:
+		return fmt.Errorf("protocol_version must be %s or %s, got %q", api.ClientProtocolVersion, api.URLElicitationProtocolVersion, scenario.ProtocolVersion)
+	}
+
 	// Validate each step
 	for i, step := range scenario.Steps {
 		if err := l.validateStep(step, i); err != nil {
 			return fmt.Errorf("step %d: %w", i+1, err)
+		}
+		if step.Elicitation != "" && scenario.ProtocolVersion != api.URLElicitationProtocolVersion {
+			return fmt.Errorf("step %d: elicitation needs protocol_version: %q, the revision that carries input_required answers", i+1, api.URLElicitationProtocolVersion)
 		}
 	}
 
@@ -247,6 +259,15 @@ func (l *scenarioLoader) validateStep(step TestStep, index int) error {
 	}
 	if step.MaxDuration > 0 && step.Expected.WaitForState > 0 {
 		return fmt.Errorf("max_duration and expected.wait_for_state cannot be combined: max_duration bounds a single invocation, wait_for_state polls")
+	}
+
+	if step.Elicitation != "" {
+		if !slices.Contains(elicitationActions, step.Elicitation) {
+			return fmt.Errorf("elicitation must be one of %v, got %q", elicitationActions, step.Elicitation)
+		}
+		if IsTestTool(step.Tool) {
+			return fmt.Errorf("elicitation answers the input requests of a call to muster; %s is run by the test runner", step.Tool)
+		}
 	}
 
 	return nil

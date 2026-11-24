@@ -65,15 +65,17 @@ func TestCommandFlags_ToExecutorOptions_ValidatesFormat(t *testing.T) {
 }
 
 // TestCompletionOptions covers the aggregator a completion lookup reaches:
-// the one the command's --endpoint and --context name.
+// the one the command's --endpoint and --context name, and that it never
+// asks the person anything.
 func TestCompletionOptions(t *testing.T) {
 	flags := CommandFlags{ConfigPath: "/cfg", Endpoint: "http://127.0.0.1:18791/mcp", Context: "lab", OutputFormat: "wide"}
 
 	assert.Equal(t, ExecutorOptions{
-		Format:     OutputFormatJSON,
-		Quiet:      true,
-		ConfigPath: "/cfg",
-		Endpoint:   "http://127.0.0.1:18791/mcp",
-		Context:    "lab",
+		Format:         OutputFormatJSON,
+		Quiet:          true,
+		ConfigPath:     "/cfg",
+		Endpoint:       "http://127.0.0.1:18791/mcp",
+		Context:        "lab",
+		NonInteractive: true,
 	}, flags.CompletionOptions())
 }

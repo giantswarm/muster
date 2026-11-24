@@ -18,7 +18,9 @@ const (
 	ExitCodeSuccess = 0
 	// ExitCodeError indicates a general error (command failed, invalid arguments).
 	ExitCodeError = 1
-	// ExitCodeAuthRequired indicates authentication is required but not available.
+	// ExitCodeAuthRequired indicates authentication is required but not
+	// available, or a call needs a page opened and there is no terminal to ask
+	// on.
 	ExitCodeAuthRequired = 2
 	// ExitCodeAuthFailed indicates the OAuth flow failed.
 	ExitCodeAuthFailed = 3
@@ -126,6 +128,11 @@ func getExitCode(err error) int {
 	// Check for authentication-related errors
 	var authRequired *cli.AuthRequiredError
 	if errors.As(err, &authRequired) {
+		return ExitCodeAuthRequired
+	}
+
+	var inputRequired *cli.InputRequiredError
+	if errors.As(err, &inputRequired) {
 		return ExitCodeAuthRequired
 	}
 

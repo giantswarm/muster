@@ -71,6 +71,7 @@ func TestEveryStepFieldIsActedOn(t *testing.T) {
 		"MaxDuration": "test_runner.go", // stepExceededMaxDuration fails the step when its invocation ran longer
 		"AsUser":      "test_runner.go",
 		"Headers":     "test_runner.go", // stashed in the step ctx; the client's header func sends them
+		"Elicitation": "test_runner.go", // stashed in the step ctx; the client declares elicitation.url and answers with it
 	}
 
 	// rejectedAtLoadTime holds the fields that are deliberately inert: accepted

@@ -1,0 +1,114 @@
+name: "oauth-sign-in-url-elicitation-refused"
+category: "behavioral"
+concept: "oauth"
+description: |
+  A 2026-07-28 client that declares URL mode elicitation is asked to open
+  muster's sign-in link as an input_required answer, and the person's
+  decline or cancel, sent with the echoed requestState, runs nothing. A
+  request that does not declare the capability keeps the auth_required
+  answer, and the sign-in still connects the session afterwards.
+
+    1. The person signs in to muster; the session is not signed in to gh.
+    2. A call declaring elicitation.url is asked to sign in to gh; the
+       person declines: the tool did not run.
+    3. The same with cancel.
+    4. A call that does not declare it answers auth_required.
+    5. The sign-in completes; the call runs.
+tags: ["oauth", "auth-required", "elicitation", "url-elicitation", "issue-39410"]
+timeout: "3m"
+protocol_version: "2026-07-28"
+
+pre_configuration:
+  mock_oauth_servers:
+    - name: "person-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "person-client"
+      client_secret: "person-secret"
+      use_as_muster_oauth_server: true
+
+    - name: "github-as"
+      profile: "github"
+      scopes: ["repo"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "github-client"
+
+  mcp_servers:
+    - name: "gh"
+      config:
+        type: "streamable-http"
+        oauth:
+          required: true
+          mock_oauth_server_ref: "github-as"
+          scope: "repo"
+        tools:
+          - name: "whoami"
+            description: "Who the server sees"
+            responses:
+              - response:
+                  login: "person"
+                  source: "gh"
+
+steps:
+  - id: server-registered
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["gh"]
+
+  - id: person-logs-into-muster
+    tool: "test_muster_auth_login"
+    args:
+      subject: "person"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: sign-in-declined
+    description: "The sign-in is an input_required URL elicitation; declining it runs nothing"
+    tool: "x_gh_whoami"
+    args: {}
+    elicitation: decline
+    expected:
+      success: false
+      error_contains: ["The tool did not run: the person answered decline to signing in to gh."]
+      not_contains: ["person"]
+
+  - id: sign-in-cancelled
+    description: "Cancelling it runs nothing either"
+    tool: "x_gh_whoami"
+    args: {}
+    elicitation: cancel
+    expected:
+      success: false
+      error_contains: ["The tool did not run: the person answered cancel to signing in to gh."]
+
+  - id: undeclared-keeps-auth-required
+    description: "A request that does not declare elicitation.url keeps the auth_required answer"
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: false
+      error_contains: ["auth_required", "gh", "Please sign in"]
+
+  - id: sign-in
+    tool: "test_simulate_oauth_callback"
+    args:
+      server: "gh"
+    expected:
+      success: true
+      contains: ["success"]
+
+  - id: call-runs
+    tool: "x_gh_whoami"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["person", "gh"]

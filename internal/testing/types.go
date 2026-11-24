@@ -140,6 +140,11 @@ type TestScenario struct {
 	// runner first reads up to ten more seconds of output, so a line logged
 	// by work a step started in the background is seen.
 	InstanceLogs *InstanceLogExpectation `yaml:"instance_logs,omitempty"`
+	// ProtocolVersion is the MCP revision the scenario's clients ask the
+	// muster instance for: api.ClientProtocolVersion when empty, or
+	// api.URLElicitationProtocolVersion, which a step answering elicitations
+	// needs.
+	ProtocolVersion string `yaml:"protocol_version,omitempty"`
 }
 
 // InstanceLogExpectation defines what the captured muster serve output must and
@@ -793,6 +798,15 @@ type TestStep struct {
 	// scenario prove per-request evaluation: two steps on one session with
 	// different headers, or a step without any.
 	Headers map[string]string `yaml:"headers,omitempty"`
+	// Elicitation is the person's answer to the URL mode elicitations the
+	// step's call is answered with: accept, decline or cancel. The step's
+	// requests declare elicitation.url, every URL elicitation of an
+	// input_required answer gets this action, and the call is retried with
+	// the echoed requestState; the expectations judge the retry's result. A
+	// step that sets it fails when the call asks for no input. accept tells
+	// muster the person is done on the page, so a muster sign-in that did not
+	// complete makes the retry wait for it.
+	Elicitation mcp.ElicitationResponseAction `yaml:"elicitation,omitempty"`
 }
 
 // TestExpectation defines what result is expected from a test step

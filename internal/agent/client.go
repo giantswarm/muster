@@ -14,7 +14,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	agentoauth "github.com/giantswarm/muster/v5/internal/agent/oauth"
-	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/metatools"
 )
 
@@ -82,6 +81,12 @@ type Client struct {
 
 	// progress routes the progress of the tool calls in flight (progress.go).
 	progress callProgress
+
+	// urlElicitation answers the URL elicitations of input_required answers
+	// (url_elicitation.go); nil declares no elicitation capability.
+	urlElicitation URLElicitationHandler
+	// protocolVersion is the revision the last initialize negotiated.
+	protocolVersion string
 }
 
 // SetContinuousListening enables a standalone server-to-client notification
@@ -315,10 +320,11 @@ func (c *Client) createAndConnectClient(ctx context.Context) (client.MCPClient, 
 			httpOpts = append(httpOpts, transport.WithContinuousListening()) //nolint:staticcheck // SA1019: see comment above
 		}
 
-		streamableClient, err := client.NewStreamableHttpClient(c.endpoint, httpOpts...)
+		httpTransport, err := transport.NewStreamableHTTP(c.endpoint, httpOpts...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create streamable-http client: %w", err)
 		}
+		streamableClient := client.NewClient(httpTransport, c.mcpClientOptions()...)
 
 		if err := streamableClient.Start(ctx); err != nil {
 			return nil, fmt.Errorf("failed to start streamable-http client: %w", err)
@@ -454,7 +460,7 @@ func (c *Client) InitializeAndLoadData(ctx context.Context) error {
 // exchanges capability information, and sets up the session for subsequent operations.
 //
 // The handshake includes:
-//   - Protocol version negotiation (api.ClientProtocolVersion)
+//   - Protocol version negotiation (requestedProtocolVersion)
 //   - Client capability advertisement
 //   - Client identification (muster-agent or muster-cli)
 //   - Server capability discovery
@@ -463,7 +469,7 @@ func (c *Client) InitializeAndLoadData(ctx context.Context) error {
 func (c *Client) initialize(ctx context.Context) error {
 	req := mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
-			ProtocolVersion: api.ClientProtocolVersion,
+			ProtocolVersion: c.requestedProtocolVersion(),
 			ClientInfo: mcp.Implementation{
 				Name: func() string {
 					// Set client name based on usage context
@@ -502,6 +508,7 @@ func (c *Client) initialize(ctx context.Context) error {
 		Name:    result.ServerInfo.Name,
 		Version: result.ServerInfo.Version,
 	}
+	c.protocolVersion = result.ProtocolVersion
 	c.mu.Unlock()
 
 	// Log response only if logger is available
@@ -1440,12 +1447,20 @@ func (c *Client) CallToolWithTimeout(ctx context.Context, name string, args map[
 	return c.wrapAndCallTool(ctx, name, args, callFn)
 }
 
-// callToolDirectWithTimeout executes a tool directly with a custom timeout.
+// callToolDirectWithTimeout executes a tool directly with a custom timeout,
+// answering the server's URL elicitations (callToolRoundTrips).
 func (c *Client) callToolDirectWithTimeout(ctx context.Context, name string, args map[string]any, timeout time.Duration) (*mcp.CallToolResult, error) {
 	// Ensure client is connected before attempting tool execution
 	if c.client == nil {
 		return nil, fmt.Errorf("client not connected")
 	}
+	return c.callToolRoundTrips(ctx, name, args, timeout)
+}
+
+// callToolOnce sends one tools/call, carrying roundTrip's answers to the
+// server's previous input request, if any.
+func (c *Client) callToolOnce(ctx context.Context, name string, args map[string]any, timeout time.Duration, roundTrip mcp.MultiRoundTripParams) (*mcp.CallToolResult, error) {
+	ctx = c.withURLElicitationCapability(ctx)
 
 	// The call sends a progressToken of its own: each progress notification
 	// for it restarts the timeout, up to MaxCallDuration.
@@ -1456,9 +1471,10 @@ func (c *Client) callToolDirectWithTimeout(ctx context.Context, name string, arg
 
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name:      name,
-			Arguments: args,
-			Meta:      &mcp.Meta{ProgressToken: token},
+			Name:                 name,
+			Arguments:            args,
+			Meta:                 &mcp.Meta{ProgressToken: token},
+			MultiRoundTripParams: roundTrip,
 		},
 	}
 
