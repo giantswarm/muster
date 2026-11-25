@@ -244,3 +244,21 @@ func TestStore_Flows(t *testing.T) {
 		require.ErrorIs(t, err, api.ErrApprovalNotFound)
 	})
 }
+
+// A request expired by muster's clock while its keys still live in Valkey
+// is replaced by the next identical call.
+func TestValkeyStore_ExpiredByClockIsReplaced(t *testing.T) {
+	store, _, _ := newValkeyStoreForTest(t)
+	now := time.Now()
+	store.now = func() time.Time { return now }
+	ctx := context.Background()
+	first := newRequest(t, "r1", alice, "s1", nil)
+	_, err := store.Create(ctx, first)
+	require.NoError(t, err)
+	now = now.Add(6 * time.Minute)
+	second := newRequest(t, "r2", alice, "s1", nil)
+	second.CreatedAt, second.ExpiresAt = now, now.Add(5*time.Minute)
+	created, err := store.Create(ctx, second)
+	require.NoError(t, err)
+	assert.Equal(t, "r2", created.ID)
+}

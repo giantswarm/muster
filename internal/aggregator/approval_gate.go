@@ -14,6 +14,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/approval"
+	"github.com/giantswarm/muster/v5/internal/clock"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -224,7 +225,7 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 
 	shown := display()
 	shown.Setting, shown.Source = effective.Setting, effective.Source
-	now := time.Now()
+	now := clock.Now()
 	request, err = store.Create(ctx, &api.ApprovalRequest{
 		ID:            rand.Text(),
 		ElicitationID: rand.Text(),

@@ -14,6 +14,7 @@ import (
 	"github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/clock"
 )
 
 // The caps on pending approvals: an agent looping on a call that asks cannot
@@ -47,7 +48,7 @@ var _ api.ApprovalStore = (*ValkeyStore)(nil)
 
 // NewValkeyStore returns a store on client under keyPrefix.
 func NewValkeyStore(client valkey.Client, keyPrefix string, encryptor *security.Encryptor) *ValkeyStore {
-	return &ValkeyStore{client: client, prefix: keyPrefix + "approval:", encryptor: encryptor, now: time.Now}
+	return &ValkeyStore{client: client, prefix: keyPrefix + "approval:", encryptor: encryptor, now: clock.Now}
 }
 
 func (s *ValkeyStore) requestKey(id string) string  { return s.prefix + "req:" + id }
@@ -185,13 +186,12 @@ func (s *ValkeyStore) Create(ctx context.Context, request *api.ApprovalRequest) 
 	if err := s.client.Do(ctx, s.client.B().Set().Key(s.requestKey(request.ID)).Value(sealed).PxMilliseconds(ttl).Build()).Error(); err != nil {
 		return nil, fmt.Errorf("approval store: %w", err)
 	}
-	set, err := s.client.Do(ctx, s.client.B().Set().Key(s.bindingKey(binding)).Value(request.ID).Nx().PxMilliseconds(ttl).Build()).ToString()
-	if valkey.IsValkeyNil(err) || (err == nil && set != "OK") {
+	if err := s.claimBinding(ctx, binding, request.ID, ttl); err != nil {
 		_ = s.client.Do(ctx, s.client.B().Del().Key(s.requestKey(request.ID)).Build()).Error()
-		return s.Find(ctx, binding)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("approval store: %w", err)
+		if errors.Is(err, errBindingTaken) {
+			return s.Find(ctx, binding)
+		}
+		return nil, err
 	}
 	expires := float64(request.ExpiresAt.UnixMilli())
 	for _, key := range []string{s.personKey(request.Identity), s.sessionKey(request.Identity, request.SessionID)} {
@@ -325,4 +325,29 @@ func (s *ValkeyStore) DeleteFlow(ctx context.Context, key string) error {
 		return fmt.Errorf("approval store: %w", err)
 	}
 	return nil
+}
+
+// errBindingTaken is a binding a live request holds.
+var errBindingTaken = errors.New("approval binding taken")
+
+// claimBinding points the binding at id unless a live request holds it. A
+// binding left by a request that expired by muster's clock (its keys not yet
+// expired in Valkey) is taken over.
+func (s *ValkeyStore) claimBinding(ctx context.Context, binding, id string, ttl int64) error {
+	for range 2 {
+		set, err := s.client.Do(ctx, s.client.B().Set().Key(s.bindingKey(binding)).Value(id).Nx().PxMilliseconds(ttl).Build()).ToString()
+		if err == nil && set == "OK" {
+			return nil
+		}
+		if err != nil && !valkey.IsValkeyNil(err) {
+			return fmt.Errorf("approval store: %w", err)
+		}
+		if _, err := s.Find(ctx, binding); !errors.Is(err, api.ErrApprovalNotFound) {
+			return errBindingTaken
+		}
+		if err := s.client.Do(ctx, s.client.B().Del().Key(s.bindingKey(binding)).Build()).Error(); err != nil {
+			return fmt.Errorf("approval store: %w", err)
+		}
+	}
+	return errBindingTaken
 }

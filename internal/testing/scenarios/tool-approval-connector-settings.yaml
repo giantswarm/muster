@@ -1,5 +1,5 @@
 name: "tool-approval-connector-settings"
-description: "An MCPServer's spec.approval sets Allow, Ask or Block per tool with a rule for the rest: list_tools, filter_tools and describe_tool report each tool's effective approval and whether the caller is a connector admin, a Block tool is hidden and refused by call_tool, and a server without approval is Allow, not reviewed"
+description: "An MCPServer's spec.approval sets Allow, Ask or Block per tool with a rule for the rest: list_tools, filter_tools and describe_tool report each tool's effective approval and whether the caller is a connector admin, a Block tool is hidden and refused by call_tool, and a server without approval is Allow, not reviewed, and a call that asks is refused where muster cannot ask"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["approval", "metatools", "mcpserver"]
@@ -11,7 +11,8 @@ timeout: "5m"
 # Then:  get_issue is allow (tool), merge_pull_request ask (connector, new),
 #        delete_repository is hidden and refused as not found, pagerduty's
 #        tool is allow (unreviewed), muster's configuration tools ask (builtin),
-#        and Ask is reported only: merge_pull_request still runs.
+#        and merge_pull_request, which asks, is refused here: this
+#        instance has no shared store or browser sign-in to ask with.
 
 pre_configuration:
   mcp_servers:
@@ -117,14 +118,23 @@ steps:
       success: false
       error_contains: ["tool not found: x_github_delete_repository"]
 
-  - id: "ask-is-reported-not-enforced"
+  - id: "ask-without-prerequisites-is-refused"
+    description: "This instance runs no shared store on Valkey and no browser sign-in: a call that asks is refused with the reason, never run"
     tool: "test_call_meta_tool"
     args:
       tool: "call_tool"
       arguments: { name: "x_github_merge_pull_request", arguments: {} }
     expected:
+      success: false
+      error_contains: ["approval_unavailable", "asks before it runs (ask from connector)"]
+      not_contains: ["merged"]
+
+  - id: "unavailable-is-reported"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_github_merge_pull_request" } }
+    expected:
       success: true
-      contains: ["merged"]
+      contains: ["not on Valkey"]
 
   - id: "server-reports-its-approval"
     tool: "core_mcpserver_get"

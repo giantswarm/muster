@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/clock"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -70,7 +71,7 @@ func (p *Page) now() time.Time {
 	if p.Now != nil {
 		return p.Now()
 	}
-	return time.Now()
+	return clock.Now()
 }
 
 func (p *Page) secure() bool {
