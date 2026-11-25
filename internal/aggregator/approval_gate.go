@@ -183,10 +183,52 @@ func (a *AggregatorServer) gateCoreTool(ctx context.Context, toolName string, ar
 	if effective.Setting == api.ApprovalSettingAllow {
 		return args, nil, nil
 	}
+	if name == "core_mcpserver_set_approval" {
+		args = a.bindPreset(ctx, args)
+	}
 	target := api.ApprovalTarget{Kind: api.ApprovalTargetCore, Name: name, Exposed: toolName}
 	return a.ask(ctx, target, effective, args, func() api.ApprovalDisplay {
 		return a.coreDisplay(ctx, name, args)
 	})
+}
+
+// bindPreset turns a core_mcpserver_set_approval call carrying a preset into
+// the explicit settings the preset expands to now, from the tools the server
+// lists. The person approves those settings, and those are what runs: a
+// server that changes its tools' annotations between the page and the retry
+// makes the retry another call, which asks again, instead of writing an
+// expansion nobody saw (M1-MU-S-07). An unknown preset is left for the tool
+// to refuse.
+func (a *AggregatorServer) bindPreset(ctx context.Context, args map[string]any) map[string]any {
+	preset, ok := args["preset"].(string)
+	if !ok {
+		return args
+	}
+	if _, both := args["approval"]; both {
+		return args
+	}
+	server, _ := args["name"].(string)
+	tools, _ := a.ServerTools(ctx, server)
+	expanded, err := api.ExpandApprovalPreset(preset, tools)
+	if err != nil {
+		return args
+	}
+	settings := map[string]any{"rule": expanded.Rule}
+	if len(expanded.Tools) > 0 {
+		entries := make(map[string]any, len(expanded.Tools))
+		for tool, setting := range expanded.Tools {
+			entries[tool] = setting
+		}
+		settings["tools"] = entries
+	}
+	bound := make(map[string]any, len(args))
+	for key, value := range args {
+		if key != "preset" {
+			bound[key] = value
+		}
+	}
+	bound["approval"] = settings
+	return bound
 }
 
 // ask runs a call that asks: with an approved entry bound to this caller,

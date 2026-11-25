@@ -75,6 +75,9 @@ type workflowPlan struct {
 	steps   []api.ApprovalStep
 	asks    []api.ToolApproval
 	blocked string
+	// nested records the definition hash of every workflow a run calls, by
+	// name: the approval binds them with the workflow's own (M1-MU-S-08).
+	nested map[string]string
 	// unknown counts the steps muster could not resolve up front (a tool
 	// no session server lists yet, a missing tool).
 	unknown int
@@ -95,7 +98,7 @@ func (a *AggregatorServer) gateWorkflow(ctx context.Context, toolName string, ar
 	if err != nil {
 		return ctx, nil, nil, err
 	}
-	plan := &workflowPlan{shown: map[string]bool{}}
+	plan := &workflowPlan{shown: map[string]bool{}, nested: map[string]string{}}
 	if err := a.planWorkflow(ctx, workflow, plan, 0); err != nil {
 		return ctx, nil, nil, err
 	}
@@ -112,7 +115,7 @@ func (a *AggregatorServer) gateWorkflow(ctx context.Context, toolName string, ar
 	if len(plan.asks) == 0 {
 		return withWorkflowRun(ctx, &workflowRun{workflow: name, shown: plan.shown}), args, nil, nil
 	}
-	target := api.ApprovalTarget{Kind: api.ApprovalTargetWorkflow, Name: name, Exposed: toolName, Definition: workflowDefinitionHash(workflow)}
+	target := api.ApprovalTarget{Kind: api.ApprovalTargetWorkflow, Name: name, Exposed: toolName, Definition: runDefinitionHash(workflow, plan.nested)}
 	strictest := api.StrictestApproval(plan.asks...)
 	approved, answer, err := a.ask(ctx, target, strictest, args, func() api.ApprovalDisplay {
 		title := "workflow " + name
@@ -154,18 +157,39 @@ func workflowDefinitionHash(workflow *api.Workflow) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// planWorkflow resolves every step's tool of a workflow into plan.
+// runDefinitionHash identifies what a run executes: the workflow's own
+// definition and that of every workflow it calls, so a nested workflow
+// changed after the approval no longer matches it.
+func runDefinitionHash(workflow *api.Workflow, nested map[string]string) string {
+	own := workflowDefinitionHash(workflow)
+	if len(nested) == 0 {
+		return own
+	}
+	parts := []string{own}
+	for _, name := range sortedKeys(nested) {
+		parts = append(parts, name+"="+nested[name])
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
+
+// planWorkflow resolves every step's tool of a workflow into plan. owner is
+// the name of a nested workflow, empty for the workflow being run.
 func (a *AggregatorServer) planWorkflow(ctx context.Context, workflow *api.Workflow, plan *workflowPlan, depth int) error {
+	owner := ""
+	if depth > 0 {
+		owner = workflow.Name
+	}
 	visit := func(id, tool, description string, args map[string]any, condition *api.WorkflowCondition) error {
 		if condition != nil && condition.Tool != "" {
-			if err := a.planStep(ctx, id+" (condition)", condition.Tool, "", condition.Args, plan, depth); err != nil {
+			if err := a.planStep(ctx, owner, id+" (condition)", condition.Tool, "", condition.Args, plan, depth); err != nil {
 				return err
 			}
 		}
 		if tool == "" {
 			return nil
 		}
-		return a.planStep(ctx, id, tool, description, args, plan, depth)
+		return a.planStep(ctx, owner, id, tool, description, args, plan, depth)
 	}
 	var visitSubs func(prefix string, subs []api.WorkflowSubStep) error
 	visitSubs = func(prefix string, subs []api.WorkflowSubStep) error {
@@ -197,8 +221,9 @@ func (a *AggregatorServer) planWorkflow(ctx context.Context, workflow *api.Workf
 	return visitSubs("onFailure.", workflow.OnFailure)
 }
 
-// planStep resolves one step's tool.
-func (a *AggregatorServer) planStep(ctx context.Context, id, tool, description string, args map[string]any, plan *workflowPlan, depth int) error {
+// planStep resolves one step's tool. Steps of nested workflows are shown
+// too, marked with their workflow.
+func (a *AggregatorServer) planStep(ctx context.Context, owner, id, tool, description string, args map[string]any, plan *workflowPlan, depth int) error {
 	plan.shown[tool] = true
 	effective, err := a.stepApproval(ctx, tool, args, plan, depth)
 	if err != nil {
@@ -218,13 +243,11 @@ func (a *AggregatorServer) planStep(ctx context.Context, id, tool, description s
 	if asks {
 		plan.asks = append(plan.asks, effective)
 	}
-	if depth == 0 {
-		label := description
-		if label == "" {
-			label = readable(tool)
-		}
-		plan.steps = append(plan.steps, api.ApprovalStep{ID: id, Label: label, Tool: tool, Asks: asks, Arguments: labelledArguments(mcp.ToolInputSchema{}, args)})
+	label := description
+	if label == "" {
+		label = readable(tool)
 	}
+	plan.steps = append(plan.steps, api.ApprovalStep{ID: id, Label: label, Tool: tool, Asks: asks, Workflow: owner, Arguments: labelledArguments(mcp.ToolInputSchema{}, args)})
 	return nil
 }
 
@@ -270,6 +293,7 @@ func (a *AggregatorServer) stepApproval(ctx context.Context, tool string, args m
 	if err != nil {
 		return unresolved, nil
 	}
+	plan.nested[nested.Name] = workflowDefinitionHash(nested)
 	before := len(plan.asks)
 	if err := a.planWorkflow(ctx, nested, plan, depth+1); err != nil {
 		return api.ToolApproval{}, err

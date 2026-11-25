@@ -3,6 +3,7 @@ package aggregator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"sync"
 	"sync/atomic"
@@ -426,4 +427,60 @@ func TestApplyApprovals_ReportsWhyAskingIsUnavailable(t *testing.T) {
 	assert.Contains(t, merge.Unavailable, "not on Valkey")
 	read, _ := api.ToolApprovalOf(tools[1])
 	assert.Empty(t, read.Unavailable, "a tool that runs is unaffected")
+}
+
+// A preset is expanded once, when the call asks; the person approves that
+// expansion and it is what runs. A server that marks a tool read-only
+// between the page and the retry makes the retry another call, which asks
+// again (M1-MU-S-07).
+func TestGate_PresetIsBoundToItsExpansion(t *testing.T) {
+	rig := newGateRig(t)
+	agent := api.WithSessionID(rig.ctx, api.ActorSessionPrefix+"session-1")
+	args := map[string]any{"name": "github", "preset": "recommended"}
+	result, err := rig.server.CallToolInternal(agent, "core_mcpserver_set_approval", args)
+	require.NoError(t, err)
+	id := approvalIDOf(t, result)
+	request, err := rig.store.Get(context.Background(), id)
+	require.NoError(t, err)
+	assert.NotContains(t, request.Arguments, "preset", "the expansion is bound, not the preset's name")
+	assert.Contains(t, request.Arguments, `"merge_pull_request":"Ask"`)
+	require.NoError(t, rig.store.Decide(context.Background(), id, true, alice))
+
+	info, ok := rig.server.registry.GetServerInfo("github")
+	require.True(t, ok)
+	readOnly := true
+	info.mu.Lock()
+	for i := range info.Tools {
+		info.Tools[i].Annotations.ReadOnlyHint = &readOnly
+	}
+	info.mu.Unlock()
+
+	again, err := rig.server.CallToolInternal(agent, "core_mcpserver_set_approval", args)
+	require.NoError(t, err)
+	assert.NotEqual(t, id, approvalIDOf(t, again), "another expansion is another call")
+}
+
+// On Governed, every way an agent pauses or removes a connector asks
+// (M1-MU-S-03).
+func TestGate_GovernedAsksBeforePausingOrRemoving(t *testing.T) {
+	api.RegisterGovernance(api.Governance{Mode: api.GovernanceGoverned, Readable: true})
+	t.Cleanup(func() { api.RegisterGovernance(api.Governance{}) })
+	rig := newGateRig(t)
+	for i, call := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"core_service_stop", map[string]any{"name": "github"}},
+		{"core_mcpserver_delete", map[string]any{"name": "github"}},
+		{"core_mcpserver_update", map[string]any{"name": "github", "suspended": true}},
+		{"core_mcpserver_update", map[string]any{"name": "github", "autoStart": false}},
+	} {
+		agent := api.WithSessionID(rig.ctx, fmt.Sprintf("%ssession-%d", api.ActorSessionPrefix, i))
+		result, err := rig.server.CallToolInternal(agent, call.tool, call.args)
+		require.NoError(t, err, call.tool)
+		id := approvalIDOf(t, result)
+		request, err := rig.store.Get(context.Background(), id)
+		require.NoError(t, err)
+		assert.Equal(t, api.ApprovalSourceGovernance, request.Display.Source, call.tool)
+	}
 }

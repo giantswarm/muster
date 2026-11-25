@@ -71,6 +71,8 @@ func (a *AggregatorServer) coreDisplay(ctx context.Context, name string, args ma
 	}
 	if preset, _ := args["preset"].(string); preset != "" {
 		display.Preset = a.presetDisplay(ctx, server, preset, name == "core_mcpserver_set_approval")
+	} else if settings, ok := args["approval"].(map[string]any); ok {
+		display.Preset = settingsDisplay(settings)
 	}
 	return display
 }
@@ -124,6 +126,18 @@ func (a *AggregatorServer) presetDisplay(ctx context.Context, server, preset str
 		shown = append(shown, api.ApprovalArgument{Key: name, Label: name, Value: expanded.Tools[name]})
 	}
 	return append(shown, api.ApprovalArgument{Key: "rule", Label: "New tools (rule)", Value: expanded.Rule})
+}
+
+// settingsDisplay lists explicit approval settings per tool, then the rule:
+// what core_mcpserver_set_approval writes, a preset's expansion included.
+func settingsDisplay(settings map[string]any) []api.ApprovalArgument {
+	var shown []api.ApprovalArgument
+	if tools, ok := settings["tools"].(map[string]any); ok {
+		for _, name := range sortedKeys(tools) {
+			shown = append(shown, api.ApprovalArgument{Key: name, Label: name, Value: displayValue(tools[name])})
+		}
+	}
+	return append(shown, api.ApprovalArgument{Key: "rule", Label: "New tools (rule)", Value: displayValue(settings["rule"])})
 }
 
 // catalogueTool finds a tool in the caller's catalogue by its exposed name.
