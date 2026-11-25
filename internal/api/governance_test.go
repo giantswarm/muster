@@ -35,6 +35,34 @@ func TestGovernance_CoreFloor(t *testing.T) {
 	assert.True(t, ok, "without a readable configuration the governed entries apply")
 }
 
+// Every way to pause or remove a connector asks an agent on Governed, not
+// only core_mcpserver_update {suspended: true} (M1-MU-S-03, M1-MU-C-15).
+func TestGovernance_EveryPauseAsksOnGoverned(t *testing.T) {
+	governed := Governance{Mode: GovernanceGoverned, Readable: true}
+	trusted := Governance{Mode: GovernanceTrusted, Readable: true}
+	for name, call := range map[string]struct {
+		tool string
+		args map[string]any
+	}{
+		"service stop":        {"core_service_stop", map[string]any{"name": "github"}},
+		"delete":              {"core_mcpserver_delete", map[string]any{"name": "github"}},
+		"autoStart false":     {"core_mcpserver_update", map[string]any{"name": "github", "autoStart": false}},
+		"templated suspended": {"core_mcpserver_update", map[string]any{"name": "github", "suspended": "{{ .input.pause }}"}},
+		"templated autoStart": {"core_mcpserver_update", map[string]any{"name": "github", "autoStart": "{{ .input.x }}"}},
+		"suspended true":      {"core_mcpserver_update", map[string]any{"name": "github", "suspended": true}},
+	} {
+		got, ok := governed.CoreFloor(call.tool, call.args)
+		assert.True(t, ok, name)
+		assert.Equal(t, ApprovalSourceGovernance, got.Source, name)
+		_, ok = trusted.CoreFloor(call.tool, call.args)
+		assert.False(t, ok, "%s runs on Trusted", name)
+	}
+	_, ok := governed.CoreFloor("core_mcpserver_update", map[string]any{"name": "github", "autoStart": true, "suspended": false})
+	assert.False(t, ok, "resuming runs")
+	_, ok = governed.CoreFloor("core_service_start", map[string]any{"name": "github"})
+	assert.False(t, ok)
+}
+
 func TestGovernance_ServerFloor(t *testing.T) {
 	servers := map[string][]string{
 		GovernanceRoleAgentManager:    {"agent-manager"},

@@ -51,10 +51,18 @@ var serverFloorTools = map[string][]string{
 // serverGovernedTools are the entries Governed adds on servers the
 // configuration names: an agent creating an agent, widening an agent's reach
 // or starting another agent's Session. Pausing a connector is matched on its
-// suspended argument (SuspendsConnector).
+// arguments (PausesConnector); removing or stopping one by its own tools
+// (coreGovernedTools, serverGovernedTools).
 var serverGovernedTools = map[string][]string{
-	GovernanceRoleAgentManager: {"create_agent", "update_agent_access", "start_session"},
+	GovernanceRoleAgentManager:     {"create_agent", "update_agent_access", "start_session"},
+	GovernanceRoleConnectorManager: {"mcpserver_delete"},
 }
+
+// coreGovernedTools are muster's own tools Governed asks agent callers
+// before, whatever their arguments: stopping a service (for a connector it
+// writes spec.suspended, the same pause as core_mcpserver_update) and
+// deleting a connector (M1-MU-S-03).
+var coreGovernedTools = []string{"core_service_stop", "core_mcpserver_delete"}
 
 // Governance is muster's governance configuration: the mode and the servers
 // whose tools the floors and governed entries name. It is read once at start
@@ -98,7 +106,7 @@ func (g Governance) CoreFloor(tool string, args map[string]any) (ToolApproval, b
 	if slices.Contains(coreFloorTools, tool) {
 		return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceBuiltin}, true
 	}
-	if tool == "core_mcpserver_update" && g.Governed() && SuspendsConnector(args) {
+	if g.Governed() && (slices.Contains(coreGovernedTools, tool) || (tool == "core_mcpserver_update" && PausesConnector(args))) {
 		return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceGovernance}, true
 	}
 	return ToolApproval{}, false
@@ -130,7 +138,7 @@ func (g Governance) ServerFloor(server, tool string, args map[string]any) (appro
 		}
 		return ToolApproval{}, false, false
 	}
-	if tool == "mcpserver_update" && SuspendsConnector(args) {
+	if tool == "mcpserver_update" && PausesConnector(args) {
 		if !slices.Contains(g.Servers[GovernanceRoleConnectorManager], server) {
 			return ToolApproval{}, false, false
 		}
@@ -141,10 +149,24 @@ func (g Governance) ServerFloor(server, tool string, args map[string]any) (appro
 	return ToolApproval{}, false, false
 }
 
-// SuspendsConnector reports whether a connector update's arguments pause it.
-func SuspendsConnector(args map[string]any) bool {
-	suspended, _ := args["suspended"].(bool)
-	return suspended
+// PausesConnector reports whether a connector update's arguments may pause
+// it: suspended other than false, or autoStart other than true (a connector
+// that does not start with muster is paused from muster's next start). A
+// value that is not a boolean -- a workflow step's template, resolved only at
+// run time -- counts as pausing, so the up-front check of a workflow asks
+// for it (M1-MU-C-15); at dispatch the write tool refuses non-booleans.
+func PausesConnector(args map[string]any) bool {
+	if value, ok := args["suspended"]; ok && value != nil {
+		if b, isBool := value.(bool); !isBool || b {
+			return true
+		}
+	}
+	if value, ok := args["autoStart"]; ok && value != nil {
+		if b, isBool := value.(bool); !isBool || !b {
+			return true
+		}
+	}
+	return false
 }
 
 var (
