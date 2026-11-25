@@ -89,6 +89,7 @@ type challengeRecorderKey struct{}
 type challengeRecorder struct {
 	challenge    atomic.Pointer[signInChallenge]
 	backendInput atomic.Pointer[mcp.CallToolResult]
+	approval     atomic.Pointer[approvalChallenge]
 }
 
 func withChallengeRecorder(ctx context.Context) (context.Context, *challengeRecorder) {
@@ -134,6 +135,9 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 				ctx = withBackendRoundTrip(ctx, state, req.Params.InputResponses)
 				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
 			}
+			if answer, answered := approvalPromptAnswer(&req); answered {
+				return answer, nil
+			}
 			supportsURL := clientSupportsURLElicitation(ctx)
 			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); supportsURL && answer != nil {
 				state := decodeSignInRequestState(req.Params.RequestState)
@@ -154,6 +158,9 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 			}
 			if !supportsURL {
 				return result, err
+			}
+			if challenge := recorder.approval.Load(); challenge != nil && approvalLink(result) == challenge.link {
+				return elicitApproval(callCtx, *challenge)
 			}
 			if challenge := recorder.challenge.Load(); challenge != nil && signInLink(result) == challenge.authURL {
 				return a.elicitSignIn(callCtx, *challenge)

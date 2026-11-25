@@ -273,6 +273,9 @@ type AggregatorServer struct {
 	// bindings; nil when disabled. credProviderServer is its gRPC listener.
 	credProvider       *credprovider.Provider
 	credProviderServer *credprovider.Server
+
+	// approval is how calls that ask are asked (approval_gate.go).
+	approval approvalSettings
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -872,6 +875,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		valkeyKeyPrefix:   stores.keyPrefix,
 		valkeyEncryptor:   stores.encryptor,
 		core:              newCoreCatalogue(),
+		approval:          newApprovalSettings(aggConfig, stores),
 	}, nil
 }
 
@@ -1819,6 +1823,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	if err := a.registerSubjectRoutes(outerMux, oauthHTTPServer); err != nil {
 		return nil, err
 	}
+	a.registerApprovalPage(outerMux, cfg.BaseURL)
 	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated); err != nil {
 		return nil, err
 	}
@@ -2083,8 +2088,9 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return nil, unseenError(view, "tool not found: "+toolName)
 		}
 		if sessionErr == nil {
-			if err := refuseBlocked(ctx, toolName, sessionServerName, originalName); err != nil {
-				return nil, err
+			args, answer, gateErr := a.gateServerTool(ctx, toolName, sessionServerName, originalName, args)
+			if gateErr != nil || answer != nil {
+				return answer, gateErr
 			}
 			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
@@ -2224,8 +2230,9 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
 		return nil, unseenError(view, "tool not found: "+toolName)
 	}
-	if err := refuseBlocked(ctx, toolName, serverName, originalName); err != nil {
-		return nil, err
+	args, answer, err := a.gateServerTool(ctx, toolName, serverName, originalName, args)
+	if err != nil || answer != nil {
+		return answer, err
 	}
 	start := time.Now()
 	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
@@ -2335,6 +2342,16 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 	logging.DebugWithAttrs("Aggregator", "callCoreToolDirectly called",
 		slog.String("tool", toolName))
 
+	var answer *mcp.CallToolResult
+	if isWorkflowRun(toolName) {
+		ctx, args, answer, err = a.gateWorkflow(ctx, toolName, args)
+	} else {
+		args, answer, err = a.gateCoreTool(ctx, toolName, args)
+	}
+	if err != nil || answer != nil {
+		return answer, err
+	}
+
 	// Remove the core_ prefix to get the original tool name for routing
 	originalToolName := strings.TrimPrefix(toolName, "core_")
 	logging.DebugWithAttrs("Aggregator", "Original tool name after prefix removal",
@@ -2350,11 +2367,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 		}
 		if provider, ok := handler.(api.ToolProvider); ok {
 			// Check if this is a workflow management tool or a workflow execution tool
-			managementTools := []string{"workflow_list", "workflow_get", "workflow_create",
-				"workflow_update", "workflow_delete", "workflow_validate", "workflow_available",
-				"workflow_execution_list", "workflow_execution_get"}
-
-			isManagementTool := slices.Contains(managementTools, originalToolName)
+			isManagementTool := slices.Contains(workflowManagementTools, originalToolName)
 
 			if isManagementTool {
 				// Use the original tool name for workflow management tools

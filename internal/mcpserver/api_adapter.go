@@ -510,6 +510,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Namespace:             server.Namespace,
 		UID:                   string(server.UID),
 		CreatedAt:             server.CreationTimestamp.Time,
+		Generation:            server.Generation,
 		Labels:                server.Labels,
 		Type:                  server.Spec.Type,
 		Description:           server.Spec.Description,

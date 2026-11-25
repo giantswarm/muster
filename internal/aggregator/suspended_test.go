@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,9 +31,12 @@ type stubMCPServerManager struct {
 	servers map[string]api.MCPServerInfo
 	err     error
 	lists   int
+	listMu  sync.Mutex
 }
 
 func (m *stubMCPServerManager) ListMCPServers(context.Context) ([]api.MCPServerInfo, error) {
+	m.listMu.Lock()
+	defer m.listMu.Unlock()
 	m.lists++
 	if m.err != nil {
 		return nil, m.err

@@ -99,7 +99,7 @@ func (s *MemoryStore) Create(_ context.Context, request *api.ApprovalRequest) (*
 		if r.Identity == request.Identity {
 			person++
 		}
-		if r.SessionID == request.SessionID {
+		if r.Identity == request.Identity && r.SessionID == request.SessionID {
 			session++
 		}
 	}

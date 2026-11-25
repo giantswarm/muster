@@ -138,7 +138,9 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	}
 
 	// Execute the tool via the handler, learning where the aggregator
-	// dispatched it.
+	// dispatched it. The call is a client's: its target's effective approval
+	// applies at dispatch.
+	ctx = api.WithApprovalGate(ctx)
 	ctx, dispatch := observability.ContextWithDispatchRecord(ctx, name)
 	result, connected, err := p.answerSignIn(ctx, handler, cat, name, toolArgs)
 	if connected {

@@ -21,7 +21,8 @@ import (
 const (
 	// MaxPendingPerPerson caps the pending approvals of one person.
 	MaxPendingPerPerson = 10
-	// MaxPendingPerSession caps the pending approvals of one muster session.
+	// MaxPendingPerSession caps the pending approvals of one person in one
+	// muster session.
 	MaxPendingPerSession = 3
 )
 
@@ -56,8 +57,8 @@ func (s *ValkeyStore) flowKey(key string) string    { return s.prefix + "flow:" 
 func (s *ValkeyStore) personKey(i api.SignInIdentity) string {
 	return s.prefix + "person:" + digest(i.Issuer+"\x00"+i.Subject)
 }
-func (s *ValkeyStore) sessionKey(sessionID string) string {
-	return s.prefix + "session:" + digest(sessionID)
+func (s *ValkeyStore) sessionKey(i api.SignInIdentity, sessionID string) string {
+	return s.prefix + "session:" + digest(i.Issuer+"\x00"+i.Subject+"\x00"+sessionID)
 }
 
 func digest(value string) string {
@@ -162,7 +163,7 @@ func (s *ValkeyStore) Create(ctx context.Context, request *api.ApprovalRequest) 
 		return nil, err
 	}
 	now := strconv.FormatInt(s.now().UnixMilli(), 10)
-	for key, limit := range map[string]int64{s.personKey(request.Identity): MaxPendingPerPerson, s.sessionKey(request.SessionID): MaxPendingPerSession} {
+	for key, limit := range map[string]int64{s.personKey(request.Identity): MaxPendingPerPerson, s.sessionKey(request.Identity, request.SessionID): MaxPendingPerSession} {
 		if err := s.client.Do(ctx, s.client.B().Zremrangebyscore().Key(key).Min("-inf").Max(now).Build()).Error(); err != nil {
 			return nil, fmt.Errorf("approval store: %w", err)
 		}
@@ -193,7 +194,7 @@ func (s *ValkeyStore) Create(ctx context.Context, request *api.ApprovalRequest) 
 		return nil, fmt.Errorf("approval store: %w", err)
 	}
 	expires := float64(request.ExpiresAt.UnixMilli())
-	for _, key := range []string{s.personKey(request.Identity), s.sessionKey(request.SessionID)} {
+	for _, key := range []string{s.personKey(request.Identity), s.sessionKey(request.Identity, request.SessionID)} {
 		cmds := valkey.Commands{
 			s.client.B().Zadd().Key(key).ScoreMember().ScoreMember(expires, request.ID).Build(),
 			s.client.B().Pexpire().Key(key).Milliseconds(ttl).Build(),
@@ -253,7 +254,7 @@ func (s *ValkeyStore) remove(ctx context.Context, request *api.ApprovalRequest) 
 		s.client.B().Del().Key(s.requestKey(request.ID)).Build(),
 		s.client.B().Del().Key(s.bindingKey(request.BindingKey())).Build(),
 		s.client.B().Zrem().Key(s.personKey(request.Identity)).Member(request.ID).Build(),
-		s.client.B().Zrem().Key(s.sessionKey(request.SessionID)).Member(request.ID).Build(),
+		s.client.B().Zrem().Key(s.sessionKey(request.Identity, request.SessionID)).Member(request.ID).Build(),
 	}
 	_ = s.client.DoMulti(ctx, cmds...)
 }
