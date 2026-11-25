@@ -83,6 +83,15 @@ func (g Governance) Governed() bool {
 	return !g.Readable || g.Mode != GovernanceTrusted
 }
 
+// ModeName is the mode clients are shown: governed whenever the governed
+// entries apply (also for an unreadable configuration), else trusted.
+func (g Governance) ModeName() string {
+	if g.Governed() {
+		return GovernanceGoverned
+	}
+	return GovernanceTrusted
+}
+
 // ServerRoles returns the roles the configuration names server for.
 func (g Governance) ServerRoles(server string) []string {
 	var roles []string

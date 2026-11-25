@@ -862,6 +862,9 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 		"mcpServers": filteredServers,
 		"total":      len(filteredServers),
 		"mode":       getClientMode(a.client),
+		// The governance mode, for a client choosing the connector wizard's
+		// preset; the configuration's server lists are not reported.
+		"governance": api.GetGovernance().ModeName(),
 	}
 	if view.Reason != "" {
 		result["notice"] = view.Reason
