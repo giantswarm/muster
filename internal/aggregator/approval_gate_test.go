@@ -594,16 +594,20 @@ func TestGate_SignInBeforeApproval(t *testing.T) {
 	assert.NotContains(t, text, "approval_required", "no approval is asked for before the sign-in")
 }
 
-// An approval is bound to the calling client -- the OAuth client a person's
-// token was issued to -- not to the transport session: the same client
-// reconnecting between ask and retry (a new Mcp-Session-Id) runs it, another
-// client of the same person asks anew, and each client has its own cap
-// (lab M1-2, re-check R-C-01, R-S-01).
+// An approval is bound to muster's session -- which muster keys on the
+// credential's principal: issuer, subject, the OAuth client (azp) and the
+// act chain -- and to the calling client the credential names, never to
+// the transport session: the same client reconnecting between ask and retry
+// (a new Mcp-Session-Id) runs it, another client (another azp, so another
+// muster session, as the middleware produces) asks anew, and a new transport
+// session does not reset a client's cap (lab M1-2, re-check R-C-01, R-S-01,
+// R2-S-01).
 func TestGate_ApprovalBoundToTheClient(t *testing.T) {
 	rig := newGateRig(t)
 	server := mcpserver.NewMCPServer("muster", "test")
 	client := func(clientID, transport string) context.Context {
-		ctx := oauthhandler.ContextWithUserInfo(rig.ctx, &providers.UserInfo{ID: alice.Subject, ClientID: clientID})
+		ctx := api.WithSessionID(rig.ctx, "session-"+clientID)
+		ctx = oauthhandler.ContextWithUserInfo(ctx, &providers.UserInfo{ID: alice.Subject, ClientID: clientID})
 		return server.WithContext(ctx, newLegacySession(transport, mcp.ClientCapabilities{}))
 	}
 	portal, portalReconnected := client("portal", "connection-a"), client("portal", "connection-b")
@@ -632,6 +636,32 @@ func TestGate_ApprovalBoundToTheClient(t *testing.T) {
 	result, err = rig.server.CallToolInternal(portal, "x_github_merge_pull_request", map[string]any{"pr": 99.0})
 	require.NoError(t, err)
 	approvalIDOf(t, result)
+}
+
+// The session an approval is bound to, per credential shape (re-check
+// R2-S-02): an agent's actor session as it is; a delegated token with its
+// acting party; a person's token with its OAuth client; a credential naming
+// no client keeps muster's session; the transport session never counts.
+func TestApprovalSessionID(t *testing.T) {
+	server := mcpserver.NewMCPServer("muster", "test")
+	transport := func(ctx context.Context) context.Context {
+		return server.WithContext(ctx, newLegacySession("transport-x", mcp.ClientCapabilities{}))
+	}
+	base := context.Background()
+	actor := api.ActorSessionPrefix + "kagent/s1"
+	for name, tc := range map[string]struct {
+		ctx  context.Context
+		want string
+	}{
+		"actor JWT": {transport(oauthhandler.ContextWithUserInfo(api.WithSessionID(base, actor), &providers.UserInfo{ClientID: "kagent"})), actor},
+		"delegated token": {transport(api.WithDelegatedCaller(api.WithSessionID(base, "s-del"), api.DelegatedCaller{ActorIssuer: "https://sts.example.com", ActorChain: []string{"agent-7", "gateway"}})),
+			"s-del/actor:https://sts.example.com#agent-7"},
+		"person with client":    {transport(oauthhandler.ContextWithUserInfo(api.WithSessionID(base, "s-p"), &providers.UserInfo{ClientID: "portal"})), "s-p/client:portal"},
+		"person without client": {transport(oauthhandler.ContextWithUserInfo(api.WithSessionID(base, "s-n"), &providers.UserInfo{})), "s-n"},
+		"no credential":         {transport(api.WithSessionID(base, "s-0")), "s-0"},
+	} {
+		assert.Equal(t, tc.want, approvalSessionID(tc.ctx), name)
+	}
 }
 
 type unreachableStore struct{ approval.MemoryStore }
