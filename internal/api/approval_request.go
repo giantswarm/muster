@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -219,6 +220,32 @@ var (
 	// ErrApprovalLimit is a request beyond the caps on pending requests.
 	ErrApprovalLimit = errors.New("too many pending approval requests")
 )
+
+// The caps on pending requests an ApprovalLimitError names.
+const (
+	// ApprovalLimitPerson is the cap on one person's pending requests,
+	// across all their sessions and agents.
+	ApprovalLimitPerson = "person"
+	// ApprovalLimitSession is the cap on one person's pending requests in
+	// one muster session.
+	ApprovalLimitSession = "session"
+)
+
+// ApprovalLimitError is a request refused by a cap; it matches
+// ErrApprovalLimit.
+type ApprovalLimitError struct {
+	// Scope is ApprovalLimitPerson or ApprovalLimitSession.
+	Scope string
+	// Limit is the cap's size.
+	Limit int
+}
+
+func (e *ApprovalLimitError) Error() string {
+	return fmt.Sprintf("%s: %d per %s", ErrApprovalLimit, e.Limit, e.Scope)
+}
+
+// Is makes an ApprovalLimitError match ErrApprovalLimit.
+func (e *ApprovalLimitError) Is(target error) bool { return target == ErrApprovalLimit }
 
 // ApprovalPageFlow is the approval page's state for one browser and one
 // request: the sign-in that tells muster who is in the browser, the

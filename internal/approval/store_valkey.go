@@ -28,9 +28,14 @@ const (
 )
 
 // decision is what the store keeps of a decision, apart from the request.
+// It names the request and its binding, and is sealed like the request when
+// the store's encryptor is enabled: a decision written by anyone but muster
+// (without the key) or moved to another request is no approval.
 type decision struct {
 	Approved bool               `json:"approved"`
 	By       api.SignInIdentity `json:"by"`
+	ID       string             `json:"id,omitempty"`
+	Binding  string             `json:"binding,omitempty"`
 }
 
 // ValkeyStore keeps approvals in Valkey, so every replica sees a request and
@@ -48,7 +53,9 @@ var _ api.ApprovalStore = (*ValkeyStore)(nil)
 
 // NewValkeyStore returns a store on client under keyPrefix.
 func NewValkeyStore(client valkey.Client, keyPrefix string, encryptor *security.Encryptor) *ValkeyStore {
-	return &ValkeyStore{client: client, prefix: keyPrefix + "approval:", encryptor: encryptor, now: clock.Now}
+	// The hash tag keeps every approval key in one cluster slot, so the
+	// scripts below can touch a request's keys together.
+	return &ValkeyStore{client: client, prefix: keyPrefix + "approval:{a}:", encryptor: encryptor, now: clock.Now}
 }
 
 func (s *ValkeyStore) requestKey(id string) string  { return s.prefix + "req:" + id }
@@ -123,19 +130,20 @@ func (s *ValkeyStore) load(ctx context.Context, id string) (*api.ApprovalRequest
 		return nil, err
 	}
 	if ok {
-		applyDecision(&request, raw)
+		s.applyDecision(&request, raw)
 	}
 	return &request, nil
 }
 
-func applyDecision(request *api.ApprovalRequest, raw string) {
+// applyDecision sets the request's status from a stored decision. A
+// decision muster cannot open, or one written for another request or
+// binding, is no approval: the request reads as declined.
+func (s *ValkeyStore) applyDecision(request *api.ApprovalRequest, raw string) {
+	request.Status = api.ApprovalStatusDeclined
 	var d decision
-	if json.Unmarshal([]byte(raw), &d) != nil {
-		// An unreadable decision is no approval.
-		request.Status = api.ApprovalStatusDeclined
+	if s.open(raw, &d) != nil || d.ID != request.ID || d.Binding != request.BindingKey() {
 		return
 	}
-	request.Status = api.ApprovalStatusDeclined
 	if d.Approved {
 		request.Status = api.ApprovalStatusApproved
 	}
@@ -163,20 +171,6 @@ func (s *ValkeyStore) Create(ctx context.Context, request *api.ApprovalRequest) 
 	if err != nil {
 		return nil, err
 	}
-	now := strconv.FormatInt(s.now().UnixMilli(), 10)
-	for key, limit := range map[string]int64{s.personKey(request.Identity): MaxPendingPerPerson, s.sessionKey(request.Identity, request.SessionID): MaxPendingPerSession} {
-		if err := s.client.Do(ctx, s.client.B().Zremrangebyscore().Key(key).Min("-inf").Max(now).Build()).Error(); err != nil {
-			return nil, fmt.Errorf("approval store: %w", err)
-		}
-		count, err := s.client.Do(ctx, s.client.B().Zcard().Key(key).Build()).AsInt64()
-		if err != nil {
-			return nil, fmt.Errorf("approval store: %w", err)
-		}
-		if count >= limit {
-			return nil, api.ErrApprovalLimit
-		}
-	}
-
 	sealed, err := s.seal(request)
 	if err != nil {
 		return nil, fmt.Errorf("approval store: write request: %w", err)
@@ -193,17 +187,13 @@ func (s *ValkeyStore) Create(ctx context.Context, request *api.ApprovalRequest) 
 		}
 		return nil, err
 	}
-	expires := float64(request.ExpiresAt.UnixMilli())
-	for _, key := range []string{s.personKey(request.Identity), s.sessionKey(request.Identity, request.SessionID)} {
-		cmds := valkey.Commands{
-			s.client.B().Zadd().Key(key).ScoreMember().ScoreMember(expires, request.ID).Build(),
-			s.client.B().Pexpire().Key(key).Milliseconds(ttl).Build(),
-		}
-		for _, result := range s.client.DoMulti(ctx, cmds...) {
-			if err := result.Error(); err != nil {
-				return nil, fmt.Errorf("approval store: %w", err)
-			}
-		}
+	// Then a slot under both caps, checked and taken in one script; without
+	// one the request and its binding go again.
+	if err := s.reserve(ctx, request, ttl); err != nil {
+		_ = s.client.DoMulti(ctx,
+			s.client.B().Del().Key(s.requestKey(request.ID)).Build(),
+			s.client.B().Del().Key(s.bindingKey(binding)).Build())
+		return nil, err
 	}
 	created := *request
 	created.Status = api.ApprovalStatusPending
@@ -229,34 +219,48 @@ func (s *ValkeyStore) Find(ctx context.Context, bindingKey string) (*api.Approva
 	return request, nil
 }
 
+// consumeScript takes a request's decision and, with it, removes the
+// request and its binding in one step: of concurrent retries one gets the
+// decision, and every other one finds the request gone (so it asks anew
+// instead of answering with a link to a used request). Without a decision it
+// reports whether the request still exists.
+// KEYS: decision, request, binding. ARGV: request id.
+var consumeScript = valkey.NewLuaScript(`
+local d = redis.call('GETDEL', KEYS[1])
+if d then
+  redis.call('DEL', KEYS[2])
+  if redis.call('GET', KEYS[3]) == ARGV[1] then redis.call('DEL', KEYS[3]) end
+  return {1, d}
+end
+return {0, tostring(redis.call('EXISTS', KEYS[2]))}`)
+
 // Consume implements api.ApprovalStore.
 func (s *ValkeyStore) Consume(ctx context.Context, bindingKey string) (*api.ApprovalRequest, error) {
 	request, err := s.Find(ctx, bindingKey)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := s.client.Do(ctx, s.client.B().Getdel().Key(s.decisionKey(request.ID)).Build()).ToString()
-	if valkey.IsValkeyNil(err) {
-		request.Status = api.ApprovalStatusPending
-		return request, nil
-	}
+	reply, err := consumeScript.Exec(ctx, s.client,
+		[]string{s.decisionKey(request.ID), s.requestKey(request.ID), s.bindingKey(bindingKey)},
+		[]string{request.ID}).ToArray()
 	if err != nil {
 		return nil, fmt.Errorf("approval store: %w", err)
 	}
-	applyDecision(request, raw)
-	s.remove(ctx, request)
-	return request, nil
-}
-
-// remove deletes a consumed request; a key left behind expires with it.
-func (s *ValkeyStore) remove(ctx context.Context, request *api.ApprovalRequest) {
-	cmds := valkey.Commands{
-		s.client.B().Del().Key(s.requestKey(request.ID)).Build(),
-		s.client.B().Del().Key(s.bindingKey(request.BindingKey())).Build(),
-		s.client.B().Zrem().Key(s.personKey(request.Identity)).Member(request.ID).Build(),
-		s.client.B().Zrem().Key(s.sessionKey(request.Identity, request.SessionID)).Member(request.ID).Build(),
+	if len(reply) != 2 {
+		return nil, fmt.Errorf("approval store: unexpected reply to consume")
 	}
-	_ = s.client.DoMulti(ctx, cmds...)
+	taken, _ := reply[0].AsInt64()
+	value, _ := reply[1].ToString()
+	if taken == 0 {
+		if value == "0" {
+			// A concurrent retry took the decision and removed the request.
+			return nil, api.ErrApprovalNotFound
+		}
+		request.Status = api.ApprovalStatusPending
+		return request, nil
+	}
+	s.applyDecision(request, value)
+	return request, nil
 }
 
 // Get implements api.ApprovalStore.
@@ -277,17 +281,22 @@ func (s *ValkeyStore) Decide(ctx context.Context, id string, approve bool, by ap
 	if err != nil {
 		return err
 	}
-	raw, err := json.Marshal(decision{Approved: approve, By: by})
+	sealed, err := s.seal(decision{Approved: approve, By: by, ID: id, Binding: request.BindingKey()})
 	if err != nil {
 		return err
 	}
-	set, err := s.client.Do(ctx, s.client.B().Set().Key(s.decisionKey(id)).Value(string(raw)).Nx().PxMilliseconds(ttl).Build()).ToString()
+	set, err := s.client.Do(ctx, s.client.B().Set().Key(s.decisionKey(id)).Value(sealed).Nx().PxMilliseconds(ttl).Build()).ToString()
 	if valkey.IsValkeyNil(err) || (err == nil && set != "OK") {
 		return api.ErrApprovalDecided
 	}
 	if err != nil {
 		return fmt.Errorf("approval store: %w", err)
 	}
+	// A decided request no longer waits for the person: it stops counting
+	// against the caps (M1-MU-S-13).
+	_ = s.client.DoMulti(ctx,
+		s.client.B().Zrem().Key(s.personKey(request.Identity)).Member(id).Build(),
+		s.client.B().Zrem().Key(s.sessionKey(request.Identity, request.SessionID)).Member(id).Build())
 	return nil
 }
 
@@ -323,6 +332,46 @@ func (s *ValkeyStore) GetFlow(ctx context.Context, key string) (*api.ApprovalPag
 func (s *ValkeyStore) DeleteFlow(ctx context.Context, key string) error {
 	if err := s.client.Do(ctx, s.client.B().Del().Key(s.flowKey(key)).Build()).Error(); err != nil {
 		return fmt.Errorf("approval store: %w", err)
+	}
+	return nil
+}
+
+// reserveScript drops expired members from the person's and the Session's
+// sets of pending requests and, when both are under their caps, adds the
+// request to both, in one step (M1-MU-C-12). It returns 0 when added, 1 when
+// the person's cap is reached, 2 when the Session's.
+// KEYS: person, session. ARGV: now ms, expiry ms, id, ttl ms, person cap,
+// session cap.
+var reserveScript = valkey.NewLuaScript(`
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
+redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', ARGV[1])
+if redis.call('ZCARD', KEYS[1]) >= tonumber(ARGV[5]) then return 1 end
+if redis.call('ZCARD', KEYS[2]) >= tonumber(ARGV[6]) then return 2 end
+for i = 1, 2 do
+  redis.call('ZADD', KEYS[i], ARGV[2], ARGV[3])
+  redis.call('PEXPIRE', KEYS[i], ARGV[4])
+end
+return 0`)
+
+// reserve takes a slot for request under the caps.
+func (s *ValkeyStore) reserve(ctx context.Context, request *api.ApprovalRequest, ttl int64) error {
+	code, err := reserveScript.Exec(ctx, s.client,
+		[]string{s.personKey(request.Identity), s.sessionKey(request.Identity, request.SessionID)},
+		[]string{
+			strconv.FormatInt(s.now().UnixMilli(), 10),
+			strconv.FormatInt(request.ExpiresAt.UnixMilli(), 10),
+			request.ID,
+			strconv.FormatInt(ttl, 10),
+			strconv.Itoa(MaxPendingPerPerson),
+			strconv.Itoa(MaxPendingPerSession),
+		}).AsInt64()
+	switch {
+	case err != nil:
+		return fmt.Errorf("approval store: %w", err)
+	case code == 1:
+		return &api.ApprovalLimitError{Scope: api.ApprovalLimitPerson, Limit: MaxPendingPerPerson}
+	case code == 2:
+		return &api.ApprovalLimitError{Scope: api.ApprovalLimitSession, Limit: MaxPendingPerSession}
 	}
 	return nil
 }

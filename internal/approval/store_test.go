@@ -2,6 +2,7 @@ package approval
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -213,6 +214,98 @@ func TestValkeyStore_ReplicasConsumeOnce(t *testing.T) {
 	}
 	wg.Wait()
 	assert.Equal(t, int32(1), approved.Load())
+}
+
+// Of concurrent retries, every loser finds the approval gone, never a
+// pending request whose link the winner just used up (M1-MU-C-11).
+func TestStore_ConsumeLosersFindNothing(t *testing.T) {
+	stores(t, func(t *testing.T, store api.ApprovalStore) {
+		ctx := context.Background()
+		request := newRequest(t, "r1", alice, "s1", map[string]any{"pr": 1.0})
+		_, err := store.Create(ctx, request)
+		require.NoError(t, err)
+		require.NoError(t, store.Decide(ctx, "r1", true, alice))
+
+		var approved, notFound, other atomic.Int32
+		var wg sync.WaitGroup
+		for range 16 {
+			wg.Go(func() {
+				r, err := store.Consume(ctx, request.BindingKey())
+				switch {
+				case err == nil && r.Status == api.ApprovalStatusApproved:
+					approved.Add(1)
+				case errors.Is(err, api.ErrApprovalNotFound):
+					notFound.Add(1)
+				default:
+					other.Add(1)
+				}
+			})
+		}
+		wg.Wait()
+		assert.Equal(t, int32(1), approved.Load())
+		assert.Equal(t, int32(15), notFound.Load())
+		assert.Zero(t, other.Load(), "no loser is answered with the used request")
+	})
+}
+
+// The caps are checked and taken in one step: concurrent asks of one
+// Session never exceed its cap (M1-MU-C-12). A decided request stops
+// counting, and the refusal names the cap that was reached (M1-MU-S-13).
+func TestStore_LimitsAtomicFairAndNamed(t *testing.T) {
+	stores(t, func(t *testing.T, store api.ApprovalStore) {
+		ctx := context.Background()
+		var created atomic.Int32
+		var wg sync.WaitGroup
+		for i := range 12 {
+			wg.Go(func() {
+				if _, err := store.Create(ctx, newRequest(t, fmt.Sprintf("c%d", i), alice, "s1", map[string]any{"i": float64(i)})); err == nil {
+					created.Add(1)
+				}
+			})
+		}
+		wg.Wait()
+		assert.Equal(t, int32(MaxPendingPerSession), created.Load())
+
+		_, err := store.Create(ctx, newRequest(t, "over", alice, "s1", map[string]any{"i": 99.0}))
+		var limit *api.ApprovalLimitError
+		require.ErrorAs(t, err, &limit)
+		assert.Equal(t, api.ApprovalLimitSession, limit.Scope)
+
+		// Deciding one frees its slot.
+		var decided string
+		for i := range 12 {
+			if store.Decide(ctx, fmt.Sprintf("c%d", i), false, alice) == nil {
+				decided = fmt.Sprintf("c%d", i)
+				break
+			}
+		}
+		require.NotEmpty(t, decided)
+		_, err = store.Create(ctx, newRequest(t, "after-decision", alice, "s1", map[string]any{"i": 100.0}))
+		require.NoError(t, err)
+
+		// The person's cap across sessions is named as such.
+		for i := range MaxPendingPerPerson {
+			_, _ = store.Create(ctx, newRequest(t, fmt.Sprintf("p%d", i), alice, fmt.Sprintf("session-%d", i), map[string]any{"p": float64(i)}))
+		}
+		_, err = store.Create(ctx, newRequest(t, "person-over", alice, "another", map[string]any{"p": 99.0}))
+		require.ErrorAs(t, err, &limit)
+		assert.Equal(t, api.ApprovalLimitPerson, limit.Scope)
+	})
+}
+
+// A decision written into Valkey by anyone but muster is no approval: it
+// must name the request and its binding, and with an encryptor it must be
+// sealed with muster's key (M1-MU-S-09).
+func TestValkeyStore_ForgedDecisionIsNoApproval(t *testing.T) {
+	store, srv, _ := newValkeyStoreForTest(t)
+	ctx := context.Background()
+	request := newRequest(t, "r1", alice, "s1", map[string]any{"pr": 1.0})
+	_, err := store.Create(ctx, request)
+	require.NoError(t, err)
+	require.NoError(t, srv.Set(store.decisionKey("r1"), `{"approved":true,"by":{"issuer":"https://dex.example.com","subject":"alice"}}`))
+	got, err := store.Consume(ctx, request.BindingKey())
+	require.NoError(t, err)
+	assert.Equal(t, api.ApprovalStatusDeclined, got.Status)
 }
 
 // The store refuses rather than guesses when Valkey is gone.

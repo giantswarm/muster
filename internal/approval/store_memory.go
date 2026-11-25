@@ -95,7 +95,10 @@ func (s *MemoryStore) Create(_ context.Context, request *api.ApprovalRequest) (*
 		return nil, api.ErrApprovalNotFound
 	}
 	person, session := 0, 0
-	for _, r := range s.requests {
+	for id, r := range s.requests {
+		if _, decided := s.decisions[id]; decided {
+			continue // a decided request no longer waits
+		}
 		if r.Identity == request.Identity {
 			person++
 		}
@@ -103,8 +106,11 @@ func (s *MemoryStore) Create(_ context.Context, request *api.ApprovalRequest) (*
 			session++
 		}
 	}
-	if person >= MaxPendingPerPerson || session >= MaxPendingPerSession {
-		return nil, api.ErrApprovalLimit
+	if person >= MaxPendingPerPerson {
+		return nil, &api.ApprovalLimitError{Scope: api.ApprovalLimitPerson, Limit: MaxPendingPerPerson}
+	}
+	if session >= MaxPendingPerSession {
+		return nil, &api.ApprovalLimitError{Scope: api.ApprovalLimitSession, Limit: MaxPendingPerSession}
 	}
 	stored := *request
 	s.requests[request.ID] = &stored

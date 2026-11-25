@@ -250,13 +250,25 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 	switch {
 	case errors.Is(err, api.ErrApprovalLimit):
 		a.auditApproval(ctx, "approval_refused", target, hash, "too many pending approvals")
-		return nil, nil, fmt.Errorf("%s asks before it runs, and too many of this session's calls already wait for a person: decide those first", name)
+		return nil, nil, fmt.Errorf("%s asks before it runs, and %s: decide or decline those at their approval links first, or wait until they expire (after at most %s)", name, limitReason(err), a.approval.ttl)
 	case err != nil:
 		a.auditApproval(ctx, "approval_refused", target, hash, "store unavailable")
 		return nil, nil, fmt.Errorf("approval_unavailable: %s asks before it runs, and muster's approval store cannot be reached, so it cannot run: %w", name, err)
 	}
 	a.auditApproval(ctx, "approval_requested", target, hash, "")
 	return nil, a.recordApprovalChallenge(ctx, request), nil
+}
+
+// limitReason says which cap refused a request.
+func limitReason(err error) string {
+	var limit *api.ApprovalLimitError
+	if errors.As(err, &limit) && limit.Scope == api.ApprovalLimitPerson {
+		return fmt.Sprintf("%d of this person's calls already wait for a decision, across all their sessions and agents", limit.Limit)
+	}
+	if limit != nil {
+		return fmt.Sprintf("%d of this session's calls already wait for a decision", limit.Limit)
+	}
+	return "too many calls already wait for a decision"
 }
 
 // declinedResult answers a retry of a call the person declined.
