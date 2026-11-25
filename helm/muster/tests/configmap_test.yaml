@@ -407,11 +407,33 @@ tests:
       muster.approval.ttl: 2h
     asserts:
       - failedTemplate:
-          errorMessage: 'muster.approval.ttl must be a duration in s and m (e.g. 5m, 1m30s), at most 30m, not "2h"'
+          errorMessage: 'muster.approval.ttl must be a duration in m and s (e.g. 5m, 1m30s, 90s), above 0 and at most 30m, not "2h"'
 
   - it: fails on an approval ttl above 30m
     set:
       muster.approval.ttl: 45m
     asserts:
       - failedTemplate:
-          errorMessage: 'muster.approval.ttl must be at most 30m, not "45m" (muster would not start)'
+          errorMessage: 'muster.approval.ttl must be above 0 and at most 30m, not "45m" (muster would not start)'
+
+  - it: fails on a compound approval ttl above 30m
+    set:
+      muster.approval.ttl: 29m120s
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.approval.ttl must be above 0 and at most 30m, not "29m120s" (muster would not start)'
+
+  - it: fails on a zero approval ttl
+    set:
+      muster.approval.ttl: 0m
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.approval.ttl must be above 0 and at most 30m, not "0m" (muster would not start)'
+
+  - it: renders a compound approval ttl within 30m
+    set:
+      muster.approval.ttl: 1m30s
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "ttl: 1m30s"

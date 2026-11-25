@@ -571,6 +571,10 @@ Rules:
   ([Tool approval](../reference/mcp-tools.md#tool-approval)).
 - A registered server whose MCPServer object muster no longer finds (deleted,
   or no longer served) is refused, never `Allow`.
+- Keep secrets out of a connector's URL (use `headersFrom`): the audit line of
+  a connector write records the URL's scheme, host and path, with userinfo,
+  query, fragment and matrix parameters dropped and token-like path segments
+  redacted, but a short secret in the path would still be logged.
 - **The CRD must know `spec.approval`.** An older CRD prunes the field on every
   write. muster checks the served CRD; while it lacks the field every server
   tool call is refused (`approval_unavailable: the MCPServer CRD in this
@@ -608,10 +612,11 @@ A call whose effective approval is `Ask` runs only after its person approved
 that exact call:
 
 1. `call_tool` records a pending approval, bound to the person (issuer and raw
-   `sub`), the calling client within muster's session (the OAuth client the
-   person's token was issued to, the acting party of a delegated token, or
-   the agent's Session: another client of the same person asks anew, the
-   same client reconnecting does not), the resolved target (server, its UID and
+   `sub`), muster's session -- keyed on the credential's OAuth client
+   (`azp`) and acting party, or the agent's Session, never on the transport
+   session: a client reconnecting keeps it; another OAuth client asks anew,
+   but connections that sign in through the same OAuth client are one client
+   and share the approval and the cap -- the resolved target (server, its UID and
    generation, the server's own tool name; or the workflow and its
    definition) and the RFC 8785 canonical form of the arguments, and answers
    with a link to `https://<publicUrl>/approvals/<id>`. A client that declares
@@ -635,7 +640,7 @@ with the sign-in before it asks, so one call never asks twice.
 
 An approval expires after `approval.ttl` (5 minutes) and is used up by one
 run. A person has at most 10 pending approvals across all their clients and
-agents, 3 per client; a decided request stops counting, and the
+agents, 3 per client (per muster session); a decided request stops counting, and the
 refusal names the cap reached and when the waiting ones expire. Arguments are
 capped at 64 KiB. Resources and prompts are not gated: they are reads.
 
