@@ -1,7 +1,9 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -15,6 +17,8 @@ import (
 )
 
 // headerRecorder records the header on the requests that call a tool.
+// The SSE transport posts its other messages concurrently, so only
+// tools/call requests count.
 type headerRecorder struct {
 	mu   sync.Mutex
 	seen []string
@@ -22,7 +26,9 @@ type headerRecorder struct {
 
 func (h *headerRecorder) wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost {
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if r.Method == http.MethodPost && bytes.Contains(body, []byte(`"tools/call"`)) {
 			h.mu.Lock()
 			h.seen = append(h.seen, r.Header.Get("X-Muster-Caller-Kind"))
 			h.mu.Unlock()
