@@ -280,19 +280,21 @@ func GetApprovalStore() ApprovalStore {
 
 type approvalGateKey struct{}
 
-// WithApprovalGate marks a context as a client's tool call: the call_tool
-// meta-tool sets it, and every dispatch under it is subject to the effective
-// approval of its target. Calls muster makes on its own (a workflow's steps,
-// which are approved up front) are not.
-func WithApprovalGate(ctx context.Context) context.Context {
+// WithoutApprovalGate marks a context as muster's own call, made on no
+// client's behalf, which the effective approval does not ask for (Block
+// still holds). Every other dispatch is subject to its target's effective
+// approval: the gate is on by default, so a call path added later cannot
+// forget it. No production path sets it today; a workflow's steps are
+// checked against their run's up-front approval instead.
+func WithoutApprovalGate(ctx context.Context) context.Context {
 	return context.WithValue(ctx, approvalGateKey{}, true)
 }
 
-// ApprovalGateFromContext reports whether the context is a client's tool
-// call.
+// ApprovalGateFromContext reports whether the effective approval applies to
+// a call made with ctx: always, unless WithoutApprovalGate marked it.
 func ApprovalGateFromContext(ctx context.Context) bool {
-	gated, _ := ctx.Value(approvalGateKey{}).(bool)
-	return gated
+	skipped, _ := ctx.Value(approvalGateKey{}).(bool)
+	return !skipped
 }
 
 // PostLoginRedirects is the optional capability of the registered OAuth

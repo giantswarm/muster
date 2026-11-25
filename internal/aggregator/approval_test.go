@@ -96,7 +96,9 @@ func TestApplyApprovals(t *testing.T) {
 		{"x_github_merge_pull_request", api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceConnector, New: true}},
 		{"x_github_odd", api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceTool}},
 		{"x_pagerduty_ack", api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}},
-		{"x_unknown_anything", api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}},
+		// A registered server whose MCPServer the manager does not know is
+		// not Allow: its settings cannot be known (M1-MU-S-01).
+		{"x_unknown_anything", api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}},
 		{"x_kubernetes_list_pods", api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceConnector, New: true}},
 		{"x_kubernetes_delete_pod", api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceTool}},
 		{"core_config_save", api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceBuiltin}},

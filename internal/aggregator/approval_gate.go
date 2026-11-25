@@ -19,8 +19,8 @@ import (
 )
 
 // Enforcement of the effective approval (approval.go resolves and reports
-// it). A client's call reaches call_tool, which marks its context
-// (api.WithApprovalGate); at dispatch, once the target is resolved, the call
+// it). Every call is gated unless muster marks it its own
+// (api.WithoutApprovalGate); at dispatch, once the target is resolved, the call
 // runs when its effective approval is Allow, is refused as not found when it
 // is Block, and asks when it is Ask: the call is recorded as a pending
 // approval and answered with the approval page's link (approval_answer.go),
@@ -61,6 +61,9 @@ func (a *AggregatorServer) approvalUnavailable(ctx context.Context) string {
 // by a floor or governance entry. A floor's or governed name on a server the
 // governance configuration does not name is refused to agents.
 func serverToolApproval(ctx context.Context, server, original string, args map[string]any) (*api.MCPServerInfo, api.ToolApproval, error) {
+	if problem := api.ApprovalSchemaProblem(ctx); problem != "" {
+		return nil, api.ToolApproval{}, fmt.Errorf("approval_unavailable: %s", problem)
+	}
 	info, err := connectorInfo(ctx, server)
 	if err != nil {
 		return nil, api.ToolApproval{}, fmt.Errorf("the approval settings of server %s could not be read: %w", server, err)
@@ -85,8 +88,10 @@ func serverToolApproval(ctx context.Context, server, original string, args map[s
 	return info, effective, nil
 }
 
-// connectorInfo reads one server's definition, nil for a server the manager
-// does not know (or without a manager).
+// connectorInfo reads one server's definition; nil without a manager. A
+// server the manager does not find is an error: its registry entry outlived
+// its object (deleted, or no longer served), and its settings, Block
+// included, cannot be known, so it must not resolve to Allow.
 func connectorInfo(ctx context.Context, serverKey string) (*api.MCPServerInfo, error) {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
@@ -95,9 +100,12 @@ func connectorInfo(ctx context.Context, serverKey string) (*api.MCPServerInfo, e
 	info, err := manager.GetMCPServer(ctx, serverKey)
 	if err != nil {
 		if api.IsNotFound(err) {
-			return nil, nil
+			return nil, fmt.Errorf("its MCPServer object cannot be found (deleted, or no longer served)")
 		}
 		return nil, err
+	}
+	if info == nil {
+		return nil, fmt.Errorf("its MCPServer object cannot be found (deleted, or no longer served)")
 	}
 	return info, nil
 }
@@ -129,13 +137,6 @@ func coreName(toolName string) string {
 // declined result), or an error refusing the call.
 func (a *AggregatorServer) gateServerTool(ctx context.Context, toolName, server, original string, args map[string]any) (map[string]any, *mcp.CallToolResult, error) {
 	run := workflowRunFromContext(ctx)
-	if run == nil && !api.ApprovalGateFromContext(ctx) {
-		// muster's own call outside a client's: Block still holds.
-		if err := refuseBlocked(ctx, toolName, server, original); err != nil {
-			return nil, nil, err
-		}
-		return args, nil, nil
-	}
 	info, effective, err := serverToolApproval(ctx, server, original, args)
 	if err != nil {
 		return nil, nil, fmt.Errorf("tool %s cannot be called: %w", toolName, err)
@@ -144,6 +145,10 @@ func (a *AggregatorServer) gateServerTool(ctx context.Context, toolName, server,
 		logging.InfoWithAttrs("Aggregator", "call refused: the tool is blocked by its server's approval settings",
 			slog.String("tool", toolName), slog.String("server", server), slog.String("original", original))
 		return nil, nil, fmt.Errorf("tool not found: %s", toolName)
+	}
+	if run == nil && !api.ApprovalGateFromContext(ctx) {
+		// muster's own call, on no client's behalf: Block still holds.
+		return args, nil, nil
 	}
 	if run != nil {
 		return args, nil, run.check(toolName, effective)

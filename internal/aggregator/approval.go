@@ -2,8 +2,6 @@ package aggregator
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
@@ -17,69 +15,36 @@ import (
 // spec.suspended (suspended.go): the aggregator keeps no copy, so a change
 // reaches the next listing and the next call of every session without a
 // restart of the server. Without a manager (servers registered directly, as
-// in tests) or for a server the manager does not know (a registry entry that
-// outlived its object), a server has no settings: its tools are Allow, not
-// reviewed.
+// in tests) a server has no settings: its tools are Allow, not reviewed. A
+// registered server the manager does not find (its object deleted, its
+// labels or namespace no longer served, while the registry entry outlives
+// it) is refused, never Allow: its settings cannot be known. While the
+// served CRD does not know spec.approval every server tool is refused
+// (api.ApprovalSchemaProblem).
 //
-// What this slice enforces is Block only: a blocked tool is absent from the
-// caller's catalogue (so from list_tools, filter_tools and describe_tool) and
-// a call to it is refused as not found, here at dispatch, so a workflow step
-// cannot reach it either. Allow and Ask are reported, not enforced.
+// A blocked tool is absent from the caller's catalogue (so from list_tools,
+// filter_tools and describe_tool) and a call to it is refused as not found,
+// at dispatch (approval_gate.go), so a workflow step cannot reach it either.
 
 // connectorApprovals lists the approval settings of every MCPServer once,
-// keyed by server key. ok is false when the listing failed: no tool's
-// setting is known then.
-func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServerApproval, ok bool) {
+// keyed by server key. managed is false without a manager: no server has
+// settings then. ok is false when the listing failed: no tool's setting is
+// known then.
+func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServerApproval, managed, ok bool) {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
-		return nil, true
+		return nil, false, true
 	}
 	definitions, err := manager.ListMCPServers(ctx)
 	if err != nil {
 		logging.Warn("Aggregator", "approval settings unavailable: listing MCPServers failed: %v", err)
-		return nil, false
+		return nil, true, false
 	}
 	approvals = make(map[string]*api.MCPServerApproval, len(definitions))
 	for _, definition := range definitions {
 		approvals[definition.ServerKey()] = definition.Approval
 	}
-	return approvals, true
-}
-
-// connectorApproval reads the approval settings of one server.
-func connectorApproval(ctx context.Context, serverKey string) (*api.MCPServerApproval, error) {
-	manager := api.GetMCPServerManager()
-	if manager == nil {
-		return nil, nil
-	}
-	info, err := manager.GetMCPServer(ctx, serverKey)
-	if err != nil {
-		if api.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	if info == nil {
-		return nil, nil
-	}
-	return info.Approval, nil
-}
-
-// refuseBlocked refuses a call to a tool its server blocks, as a tool that
-// does not exist, before anything reaches the server. A call whose server's
-// settings cannot be read is refused too: muster cannot tell that the tool is
-// not blocked.
-func refuseBlocked(ctx context.Context, toolName, serverName, originalName string) error {
-	approval, err := connectorApproval(ctx, serverName)
-	if err != nil {
-		return fmt.Errorf("tool %s cannot be called: the approval settings of server %s could not be read: %w", toolName, serverName, err)
-	}
-	if api.ResolveConnectorApproval(approval, originalName).Setting != api.ApprovalSettingBlock {
-		return nil
-	}
-	logging.InfoWithAttrs("Aggregator", "call refused: the tool is blocked by its server's approval settings",
-		slog.String("tool", toolName), slog.String("server", serverName), slog.String("original", originalName))
-	return fmt.Errorf("tool not found: %s", toolName)
+	return approvals, true, true
 }
 
 // applyApprovals records on each tool of the caller's catalogue its
@@ -88,11 +53,12 @@ func refuseBlocked(ctx context.Context, toolName, serverName, originalName strin
 // dropped from it (its instance argument no longer offers them), it is
 // dropped when all of them do, and it reports the strictest setting of the
 // members left. muster's own configuration tools report their built-in Ask,
-// every other core tool Allow, not reviewed. Workflows carry no approval yet.
+// every other core tool Allow, not reviewed.
 //
-// When the settings cannot be read, every server tool is kept and reported
-// as Ask from source "unavailable" (fail closed in what is reported; a call
-// is still checked at dispatch).
+// When the settings cannot be read (the listing failed, the server's object
+// is missing, the CRD does not know spec.approval), every affected server
+// tool is kept and reported as Ask from source "unavailable" (fail closed in
+// what is reported; a call is refused at dispatch).
 func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
 	out := a.resolveApprovals(ctx, tools)
 	if reason := a.approvalUnavailable(ctx); reason != "" {
@@ -110,10 +76,16 @@ func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool)
 func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
 	var (
 		approvals map[string]*api.MCPServerApproval
+		managed   bool
 		readable  = true
 		listed    bool
 	)
 	unavailable := api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}
+	if problem := api.ApprovalSchemaProblem(ctx); problem != "" {
+		readable = false
+		unavailable.Unavailable = problem
+		listed = true
+	}
 
 	out := tools[:0:0]
 	for _, tool := range tools {
@@ -133,7 +105,7 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 		}
 
 		if !listed {
-			approvals, readable = connectorApprovals(ctx)
+			approvals, managed, readable = connectorApprovals(ctx)
 			listed = true
 		}
 		servers, original, ok := a.approvalTarget(tool)
@@ -145,13 +117,24 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 
 		var kept []string
 		var settings []api.ToolApproval
+		missing := false
 		for _, server := range servers {
-			setting := api.ResolveConnectorApproval(approvals[server], original)
+			written, found := approvals[server]
+			if managed && !found {
+				missing = true
+				break
+			}
+			setting := api.ResolveConnectorApproval(written, original)
 			if setting.Setting == api.ApprovalSettingBlock {
 				continue
 			}
 			kept = append(kept, server)
 			settings = append(settings, setting)
+		}
+		if missing {
+			api.SetToolApproval(&tool, unavailable)
+			out = append(out, tool)
+			continue
 		}
 		if len(kept) == 0 {
 			continue

@@ -82,7 +82,7 @@ func newGateRig(t *testing.T) *gateRig {
 }
 
 func personContext(identity api.SignInIdentity, session string) context.Context {
-	ctx := api.WithApprovalGate(context.Background())
+	ctx := context.Background()
 	ctx = api.WithSessionID(ctx, session)
 	ctx = api.WithSubject(ctx, identity.Subject)
 	return api.WithSignInIdentity(ctx, identity)
@@ -177,7 +177,7 @@ func TestGate_ApprovalIsBound(t *testing.T) {
 		},
 		"another person": func() (*mcp.CallToolResult, error) {
 			// The binding covers the person: bob on alice's Session id.
-			ctx := api.WithSignInIdentity(api.WithSessionID(api.WithApprovalGate(context.Background()), "session-1"), bob)
+			ctx := api.WithSignInIdentity(api.WithSessionID(context.Background(), "session-1"), bob)
 			return rig.server.CallToolInternal(ctx, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
 		},
 		"another session": func() (*mcp.CallToolResult, error) {
@@ -260,16 +260,71 @@ func TestGate_StoreOutageRefuses(t *testing.T) {
 	assert.Zero(t, rig.client.count("merge_pull_request"))
 }
 
-// muster's own calls (outside a client's call_tool) are not asked; Block
-// still holds for them.
-func TestGate_InternalCallsAreNotAsked(t *testing.T) {
+// The gate is on by default: a call that reaches dispatch without passing
+// call_tool asks like any other (a new call path cannot forget it). Only a
+// call muster explicitly marks its own is not asked; Block still holds for
+// it.
+func TestGate_OnByDefault(t *testing.T) {
 	rig := newGateRig(t)
-	ctx := api.WithSignInIdentity(context.Background(), alice)
-	_, err := rig.server.CallToolInternal(ctx, "x_github_merge_pull_request", map[string]any{})
+	unmarked := api.WithSessionID(api.WithSignInIdentity(context.Background(), alice), "session-1")
+	result, err := rig.server.CallToolInternal(unmarked, "x_github_merge_pull_request", map[string]any{})
+	require.NoError(t, err)
+	approvalIDOf(t, result)
+	assert.Zero(t, rig.client.count("merge_pull_request"), "an unmarked call asks")
+
+	own := api.WithoutApprovalGate(unmarked)
+	_, err = rig.server.CallToolInternal(own, "x_github_merge_pull_request", map[string]any{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, rig.client.count("merge_pull_request"))
-	_, err = rig.server.CallToolInternal(ctx, "x_github_delete_repository", map[string]any{})
+	_, err = rig.server.CallToolInternal(own, "x_github_delete_repository", map[string]any{})
 	require.EqualError(t, err, "tool not found: x_github_delete_repository")
+}
+
+// A registered server whose MCPServer object the manager no longer finds
+// (deleted, deselected) is refused, Allow and Block tools alike, and listed
+// as unavailable: its settings cannot be known (security M1-MU-S-01).
+func TestGate_ServerObjectMissingFailsClosed(t *testing.T) {
+	rig := newGateRig(t)
+	manager := api.GetMCPServerManager().(*stubMCPServerManager)
+	delete(manager.servers, "github")
+
+	for _, tool := range []string{"x_github_get_issue", "x_github_merge_pull_request", "x_github_delete_repository"} {
+		_, err := rig.server.CallToolInternal(rig.ctx, tool, map[string]any{})
+		require.ErrorContains(t, err, "its MCPServer object cannot be found", tool)
+	}
+	assert.Zero(t, rig.client.count("get_issue")+rig.client.count("merge_pull_request")+rig.client.count("delete_repository"))
+
+	tools := rig.server.applyApprovals(rig.ctx, []mcp.Tool{approvalSoloTool("github", "get_issue")})
+	require.Len(t, tools, 1)
+	reported, _ := api.ToolApprovalOf(tools[0])
+	assert.Equal(t, api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}, reported)
+}
+
+// approvalSchemaManager is a manager whose served CRD may not know
+// spec.approval.
+type approvalSchemaManager struct {
+	*stubMCPServerManager
+	problem string
+}
+
+func (m approvalSchemaManager) ApprovalSchemaProblem(context.Context) string { return m.problem }
+
+// A CRD that does not know spec.approval makes every server tool refused
+// with the reason and reported unavailable, never Allow (M1-MU-C-02, S-04).
+func TestGate_StaleCRDRefuses(t *testing.T) {
+	rig := newGateRig(t)
+	stub := api.GetMCPServerManager().(*stubMCPServerManager)
+	api.RegisterMCPServerManager(approvalSchemaManager{stubMCPServerManager: stub, problem: "the MCPServer CRD in this cluster does not know spec.approval"})
+	t.Cleanup(func() { api.RegisterMCPServerManager(stub) })
+
+	_, err := rig.server.CallToolInternal(rig.ctx, "x_github_get_issue", map[string]any{})
+	require.ErrorContains(t, err, "approval_unavailable: the MCPServer CRD in this cluster does not know spec.approval")
+	assert.Zero(t, rig.client.count("get_issue"))
+
+	tools := rig.server.applyApprovals(rig.ctx, []mcp.Tool{approvalSoloTool("github", "get_issue")})
+	reported, _ := api.ToolApprovalOf(tools[0])
+	assert.Equal(t, api.ApprovalSettingAsk, reported.Setting)
+	assert.Contains(t, reported.Unavailable, "does not know spec.approval")
 }
 
 // muster's own configuration asks every caller; the floors ask agents only.
