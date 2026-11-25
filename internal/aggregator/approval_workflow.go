@@ -75,6 +75,9 @@ type workflowPlan struct {
 	steps   []api.ApprovalStep
 	asks    []api.ToolApproval
 	blocked string
+	// unknown counts the steps muster could not resolve up front (a tool
+	// no session server lists yet, a missing tool).
+	unknown int
 }
 
 // gateWorkflow checks a client's workflow run up front and returns the
@@ -98,6 +101,13 @@ func (a *AggregatorServer) gateWorkflow(ctx context.Context, toolName string, ar
 	}
 	if plan.blocked != "" {
 		return ctx, nil, nil, fmt.Errorf("workflow %s cannot run: step tool not found: %s", name, plan.blocked)
+	}
+	if len(plan.asks) == 0 && plan.unknown > 0 && a.approvalUnavailable(ctx) == "" {
+		// A step muster cannot resolve counts as asking where muster can
+		// ask. Where it cannot, the run is not refused for it: the step is
+		// checked at dispatch like every other, and fails the run there if
+		// it asks.
+		plan.asks = append(plan.asks, api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable})
 	}
 	if len(plan.asks) == 0 {
 		return withWorkflowRun(ctx, &workflowRun{workflow: name, shown: plan.shown}), args, nil, nil
@@ -194,6 +204,10 @@ func (a *AggregatorServer) planStep(ctx context.Context, id, tool, description s
 	if err != nil {
 		return err
 	}
+	if effective == unresolvedStep {
+		plan.unknown++
+		effective = api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnavailable}
+	}
 	if effective.Setting == api.ApprovalSettingBlock {
 		if plan.blocked == "" {
 			plan.blocked = tool
@@ -218,11 +232,13 @@ func (a *AggregatorServer) planStep(ctx context.Context, id, tool, description s
 // caller. A tool muster cannot resolve now, or a family step whose member is
 // not written out, counts as asking.
 func (a *AggregatorServer) stepApproval(ctx context.Context, tool string, args map[string]any, plan *workflowPlan, depth int) (api.ToolApproval, error) {
-	unresolved := api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}
+	unresolved := unresolvedStep
 	if a.registry.IsFamilyTool(tool) {
 		member, ok := args[a.registry.FamilyInstanceArgFor(tool)].(string)
 		if !ok || member == "" || strings.Contains(member, "{{") {
-			return unresolved, nil
+			// The member is chosen at run time: the strictest member's
+			// setting holds for the step.
+			return a.familyStepApproval(ctx, tool, args)
 		}
 		original, err := a.registry.ResolveToolNameForServer(tool, member)
 		if err != nil {
@@ -262,4 +278,29 @@ func (a *AggregatorServer) stepApproval(ctx context.Context, tool string, args m
 		return api.StrictestApproval(plan.asks[before:]...), nil
 	}
 	return api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}, nil
+}
+
+// unresolvedStep marks a step muster could not resolve up front.
+var unresolvedStep = api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: "unresolved"}
+
+// familyStepApproval resolves a family step whose member the run chooses:
+// the strictest setting of the members that offer the tool; asking when
+// none can be resolved.
+func (a *AggregatorServer) familyStepApproval(ctx context.Context, tool string, args map[string]any) (api.ToolApproval, error) {
+	var settings []api.ToolApproval
+	for _, member := range a.registry.GetToolServerNames(tool) {
+		original, err := a.registry.ResolveToolNameForServer(tool, member)
+		if err != nil {
+			continue
+		}
+		_, effective, err := serverToolApproval(ctx, member, original, args)
+		if err != nil {
+			return api.ToolApproval{}, err
+		}
+		settings = append(settings, effective)
+	}
+	if len(settings) == 0 {
+		return unresolvedStep, nil
+	}
+	return api.StrictestApproval(settings...), nil
 }
