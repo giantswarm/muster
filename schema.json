@@ -120,9 +120,352 @@
           },
           "type": "object"
         },
+        "core_mcpserver_connect": {
+          "description": "Arguments for core_mcpserver_connect tool",
+          "properties": {
+            "args": {
+              "description": "Command arguments (stdio only)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "auth": {
+              "description": "Authentication configuration for remote servers",
+              "properties": {
+                "authorizationServer": {
+                  "description": "Pins the OAuth authorization server where the MCP server has no RFC 9728 metadata; with endpoints and a client, one muster can't discover (GitHub)",
+                  "properties": {
+                    "authorizationEndpoint": {
+                      "description": "Authorization endpoint of a server without RFC 8414 discovery; set with tokenEndpoint (muster then does no discovery and assumes S256 PKCE)",
+                      "type": "string"
+                    },
+                    "clientCredentialsSecretRef": {
+                      "description": "Secret holding a client registered out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
+                      "properties": {
+                        "clientIdKey": {
+                          "description": "Secret key holding the client ID (default: client-id)",
+                          "type": "string"
+                        },
+                        "clientSecretKey": {
+                          "description": "Secret key holding the client secret (default: client-secret)",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Name of the Kubernetes Secret",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "Namespace of the Secret (defaults to the MCPServer's namespace)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "expectedIssuer": {
+                      "description": "The RFC 9207 iss of authorization responses where it differs from issuer, which stays the grant key; needs both endpoints; default: issuer",
+                      "type": "string"
+                    },
+                    "grantScope": {
+                      "description": "Whose token: session (default, the login session that got it) or subject (the person's; later sessions reuse it until core_auth_logout or sign-out)",
+                      "enum": [
+                        "session",
+                        "subject"
+                      ],
+                      "type": "string"
+                    },
+                    "issuer": {
+                      "description": "OAuth/OIDC issuer URL (HTTPS, no trailing slash) the sign-in runs against and grants are filed under; wins over the one RFC 9728 metadata names",
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "description": "OAuth scope parameter value (space-separated scope tokens)",
+                      "type": "string"
+                    },
+                    "tokenEndpoint": {
+                      "description": "Token endpoint of an authorization server without an RFC 8414 discovery document; set together with authorizationEndpoint",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "issuer"
+                  ],
+                  "type": "object"
+                },
+                "forwardIdentity": {
+                  "description": "Send the session's ID token in X-Muster-Id-Token next to the pinned grant (needs oauth and authorizationServer); not audience-scoped to the server",
+                  "type": "boolean"
+                },
+                "forwardToken": {
+                  "description": "Enable SSO token forwarding (oauth only)",
+                  "type": "boolean"
+                },
+                "grantScope": {
+                  "description": "Whose grant, for a discovered or pinned issuer (oauth): session (default) or subject (the person's; later sessions reuse it until core_auth_logout)",
+                  "enum": [
+                    "session",
+                    "subject"
+                  ],
+                  "type": "string"
+                },
+                "requiredAudiences": {
+                  "description": "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "sigv4": {
+                  "description": "AWS SigV4 request signing with muster's own machine identity; required when type is sigv4, rejected otherwise; streamable-http only",
+                  "properties": {
+                    "region": {
+                      "description": "SigV4 signing region; must match the region in the server URL",
+                      "type": "string"
+                    },
+                    "roleArn": {
+                      "description": "IAM role assumed from the pod's base credentials before signing; empty signs as the pod's own identity",
+                      "type": "string"
+                    },
+                    "service": {
+                      "description": "SigV4 signing service name; defaults to the first hostname label of the server URL",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "region"
+                  ],
+                  "type": "object"
+                },
+                "tokenExchange": {
+                  "description": "RFC 8693 Token Exchange for cross-cluster SSO: trades muster's local token for one from the remote cluster's IdP (wins over forwardToken)",
+                  "properties": {
+                    "clientCredentialsSecretRef": {
+                      "description": "Kubernetes Secret with client credentials for the remote Dex token endpoint",
+                      "properties": {
+                        "clientIdKey": {
+                          "description": "Key in the secret containing the client ID (default: client-id)",
+                          "type": "string"
+                        },
+                        "clientSecretKey": {
+                          "description": "Key in the secret containing the client secret (default: client-secret)",
+                          "type": "string"
+                        },
+                        "name": {
+                          "description": "Secret name",
+                          "type": "string"
+                        },
+                        "namespace": {
+                          "description": "Secret namespace (defaults to the MCPServer's namespace)",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "type": "object"
+                    },
+                    "connectorId": {
+                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex; required for a person's exchange, a delegated caller's exchange sends none",
+                      "type": "string"
+                    },
+                    "dexTokenEndpoint": {
+                      "description": "URL of the remote cluster's Dex token endpoint (required when enabled)",
+                      "type": "string"
+                    },
+                    "enabled": {
+                      "description": "Whether token exchange should be attempted",
+                      "type": "boolean"
+                    },
+                    "expectedIssuer": {
+                      "description": "Expected issuer URL in the exchanged token's iss claim; derived from dexTokenEndpoint if not set",
+                      "type": "string"
+                    },
+                    "scopes": {
+                      "description": "Scopes to request for the exchanged token (default: openid profile email groups)",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": {
+                  "description": "Authentication type: oauth, none or sigv4",
+                  "enum": [
+                    "oauth",
+                    "none",
+                    "sigv4"
+                  ],
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "clearClientCredentials": {
+              "description": "Drops the client stored with clientCredentials and keeps auth.authorizationServer; not with clientCredentials or clientCredentialsSecretRef",
+              "type": "boolean"
+            },
+            "clientCredentials": {
+              "description": "Write-only: replaces the client of auth.authorizationServer with a new Secret owned by the server, written as you",
+              "properties": {
+                "clientId": {
+                  "description": "OAuth client ID",
+                  "type": "string"
+                },
+                "clientSecret": {
+                  "description": "OAuth client secret",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "clientId",
+                "clientSecret"
+              ],
+              "type": "object",
+              "writeOnly": true
+            },
+            "command": {
+              "description": "Command executable path (required for stdio)",
+              "type": "string"
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Environment variables (stdio only)",
+              "type": "object"
+            },
+            "family": {
+              "description": "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)",
+              "properties": {
+                "instanceArg": {
+                  "description": "Name of the required parameter the LLM uses to select which family member handles a call (e.g. management_cluster, country, model)",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Family identifier shared across instances",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name",
+                "instanceArg"
+              ],
+              "type": "object"
+            },
+            "headers": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom",
+              "type": "object"
+            },
+            "headersFrom": {
+              "description": "HTTP headers whose values muster reads from a Secret in the server's namespace when it connects (streamable-http and sse only)",
+              "items": {
+                "properties": {
+                  "name": {
+                    "description": "HTTP header name",
+                    "type": "string"
+                  },
+                  "valueFrom": {
+                    "properties": {
+                      "key": {
+                        "description": "Key in the Secret's data",
+                        "type": "string"
+                      },
+                      "name": {
+                        "description": "Secret name",
+                        "type": "string"
+                      },
+                      "type": {
+                        "enum": [
+                          "Secret"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "name",
+                      "key"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "name",
+                  "valueFrom"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "meta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Deprecated: use requestMeta. Written as requestMeta; setting both is refused",
+              "type": "object"
+            },
+            "name": {
+              "description": "MCP server name",
+              "type": "string"
+            },
+            "requestMeta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Entries added to the params._meta object of every outbound JSON-RPC request that carries params (streamable-http and sse)",
+              "type": "object"
+            },
+            "toolPrefix": {
+              "description": "Tool prefix for namespacing",
+              "type": "string"
+            },
+            "type": {
+              "description": "MCP server type (stdio, streamable-http, or sse)",
+              "type": "string"
+            },
+            "url": {
+              "description": "Server endpoint URL (required for streamable-http and sse)",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
         "core_mcpserver_create": {
           "description": "Arguments for core_mcpserver_create tool",
           "properties": {
+            "approval": {
+              "additionalProperties": false,
+              "description": "Explicit approval settings {rule: Allow|Ask, tools: {\u003ctool\u003e: Allow|Ask|Block}}; not with preset",
+              "properties": {
+                "rule": {
+                  "enum": [
+                    "Allow",
+                    "Ask"
+                  ],
+                  "type": "string"
+                },
+                "tools": {
+                  "additionalProperties": {
+                    "enum": [
+                      "Allow",
+                      "Ask",
+                      "Block"
+                    ],
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              },
+              "type": "object"
+            },
             "args": {
               "description": "Command arguments (stdio only)",
               "items": {
@@ -421,6 +764,10 @@
               "description": "MCP server name",
               "type": "string"
             },
+            "preset": {
+              "description": "One of recommended, allow-all, ask-all; not with approval",
+              "type": "string"
+            },
             "progress": {
               "description": "How progress the server reports on a tool call affects that call's budget",
               "properties": {
@@ -536,218 +883,54 @@
           },
           "type": "object"
         },
-        "core_mcpserver_update": {
-          "description": "Arguments for core_mcpserver_update tool",
+        "core_mcpserver_set_approval": {
+          "description": "Arguments for core_mcpserver_set_approval tool",
           "properties": {
-            "args": {
-              "description": "Command arguments (stdio only)",
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "auth": {
-              "description": "Authentication configuration for remote servers",
+            "approval": {
+              "additionalProperties": false,
+              "description": "Explicit approval settings {rule: Allow|Ask, tools: {\u003ctool\u003e: Allow|Ask|Block}}; not with preset",
               "properties": {
-                "authorizationServer": {
-                  "description": "Pins the OAuth authorization server where the MCP server has no RFC 9728 metadata; with endpoints and a client, one muster can't discover (GitHub)",
-                  "properties": {
-                    "authorizationEndpoint": {
-                      "description": "Authorization endpoint of a server without RFC 8414 discovery; set with tokenEndpoint (muster then does no discovery and assumes S256 PKCE)",
-                      "type": "string"
-                    },
-                    "clientCredentialsSecretRef": {
-                      "description": "Secret holding a client registered out of band (a GitHub App or OAuth App); used instead of muster's CIMD URL or a dynamic registration",
-                      "properties": {
-                        "clientIdKey": {
-                          "description": "Secret key holding the client ID (default: client-id)",
-                          "type": "string"
-                        },
-                        "clientSecretKey": {
-                          "description": "Secret key holding the client secret (default: client-secret)",
-                          "type": "string"
-                        },
-                        "name": {
-                          "description": "Name of the Kubernetes Secret",
-                          "type": "string"
-                        },
-                        "namespace": {
-                          "description": "Namespace of the Secret (defaults to the MCPServer's namespace)",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name"
-                      ],
-                      "type": "object"
-                    },
-                    "expectedIssuer": {
-                      "description": "The RFC 9207 iss of authorization responses where it differs from issuer, which stays the grant key; needs both endpoints; default: issuer",
-                      "type": "string"
-                    },
-                    "grantScope": {
-                      "description": "Whose token: session (default, the login session that got it) or subject (the person's; later sessions reuse it until core_auth_logout or sign-out)",
-                      "enum": [
-                        "session",
-                        "subject"
-                      ],
-                      "type": "string"
-                    },
-                    "issuer": {
-                      "description": "OAuth/OIDC issuer URL (HTTPS, no trailing slash) the sign-in runs against and grants are filed under; wins over the one RFC 9728 metadata names",
-                      "type": "string"
-                    },
-                    "scopes": {
-                      "description": "OAuth scope parameter value (space-separated scope tokens)",
-                      "type": "string"
-                    },
-                    "tokenEndpoint": {
-                      "description": "Token endpoint of an authorization server without an RFC 8414 discovery document; set together with authorizationEndpoint",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "issuer"
-                  ],
-                  "type": "object"
-                },
-                "forwardIdentity": {
-                  "description": "Send the session's ID token in X-Muster-Id-Token next to the pinned grant (needs oauth and authorizationServer); not audience-scoped to the server",
-                  "type": "boolean"
-                },
-                "forwardToken": {
-                  "description": "Enable SSO token forwarding (oauth only)",
-                  "type": "boolean"
-                },
-                "grantScope": {
-                  "description": "Whose grant, for a discovered or pinned issuer (oauth): session (default) or subject (the person's; later sessions reuse it until core_auth_logout)",
+                "rule": {
                   "enum": [
-                    "session",
-                    "subject"
+                    "Allow",
+                    "Ask"
                   ],
                   "type": "string"
                 },
-                "requiredAudiences": {
-                  "description": "Additional audiences to request from IdP for token or identity forwarding (e.g., dex-k8s-authenticator for Kubernetes OIDC)",
-                  "items": {
+                "tools": {
+                  "additionalProperties": {
+                    "enum": [
+                      "Allow",
+                      "Ask",
+                      "Block"
+                    ],
                     "type": "string"
                   },
-                  "type": "array"
-                },
-                "sigv4": {
-                  "description": "AWS SigV4 request signing with muster's own machine identity; required when type is sigv4, rejected otherwise; streamable-http only",
-                  "properties": {
-                    "region": {
-                      "description": "SigV4 signing region; must match the region in the server URL",
-                      "type": "string"
-                    },
-                    "roleArn": {
-                      "description": "IAM role assumed from the pod's base credentials before signing; empty signs as the pod's own identity",
-                      "type": "string"
-                    },
-                    "service": {
-                      "description": "SigV4 signing service name; defaults to the first hostname label of the server URL",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "region"
-                  ],
                   "type": "object"
-                },
-                "tokenExchange": {
-                  "description": "RFC 8693 Token Exchange for cross-cluster SSO: trades muster's local token for one from the remote cluster's IdP (wins over forwardToken)",
-                  "properties": {
-                    "clientCredentialsSecretRef": {
-                      "description": "Kubernetes Secret with client credentials for the remote Dex token endpoint",
-                      "properties": {
-                        "clientIdKey": {
-                          "description": "Key in the secret containing the client ID (default: client-id)",
-                          "type": "string"
-                        },
-                        "clientSecretKey": {
-                          "description": "Key in the secret containing the client secret (default: client-secret)",
-                          "type": "string"
-                        },
-                        "name": {
-                          "description": "Secret name",
-                          "type": "string"
-                        },
-                        "namespace": {
-                          "description": "Secret namespace (defaults to the MCPServer's namespace)",
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "name"
-                      ],
-                      "type": "object"
-                    },
-                    "connectorId": {
-                      "description": "ID of the OIDC connector on the remote Dex that trusts the local Dex; required for a person's exchange, a delegated caller's exchange sends none",
-                      "type": "string"
-                    },
-                    "dexTokenEndpoint": {
-                      "description": "URL of the remote cluster's Dex token endpoint (required when enabled)",
-                      "type": "string"
-                    },
-                    "enabled": {
-                      "description": "Whether token exchange should be attempted",
-                      "type": "boolean"
-                    },
-                    "expectedIssuer": {
-                      "description": "Expected issuer URL in the exchanged token's iss claim; derived from dexTokenEndpoint if not set",
-                      "type": "string"
-                    },
-                    "scopes": {
-                      "description": "Scopes to request for the exchanged token (default: openid profile email groups)",
-                      "type": "string"
-                    }
-                  },
-                  "type": "object"
-                },
-                "type": {
-                  "description": "Authentication type: oauth, none or sigv4",
-                  "enum": [
-                    "oauth",
-                    "none",
-                    "sigv4"
-                  ],
-                  "type": "string"
                 }
               },
               "type": "object"
             },
+            "name": {
+              "description": "Name of the MCP server",
+              "type": "string"
+            },
+            "preset": {
+              "description": "One of recommended, allow-all, ask-all; not with approval",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name"
+          ],
+          "type": "object"
+        },
+        "core_mcpserver_update": {
+          "description": "Arguments for core_mcpserver_update tool",
+          "properties": {
             "autoStart": {
               "description": "Whether server should auto-start; on update, omitted keeps the current value",
               "type": "boolean"
-            },
-            "clearClientCredentials": {
-              "description": "Drops the client stored with clientCredentials and keeps auth.authorizationServer; not with clientCredentials or clientCredentialsSecretRef",
-              "type": "boolean"
-            },
-            "clientCredentials": {
-              "description": "Write-only: replaces the client of auth.authorizationServer with a new Secret owned by the server, written as you",
-              "properties": {
-                "clientId": {
-                  "description": "OAuth client ID",
-                  "type": "string"
-                },
-                "clientSecret": {
-                  "description": "OAuth client secret",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "clientId",
-                "clientSecret"
-              ],
-              "type": "object",
-              "writeOnly": true
-            },
-            "command": {
-              "description": "Command executable path (required for stdio)",
-              "type": "string"
             },
             "description": {
               "description": "MCP server description",
@@ -756,86 +939,6 @@
             "displayName": {
               "description": "Name UIs show for the server, stored trimmed in the ui.giantswarm.io/display-name annotation; blank sets none, on update removes it",
               "type": "string"
-            },
-            "env": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "description": "Environment variables (stdio only)",
-              "type": "object"
-            },
-            "family": {
-              "description": "Family that this MCP server instance belongs to (groups equivalent servers under a single tool name)",
-              "properties": {
-                "instanceArg": {
-                  "description": "Name of the required parameter the LLM uses to select which family member handles a call (e.g. management_cluster, country, model)",
-                  "type": "string"
-                },
-                "name": {
-                  "description": "Family identifier shared across instances",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "name",
-                "instanceArg"
-              ],
-              "type": "object"
-            },
-            "headers": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "description": "HTTP headers (streamable-http, sse only); a credential in Authorization, Proxy-Authorization, Cookie or X-API-Key is refused: use headersFrom",
-              "type": "object"
-            },
-            "headersFrom": {
-              "description": "HTTP headers whose values muster reads from a Secret in the server's namespace when it connects (streamable-http and sse only)",
-              "items": {
-                "properties": {
-                  "name": {
-                    "description": "HTTP header name",
-                    "type": "string"
-                  },
-                  "valueFrom": {
-                    "properties": {
-                      "key": {
-                        "description": "Key in the Secret's data",
-                        "type": "string"
-                      },
-                      "name": {
-                        "description": "Secret name",
-                        "type": "string"
-                      },
-                      "type": {
-                        "enum": [
-                          "Secret"
-                        ],
-                        "type": "string"
-                      }
-                    },
-                    "required": [
-                      "type",
-                      "name",
-                      "key"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "name",
-                  "valueFrom"
-                ],
-                "type": "object"
-              },
-              "type": "array"
-            },
-            "meta": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "description": "Deprecated: use requestMeta. Written as requestMeta; setting both is refused",
-              "type": "object"
             },
             "name": {
               "description": "MCP server name",
@@ -849,13 +952,6 @@
                   "type": "integer"
                 }
               },
-              "type": "object"
-            },
-            "requestMeta": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "description": "Entries added to the params._meta object of every outbound JSON-RPC request that carries params (streamable-http and sse)",
               "type": "object"
             },
             "restartRequestedAt": {
@@ -879,18 +975,6 @@
             "timeout": {
               "description": "Connection timeout in seconds",
               "type": "integer"
-            },
-            "toolPrefix": {
-              "description": "Tool prefix for namespacing",
-              "type": "string"
-            },
-            "type": {
-              "description": "MCP server type (stdio, streamable-http, or sse)",
-              "type": "string"
-            },
-            "url": {
-              "description": "Server endpoint URL (required for streamable-http and sse)",
-              "type": "string"
             }
           },
           "required": [
