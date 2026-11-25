@@ -95,7 +95,7 @@ func (a *AggregatorServer) grantHeaderFunc(sessionID, sub string, serverInfo *Se
 // and the person's App tokens with spec.auth.providerApps, on top of the
 // connection's own (base, nil for none).
 func (a *AggregatorServer) sessionHeaderFunc(sessionID, sub string, serverInfo *ServerInfo, base transport.HTTPHeaderFunc) transport.HTTPHeaderFunc {
-	return mergeHeaderFuncs(base, a.identityHeaderFunc(sessionID, serverInfo), a.grantHeaderFunc(sessionID, sub, serverInfo))
+	return mergeHeaderFuncs(base, a.identityHeaderFunc(sessionID, serverInfo), a.grantHeaderFunc(sessionID, sub, serverInfo), callerKindHeaderFunc(sessionID, serverInfo))
 }
 
 // mergeHeaderFuncs returns a header function sending the headers of every
