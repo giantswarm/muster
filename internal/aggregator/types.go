@@ -376,6 +376,11 @@ func (s *ServerInfo) SecretOwner() api.SecretOwner {
 // This structure defines how the aggregator should behave and
 // what endpoints it should expose.
 type AggregatorConfig struct {
+	// ApprovalTTL is how long a pending approval lives (approval.ttl).
+	ApprovalTTL time.Duration
+	// ApprovalInstallation names the installation on the approval page.
+	ApprovalInstallation string
+
 	// Port specifies the port number to listen on for the aggregated MCP endpoint
 	Port int
 

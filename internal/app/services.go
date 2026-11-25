@@ -277,8 +277,16 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		mergedOAuthMCPClientConfig.ExtraCAFile = cfg.ExtraCAFile
 		mergedOAuthMCPClientConfig.ServesOtherNamespaces = mcpServersInAllNamespaces
 
+		registerGovernance(cfg.MusterConfig.Governance)
+		ttl, err := approvalTTL(cfg.MusterConfig.Approval)
+		if err != nil {
+			return nil, err
+		}
+
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{
+			ApprovalTTL:          ttl,
+			ApprovalInstallation: cfg.MusterConfig.Approval.Installation,
 			Port:         cfg.MusterConfig.Aggregator.Port,
 			Host:         cfg.MusterConfig.Aggregator.Host,
 			Transport:    cfg.MusterConfig.Aggregator.Transport,

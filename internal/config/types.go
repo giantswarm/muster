@@ -33,6 +33,46 @@ type MusterConfig struct {
 	// SecretBinding names the Secrets muster never reads for an MCPServer
 	// (spec.headersFrom and the clientCredentialsSecretRef of its auth).
 	SecretBinding SecretBindingConfig `yaml:"secretBinding,omitempty"`
+
+	// Approval configures the round trip of calls whose effective approval
+	// is Ask. It lives outside the aggregator section, so
+	// core_config_update_aggregator cannot change it.
+	Approval ApprovalConfig `yaml:"approval,omitempty"`
+
+	// Governance is the governance configuration: the mode and the servers
+	// whose tools the floors and governed entries name. muster reads it once
+	// at start; without it the governed entries apply. It lives outside the
+	// aggregator section, so core_config_update_aggregator cannot change it.
+	Governance *GovernanceConfig `yaml:"governance,omitempty"`
+}
+
+// ApprovalConfig configures the approval round trip.
+type ApprovalConfig struct {
+	// TTL is how long a pending approval can be decided and used, a Go
+	// duration (default "5m", at most "30m").
+	TTL string `yaml:"ttl,omitempty"`
+	// Installation names the installation on the approval page.
+	Installation string `yaml:"installation,omitempty"`
+}
+
+// GovernanceConfig is muster's governance configuration, rendered by the
+// platform chart from its governance value.
+type GovernanceConfig struct {
+	// Mode is "trusted" or "governed". Governed asks agent callers before
+	// they create an agent, widen an agent's access, start another agent's
+	// Session or pause a connector. Any other value counts as governed.
+	Mode string `yaml:"mode"`
+	// Servers names, per role, the MCPServers (server keys) whose tools the
+	// floors and governed entries apply to. A floor's or governed tool name
+	// on a server not named for it is refused to agent callers.
+	Servers GovernanceServers `yaml:"servers,omitempty"`
+}
+
+// GovernanceServers names the servers of each role.
+type GovernanceServers struct {
+	AgentManager     []string `yaml:"agentManager,omitempty"`
+	PlatformManager  []string `yaml:"platformManager,omitempty"`
+	ConnectorManager []string `yaml:"connectorManager,omitempty"`
 }
 
 // SecretBindingConfig names the Secrets an MCPServer may never have muster
