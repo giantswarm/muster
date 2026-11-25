@@ -231,8 +231,9 @@ func (l *approvalListing) server(server, original string) (api.ToolApproval, boo
 	entry, applies, refused := l.governance.ServerEntry(server, original)
 	switch {
 	case refused:
-		// Refused to agents, with the reason, when called: shown, so the
-		// refusal can be explained, as blocked by governance.
+		// Refused to agents when called (a floor of a role no governed
+		// server holds): reported as blocked by governance, so it leaves
+		// an agent's listing like a Block; the call names the reason.
 		return api.ToolApproval{Setting: api.ApprovalSettingBlock, Source: api.ApprovalSourceGovernance}, true
 	case applies:
 		return api.StrictestApproval(setting, entry), true

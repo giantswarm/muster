@@ -185,12 +185,12 @@ func (g Governance) hasRole(role string) bool {
 //     Governed every other tool asks too unless it is on the server's safe
 //     list, so a tool the server adds or renames later asks until someone
 //     lists it (default-deny);
-//   - on any other server nothing applies, except that a floor of a role no
-//     governed server holds is refused (refused true): muster cannot tell
-//     the role's real server from a look-alike then. A floor name on a
-//     customer's own server is not refused once the platform's server of
-//     that role is named: the match is keyed on the governed server, not on
-//     the bare tool name.
+//   - on any other server nothing applies, except for a floor's name: while
+//     no governed server holds the floor's role it is refused (refused
+//     true), since muster cannot tell the role's real server from a
+//     look-alike; once one does, it asks on Governed (an unnamed second
+//     instance fails closed) and follows the server's own settings on
+//     Trusted. Generic names that are no floor are never touched.
 func (g Governance) ServerEntry(server, tool string) (approval ToolApproval, applies, refused bool) {
 	if s, ok := g.governed(server); ok {
 		if slices.Contains(roleFloors[s.Role], tool) {
@@ -202,8 +202,17 @@ func (g Governance) ServerEntry(server, tool string) (approval ToolApproval, app
 		return ToolApproval{}, false, false
 	}
 	for role, floors := range roleFloors {
-		if slices.Contains(floors, tool) && !g.hasRole(role) {
+		if !slices.Contains(floors, tool) {
+			continue
+		}
+		if !g.hasRole(role) {
 			return ToolApproval{}, false, true
+		}
+		if g.Governed() {
+			// Another instance of a governed role under a key the
+			// configuration does not name (a staging copy, another
+			// namespace): asked, not allowed (re-check R-S-02).
+			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceGovernance}, true, false
 		}
 	}
 	return ToolApproval{}, false, false

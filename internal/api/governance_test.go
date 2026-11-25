@@ -41,7 +41,7 @@ func TestGovernance_ServerEntry(t *testing.T) {
 		{name: "floor, both modes", server: "agent-manager", tool: "add_organization_member", governed: askFloor, trusted: askFloor, applyG: true, applyT: true},
 		{name: "model floor", server: "model-manager", tool: "add_backend", governed: askFloor, trusted: askFloor, applyG: true, applyT: true},
 		{name: "unknown server", server: "github", tool: "merge_pull_request"},
-		{name: "look-alike of a floor whose role is named", server: "customer-models", tool: "add_backend"},
+		{name: "floor name on an unnamed server of a held role: asked on governed", server: "customer-models", tool: "add_backend", governed: askGovernance, applyG: true},
 		{name: "look-alike of a floor of a role nobody holds", server: "customer-vms", tool: "approve_action", ref: true},
 		{name: "generic name on a customer server", server: "customer-vms", tool: "create_vm"},
 	} {
