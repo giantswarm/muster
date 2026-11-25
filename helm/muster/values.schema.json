@@ -260,6 +260,10 @@
                         }
                     }
                 },
+                "approval": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "credentialProvider": {
                     "type": "object",
                     "additionalProperties": false,
@@ -333,6 +337,10 @@
                             }
                         }
                     }
+                },
+                "governance": {
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "mcpServerNamespaceSelector": {
                     "type": [

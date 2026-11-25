@@ -310,6 +310,30 @@ tests:
           path: data["config.yaml"]
           pattern: "protectedSecrets:\n    - RELEASE-NAME-muster-oauth\n    - valkey-auth\n    - internal-ca\n    - mounted-extra\n    - muster-tls\n    - operator-listed\n"
 
+  - it: omits governance and approval by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^(governance|approval):"
+
+  - it: renders muster.governance and muster.approval at the top level of config.yaml
+    set:
+      muster.governance:
+        mode: trusted
+        servers:
+          agentManager: [agent-manager]
+          platformManager: [giantswarm-platform-manager]
+      muster.approval:
+        ttl: 5m
+        installation: gazelle
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\ngovernance:\n  mode: trusted\n  servers:\n    agentManager:\n    - agent-manager\n    platformManager:\n    - giantswarm-platform-manager\n"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\napproval:\n  installation: gazelle\n  ttl: 5m\n"
+
   - it: omits toolsetPresets by default (only the built-in presets exist)
     asserts:
       - notMatchRegex:

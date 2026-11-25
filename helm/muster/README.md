@@ -105,6 +105,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.mcpServerNamespaceSelector | string | `nil` |  |
 | muster.mcpServerSelector | string | `nil` |  |
 | muster.secretBinding.protectedSecrets | list | `[]` |  |
+| muster.governance | object | `{}` |  |
+| muster.approval | object | `{}` |  |
 | muster.toolsetPresets | object | `{}` |  |
 | muster.providerApps | list | `[]` |  |
 | muster.credentialProvider.enabled | bool | `false` |  |

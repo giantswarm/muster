@@ -376,6 +376,25 @@ muster:
     # adds every Secret it mounts and the ingress TLS Secrets.
     protectedSecrets: []  # @schema item: string
 
+  # Governance configuration of tool approval, rendered verbatim into
+  # muster's config.yaml as `governance` and read once at start:
+  #   governance:
+  #     mode: trusted            # or governed
+  #     servers:
+  #       agentManager: [agent-manager]
+  #       platformManager: [giantswarm-platform-manager]
+  #       connectorManager: []
+  # Without it (or with an unknown mode) muster applies the governed entries,
+  # and refuses to agent callers a floor's tool name on a server it names for
+  # no role. The agent-platform chart renders it from its governance value.
+  governance: {}  # @schema additionalProperties: true
+
+  # The approval round trip, rendered verbatim into config.yaml as `approval`:
+  # ttl (how long a pending approval lives, default "5m", at most "30m") and
+  # installation (the name the approval page shows). Asking also needs
+  # oauth.server with storage.type valkey and oauth.mcpClient.publicUrl.
+  approval: {}  # @schema additionalProperties: true
+
   # Toolset presets: named selections of the tool catalogue that an agent's
   # X-Muster-Toolset header (or the filter_tools toolset argument) can reference
   # as preset:<name>. Rendered verbatim into muster's config.yaml as

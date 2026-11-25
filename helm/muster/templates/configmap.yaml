@@ -243,6 +243,14 @@ data:
     writesAsCaller:
       kubernetesAudience: {{ . | quote }}
     {{- end }}
+    {{- with .Values.muster.governance }}
+    governance:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.muster.approval }}
+    approval:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
     {{- with .Values.muster.toolsetPresets }}
     toolsetPresets:
       {{- toYaml . | nindent 6 }}
