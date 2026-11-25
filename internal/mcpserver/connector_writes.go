@@ -357,13 +357,40 @@ func audited(ctx context.Context, tool string, args map[string]any, run func() (
 }
 
 // auditURL keeps a URL's scheme, host and path for the audit: userinfo, the
-// query and the fragment can carry credentials (re-check R-S-04).
+// query and the fragment can carry credentials (re-check R-S-04), and so can
+// the path (re-check R2-S-04): matrix parameters (";token=...") are dropped
+// and every segment that looks like an opaque token -- 20 characters or
+// more of letters, digits and -._~+= with at least one digit -- is replaced
+// by "<redacted>".
 func auditURL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" {
 		return "(not a URL)"
 	}
-	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
+	segments := strings.Split(u.Path, "/")
+	for i, segment := range segments {
+		if semi := strings.IndexByte(segment, ';'); semi >= 0 {
+			segment = segment[:semi]
+		}
+		if opaqueToken(segment) {
+			segment = "<redacted>"
+		}
+		segments[i] = segment
+	}
+	return u.Scheme + "://" + u.Host + strings.Join(segments, "/")
+}
+
+// opaqueToken reports whether a path segment looks like a credential.
+func opaqueToken(segment string) bool {
+	if len(segment) < 20 || !strings.ContainsAny(segment, "0123456789") {
+		return false
+	}
+	for _, r := range segment {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-._~+=", r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // approvalValue is settings as the audit records them.

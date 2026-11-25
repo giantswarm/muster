@@ -1,13 +1,16 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/client/filesystem"
@@ -186,8 +189,31 @@ func TestList_ReportsTheGovernanceMode(t *testing.T) {
 	assert.Equal(t, "trusted", listed["governance"])
 }
 
-// The connector-write audit line never records credentials a URL carries.
+// The connector-write audit line never records credentials a URL carries:
+// userinfo, query, fragment, matrix parameters, token-like path segments
+// (re-check R-S-04, R2-S-04).
 func TestAuditURL(t *testing.T) {
-	assert.Equal(t, "https://mcp.example.com/sse", auditURL("https://user:secret@mcp.example.com/sse?api_key=k#frag"))
-	assert.Equal(t, "(not a URL)", auditURL("not a url"))
+	for raw, want := range map[string]string{
+		"https://user:secret@mcp.example.com/sse?api_key=k#frag":       "https://mcp.example.com/sse",
+		"https://mcp.example.com/mcp;token=abc123":                     "https://mcp.example.com/mcp",
+		"https://mcp.example.com/sse/abcDEF0123456789ghijKLMN": "https://mcp.example.com/sse/<redacted>",
+		"https://mcp.example.com/v1/organizations/mcp":                 "https://mcp.example.com/v1/organizations/mcp",
+		"not a url": "(not a URL)",
+	} {
+		assert.Equal(t, want, auditURL(raw), raw)
+	}
+}
+
+// The audit line of a connector write records the redacted URL, never the
+// raw one (re-check R2-S-02).
+func TestConnectorWriteAuditRedactsTheURL(t *testing.T) {
+	var buf bytes.Buffer
+	logging.InitForCLI(logging.LevelInfo, &buf)
+	t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, io.Discard) })
+	auditConnectorWrite(context.Background(), "core_mcpserver_connect", "github", map[string]any{"name": "github", "url": "https://u:p@mcp.example.com/sse?api_key=secret"})
+	line := buf.String()
+	assert.Contains(t, line, "url=https://mcp.example.com/sse")
+	for _, secret := range []string{"api_key", "secret", "u:p"} {
+		assert.NotContains(t, line, secret)
+	}
 }
