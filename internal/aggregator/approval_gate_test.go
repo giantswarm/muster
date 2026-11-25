@@ -525,3 +525,29 @@ func lineWith(logs, needle string) string {
 	}
 	return ""
 }
+
+// A connector whose rule is Block hides and refuses every tool without its
+// own entry -- new tools included -- like a tool's own Block, in listings,
+// calls and workflows; a Block beats any floor (decision #74).
+func TestGate_BlockRule(t *testing.T) {
+	rig := newGateRig(t)
+	rig.setSettings(t, &api.MCPServerApproval{Rule: api.ApprovalBlock, Tools: map[string]string{"get_issue": api.ApprovalAllow}})
+
+	_, err := rig.server.CallToolInternal(rig.ctx, "x_github_merge_pull_request", map[string]any{})
+	require.EqualError(t, err, "tool not found: x_github_merge_pull_request")
+	_, err = rig.server.CallToolInternal(rig.ctx, "x_github_get_issue", map[string]any{})
+	require.NoError(t, err, "a tool's own entry wins")
+
+	tools := rig.server.applyApprovals(rig.ctx, []mcp.Tool{approvalSoloTool("github", "merge_pull_request"), approvalSoloTool("github", "get_issue")})
+	require.Len(t, tools, 1)
+	assert.Equal(t, "x_github_get_issue", tools[0].Name)
+	assert.Zero(t, rig.client.count("merge_pull_request"))
+}
+
+func (rig *gateRig) setSettings(t *testing.T, settings *api.MCPServerApproval) {
+	t.Helper()
+	manager := api.GetMCPServerManager().(*stubMCPServerManager)
+	info := manager.servers["github"]
+	info.Approval = settings
+	manager.servers["github"] = info
+}

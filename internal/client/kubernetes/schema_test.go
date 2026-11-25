@@ -69,15 +69,18 @@ func TestMCPServerSpecHasFieldEnvtest(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = c.Close() })
 
-			// The API server publishes a new CRD's schema shortly after it
-			// is established.
-			var known bool
-			require.Eventually(t, func() bool {
-				var err error
-				known, err = c.MCPServerSpecHasField(context.Background(), "approval")
-				return err == nil
-			}, 30*time.Second, 200*time.Millisecond)
+			// Right after the CRD is established (the OpenAPI schema may
+			// not be published yet: the CRD itself is read) and later.
+			known, err := c.MCPServerSpecHasField(context.Background(), "approval")
+			require.NoError(t, err)
 			assert.Equal(t, tc.want, known)
+			fromCRD, err := c.crdSpecHasField(context.Background(), "approval")
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, fromCRD)
+			require.Eventually(t, func() bool {
+				published, err := c.openAPISpecHasField("approval")
+				return err == nil && published == tc.want
+			}, 30*time.Second, 200*time.Millisecond)
 		})
 	}
 }

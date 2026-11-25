@@ -70,9 +70,21 @@ func TestResolveConnectorApproval(t *testing.T) {
 		},
 		{
 			name:     "an unknown rule counts as ask",
-			approval: &MCPServerApproval{Rule: "Block"},
+			approval: &MCPServerApproval{Rule: "Deny"},
 			tool:     "get",
 			want:     ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceConnector, New: true},
+		},
+		{
+			name:     "a Block rule blocks every tool without its own entry",
+			approval: &MCPServerApproval{Rule: ApprovalBlock, Tools: map[string]string{"get": ApprovalAllow}},
+			tool:     "new_tool",
+			want:     ToolApproval{Setting: ApprovalSettingBlock, Source: ApprovalSourceConnector, New: true},
+		},
+		{
+			name:     "a tool's own entry wins over a Block rule",
+			approval: &MCPServerApproval{Rule: ApprovalBlock, Tools: map[string]string{"get": ApprovalAllow}},
+			tool:     "get",
+			want:     ToolApproval{Setting: ApprovalSettingAllow, Source: ApprovalSourceTool},
 		},
 		{
 			name:     "tool names match exactly",

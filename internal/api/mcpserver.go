@@ -742,9 +742,11 @@ type MCPServerInfo struct {
 	UID string `json:"-"`
 
 	// Generation is the MCPServer resource's metadata.generation: an approval
-	// binds it, so a connector changed since asks again. Zero in filesystem
+	// binds it, so a connector changed since asks again, and
+	// core_mcpserver_set_approval takes it as expectedGeneration to refuse a
+	// write over a change made since the caller read it. Zero in filesystem
 	// mode.
-	Generation int64 `json:"-"`
+	Generation int64 `json:"generation,omitempty"`
 
 	// CreatedAt is the creation time of the MCPServer resource (see
 	// MCPServer.CreatedAt). Zero in filesystem mode.

@@ -836,6 +836,7 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 	// A server outside the toolsets bounding the request is absent too, and
 	// a toolset that cannot be resolved admits none.
 	shows, _ := api.ToolsetShows(ctx)
+	admins := a.connectorAdmins(ctx)
 	for _, server := range allServers {
 		// A server the caller may not list in its namespace is absent.
 		if !view.Sees(server.ServerKey()) || !shows(server.ServerKey()) {
@@ -843,6 +844,9 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 		}
 		// Adjust server for display (hide raw errors in non-verbose mode)
 		server = adjustServerForDisplay(server, verbose)
+		if server.Approval != nil {
+			server = withoutBlockedNames(server, admins(server.ServerKey()))
+		}
 
 		if server.State == "Failed" {
 			failedCount++
@@ -910,6 +914,10 @@ func (a *Adapter) handleMCPServerGet(ctx context.Context, args map[string]interf
 	mcpServer, err := a.GetMCPServer(ctx, name)
 	if err != nil {
 		return api.HandleErrorWithPrefix(err, "Failed to get MCP server"), nil
+	}
+	if mcpServer.Approval != nil {
+		shown := withoutBlockedNames(*mcpServer, a.connectorAdmins(ctx)(name))
+		mcpServer = &shown
 	}
 
 	return &api.CallToolResult{

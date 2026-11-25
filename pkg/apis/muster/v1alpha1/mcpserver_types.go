@@ -222,8 +222,9 @@ type MCPServerSpec struct {
 // MCPServerApproval holds a server's approval settings.
 type MCPServerApproval struct {
 	// Rule is what a tool without its own entry in Tools gets, a tool the
-	// server adds later included: Allow or Ask. Unset, such a tool is Allow.
-	// +kubebuilder:validation:XValidation:rule="self in ['Allow', 'Ask']",message="rule must be Allow or Ask"
+	// server adds later included: Allow, Ask or Block (hidden and refused
+	// like a tool's own Block). Unset, such a tool is Allow.
+	// +kubebuilder:validation:XValidation:rule="self in ['Allow', 'Ask', 'Block']",message="rule must be Allow, Ask or Block"
 	// +optional
 	Rule string `json:"rule,omitempty" yaml:"rule,omitempty"`
 

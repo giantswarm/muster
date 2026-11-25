@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
+
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/client/filesystem"
 )
@@ -50,9 +52,13 @@ func TestCreateRequiresApprovalSettings(t *testing.T) {
 	require.Len(t, c.createdObjs, 2)
 	assert.Equal(t, map[string]string{"delete": "Block"}, c.createdObjs[1].Spec.Approval.Tools)
 
-	text, isErr = call(t, adapter, "mcpserver_create", remoteServerArgs(map[string]interface{}{"name": "bad", "approval": map[string]interface{}{"rule": "Block"}}))
+	_, isErr = call(t, adapter, "mcpserver_create", remoteServerArgs(map[string]interface{}{"name": "closed", "approval": map[string]interface{}{"rule": "Block"}}))
+	require.False(t, isErr, "a Block rule hides every tool without its own entry")
+	assert.Equal(t, api.ApprovalBlock, c.createdObjs[2].Spec.Approval.Rule)
+
+	text, isErr = call(t, adapter, "mcpserver_create", remoteServerArgs(map[string]interface{}{"name": "bad", "approval": map[string]interface{}{"rule": "Deny"}}))
 	require.True(t, isErr)
-	assert.Contains(t, text, "rule must be Allow or Ask")
+	assert.Contains(t, text, "rule must be Allow, Ask or Block")
 }
 
 // Where a server is and how muster reaches it changes only through
@@ -117,4 +123,39 @@ func TestSetApproval(t *testing.T) {
 	text, isErr = call(t, adapter, "mcpserver_set_approval", map[string]interface{}{"name": "missing", "preset": "allow-all"})
 	require.True(t, isErr)
 	assert.Contains(t, text, "not found")
+}
+
+// expectedGeneration refuses a settings write over a change made since the
+// caller read the server, so two admins saving from stale reads do not lose
+// one's change.
+func TestSetApproval_ExpectedGeneration(t *testing.T) {
+	c := &recordingClient{}
+	c.existing = &musterv1alpha1.MCPServer{}
+	c.existing.Name = "github"
+	c.existing.Generation = 4
+	adapter := NewAdapterWithClient(c, "test-ns")
+
+	text, isErr := call(t, adapter, "mcpserver_set_approval", map[string]interface{}{"name": "github", "expectedGeneration": 3.0, "approval": map[string]interface{}{"rule": "Ask"}})
+	require.True(t, isErr)
+	assert.Contains(t, text, "conflict: MCP server 'github' changed since it was read (generation 4 now, expectedGeneration 3)")
+	assert.Empty(t, c.updatedObjs)
+
+	_, isErr = call(t, adapter, "mcpserver_set_approval", map[string]interface{}{"name": "github", "expectedGeneration": 4.0, "approval": map[string]interface{}{"rule": "Ask"}})
+	require.False(t, isErr)
+	require.Len(t, c.updatedObjs, 1)
+
+	text, isErr = call(t, adapter, "mcpserver_set_approval", map[string]interface{}{"name": "github", "expectedGeneration": "4", "approval": map[string]interface{}{"rule": "Ask"}})
+	require.True(t, isErr)
+	assert.Contains(t, text, "expectedGeneration must be the integer generation")
+}
+
+// Block hides a tool, its name included: a caller who is not the connector's
+// admin reads its settings without the Block entries (M1-MU-S-11).
+func TestGetAndList_HideBlockedNamesFromNonAdmins(t *testing.T) {
+	server := api.MCPServerInfo{Name: "github", Approval: &api.MCPServerApproval{Rule: "Ask", Tools: map[string]string{"get": "Allow", "secret_tool": "Block"}}}
+	shown := withoutBlockedNames(server, false)
+	assert.Equal(t, map[string]string{"get": "Allow"}, shown.Approval.Tools)
+	assert.Equal(t, "Ask", shown.Approval.Rule)
+	assert.Contains(t, server.Approval.Tools, "secret_tool", "the original is untouched")
+	assert.Equal(t, server, withoutBlockedNames(server, true), "a connector admin sees every entry")
 }

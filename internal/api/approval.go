@@ -9,8 +9,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// The values of an MCPServer's spec.approval, as they are written: rule takes
-// Allow or Ask, a tool entry Allow, Ask or Block. They are case-sensitive.
+// The values of an MCPServer's spec.approval, as they are written: rule and a
+// tool entry take Allow, Ask or Block. They are case-sensitive.
 const (
 	ApprovalAllow = "Allow"
 	ApprovalAsk   = "Ask"
@@ -32,7 +32,8 @@ const (
 	// ApprovalSourceTool is the tool's own entry in spec.approval.tools.
 	ApprovalSourceTool = "tool"
 	// ApprovalSourceConnector is the server's spec.approval.rule (or its
-	// absence on a server that has spec.approval).
+	// absence on a server that has spec.approval); a rule Block hides every
+	// tool without its own entry.
 	ApprovalSourceConnector = "connector"
 	// ApprovalSourceUnreviewed is a tool of a server without spec.approval,
 	// or a tool no server owns: Allow, until someone reviews it.
@@ -107,28 +108,29 @@ func BuiltinApproval(exposedName string) (ToolApproval, bool) {
 // ResolveConnectorApproval returns the admin setting of the server's tool
 // named tool (the server's own name): the tool's entry, else the server's
 // rule, else Allow. Without approval settings the tool is Allow and not
-// reviewed. A value other than Allow, Ask or Block counts as Ask.
+// reviewed. A value other than Allow, Ask or Block counts as Ask; a rule
+// Block blocks every tool without its own entry, new tools included.
 func ResolveConnectorApproval(approval *MCPServerApproval, tool string) ToolApproval {
 	if approval == nil {
 		return ToolApproval{Setting: ApprovalSettingAllow, Source: ApprovalSourceUnreviewed}
 	}
 	if value, ok := approval.Tools[tool]; ok {
-		return ToolApproval{Setting: settingOf(value, true), Source: ApprovalSourceTool}
+		return ToolApproval{Setting: settingOf(value), Source: ApprovalSourceTool}
 	}
 	setting := ApprovalSettingAllow
 	if approval.Rule != "" {
-		setting = settingOf(approval.Rule, false)
+		setting = settingOf(approval.Rule)
 	}
 	return ToolApproval{Setting: setting, Source: ApprovalSourceConnector, New: true}
 }
 
-// settingOf maps a written value to the reported setting. Block is valid on
-// a tool entry only; anything else unknown counts as Ask (fail closed).
-func settingOf(value string, blockAllowed bool) string {
-	switch {
-	case value == ApprovalAllow:
+// settingOf maps a written value to the reported setting; anything unknown
+// counts as Ask (fail closed).
+func settingOf(value string) string {
+	switch value {
+	case ApprovalAllow:
 		return ApprovalSettingAllow
-	case value == ApprovalBlock && blockAllowed:
+	case ApprovalBlock:
 		return ApprovalSettingBlock
 	default:
 		return ApprovalSettingAsk

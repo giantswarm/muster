@@ -71,11 +71,12 @@ spec:
                   rule:
                     description: |-
                       Rule is what a tool without its own entry in Tools gets, a tool the
-                      server adds later included: Allow or Ask. Unset, such a tool is Allow.
+                      server adds later included: Allow, Ask or Block (hidden and refused
+                      like a tool's own Block). Unset, such a tool is Allow.
                     type: string
                     x-kubernetes-validations:
-                    - message: rule must be Allow or Ask
-                      rule: self in ['Allow', 'Ask']
+                    - message: rule must be Allow, Ask or Block
+                      rule: self in ['Allow', 'Ask', 'Block']
                   tools:
                     additionalProperties:
                       type: string

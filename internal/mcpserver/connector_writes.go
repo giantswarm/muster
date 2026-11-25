@@ -96,6 +96,7 @@ func connectorWriteTools() []api.ToolMetadata {
 				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server"},
 				presetArg(),
 				approvalArg(),
+				{Name: "expectedGeneration", Type: api.ArgTypeInteger, Required: false, Description: "The generation core_mcpserver_get returned; the write is refused when the server changed since, so a concurrent change is not overwritten"},
 			},
 		},
 	}
@@ -108,11 +109,11 @@ func presetArg() api.ArgMetadata {
 
 func approvalArg() api.ArgMetadata {
 	return api.ArgMetadata{Name: "approval", Type: api.ArgTypeObject, Required: false,
-		Description: "Explicit approval settings {rule: Allow|Ask, tools: {<tool>: Allow|Ask|Block}}; not with preset",
+		Description: "Explicit settings {rule: Allow|Ask|Block, tools: {<tool>: Allow|Ask|Block}}; rule covers tools without an entry, new ones too; not with preset",
 		Schema: map[string]interface{}{
 			api.SchemaKeyType: string(api.ArgTypeObject),
 			"properties": map[string]interface{}{
-				"rule":  map[string]interface{}{api.SchemaKeyType: "string", "enum": []string{api.ApprovalAllow, api.ApprovalAsk}},
+				"rule":  map[string]interface{}{api.SchemaKeyType: "string", "enum": []string{api.ApprovalAllow, api.ApprovalAsk, api.ApprovalBlock}},
 				"tools": map[string]interface{}{api.SchemaKeyType: "object", api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: "string", "enum": []string{api.ApprovalAllow, api.ApprovalAsk, api.ApprovalBlock}}},
 			},
 			api.SchemaKeyAdditionalProperties: false,
@@ -151,8 +152,8 @@ func approvalFromArgs(args map[string]any, required bool, tools func() []mcp.Too
 			switch key {
 			case "rule":
 				rule, _ := value.(string)
-				if rule != api.ApprovalAllow && rule != api.ApprovalAsk {
-					return refuse("approval.rule must be Allow or Ask")
+				if rule != api.ApprovalAllow && rule != api.ApprovalAsk && rule != api.ApprovalBlock {
+					return refuse("approval.rule must be Allow, Ask or Block")
 				}
 				approval.Rule = rule
 			case "tools":
@@ -179,6 +180,27 @@ func approvalFromArgs(args map[string]any, required bool, tools func() []mcp.Too
 	return nil, nil
 }
 
+// expectedGeneration reads the optional precondition of a settings write.
+func expectedGeneration(args map[string]any) (int64, bool, *api.CallToolResult) {
+	raw, ok := args["expectedGeneration"]
+	delete(args, "expectedGeneration")
+	if !ok || raw == nil {
+		return 0, false, nil
+	}
+	switch v := raw.(type) {
+	case float64:
+		if v == float64(int64(v)) {
+			return int64(v), true, nil
+		}
+	case int:
+		return int64(v), true, nil
+	case int64:
+		return v, true, nil
+	}
+	refused, _ := simpleError("expectedGeneration must be the integer generation core_mcpserver_get returned")
+	return 0, false, refused
+}
+
 // handleMCPServerSetApproval writes a server's spec.approval as the caller.
 // A preset expands from the tools the server lists now; what is written is
 // explicit and never evaluated again.
@@ -188,7 +210,11 @@ func (a *Adapter) handleMCPServerSetApproval(ctx context.Context, args map[strin
 	if name == "" {
 		return simpleError("name is required")
 	}
-	if refused := refuseOtherFields("core_mcpserver_set_approval", args, []string{"preset", "approval"}, "core_mcpserver_update or core_mcpserver_connect"); refused != nil {
+	if refused := refuseOtherFields("core_mcpserver_set_approval", args, []string{"preset", "approval", "expectedGeneration"}, "core_mcpserver_update or core_mcpserver_connect"); refused != nil {
+		return refused, nil
+	}
+	expected, hasExpected, refused := expectedGeneration(args)
+	if refused != nil {
 		return refused, nil
 	}
 	approval, refused := approvalFromArgs(args, true, func() []mcp.Tool {
@@ -209,15 +235,23 @@ func (a *Adapter) handleMCPServerSetApproval(ctx context.Context, args map[strin
 		return errResult, nil
 	}
 	var old *musterv1alpha1.MCPServerApproval
+	var changed *api.CallToolResult
 	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		existing, err := a.client.GetMCPServer(ctx, name, a.namespace)
 		if err != nil {
 			return err
 		}
+		if hasExpected && existing.Generation != expected {
+			changed, _ = simpleError(fmt.Sprintf("conflict: MCP server '%s' changed since it was read (generation %d now, expectedGeneration %d): read it again with core_mcpserver_get and apply the change to what it holds now", name, existing.Generation, expected))
+			return errUpdateRefused
+		}
 		old = existing.Spec.Approval
 		existing.Spec.Approval = approval
 		return writer.UpdateMCPServer(ctx, existing)
 	})
+	if changed != nil {
+		return changed, nil
+	}
 	if err != nil {
 		if errors.IsNotFound(err) {
 			return api.HandleErrorWithPrefix(api.NewMCPServerNotFoundError(name), "Failed to set approval"), nil

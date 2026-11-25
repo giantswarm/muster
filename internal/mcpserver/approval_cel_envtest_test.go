@@ -58,15 +58,16 @@ func TestApprovalCELEnvtest(t *testing.T) {
 			name:     "every-setting",
 			approval: &musterv1alpha1.MCPServerApproval{Rule: "Ask", Tools: map[string]string{"get": "Allow", "merge": "Ask", "delete": "Block"}},
 		},
-		{
-			name:     "rule-block",
-			approval: &musterv1alpha1.MCPServerApproval{Rule: "Block"},
-			rejected: "rule must be Allow or Ask",
-		},
+		{name: "rule-block", approval: &musterv1alpha1.MCPServerApproval{Rule: "Block"}},
 		{
 			name:     "rule-lowercase",
 			approval: &musterv1alpha1.MCPServerApproval{Rule: "ask"},
-			rejected: "rule must be Allow or Ask",
+			rejected: "rule must be Allow, Ask or Block",
+		},
+		{
+			name:     "rule-unknown",
+			approval: &musterv1alpha1.MCPServerApproval{Rule: "Deny"},
+			rejected: "rule must be Allow, Ask or Block",
 		},
 		{
 			name:     "tool-unknown-setting",
