@@ -400,14 +400,22 @@ muster:
   # Governance configuration of tool approval, rendered verbatim into
   # muster's config.yaml as `governance` and read once at start:
   #   governance:
-  #     mode: trusted            # or governed
-  #     servers:
-  #       agentManager: [agent-manager]
-  #       platformManager: [giantswarm-platform-manager]
-  #       connectorManager: []
-  # Without it (or with an unknown mode) muster applies the governed entries,
-  # and refuses to agent callers a floor's tool name on a server it names for
-  # no role. The agent-platform chart renders it from its governance value.
+  #     mode: governed           # or trusted; any other value fails the render
+  #     governedServers:
+  #       - server: agent-manager            # server key
+  #         role: agentManager               # which floors hold on it
+  #         safe: [get_info, list_agents]    # tools agents call unasked
+  #       - server: kagent
+  #         role: sessionManager
+  #         safe: [list_sessions]
+  # On governed, an agent is asked before every tool of a governed server
+  # that is not on its safe list (a new or renamed tool too), and before
+  # every core tool but muster's reads; a role's floors ask agents in both
+  # modes. The earlier shape, servers: {agentManager: [..], platformManager:
+  # [..], connectorManager: [..]}, is still read (empty safe lists); not
+  # both. Without governance muster applies the governed default and refuses
+  # to agents the floor names of a role no governed server holds. The
+  # agent-platform chart renders it from its governance value.
   governance: {}  # @schema additionalProperties: true
 
   # The approval round trip, rendered verbatim into config.yaml as `approval`:

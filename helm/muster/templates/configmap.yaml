@@ -244,10 +244,19 @@ data:
       kubernetesAudience: {{ . | quote }}
     {{- end }}
     {{- with .Values.muster.governance }}
+    {{- if and .mode (not (has .mode (list "trusted" "governed"))) }}
+    {{- fail (printf "muster.governance.mode must be trusted or governed, not %q (muster would apply the governed default)" .mode) }}
+    {{- end }}
+    {{- if and .servers .governedServers }}
+    {{- fail "muster.governance: set governedServers or the earlier servers.<role> lists, not both" }}
+    {{- end }}
     governance:
       {{- toYaml . | nindent 6 }}
     {{- end }}
     {{- with .Values.muster.approval }}
+    {{- if and .ttl (not (regexMatch `^[0-9]+(\.[0-9]+)?(s|m)$` (toString .ttl))) }}
+    {{- fail (printf "muster.approval.ttl must be a duration in s or m, at most 30m, not %q" (toString .ttl)) }}
+    {{- end }}
     approval:
       {{- toYaml . | nindent 6 }}
     {{- end }}

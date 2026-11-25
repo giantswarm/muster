@@ -371,3 +371,40 @@ tests:
       - notMatchRegex:
           path: data["config.yaml"]
           pattern: "allowLocalhostRedirectURIs"
+
+  - it: renders governed servers with roles and safe lists
+    set:
+      muster.governance:
+        mode: governed
+        governedServers:
+          - server: agent-manager
+            role: agentManager
+            safe: [list_agents]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "governance:\n      governedServers:\n      - role: agentManager\n        safe:\n        - list_agents\n        server: agent-manager\n      mode: governed"
+
+  - it: fails on a governance mode muster does not know
+    set:
+      muster.governance.mode: Governed
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.governance.mode must be trusted or governed, not "Governed" (muster would apply the governed default)'
+
+  - it: fails on both governance shapes at once
+    set:
+      muster.governance:
+        mode: governed
+        servers: {agentManager: [a]}
+        governedServers: [{server: b}]
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance: set governedServers or the earlier servers.<role> lists, not both"
+
+  - it: fails on an approval ttl that is no duration in s or m
+    set:
+      muster.approval.ttl: 2h
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.approval.ttl must be a duration in s or m, at most 30m, not "2h"'
