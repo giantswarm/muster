@@ -343,11 +343,6 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 		p.renderStoreError(w, err)
 		return
 	}
-	if flow.Decided && flow.Identity == request.Identity {
-		// This browser decided already (a double click): say what stands.
-		p.renderAnswered(w, request)
-		return
-	}
 	if flow.Identity == (api.SignInIdentity{}) || flow.Identity != request.Identity {
 		logging.WarnWithAttrs("Approval", "decision refused: the signed-in person is not the requester",
 			slog.String("approval", logging.TruncateIdentifier(id)))
@@ -374,10 +369,8 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 		p.renderStoreError(w, err)
 		return
 	}
-	// The flow stays, marked decided, until it expires: a repeated submit of
-	// the same form is answered with the decision, not as a stale page.
-	flow.Decided = true
-	_ = store.PutFlow(r.Context(), key, *flow, flowTTL)
+	// The flow stays until it expires: a repeated submit of the same form (a
+	// double click) reaches Decide, which answers with what stands.
 	auditDecision(r.Context(), request, approve, flow.Identity)
 
 	if flow.Redirect != "" {

@@ -127,6 +127,7 @@ func TestPage_ApproveAndReturn(t *testing.T) {
 	assert.Contains(t, body, "&lt;script&gt;alert(1)&lt;/script&gt;", "argument values are escaped")
 	assert.NotContains(t, body, "<script>alert(1)</script>")
 	assert.Contains(t, body, " disabled>Approve", "buttons start inert")
+	assert.Contains(t, body, "getElementById('decide').addEventListener('submit'", "the buttons disable on submit (re-check R2-C-03)")
 
 	// Viewing changed nothing.
 	got, err := rig.store.Get(context.Background(), request.ID)
