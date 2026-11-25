@@ -39,7 +39,7 @@ starts it as a child process and talks to it over its standard input and output.
 
 ```bash
 muster create mcpserver files --type=stdio --command=npx \
-  --args="-y,@modelcontextprotocol/server-filesystem,$HOME" --autoStart=true
+  --args="-y,@modelcontextprotocol/server-filesystem,$HOME" --autoStart=true --preset=allow-all
 ```
 
 The first start downloads the package, so give it a few seconds, then check:

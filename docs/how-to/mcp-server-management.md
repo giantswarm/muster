@@ -684,7 +684,8 @@ muster create mcpserver filesystem-tools \
   --args "@modelcontextprotocol/server-filesystem,/workspace" \
   --auto-start \
   --tool-prefix fs \
-  --description "File system operations"
+  --description "File system operations" \
+  --preset allow-all
 ```
 
 Create a streamable HTTP server:
@@ -695,7 +696,8 @@ muster create mcpserver remote-api \
   --timeout 60 \
   --tool-prefix api \
   --display-name "Remote API" \
-  --description "Remote API tools"
+  --description "Remote API tools" \
+  --preset recommended
 ```
 
 Create an SSE server:
@@ -705,7 +707,8 @@ muster create mcpserver sse-server \
   --url "https://sse.example.com/mcp" \
   --timeout 90 \
   --tool-prefix sse \
-  --description "SSE MCP server"
+  --description "SSE MCP server" \
+  --preset ask-all
 ```
 
 ### Listing Servers

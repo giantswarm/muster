@@ -58,7 +58,7 @@ suite, and fix the race it shows: a rerun is not a fix.
   `{"status":"ok"}` once it is up. Stop it by the PID you recorded when you started it.
 - Point every CLI call at it with `--endpoint http://localhost:<port>/mcp --auth none`; without
   them the CLI talks to the current context, which may be a remote muster that wants a sign-in.
-- Tools to call: `muster create mcpserver files --type=stdio --command=npx --args="-y,@modelcontextprotocol/server-filesystem,<dir>" --autoStart=true`
+- Tools to call: `muster create mcpserver files --type=stdio --command=npx --args="-y,@modelcontextprotocol/server-filesystem,<dir>" --autoStart=true --preset=allow-all`
   (with the same two flags) brings `x_files_*` into `muster list tools` within seconds. Workflow
   files in `<dir>/workflows/` are loaded when the instance starts.
 - What a workflow received is the "Input Parameters" table of `muster start workflow` and
