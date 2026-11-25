@@ -166,7 +166,7 @@ func TestWritesAsCaller_IdentityReachesWrite(t *testing.T) {
 		tool string
 		args map[string]interface{}
 	}{
-		{"mcpserver_create", map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"}},
+		{"mcpserver_create", map[string]interface{}{"preset": "allow-all", "name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"}},
 		{"mcpserver_update", map[string]interface{}{"name": "test-server", "url": "http://example.com/mcp2"}},
 		{"mcpserver_delete", map[string]interface{}{"name": "test-server"}},
 	}
@@ -176,7 +176,7 @@ func TestWritesAsCaller_IdentityReachesWrite(t *testing.T) {
 			h := newCallerHarness(t, existingServer(), nil)
 			ctx := server.ContextWithIDToken(context.Background(), token)
 
-			result, err := h.adapter.ExecuteTool(ctx, tc.tool, tc.args)
+			result, err := legacyExecute(h.adapter, ctx, tc.tool, tc.args)
 			if err != nil {
 				t.Fatalf("ExecuteTool: %v", err)
 			}
@@ -206,7 +206,7 @@ func TestWritesAsCaller_MissingAudience(t *testing.T) {
 			h := newCallerHarness(t, existingServer(), nil)
 			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, aud))
 
-			result, err := h.adapter.ExecuteTool(ctx, "mcpserver_create",
+			result, err := legacyExecute(h.adapter, ctx, "mcpserver_create",
 				map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"})
 			if err != nil {
 				t.Fatalf("ExecuteTool: %v", err)
@@ -260,7 +260,7 @@ func TestWritesAsCaller_ForbiddenMapsToPermissionError(t *testing.T) {
 			h := newCallerHarness(t, existingServer(), forbidden)
 			ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
-			result, err := h.adapter.ExecuteTool(ctx, tc.tool, tc.args)
+			result, err := legacyExecute(h.adapter, ctx, tc.tool, tc.args)
 			if err != nil {
 				t.Fatalf("ExecuteTool: %v", err)
 			}
@@ -281,7 +281,7 @@ func TestWritesAsCaller_UnauthorizedMapsToRelogin(t *testing.T) {
 	h := newCallerHarness(t, existingServer(), apierrors.NewUnauthorized("token expired"))
 	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
-	result, err := h.adapter.ExecuteTool(ctx, "mcpserver_create",
+	result, err := legacyExecute(h.adapter, ctx, "mcpserver_create",
 		map[string]interface{}{"name": "test-server", "type": "streamable-http", "url": "http://example.com/mcp"})
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)
@@ -298,7 +298,7 @@ func TestWritesAsCaller_FlagOff(t *testing.T) {
 	adapter := NewAdapterWithClient(sa, "test-ns")
 	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
 
-	result, err := adapter.ExecuteTool(ctx, "mcpserver_create",
+	result, err := legacyExecute(adapter, ctx, "mcpserver_create",
 		map[string]interface{}{"name": "another-server", "type": "streamable-http", "url": "http://example.com/mcp"})
 	if err != nil {
 		t.Fatalf("ExecuteTool: %v", err)

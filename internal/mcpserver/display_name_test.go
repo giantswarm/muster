@@ -43,7 +43,7 @@ func remoteServerArgs(extra map[string]interface{}) map[string]interface{} {
 
 func executeOK(t *testing.T, adapter *Adapter, ctx context.Context, tool string, args map[string]interface{}) {
 	t.Helper()
-	result, err := adapter.ExecuteTool(ctx, tool, args)
+	result, err := legacyExecute(adapter, ctx, tool, args)
 	require.NoError(t, err)
 	require.False(t, result.IsError, resultText(t, result))
 }

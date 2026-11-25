@@ -32,7 +32,7 @@ func TestUnsafeName_RejectedByValidateAndCreate(t *testing.T) {
 					"type": "streamable-http",
 					"url":  "http://localhost:1/mcp",
 				}
-				result, err := adapter.ExecuteTool(context.Background(), tool, args)
+				result, err := legacyExecute(adapter, context.Background(), tool, args)
 				if err != nil {
 					t.Fatalf("ExecuteTool: %v", err)
 				}

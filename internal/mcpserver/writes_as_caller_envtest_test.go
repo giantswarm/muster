@@ -107,7 +107,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	}
 
 	t.Run("allowed user create-update-delete", func(t *testing.T) {
-		result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("allowed-server"))
+		result, err := legacyExecute(adapter, allowedCtx, "mcpserver_create", createArgs("allowed-server"))
 		if err != nil || result.IsError {
 			t.Fatalf("create: err=%v result=%s", err, resultText(t, result))
 		}
@@ -163,7 +163,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 
 		// create fails the tool call for a user who *is* allowed to write
 		// mcpservers, and leaves no CR behind.
-		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_create", stdioArgs)
+		result, err = legacyExecute(adapter, allowedCtx, "mcpserver_create", stdioArgs)
 		if err != nil {
 			t.Fatalf("create: %v", err)
 		}
@@ -182,7 +182,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 
 		// An update that switches an accepted server over to stdio is refused
 		// the same way — the gate is on the resulting spec, not on the request.
-		if result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("switch-server")); err != nil || result.IsError {
+		if result, err := legacyExecute(adapter, allowedCtx, "mcpserver_create", createArgs("switch-server")); err != nil || result.IsError {
 			t.Fatalf("setup create: err=%v result=%s", err, resultText(t, result))
 		}
 		t.Cleanup(func() {
@@ -206,7 +206,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	})
 
 	t.Run("denied user create", func(t *testing.T) {
-		result, err := adapter.ExecuteTool(deniedCtx, "mcpserver_create", createArgs("denied-server"))
+		result, err := legacyExecute(adapter, deniedCtx, "mcpserver_create", createArgs("denied-server"))
 		if err != nil {
 			t.Fatalf("ExecuteTool: %v", err)
 		}
@@ -225,7 +225,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	})
 
 	t.Run("lifecycle allowed user suspend-resume-restart", func(t *testing.T) {
-		result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("lifecycle-server"))
+		result, err := legacyExecute(adapter, allowedCtx, "mcpserver_create", createArgs("lifecycle-server"))
 		if err != nil || result.IsError {
 			t.Fatalf("setup create: err=%v result=%s", err, resultText(t, result))
 		}
@@ -313,7 +313,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 
 	t.Run("denied user update and delete", func(t *testing.T) {
 		// A CR the denied user did not create and may not touch.
-		result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("victim-server"))
+		result, err := legacyExecute(adapter, allowedCtx, "mcpserver_create", createArgs("victim-server"))
 		if err != nil || result.IsError {
 			t.Fatalf("setup create: err=%v result=%s", err, resultText(t, result))
 		}

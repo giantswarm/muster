@@ -141,7 +141,7 @@ func newCredsHarness(t *testing.T, existing *musterv1alpha1.MCPServer, objects .
 func (h *credsHarness) call(t *testing.T, tool string, args map[string]interface{}) (string, bool) {
 	t.Helper()
 	ctx := server.ContextWithIDToken(context.Background(), testJWT(t, callerwrite.DefaultKubernetesAudience))
-	result, err := h.adapter.ExecuteTool(ctx, tool, args)
+	result, err := legacyExecute(h.adapter, ctx, tool, args)
 	require.NoError(t, err)
 	return resultText(t, result), result.IsError
 }
@@ -352,7 +352,7 @@ func TestClientCredentials_FilesystemMode(t *testing.T) {
 	sa := &stubMusterClient{filesystem: true}
 	adapter := NewAdapterWithClient(sa, "test-ns")
 	args := credsArgs(nil)
-	result, err := adapter.ExecuteTool(context.Background(), "mcpserver_create", args)
+	result, err := legacyExecute(adapter, context.Background(), "mcpserver_create", args)
 	require.NoError(t, err)
 	require.True(t, result.IsError)
 	assert.Contains(t, resultText(t, result), "need caller-identity writes")

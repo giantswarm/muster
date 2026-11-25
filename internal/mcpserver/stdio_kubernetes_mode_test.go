@@ -34,7 +34,7 @@ func TestStdioAdmission_RejectedInKubernetesMode(t *testing.T) {
 			sa := &stubMusterClient{existing: existingServer()}
 			adapter := NewAdapterWithClient(sa, "test-ns")
 
-			result, err := adapter.ExecuteTool(context.Background(), tool, args)
+			result, err := legacyExecute(adapter, context.Background(), tool, args)
 			if err != nil {
 				t.Fatalf("ExecuteTool: %v", err)
 			}
@@ -69,7 +69,7 @@ func TestStdioAdmission_AcceptedInFilesystemMode(t *testing.T) {
 			sa := &stubMusterClient{existing: stdioServer(), filesystem: true}
 			adapter := NewAdapterWithClient(sa, "test-ns")
 
-			result, err := adapter.ExecuteTool(context.Background(), tool, args)
+			result, err := legacyExecute(adapter, context.Background(), tool, args)
 			if err != nil {
 				t.Fatalf("ExecuteTool: %v", err)
 			}
@@ -88,7 +88,7 @@ func TestStdioAdmission_RemoteTypesUnaffected(t *testing.T) {
 			sa := &stubMusterClient{}
 			adapter := NewAdapterWithClient(sa, "test-ns")
 
-			result, err := adapter.ExecuteTool(context.Background(), "mcpserver_create",
+			result, err := legacyExecute(adapter, context.Background(), "mcpserver_create",
 				map[string]interface{}{"name": "remote-server", "type": serverType, "url": "http://example.com/mcp"})
 			if err != nil {
 				t.Fatalf("ExecuteTool: %v", err)

@@ -127,7 +127,7 @@ func TestClientCredentialsEnvtest(t *testing.T) {
 
 	call := func(ctx context.Context, tool string, args map[string]interface{}) (string, bool) {
 		t.Helper()
-		result, err := adapter.ExecuteTool(ctx, tool, args)
+		result, err := legacyExecute(adapter, ctx, tool, args)
 		require.NoError(t, err)
 		return resultText(t, result), result.IsError
 	}

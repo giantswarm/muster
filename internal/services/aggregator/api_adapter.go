@@ -303,3 +303,11 @@ func (a *APIAdapter) DescriptionConflict(key string, previous, auth *api.MCPServ
 	}
 	return server.DescriptionConflict(key, previous, auth, newClient)
 }
+
+// ServerTools implements api.ServerToolLister.
+func (a *APIAdapter) ServerTools(ctx context.Context, server string) ([]mcp.Tool, bool) {
+	if a.service == nil || a.service.GetManager() == nil || a.service.GetManager().GetAggregatorServer() == nil {
+		return nil, false
+	}
+	return a.service.GetManager().GetAggregatorServer().ServerTools(ctx, server)
+}

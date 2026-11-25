@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // A call whose effective approval is Ask runs only after a person approved
@@ -308,4 +310,20 @@ func PostLoginRedirectAllowed(raw string) bool {
 		return checker.PostLoginRedirectAllowed(raw)
 	}
 	return false
+}
+
+// ServerToolLister is the optional capability of the registered aggregator
+// that lists a server's tools as the server names them, for the caller: what
+// a preset expands from when a connector's approval is set.
+type ServerToolLister interface {
+	ServerTools(ctx context.Context, server string) ([]mcp.Tool, bool)
+}
+
+// ServerTools lists a server's own tools through the registered aggregator;
+// false when it cannot.
+func ServerTools(ctx context.Context, server string) ([]mcp.Tool, bool) {
+	if lister, ok := GetAggregator().(ServerToolLister); ok {
+		return lister.ServerTools(ctx, server)
+	}
+	return nil, false
 }

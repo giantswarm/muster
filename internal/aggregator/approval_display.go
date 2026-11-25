@@ -70,7 +70,7 @@ func (a *AggregatorServer) coreDisplay(ctx context.Context, name string, args ma
 		display.Changes = connectorChanges(ctx, server, args)
 	}
 	if preset, _ := args["preset"].(string); preset != "" {
-		display.Preset = a.presetDisplay(server, preset, name == "core_mcpserver_set_approval")
+		display.Preset = a.presetDisplay(ctx, server, preset, name == "core_mcpserver_set_approval")
 	}
 	return display
 }
@@ -110,14 +110,10 @@ func connectorChanges(ctx context.Context, server string, args map[string]any) [
 // presetDisplay lists the settings a preset writes: per tool the server
 // lists now, then the rule new tools follow. A server not connected yet
 // lists no tools; the rule alone is shown.
-func (a *AggregatorServer) presetDisplay(server, preset string, existing bool) []api.ApprovalArgument {
+func (a *AggregatorServer) presetDisplay(ctx context.Context, server, preset string, existing bool) []api.ApprovalArgument {
 	var tools []mcp.Tool
 	if existing {
-		if info, ok := a.registry.GetServerInfo(server); ok && info != nil {
-			info.mu.RLock()
-			tools = slices.Clone(info.Tools)
-			info.mu.RUnlock()
-		}
+		tools, _ = a.ServerTools(ctx, server)
 	}
 	expanded, err := api.ExpandApprovalPreset(preset, tools)
 	if err != nil {
@@ -215,4 +211,28 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	slices.Sort(keys)
 	return keys
+}
+
+// ServerTools lists a server's own tools: the shared listing, else the
+// calling session's cached capabilities for a server it signs in to.
+func (a *AggregatorServer) ServerTools(ctx context.Context, server string) ([]mcp.Tool, bool) {
+	info, ok := a.registry.GetServerInfo(server)
+	if !ok || info == nil {
+		return nil, false
+	}
+	info.mu.RLock()
+	tools := slices.Clone(info.Tools)
+	info.mu.RUnlock()
+	if len(tools) > 0 || a.capabilityStore == nil {
+		return tools, len(tools) > 0
+	}
+	sessionID := getSessionIDFromContext(ctx)
+	if sessionID == "" {
+		return nil, false
+	}
+	cached, err := a.capabilityStore.Get(ctx, sessionID, server)
+	if err != nil || cached == nil {
+		return nil, false
+	}
+	return slices.Clone(cached.Tools), len(cached.Tools) > 0
 }

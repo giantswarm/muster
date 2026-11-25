@@ -158,6 +158,10 @@ func getOrCreateStringMap(args map[string]interface{}, key string) map[string]st
 // processMCPServerFlag handles individual flag processing for MCPServer parameters
 func processMCPServerFlag(args map[string]interface{}, flagName, flagValue string, hasValue bool) {
 	switch flagName {
+	case "preset":
+		if hasValue {
+			args["preset"] = flagValue
+		}
 	case "type":
 		if hasValue {
 			args["type"] = flagValue
