@@ -1,0 +1,98 @@
+suite: muster-approval-binder RBAC template tests
+templates:
+  - templates/approval-binder-rbac.yaml
+
+tests:
+  - it: ships the muster-approval-binder Role with bind on toolapprovals only, bound to nobody
+    release:
+      namespace: muster-system
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: Role
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: muster-approval-binder
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: muster-system
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - apiGroups: ["muster.giantswarm.io"]
+              resources: ["toolapprovals"]
+              verbs: ["bind"]
+        documentIndex: 0
+
+  - it: grants muster's ServiceAccount the token and access reviews (system:auth-delegator)
+    release:
+      name: muster
+      namespace: muster-system
+    asserts:
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 1
+      - equal:
+          path: roleRef
+          value:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: system:auth-delegator
+        documentIndex: 1
+      - equal:
+          path: subjects[0].kind
+          value: ServiceAccount
+        documentIndex: 1
+      - equal:
+          path: subjects[0].namespace
+          value: muster-system
+        documentIndex: 1
+
+  - it: binds the Role to configured subjects
+    set:
+      rbac.approvalBinder.subjects:
+        - kind: ServiceAccount
+          name: agent-manager
+          namespace: agent-platform
+    asserts:
+      - hasDocuments:
+          count: 3
+      - isKind:
+          of: RoleBinding
+        documentIndex: 1
+      - equal:
+          path: roleRef.name
+          value: muster-approval-binder
+        documentIndex: 1
+      - equal:
+          path: subjects
+          value:
+            - kind: ServiceAccount
+              name: agent-manager
+              namespace: agent-platform
+        documentIndex: 1
+
+  - it: renders no ClusterRoleBinding without a chart ServiceAccount
+    set:
+      serviceAccount.create: false
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: creates nothing when rbac.approvalBinder.create is false
+    set:
+      rbac.approvalBinder.create: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: creates nothing when rbac.create is false
+    set:
+      rbac.create: false
+    asserts:
+      - hasDocuments:
+          count: 0

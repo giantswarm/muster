@@ -3,10 +3,10 @@ templates:
   - templates/mcpserver-editor-rbac.yaml
 
 tests:
-  - it: ships the mcpserver-editor Role and default RoleBinding
+  - it: ships the mcpserver-editor Role and no RoleBinding by default
     asserts:
       - hasDocuments:
-          count: 2
+          count: 1
       - isKind:
           of: Role
         documentIndex: 0
@@ -24,6 +24,16 @@ tests:
               resources: ["secrets"]
               verbs: ["create"]
         documentIndex: 0
+
+  - it: binds the configured connector admins
+    set:
+      rbac.mcpServerEditor.subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: platform-admins
+    asserts:
+      - hasDocuments:
+          count: 2
       - isKind:
           of: RoleBinding
         documentIndex: 1
@@ -40,12 +50,28 @@ tests:
           value:
             - apiGroup: rbac.authorization.k8s.io
               kind: Group
-              name: system:authenticated
+              name: platform-admins
+        documentIndex: 1
+
+  - it: still binds everyone when asked to
+    set:
+      rbac.mcpServerEditor.subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: system:authenticated
+    asserts:
+      - equal:
+          path: subjects[0].name
+          value: system:authenticated
         documentIndex: 1
 
   - it: places Role and RoleBinding in the MCPServer discovery namespace
     set:
       muster.namespace: mcp-servers
+      rbac.mcpServerEditor.subjects:
+        - apiGroup: rbac.authorization.k8s.io
+          kind: Group
+          name: platform-admins
     asserts:
       - equal:
           path: metadata.namespace
@@ -56,39 +82,9 @@ tests:
           value: mcp-servers
         documentIndex: 1
 
-  - it: narrows the binding to custom subjects
-    set:
-      rbac.mcpServerEditor.subjects:
-        - apiGroup: rbac.authorization.k8s.io
-          kind: Group
-          name: platform-admins
-    asserts:
-      - equal:
-          path: subjects
-          value:
-            - apiGroup: rbac.authorization.k8s.io
-              kind: Group
-              name: platform-admins
-        documentIndex: 1
-
-  - it: fails when subjects is empty so the binding cannot silently grant nobody
-    set:
-      rbac.mcpServerEditor.subjects: []
-    asserts:
-      - failedTemplate:
-          errorMessage: "rbac.mcpServerEditor.subjects must not be empty while the mcpserver-editor RoleBinding is created. Bind an admin group for admin-only registration, bind group system:authenticated to deliberately let every authenticated user register MCP servers, or set rbac.mcpServerEditor.create=false to manage access out of band."
-
   - it: creates nothing when rbac.mcpServerEditor.create is false
     set:
       rbac.mcpServerEditor.create: false
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: allows empty subjects when the binding is not created
-    set:
-      rbac.mcpServerEditor.create: false
-      rbac.mcpServerEditor.subjects: []
     asserts:
       - hasDocuments:
           count: 0

@@ -46,31 +46,49 @@ rbac:
   # broker target credential secrets may reside.
   # A Role/RoleBinding granting `get` on secrets is created in each listed namespace.
   additionalSecretNamespaces: []
-  # mcpServerEditor ships the default answer to "who may register and manage
-  # MCP servers" under writes-as-caller: a namespaced Role granting
+  # mcpServerEditor ships the answer to "who may register and manage MCP
+  # servers" under writes-as-caller: a namespaced Role granting
   # create/update/patch/delete on mcpservers and create (only) on secrets,
-  # plus a RoleBinding. The create on secrets is for a connector's client
-  # entered in the portal (clientCredentials), which muster writes as the
-  # editor to a Secret owned by the MCPServer; mcpServerClientSecrets holds
-  # that create to such Secrets.
+  # plus a RoleBinding to `subjects`. The create on secrets is for a
+  # connector's client entered in the portal (clientCredentials), which
+  # muster writes as the editor to a Secret owned by the MCPServer;
+  # mcpServerClientSecrets holds that create to such Secrets.
   #
-  # Who to bind is a real trade-off. Everyone bound here registers servers
-  # into a SHARED aggregator: other users see those servers and are routed
-  # through them. Shared multi-team installs should narrow subjects to an
-  # admin group. The default binds all authenticated users — a deliberate
-  # fit for single-team installs where every SSO user is trusted to
-  # register, and the compatible default for existing installs. An empty
-  # subjects list fails the render rather than shipping a binding bound to
-  # nobody; set create=false to manage access out of band instead.
+  # Whoever holds the Role is a connector admin: they edit every connector of
+  # this namespace, set its tool approval (spec.approval) and may let an agent
+  # skip a tool's Ask (Governing tool calls,
+  # https://docs.giantswarm.io/overview/agent-platform/governing-tool-calls/).
+  # Everyone bound here also registers servers into a SHARED aggregator:
+  # other users see those servers and are routed through them.
+  #
+  # The default binds nobody: the Role ships, the RoleBinding renders only
+  # for a non-empty `subjects`. Bind an admin group for admin-only
+  # registration, or group system:authenticated to deliberately let every
+  # authenticated user register MCP servers (the chart's earlier default).
+  # Set create=false to manage the Role out of band too.
   mcpServerEditor:
     create: true
     # RoleBinding subjects granted the mcpserver-editor Role. Standard
     # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
-    # Must not be empty while create is true.
-    subjects:  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
-      - apiGroup: rbac.authorization.k8s.io
-        kind: Group
-        name: system:authenticated
+    # Empty (the default) renders no RoleBinding.
+    subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
+  # approvalBinder ships the Role muster-approval-binder: verb `bind` on
+  # `toolapprovals` in group muster.giantswarm.io, a permission on no real
+  # resource that says "may send approval settings with a Session binding".
+  # muster takes a binding's per-entry settings, `default` and grant marks
+  # only from a sender whose projected ServiceAccount token (audience muster)
+  # passes a TokenReview and whose identity a SubjectAccessReview allows that
+  # verb in muster's namespace; so muster's ServiceAccount gets `create` on
+  # tokenreviews and subjectaccessreviews (the ClusterRole
+  # system:auth-delegator). The chart binds the Role to nobody: the platform
+  # binds it to agent-manager's ServiceAccount (agent-platform's connectivity
+  # chart); `subjects` binds it here instead. Granting it is Kubernetes RBAC
+  # in muster's namespace.
+  approvalBinder:
+    create: true
+    # RoleBinding subjects granted muster-approval-binder. Empty (the
+    # default) renders no RoleBinding.
+    subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
   # workflowEditor ships the default answer to "who may create and manage
   # workflows" under writes-as-caller: a namespaced Role granting
   # create/update/patch/delete on workflows, plus a RoleBinding.

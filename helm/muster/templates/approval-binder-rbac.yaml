@@ -1,0 +1,59 @@
+{{/*
+muster-approval-binder: who may send approval settings with a Session binding.
+
+agent-manager binds a Session's agent tool list (per-entry Allow/Ask/Block,
+`default`, grant marks) by sending its own projected ServiceAccount token
+(audience muster) beside the person's. muster reviews that token
+(TokenReview) and asks Kubernetes whether its identity may `bind`
+`toolapprovals` in group muster.giantswarm.io in muster's namespace
+(SubjectAccessReview) — a permission on no real resource. This Role is that
+permission and nothing else; the chart binds it to nobody by default (the
+platform binds agent-manager's ServiceAccount). muster's ServiceAccount gets
+the two review APIs through the built-in ClusterRole system:auth-delegator.
+*/}}
+{{- if and .Values.rbac.create .Values.rbac.approvalBinder.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: muster-approval-binder
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["muster.giantswarm.io"]
+    resources: ["toolapprovals"]
+    verbs: ["bind"]
+{{- with .Values.rbac.approvalBinder.subjects }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: muster-approval-binder
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "muster.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: muster-approval-binder
+subjects:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- if .Values.serviceAccount.create }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "muster.fullname" . }}-auth-delegator
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "muster.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

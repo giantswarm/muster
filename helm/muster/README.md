@@ -34,9 +34,9 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | rbac.create | bool | `true` |  |
 | rbac.additionalSecretNamespaces | list | `[]` |  |
 | rbac.mcpServerEditor.create | bool | `true` |  |
-| rbac.mcpServerEditor.subjects[0].apiGroup | string | `"rbac.authorization.k8s.io"` |  |
-| rbac.mcpServerEditor.subjects[0].kind | string | `"Group"` |  |
-| rbac.mcpServerEditor.subjects[0].name | string | `"system:authenticated"` |  |
+| rbac.mcpServerEditor.subjects | list | `[]` |  |
+| rbac.approvalBinder.create | bool | `true` |  |
+| rbac.approvalBinder.subjects | list | `[]` |  |
 | rbac.workflowEditor.create | bool | `true` |  |
 | rbac.workflowEditor.subjects[0].apiGroup | string | `"rbac.authorization.k8s.io"` |  |
 | rbac.workflowEditor.subjects[0].kind | string | `"Group"` |  |
@@ -262,20 +262,39 @@ a registered MCP server is visible to every user of the instance, and other
 users' sessions are routed through it. A workflow authored by one user is
 listed for and runnable by others.
 
-Pick the binding's subjects to match how the instance is used:
+Pick the bindings' subjects to match how the instance is used:
 
 * **Shared / multi-team installs** should narrow `subjects` to an admin group,
   so only platform administrators curate what everyone else is exposed to.
 * **Single-team installs**, where every authenticated SSO user is trusted to
-  register servers and author workflows, may keep the default
-  `system:authenticated` binding.
+  register servers and author workflows, may bind `system:authenticated`.
 
-The default binds `system:authenticated` — a deliberate choice that keeps
-single-team installs and upgrades working out of the box. Setting `subjects`
-to an empty list **fails the render**: a RoleBinding bound to nobody looks
-enforced while granting nothing. To manage the grants entirely out of band,
-set `rbac.mcpServerEditor.create: false` / `rbac.workflowEditor.create: false`
-and bind the verbs yourself.
+Whoever holds `mcpserver-editor` is a **connector admin**: they set a
+connector's tool approval (`spec.approval`) and may let an agent skip a tool's
+`Ask` (see [Governing tool calls](https://docs.giantswarm.io/overview/agent-platform/governing-tool-calls/)).
+So `rbac.mcpServerEditor.subjects` binds **nobody by default**: the Role ships,
+its RoleBinding renders only for a non-empty list. Name the connector admins
+there (an admin group, or `system:authenticated` to keep the chart's earlier
+"everyone registers" default). `workflow-editor` still defaults to
+`system:authenticated`, and an empty `rbac.workflowEditor.subjects` **fails the
+render**: a RoleBinding bound to nobody looks enforced while granting nothing.
+To manage the grants entirely out of band, set
+`rbac.mcpServerEditor.create: false` / `rbac.workflowEditor.create: false` and
+bind the verbs yourself.
+
+## Who may send approval settings (muster-approval-binder)
+
+A Session binding carries an agent's tool list. muster takes its per-entry
+settings, `default` and grant marks only from a sender whose projected
+ServiceAccount token (audience muster) passes a `TokenReview` and whose
+identity a `SubjectAccessReview` allows verb `bind` on `toolapprovals` in group
+`muster.giantswarm.io` in muster's namespace. The chart ships that permission as
+the Role `muster-approval-binder` (`rbac.approvalBinder`), bound to nobody by
+default — the Agent Platform binds it to agent-manager's ServiceAccount — and
+binds muster's ServiceAccount to the built-in ClusterRole
+`system:auth-delegator` (`create` on `tokenreviews` and
+`subjectaccessreviews`) for the two reviews. `rbac.approvalBinder.subjects`
+binds the Role here instead.
 
 ## Rolling on credential rotation
 
