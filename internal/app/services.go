@@ -277,7 +277,9 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		mergedOAuthMCPClientConfig.ExtraCAFile = cfg.ExtraCAFile
 		mergedOAuthMCPClientConfig.ServesOtherNamespaces = mcpServersInAllNamespaces
 
-		registerGovernance(cfg.MusterConfig.Governance)
+		if err := registerGovernance(cfg.MusterConfig.Governance); err != nil {
+			return nil, err
+		}
 		ttl, err := approvalTTL(cfg.MusterConfig.Approval)
 		if err != nil {
 			return nil, err

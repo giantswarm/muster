@@ -62,7 +62,7 @@ func (a *AggregatorServer) approvalUnavailable(ctx context.Context) string {
 // the caller: the server's admin setting, made stricter for an agent caller
 // by a floor or governance entry. A floor's or governed name on a server the
 // governance configuration does not name is refused to agents.
-func serverToolApproval(ctx context.Context, server, original string, args map[string]any) (*api.MCPServerInfo, api.ToolApproval, error) {
+func serverToolApproval(ctx context.Context, server, original string, _ map[string]any) (*api.MCPServerInfo, api.ToolApproval, error) {
 	if problem := api.ApprovalSchemaProblem(ctx); problem != "" {
 		return nil, api.ToolApproval{}, fmt.Errorf("approval_unavailable: %s", problem)
 	}
@@ -82,9 +82,9 @@ func serverToolApproval(ctx context.Context, server, original string, args map[s
 		if info != nil && info.Type == string(api.MCPServerTypeStdio) && api.GetGovernance().NamesServer(server) {
 			return info, api.ToolApproval{}, fmt.Errorf("agents may not call server %s over stdio: muster's governance configuration names it, and a stdio connection cannot tell it that an agent calls (X-Muster-Caller-Kind)", server)
 		}
-		floor, applies, refused := api.GetGovernance().ServerFloor(server, original, args)
+		floor, applies, refused := api.GetGovernance().ServerEntry(server, original)
 		if refused {
-			return info, api.ToolApproval{}, fmt.Errorf("agents may not call %s on server %s: muster's governance configuration does not name that server for it", original, server)
+			return info, api.ToolApproval{}, fmt.Errorf("agents may not call %s on server %s: it is a floor of a platform role, and muster's governance configuration names no governed server of that role (governance.governedServers in muster's configuration, muster.governance in the muster chart), so muster cannot tell the platform's server from a look-alike", original, server)
 		}
 		if applies {
 			effective = api.StrictestApproval(effective, floor)
@@ -116,14 +116,15 @@ func connectorInfo(ctx context.Context, serverKey string) (*api.MCPServerInfo, e
 }
 
 // coreToolApproval resolves the effective approval of one of muster's core
-// tools: its own configuration always asks; a floor or governance entry asks
-// agent callers; every other core tool runs.
-func coreToolApproval(ctx context.Context, name string, args map[string]any) api.ToolApproval {
+// tools: its own configuration always asks; a floor asks agent callers, and
+// on Governed every core tool but muster's reads asks them; every other core
+// tool runs.
+func coreToolApproval(ctx context.Context, name string, _ map[string]any) api.ToolApproval {
 	if builtin, ok := api.BuiltinApproval(name); ok {
 		return builtin
 	}
 	if api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
-		if floor, ok := api.GetGovernance().CoreFloor(name, args); ok {
+		if floor, ok := api.GetGovernance().CoreEntry(name); ok {
 			return floor
 		}
 	}

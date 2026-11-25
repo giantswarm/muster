@@ -59,16 +59,37 @@ type ApprovalConfig struct {
 // platform chart from its governance value.
 type GovernanceConfig struct {
 	// Mode is "trusted" or "governed". Governed asks agent callers before
-	// they create an agent, widen an agent's access, start another agent's
-	// Session or pause a connector. Any other value counts as governed.
+	// every tool of a governed server that is not on its safe list, and
+	// before every core tool that is not one of muster's reads. Any other
+	// value counts as governed.
 	Mode string `yaml:"mode"`
-	// Servers names, per role, the MCPServers (server keys) whose tools the
-	// floors and governed entries apply to. A floor's or governed tool name
-	// on a server not named for it is refused to agent callers.
+	// GovernedServers names the governed servers: each by its server key,
+	// with an optional role (which floors hold on it, in both modes) and a
+	// safe list (the tools agents call on it unasked on Governed).
+	GovernedServers []GovernedServerConfig `yaml:"governedServers,omitempty"`
+	// Servers is the earlier shape, server keys per role. It is still read:
+	// each key becomes a governed server of that role with an empty safe
+	// list, so every one of its tools asks agents on Governed. It cannot be
+	// combined with GovernedServers.
 	Servers GovernanceServers `yaml:"servers,omitempty"`
 }
 
-// GovernanceServers names the servers of each role.
+// GovernedServerConfig is one governed server.
+type GovernedServerConfig struct {
+	// Server is the server key (name, or namespace/name outside muster's
+	// namespace).
+	Server string `yaml:"server"`
+	// Role is one of agentManager, platformManager, connectorManager,
+	// sessionManager, modelManager, clusterManager, vmManager,
+	// workspaceManager, toolchainManager, skillManager, infrastructure; empty
+	// for a server without floors.
+	Role string `yaml:"role,omitempty"`
+	// Safe lists the server's own tool names agents call unasked on
+	// Governed: reads only.
+	Safe []string `yaml:"safe,omitempty"`
+}
+
+// GovernanceServers names the servers of each role (the earlier shape).
 type GovernanceServers struct {
 	AgentManager     []string `yaml:"agentManager,omitempty"`
 	PlatformManager  []string `yaml:"platformManager,omitempty"`

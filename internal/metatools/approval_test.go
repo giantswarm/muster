@@ -147,7 +147,7 @@ func TestFilterTools_ReportsTheGovernanceMode(t *testing.T) {
 		governance api.Governance
 		want       string
 	}{
-		{api.Governance{Mode: api.GovernanceTrusted, Readable: true, Servers: map[string][]string{api.GovernanceRoleAgentManager: {"agent-manager"}}}, "trusted"},
+		{api.Governance{Mode: api.GovernanceTrusted, Readable: true, Servers: []api.GovernedServer{{Server: "agent-manager", Role: api.GovernanceRoleAgentManager}}}, "trusted"},
 		{api.Governance{Mode: api.GovernanceGoverned, Readable: true}, "governed"},
 		{api.Governance{}, "governed"},
 	} {

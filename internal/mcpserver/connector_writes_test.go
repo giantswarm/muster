@@ -177,7 +177,7 @@ func TestPresetWithoutToolsAndEmptyApproval(t *testing.T) {
 
 // core_mcpserver_list reports the governance mode, never its server lists.
 func TestList_ReportsTheGovernanceMode(t *testing.T) {
-	api.RegisterGovernance(api.Governance{Mode: api.GovernanceTrusted, Readable: true, Servers: map[string][]string{api.GovernanceRoleAgentManager: {"agent-manager"}}})
+	api.RegisterGovernance(api.Governance{Mode: api.GovernanceTrusted, Readable: true, Servers: []api.GovernedServer{{Server: "agent-manager", Role: api.GovernanceRoleAgentManager}}})
 	t.Cleanup(func() { api.RegisterGovernance(api.Governance{}) })
 	adapter := NewAdapterWithClient(filesystem.New(t.TempDir()), "test-ns")
 	result, err := adapter.ExecuteTool(context.Background(), "mcpserver_list", map[string]interface{}{})

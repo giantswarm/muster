@@ -2,6 +2,8 @@ package aggregator
 
 import (
 	"context"
+	"sync"
+	"time"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +14,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/clock"
 )
 
 // A workflow asks once, up front. Before a run starts, every step's tool --
@@ -336,4 +339,123 @@ func (a *AggregatorServer) familyStepApproval(ctx context.Context, tool string, 
 		return unresolvedStep, nil
 	}
 	return api.StrictestApproval(settings...), nil
+}
+
+// workflowReport resolves a workflow tool of a listing to its strictest
+// step, as filter_tools reports it (PRD: "filter_tools reports a workflow as
+// its strictest step"): the steps of the workflows it calls included, from
+// the connectors' settings the listing read; a step muster cannot resolve
+// counts as asking. ok is false when the workflow cannot be read.
+func (a *AggregatorServer) workflowReport(ctx context.Context, l *approvalListing, toolName string) (api.ToolApproval, bool) {
+	workflow, err := a.reportedWorkflow(strings.TrimPrefix(strings.TrimPrefix(toolName, "core_"), "workflow_"))
+	if err != nil {
+		return api.ToolApproval{}, false
+	}
+	l.list(ctx)
+	settings := a.workflowStepSettings(ctx, l, workflow, 0)
+	if len(settings) == 0 {
+		return api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}, true
+	}
+	return api.StrictestApproval(settings...), true
+}
+
+// workflowStepSettings lists the settings of a workflow's step tools.
+func (a *AggregatorServer) workflowStepSettings(ctx context.Context, l *approvalListing, workflow *api.Workflow, depth int) []api.ToolApproval {
+	unresolved := api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}
+	var settings []api.ToolApproval
+	resolve := func(tool string) {
+		if tool == "" {
+			return
+		}
+		if !l.readable {
+			settings = append(settings, l.unavailable)
+			return
+		}
+		if server, original, err := a.registry.ResolveToolName(tool); err == nil {
+			if setting, found := l.server(server, original); found {
+				settings = append(settings, setting)
+				return
+			}
+			settings = append(settings, unresolved)
+			return
+		}
+		if !a.isCoreToolByName(tool) {
+			settings = append(settings, unresolved)
+			return
+		}
+		if !isWorkflowRun(tool) {
+			if builtin, ok := api.BuiltinApproval(coreName(tool)); ok {
+				settings = append(settings, builtin)
+				return
+			}
+			settings = append(settings, l.core(tool))
+			return
+		}
+		nested, err := a.reportedWorkflow(strings.TrimPrefix(strings.TrimPrefix(tool, "core_"), "workflow_"))
+		if err != nil || depth >= maxWorkflowDepth {
+			settings = append(settings, unresolved)
+			return
+		}
+		settings = append(settings, a.workflowStepSettings(ctx, l, nested, depth+1)...)
+	}
+	var visitSubs func(subs []api.WorkflowSubStep)
+	visitSubs = func(subs []api.WorkflowSubStep) {
+		for _, sub := range subs {
+			if sub.Condition != nil {
+				resolve(sub.Condition.Tool)
+			}
+			resolve(sub.Tool)
+			if sub.ForEach != nil {
+				visitSubs(sub.ForEach.Steps)
+			}
+		}
+	}
+	for _, step := range workflow.Steps {
+		if step.Condition != nil {
+			resolve(step.Condition.Tool)
+		}
+		resolve(step.Tool)
+		if step.ForEach != nil {
+			visitSubs(step.ForEach.Steps)
+		}
+		visitSubs(step.Parallel)
+	}
+	visitSubs(workflow.OnFailure)
+	return settings
+}
+
+// workflowReportTTL is how long a definition read for reporting is reused:
+// listings are frequent and must not read every workflow each time. What a
+// run does is decided on a fresh read (gateWorkflow); only the report can be
+// this much behind a changed definition.
+const workflowReportTTL = 30 * time.Second
+
+// reportedWorkflows caches definitions read for reporting.
+type reportedWorkflows struct {
+	mu      sync.Mutex
+	entries map[string]reportedWorkflow
+}
+
+type reportedWorkflow struct {
+	workflow *api.Workflow
+	err      error
+	readAt   time.Time
+}
+
+// reportedWorkflow reads a workflow's definition for reporting, at most once
+// per workflowReportTTL.
+func (a *AggregatorServer) reportedWorkflow(name string) (*api.Workflow, error) {
+	cache := &a.workflowReports
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	now := clock.Now()
+	if entry, ok := cache.entries[name]; ok && now.Sub(entry.readAt) < workflowReportTTL {
+		return entry.workflow, entry.err
+	}
+	workflow, err := lookupWorkflow(name)
+	if cache.entries == nil {
+		cache.entries = map[string]reportedWorkflow{}
+	}
+	cache.entries[name] = reportedWorkflow{workflow: workflow, err: err, readAt: now}
+	return workflow, err
 }

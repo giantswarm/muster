@@ -17,41 +17,68 @@ const maxApprovalTTL = 30 * time.Minute
 
 // governanceFromConfig turns the governance configuration into the immutable
 // copy muster enforces. A missing section, or a mode muster does not know,
-// is an unreadable configuration: the governed entries apply.
-func governanceFromConfig(cfg *config.GovernanceConfig) api.Governance {
+// is an unreadable configuration: the governed default applies. The earlier
+// shape (servers per role) is read as governed servers of those roles with
+// empty safe lists; it cannot be combined with governedServers.
+func governanceFromConfig(cfg *config.GovernanceConfig) (api.Governance, error) {
 	if cfg == nil {
-		return api.Governance{Mode: api.GovernanceGoverned}
+		return api.Governance{Mode: api.GovernanceGoverned}, nil
 	}
 	g := api.Governance{
-		Mode: cfg.Mode,
-		Servers: map[string][]string{
-			api.GovernanceRoleAgentManager:     cfg.Servers.AgentManager,
-			api.GovernanceRolePlatformManager:  cfg.Servers.PlatformManager,
-			api.GovernanceRoleConnectorManager: cfg.Servers.ConnectorManager,
-		},
+		Mode:     cfg.Mode,
 		Readable: cfg.Mode == api.GovernanceTrusted || cfg.Mode == api.GovernanceGoverned,
 	}
 	if !g.Readable {
 		g.Mode = api.GovernanceGoverned
 	}
-	return g
+	legacy := map[string][]string{
+		api.GovernanceRoleAgentManager:     cfg.Servers.AgentManager,
+		api.GovernanceRolePlatformManager:  cfg.Servers.PlatformManager,
+		api.GovernanceRoleConnectorManager: cfg.Servers.ConnectorManager,
+	}
+	hasLegacy := len(cfg.Servers.AgentManager)+len(cfg.Servers.PlatformManager)+len(cfg.Servers.ConnectorManager) > 0
+	if hasLegacy && len(cfg.GovernedServers) > 0 {
+		return api.Governance{}, fmt.Errorf("governance: set governedServers or the earlier servers.<role> lists, not both")
+	}
+	for _, role := range []string{api.GovernanceRoleAgentManager, api.GovernanceRolePlatformManager, api.GovernanceRoleConnectorManager} {
+		for _, server := range legacy[role] {
+			g.Servers = append(g.Servers, api.GovernedServer{Server: server, Role: role})
+		}
+	}
+	for _, s := range cfg.GovernedServers {
+		g.Servers = append(g.Servers, api.GovernedServer{Server: s.Server, Role: s.Role, Safe: s.Safe})
+	}
+	if err := g.Validate(); err != nil {
+		return api.Governance{}, err
+	}
+	if hasLegacy {
+		logging.Warn("Governance", "governance.servers is the earlier shape: its servers are governed with empty safe lists, so on governed every one of their tools asks agents. Use governance.governedServers with safe lists")
+	}
+	return g, nil
 }
 
 // registerGovernance records the governance configuration once, at start,
-// and audits the mode muster runs in.
-func registerGovernance(cfg *config.GovernanceConfig) {
-	g := governanceFromConfig(cfg)
+// and audits the mode muster runs in. A configuration muster cannot enforce
+// as written stops the start.
+func registerGovernance(cfg *config.GovernanceConfig) error {
+	g, err := governanceFromConfig(cfg)
+	if err != nil {
+		return err
+	}
 	api.RegisterGovernance(g)
+	servers := make([]string, 0, len(g.Servers))
+	for _, s := range g.Servers {
+		servers = append(servers, fmt.Sprintf("%s(role=%s, safe=%d)", s.Server, s.Role, len(s.Safe)))
+	}
 	logging.InfoWithAttrs("Governance", "[AUDIT] governance configuration at start",
 		slog.String("action", "governance_start"),
 		slog.String("mode", g.Mode),
 		slog.Bool("readable", g.Readable),
-		slog.Any("agentManager", g.Servers[api.GovernanceRoleAgentManager]),
-		slog.Any("platformManager", g.Servers[api.GovernanceRolePlatformManager]),
-		slog.Any("connectorManager", g.Servers[api.GovernanceRoleConnectorManager]))
+		slog.Any("governedServers", servers))
 	if !g.Readable {
-		logging.Warn("Governance", "No readable governance configuration (governance.mode trusted or governed): the governed entries apply to agent callers, and floor tools on servers it does not name are refused to them")
+		logging.Warn("Governance", "No readable governance configuration (governance.mode trusted or governed): the governed default applies to agent callers -- every core tool but muster's reads asks them -- and the floor tools of a role no governed server holds are refused to them. Set governance in muster's configuration (muster.governance in the muster chart)")
 	}
+	return nil
 }
 
 // approvalTTL parses approval.ttl.

@@ -12,13 +12,40 @@ import (
 )
 
 func TestGovernanceFromConfig(t *testing.T) {
-	assert.True(t, governanceFromConfig(nil).Governed(), "no configuration applies the governed entries")
-	assert.True(t, governanceFromConfig(&config.GovernanceConfig{Mode: "Trusted"}).Governed(), "an unknown mode is unreadable")
+	g, err := governanceFromConfig(nil)
+	require.NoError(t, err)
+	assert.True(t, g.Governed(), "no configuration applies the governed default")
+	g, err = governanceFromConfig(&config.GovernanceConfig{Mode: "Trusted"})
+	require.NoError(t, err)
+	assert.True(t, g.Governed(), "an unknown mode is unreadable")
 
-	g := governanceFromConfig(&config.GovernanceConfig{Mode: "trusted", Servers: config.GovernanceServers{AgentManager: []string{"agent-manager"}}})
+	g, err = governanceFromConfig(&config.GovernanceConfig{Mode: "governed", GovernedServers: []config.GovernedServerConfig{
+		{Server: "agent-manager", Role: "agentManager", Safe: []string{"list_agents"}},
+		{Server: "kagent", Role: "sessionManager"},
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, []api.GovernedServer{
+		{Server: "agent-manager", Role: "agentManager", Safe: []string{"list_agents"}},
+		{Server: "kagent", Role: "sessionManager"},
+	}, g.Servers)
+
+	// The earlier shape still works: its servers are governed, safe lists
+	// empty.
+	g, err = governanceFromConfig(&config.GovernanceConfig{Mode: "trusted", Servers: config.GovernanceServers{AgentManager: []string{"agent-manager"}}})
+	require.NoError(t, err)
 	assert.False(t, g.Governed())
-	assert.Equal(t, []string{"agent-manager"}, g.Servers[api.GovernanceRoleAgentManager])
-	assert.True(t, governanceFromConfig(&config.GovernanceConfig{Mode: "governed"}).Governed())
+	assert.Equal(t, []api.GovernedServer{{Server: "agent-manager", Role: "agentManager"}}, g.Servers)
+
+	for name, bad := range map[string]*config.GovernanceConfig{
+		"both shapes":         {Mode: "governed", Servers: config.GovernanceServers{AgentManager: []string{"a"}}, GovernedServers: []config.GovernedServerConfig{{Server: "b"}}},
+		"unknown role":        {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "agentmanager"}}},
+		"server twice":        {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a"}, {Server: "a"}}},
+		"no server key":       {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Role: "agentManager"}}},
+		"a floor marked safe": {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "agentManager", Safe: []string{"set_agent_approval"}}}},
+	} {
+		_, err := governanceFromConfig(bad)
+		require.Error(t, err, name)
+	}
 }
 
 func TestApprovalTTL(t *testing.T) {

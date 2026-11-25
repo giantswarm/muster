@@ -276,6 +276,14 @@ type AggregatorServer struct {
 
 	// approval is how calls that ask are asked (approval_gate.go).
 	approval approvalSettings
+
+	// workflowReports caches workflow definitions read to report a
+	// workflow's strictest step in listings (approval_workflow.go).
+	workflowReports reportedWorkflows
+
+	// safeLists records the governed servers' safe-list entries that name
+	// no tool they list (governance_safe_lists.go).
+	safeLists safeListReport
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,

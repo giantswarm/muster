@@ -29,7 +29,7 @@ func (p *headerProbe) CallTool(ctx context.Context, name string, args map[string
 // (M1-MU-S-05, M1-MU-C-20).
 func TestCallerKindHeader(t *testing.T) {
 	api.RegisterGovernance(api.Governance{Mode: api.GovernanceTrusted, Readable: true,
-		Servers: map[string][]string{api.GovernanceRoleAgentManager: {"agent-manager"}}})
+		Servers: []api.GovernedServer{{Server: "agent-manager", Role: api.GovernanceRoleAgentManager}}})
 	t.Cleanup(func() { api.RegisterGovernance(api.Governance{}) })
 
 	rig := newGateRig(t)
@@ -60,7 +60,7 @@ func TestCallerKindHeader(t *testing.T) {
 // agent callers are refused there.
 func TestCallerKindHeader_StdioRefusesAgents(t *testing.T) {
 	api.RegisterGovernance(api.Governance{Mode: api.GovernanceTrusted, Readable: true,
-		Servers: map[string][]string{api.GovernanceRoleAgentManager: {"github"}}})
+		Servers: []api.GovernedServer{{Server: "github", Role: api.GovernanceRoleAgentManager}}})
 	t.Cleanup(func() { api.RegisterGovernance(api.Governance{}) })
 	rig := newGateRig(t)
 	manager := api.GetMCPServerManager().(*stubMCPServerManager)

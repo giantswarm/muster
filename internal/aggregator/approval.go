@@ -55,8 +55,10 @@ func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServe
 // blocks. A family tool resolves per member: the members that block it are
 // dropped from it (its instance argument no longer offers them), it is
 // dropped when all of them do, and it reports the strictest setting of the
-// members left. muster's own configuration tools report their built-in Ask,
-// every other core tool Allow, not reviewed.
+// members left. muster's own configuration tools report their built-in Ask;
+// for an agent caller the floors and, on Governed, the governed default are
+// reported too; every other core tool is Allow, not reviewed. A workflow
+// reports its strictest step.
 //
 // When the settings cannot be read (the listing failed, the server's object
 // is missing, the CRD does not know spec.approval), every affected server
@@ -64,6 +66,7 @@ func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServe
 // what is reported; a call is refused at dispatch).
 func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
 	out := a.resolveApprovals(ctx, tools)
+	a.checkSafeLists(ctx)
 	reason := a.approvalUnavailable(ctx)
 	if reason == "" && anyAsks(out) {
 		// A store that is registered but cannot be reached refuses every
@@ -123,18 +126,17 @@ func anyAsks(tools []mcp.Tool) bool {
 
 // resolveApprovals is applyApprovals without the availability of asking.
 func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
-	var (
-		approvals map[string]*api.MCPServerApproval
-		managed   bool
-		readable  = true
-		listed    bool
-	)
-	unavailable := api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}
+	l := &approvalListing{readable: true}
+	l.unavailable = api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}
 	if problem := api.ApprovalSchemaProblem(ctx); problem != "" {
-		readable = false
-		unavailable.Unavailable = problem
-		listed = true
+		l.readable = false
+		l.unavailable.Unavailable = problem
+		l.listed = true
 	}
+	// What a call would do for this caller: an agent caller gets the floors
+	// and, on Governed, the governed default reported too (M1-MU-C-08).
+	l.agent = api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx)))
+	l.governance = api.GetGovernance()
 
 	out := tools[:0:0]
 	for _, tool := range tools {
@@ -145,21 +147,21 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 		}
 		switch toolset.KindOf(tool) {
 		case toolset.KindEntryWorkflow:
+			if reported, ok := a.workflowReport(ctx, l, tool.Name); ok {
+				api.SetToolApproval(&tool, reported)
+			}
 			out = append(out, tool)
 			continue
 		case toolset.KindEntryCore:
-			api.SetToolApproval(&tool, api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed})
+			api.SetToolApproval(&tool, l.core(tool.Name))
 			out = append(out, tool)
 			continue
 		}
 
-		if !listed {
-			approvals, managed, readable = connectorApprovals(ctx)
-			listed = true
-		}
+		l.list(ctx)
 		servers, original, ok := a.approvalTarget(tool)
-		if !readable || !ok {
-			api.SetToolApproval(&tool, unavailable)
+		if !l.readable || !ok {
+			api.SetToolApproval(&tool, l.unavailable)
 			out = append(out, tool)
 			continue
 		}
@@ -168,12 +170,11 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 		var settings []api.ToolApproval
 		missing := false
 		for _, server := range servers {
-			written, found := approvals[server]
-			if managed && !found {
+			setting, found := l.server(server, original)
+			if !found {
 				missing = true
 				break
 			}
-			setting := api.ResolveConnectorApproval(written, original)
 			if setting.Setting == api.ApprovalSettingBlock {
 				continue
 			}
@@ -181,7 +182,7 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 			settings = append(settings, setting)
 		}
 		if missing {
-			api.SetToolApproval(&tool, unavailable)
+			api.SetToolApproval(&tool, l.unavailable)
 			out = append(out, tool)
 			continue
 		}
@@ -195,6 +196,58 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 		out = append(out, tool)
 	}
 	return out
+}
+
+// approvalListing resolves the approvals of one listing for its caller,
+// reading the connectors' settings once.
+type approvalListing struct {
+	approvals   map[string]*api.MCPServerApproval
+	managed     bool
+	readable    bool
+	listed      bool
+	unavailable api.ToolApproval
+	agent       bool
+	governance  api.Governance
+}
+
+func (l *approvalListing) list(ctx context.Context) {
+	if !l.listed {
+		l.approvals, l.managed, l.readable = connectorApprovals(ctx)
+		l.listed = true
+	}
+}
+
+// server resolves a server's own tool for the caller; found is false for a
+// server the manager does not know.
+func (l *approvalListing) server(server, original string) (api.ToolApproval, bool) {
+	written, found := l.approvals[server]
+	if l.managed && !found {
+		return api.ToolApproval{}, false
+	}
+	setting := api.ResolveConnectorApproval(written, original)
+	if setting.Setting == api.ApprovalSettingBlock || !l.agent {
+		return setting, true
+	}
+	entry, applies, refused := l.governance.ServerEntry(server, original)
+	switch {
+	case refused:
+		// Refused to agents, with the reason, when called: shown, so the
+		// refusal can be explained, as blocked by governance.
+		return api.ToolApproval{Setting: api.ApprovalSettingBlock, Source: api.ApprovalSourceGovernance}, true
+	case applies:
+		return api.StrictestApproval(setting, entry), true
+	}
+	return setting, true
+}
+
+// core resolves one of muster's core tools for the caller.
+func (l *approvalListing) core(name string) api.ToolApproval {
+	if l.agent {
+		if entry, ok := l.governance.CoreEntry(coreName(name)); ok {
+			return entry
+		}
+	}
+	return api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}
 }
 
 // approvalTarget returns the servers a server tool runs on (one, or a
