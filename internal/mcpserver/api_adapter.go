@@ -1007,6 +1007,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	// preset expands from the tools listed now, and a server not created yet
 	// lists none, so it gets the preset's rule.
 	args = maps.Clone(args)
+	_, hasPreset := args["preset"]
 	approval, refused := approvalFromArgs(args, true, noTools)
 	if refused != nil {
 		return refused, nil
@@ -1095,7 +1096,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		Operation: "create",
 	})
 
-	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name) + storedInSecret(secretName))
+	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name) + presetNote(hasPreset, approval) + storedInSecret(secretName))
 }
 
 func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {

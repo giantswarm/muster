@@ -76,3 +76,12 @@ func connectorAdminLookup(ctx context.Context) func(tool mcp.Tool) *bool {
 		return &admin
 	}
 }
+
+// governanceMode is the mode a client is shown: governed when the governed
+// entries apply, whatever the reason.
+func governanceMode() string {
+	if api.GetGovernance().Governed() {
+		return api.GovernanceGoverned
+	}
+	return api.GovernanceTrusted
+}

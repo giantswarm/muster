@@ -204,6 +204,12 @@ type FilterToolsResponse struct {
 	// person must sign in again (a session whose token the Kubernetes API
 	// does not accept, when muster lists servers as the caller).
 	Notice string `json:"notice,omitempty"`
+	// Governance is the governance mode muster runs in, trusted or governed
+	// (also when muster started without a readable configuration, which
+	// applies the governed entries), so a client can show it and pick the
+	// connector wizard's preset. The configuration's server lists are not
+	// reported.
+	Governance string `json:"governance"`
 }
 
 // FilterCriteria describes the filter parameters applied.

@@ -147,6 +147,11 @@ func approvalFromArgs(args map[string]any, required bool, tools func() []mcp.Too
 		if !ok {
 			return refuse("approval must be an object {rule, tools}")
 		}
+		if len(object) == 0 {
+			// An empty object would mark the connector reviewed while it
+			// allows everything (M1-MU-C-17).
+			return refuse("approval needs a rule (Allow, Ask or Block) or tool entries; to allow everything say so with rule Allow or preset allow-all")
+		}
 		approval := &musterv1alpha1.MCPServerApproval{}
 		for key, value := range object {
 			switch key {
@@ -217,6 +222,7 @@ func (a *Adapter) handleMCPServerSetApproval(ctx context.Context, args map[strin
 	if refused != nil {
 		return refused, nil
 	}
+	_, hasPreset := args["preset"]
 	approval, refused := approvalFromArgs(args, true, func() []mcp.Tool {
 		tools, _ := api.ServerTools(ctx, name)
 		return tools
@@ -269,7 +275,7 @@ func (a *Adapter) handleMCPServerSetApproval(ctx context.Context, args map[strin
 		Content: []interface{}{map[string]interface{}{
 			"name":     name,
 			"approval": convertCRDApprovalToAPI(approval),
-			"message":  fmt.Sprintf("Approval settings of MCP server '%s' set", name),
+			"message":  fmt.Sprintf("Approval settings of MCP server '%s' set", name) + presetNote(hasPreset, approval),
 		}},
 	}, nil
 }
@@ -322,6 +328,16 @@ func approvalValue(approval *musterv1alpha1.MCPServerApproval) any {
 		return nil
 	}
 	return map[string]any{"rule": approval.Rule, "tools": approval.Tools}
+}
+
+// presetNote tells the caller when a preset found no tools to expand to: only
+// its rule was written, so every tool follows the rule and reports new
+// (M1-MU-C-17).
+func presetNote(hasPreset bool, approval *musterv1alpha1.MCPServerApproval) string {
+	if !hasPreset || approval == nil || len(approval.Tools) > 0 {
+		return ""
+	}
+	return fmt.Sprintf("; the server lists no tools now (not connected yet, suspended or signed out), so only the preset's rule %s was written: every tool follows it and is reported new until per-tool settings are set", approval.Rule)
 }
 
 // noTools is the tool list of a server not created yet.

@@ -137,3 +137,27 @@ func TestDescribeTool_ReportsApprovalAndConnectorAdmin(t *testing.T) {
 	assert.Nil(t, resp.Approval)
 	assert.Nil(t, resp.ConnectorAdmin)
 }
+
+// filter_tools reports the governance mode, and only the mode, to every
+// caller: governed also when the configuration was unreadable.
+func TestFilterTools_ReportsTheGovernanceMode(t *testing.T) {
+	defer registerMockHandler(approvalCatalogue())()
+	p := NewProvider()
+	for _, tc := range []struct {
+		governance api.Governance
+		want       string
+	}{
+		{api.Governance{Mode: api.GovernanceTrusted, Readable: true, Servers: map[string][]string{api.GovernanceRoleAgentManager: {"agent-manager"}}}, "trusted"},
+		{api.Governance{Mode: api.GovernanceGoverned, Readable: true}, "governed"},
+		{api.Governance{}, "governed"},
+	} {
+		api.RegisterGovernance(tc.governance)
+		result, err := p.ExecuteTool(withHeader("", false), "filter_tools", map[string]any{"pattern": "x_github_merge"})
+		require.NoError(t, err)
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal([]byte(result.Content[0].(string)), &raw))
+		assert.Equal(t, tc.want, raw["governance"])
+		assert.NotContains(t, result.Content[0].(string), "agent-manager", "server lists are not reported")
+	}
+	api.RegisterGovernance(api.Governance{})
+}

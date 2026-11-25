@@ -391,6 +391,7 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 		Total:         len(ordered),
 		Truncated:     truncated,
 		Tools:         toolInfos,
+		Governance:    governanceMode(),
 	}
 	// The response names the toolset the tools above were resolved within:
 	// the argument when one was given (it resolves inside the request's

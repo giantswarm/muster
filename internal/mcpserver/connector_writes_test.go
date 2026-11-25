@@ -159,3 +159,18 @@ func TestGetAndList_HideBlockedNamesFromNonAdmins(t *testing.T) {
 	assert.Contains(t, server.Approval.Tools, "secret_tool", "the original is untouched")
 	assert.Equal(t, server, withoutBlockedNames(server, true), "a connector admin sees every entry")
 }
+
+// A preset that finds no tools says that only its rule was written, and an
+// empty approval object is refused: it would read as reviewed while it
+// allows everything (M1-MU-C-17).
+func TestPresetWithoutToolsAndEmptyApproval(t *testing.T) {
+	c := &recordingClient{}
+	adapter := NewAdapterWithClient(c, "test-ns")
+	text, isErr := call(t, adapter, "mcpserver_create", remoteServerArgs(map[string]interface{}{"preset": "recommended"}))
+	require.False(t, isErr)
+	assert.Contains(t, text, "only the preset's rule Ask was written")
+
+	text, isErr = call(t, adapter, "mcpserver_create", remoteServerArgs(map[string]interface{}{"name": "empty", "approval": map[string]interface{}{}}))
+	require.True(t, isErr)
+	assert.Contains(t, text, "approval needs a rule")
+}
