@@ -561,11 +561,91 @@ Rules:
   the CRD knew the field, counts as `Ask`.
 - muster reads the settings on every listing and every call, so a change
   applies to the next one without a restart.
-- In this release muster enforces `Block` only: a blocked tool is absent from
-  `list_tools`, `filter_tools` and `describe_tool`, and `call_tool` (a workflow
-  step included) refuses it as not found. `Ask` is reported, and the call
-  still runs. The meta-tools report each tool's setting and where it comes from
+- A blocked tool is absent from `list_tools`, `filter_tools` and
+  `describe_tool`, and `call_tool` (a workflow step included) refuses it as not
+  found. The meta-tools report each tool's setting and where it comes from
   ([Tool approval](../reference/mcp-tools.md#tool-approval)).
+
+Set the settings with `core_mcpserver_set_approval`, passing `approval`
+(`{rule, tools}`) or a `preset` that muster expands, once, from the tools the
+server lists now: `recommended` (rule `Ask`, each tool annotated
+`readOnlyHint: true` `Allow`, every other `Ask`), `allow-all` or `ask-all`.
+`core_mcpserver_create` requires `preset` or `approval`; a server not listed
+yet gets the preset's rule, so set the preset again once it lists its tools.
+Each change is audited old to new with who made it.
+
+The connector write tools are split, so each can be governed on its own:
+`core_mcpserver_create`, `core_mcpserver_update` (description, display name,
+tags, `autoStart`, `timeout`, `progress`, `suspended`, `restartRequestedAt`),
+`core_mcpserver_connect` (type, URL, command, args, env, headers,
+`headersFrom`, `requestMeta`, auth, `clientCredentials`, family, `toolPrefix`),
+`core_mcpserver_set_approval` and `core_mcpserver_delete`. Each refuses an
+argument another one takes, naming it.
+
+### When a call asks
+
+A call whose effective approval is `Ask` runs only after its person approved
+that exact call:
+
+1. `call_tool` records a pending approval, bound to the person (issuer and raw
+   `sub`), the muster session, the resolved target (server, its UID and
+   generation, the server's own tool name; or the workflow and its
+   definition) and the RFC 8785 canonical form of the arguments, and answers
+   with a link to `https://<publicUrl>/approvals/<id>`. A client that declares
+   URL elicitation gets it as one (`input_required` on protocol 2026-07-28,
+   `-32042` before); any other client gets a tool error `approval_required:
+   <message> Approve or decline at <link> then run the tool again.`
+2. The person opens the link. muster signs the browser in through its own
+   identity provider; only the person the call was made for sees the call and
+   the buttons. The page shows the tool by its title, the connector, whether
+   it changes data and each argument in full.
+3. The client calls again with the same arguments. muster finds the decision
+   itself (the client's own "accept" counts for nothing): an approved call runs
+   once with the arguments the person saw, a declined one answers `declined`,
+   and an identical call made before a decision gets the same link.
+
+An approval expires after `approval.ttl` (5 minutes) and is used up by one
+run. A person has at most 10 pending approvals, 3 per session; arguments are
+capped at 64 KiB. Resources and prompts are not gated: they are reads.
+
+A workflow asks once, up front: muster resolves every step's tool with the
+caller's settings; a blocked step refuses the run before anything runs, and
+if any step asks the whole run asks once, for the workflow's definition and
+inputs. The approved run's steps do not ask again; a step that resolves to
+`Block`, to a tool the check did not see, or to `ask` in a run nobody
+approved, fails the run there.
+
+Prerequisites: muster's shared store on Valkey
+(`aggregator.oauth.server.storage.type: valkey`), its own OAuth server (the
+browser sign-in) and a public URL (`aggregator.oauth.mcpClient.publicUrl`, on
+the OAuth server's origin). Without one of them, or when the store does not
+answer, every call that asks is refused with the reason, and the meta-tools
+report it as `approval.unavailable`. The page returns the browser to the
+`redirect` its client passed when `postLoginRedirectAllowlist` admits it, with
+`elicitationId` appended and never the decision.
+
+Approval pages are only ever served on muster's own host. An agent that drives
+the person's signed-in browser acts as the person and can approve.
+
+### Governance and floors
+
+Agent callers (a Session's actor JWT, a delegated token) are asked before
+some calls whatever the settings say; a person acting directly is not:
+
+- in both modes: `core_mcpserver_create`, `core_mcpserver_connect`,
+  `core_mcpserver_set_approval`, `core_workflow_create`, `_update` and
+  `_delete`, and on the servers `governance.servers` names agent-manager's
+  `set_agent_approval` and `set_organization_connector` and the Platform
+  Manager's `approve_action` and `merge_action`;
+- on `governance.mode: governed` also agent-manager's `create_agent`,
+  `update_agent_access` and `start_session`, and `core_mcpserver_update` with
+  `suspended: true`.
+
+muster's own configuration (`core_config_update_aggregator`,
+`core_config_save`, `core_config_reload`) asks every caller. A tool with one of
+those names on a server the configuration does not name for it is refused to
+agents. Requests of agent callers to a server the configuration names carry
+`X-Muster-Caller-Kind: agent`.
 
 ## Display name
 

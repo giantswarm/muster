@@ -107,7 +107,7 @@ func (a *Adapter) storeClientCredentialsOnCreate(ctx context.Context, writer mcp
 	case cause == "":
 		return name, ""
 	case err == errServerChanged:
-		return "", fmt.Sprintf("Cannot store the client credentials of MCP server '%s': %s. It is left as it is, stopped if it was not replaced: enter the client again with core_mcpserver_update clientCredentials and suspended false",
+		return "", fmt.Sprintf("Cannot store the client credentials of MCP server '%s': %s. It is left as it is, stopped if it was not replaced: enter the client again with core_mcpserver_connect clientCredentials and suspended false",
 			server.Name, cause)
 	}
 	if err := secrets.DeleteMCPServerUID(ctx, server.Name, server.Namespace, server.UID); err != nil && !errors.IsNotFound(err) && !errors.IsConflict(err) {

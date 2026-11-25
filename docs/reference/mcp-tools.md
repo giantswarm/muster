@@ -136,9 +136,14 @@ caller as `approval`, from its server's `spec.approval`
   reported as `ask`, and a call is refused).
 - `new`: `true` for a tool without its own entry on a server that has settings; it follows
   the rule.
+- `unavailable`: on a tool whose setting is `ask`, why muster cannot ask here (no shared store
+  on Valkey, no browser sign-in, no public URL, no person on the request); calls to it are
+  refused until that is fixed. Omitted when muster can ask.
 
-Workflows carry no `approval` yet. In this release only `block` is enforced; `ask` is reported
-and the call still runs.
+`allow` runs, `block` is refused as not found, and `ask` asks the person through muster's
+approval page ([When a call asks](../how-to/mcp-server-management.md#when-a-call-asks)).
+Workflows carry no `approval` yet; a workflow run asks once, up front, when one of its steps
+asks.
 
 A server tool also carries `connectorAdmin`: whether the caller may change its server's
 settings, that is may `update` MCPServers in the server's namespace (for a family tool, of
@@ -267,7 +272,9 @@ workflow whose steps call only read-only tools stays read-only when one of them 
 | `core_mcpserver_list`, `core_mcpserver_get`, `core_mcpserver_validate` | true | false | true | false | Read or validate. |
 | `core_mcpserver_detect` | true | false | true | **true** | Probes a remote URL for its transport; reads only, but reaches beyond muster. |
 | `core_mcpserver_create` | false | false | false | false | Adds a definition. |
-| `core_mcpserver_update` | false | true | true | false | Replaces a definition. |
+| `core_mcpserver_update` | false | true | true | false | Changes description, display name, tags, lifecycle. |
+| `core_mcpserver_connect` | false | true | true | false | Changes where a server is and how muster reaches it. |
+| `core_mcpserver_set_approval` | false | false | true | false | Replaces a server's approval settings. |
 | `core_mcpserver_delete` | false | true | false | false | Removes a definition. |
 | `core_events` | true | false | true | false | Read. |
 | `core_auth_login` | **true** | false | true | **true** | Issues a sign-in link for the caller and changes nothing on the platform; the grant that follows lands in the caller's own session. Reaches the server's authorization server. A read-only agent keeps the ability to connect SSO-protected servers as the person. |
@@ -571,6 +578,7 @@ Create a new MCP server definition that can be started as a service.
 - `progress` (object, optional) - `maxDuration` (integer): seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it (at least `timeout`, at most 3600, default 3600)
 - `autoStart` (boolean, optional) - Whether to start automatically on system startup
 - `auth` (object, optional) - Authentication for remote servers. An `authorizationServer` that another MCPServer describes differently under the same issuer (another client or endpoints) is refused, naming that server: one issuer, one client
+- `preset` (string) or `approval` (object) - **one is required.** `preset` is `recommended`, `allow-all` or `ask-all`, expanded from the tools the server lists now (none yet on create: the preset's rule); `approval` is `{"rule": "Allow"|"Ask", "tools": {"<tool>": "Allow"|"Ask"|"Block"}}`. Without either the call fails, listing the presets
 - `clientCredentials` (object, optional, write-only) - `{"clientId": "...", "clientSecret": "..."}`, the client of `auth.authorizationServer` (required with it). Not with `auth.authorizationServer.clientCredentialsSecretRef`. Refused for an issuer a provider App owns: the App's client signs in there. muster creates the server, then, as the caller, the Secret `<name>-muster-client-<10 random>` (`client-id`, `client-secret`) owned by the server, then names it in the reference. The caller needs `create` on `secrets`; when that fails, the server is removed again and the error names the permission. Values are never returned or logged; the schema marks it `writeOnly`, and a workflow execution record keeps `[redacted]` for an input passed into it
 
 **Returns:** Created MCP server definition
@@ -589,7 +597,8 @@ Create a new MCP server definition that can be started as a service.
       "API_KEY": "abc123",
       "LOG_LEVEL": "debug"
     },
-    "autoStart": true
+    "autoStart": true,
+    "preset": "recommended"
   }
 }
 ```
@@ -635,19 +644,25 @@ Get detailed information about a specific MCP server definition.
 ```
 
 ### `core_mcpserver_update`
-Update an existing MCP server definition. Only provided fields are updated.
+Update an existing MCP server definition. Only provided fields are updated. Where the server is and how muster reaches it change with [`core_mcpserver_connect`](#core_mcpserver_connect), its approval settings with [`core_mcpserver_set_approval`](#core_mcpserver_set_approval); an argument of those is refused, naming the tool.
 
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to update
-- `type` (string, optional) - Server type
 - `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation, trimmed; an empty or blank string removes it, and omitting it keeps the current one
 - `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones. More than 50 only when none of them is new, so a longer hand-set list can be sent back
 - `description` (string, optional) - Updated description
-- `command` (array of strings, optional) - New command and arguments
-- `env` (object, optional) - Updated environment variables (replaces existing)
 - `autoStart` (boolean, optional) - Auto-start setting; omitting it keeps the current one
-- `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` (or omitted) resumes it
+- `timeout` (integer, optional) - Connection timeout in seconds
+- `progress` (object, optional) - As on create
+- `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` resumes it; omitted keeps it
 - `restartRequestedAt` (string, optional) - RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler
+
+### `core_mcpserver_connect`
+Change where an existing MCP server is and how muster reaches it. A floor: an agent caller is always asked first ([Governance and floors](../how-to/mcp-server-management.md#governance-and-floors)).
+
+**Arguments:**
+- `name` (string, required) - Name of the MCP server
+- `type`, `url`, `command`, `args`, `env`, `headers`, `headersFrom`, `requestMeta`, `family`, `toolPrefix` (optional) - As on create; a given field replaces the current one
 - `auth` (object, optional) - Replaces the server's auth. An `authorizationServer` without `clientCredentialsSecretRef` keeps a client stored with `clientCredentials`; one without `authorizationServer` drops it. Changing its `issuer`, `authorizationEndpoint`, `tokenEndpoint` or `revocationEndpoint` away from those the client was entered for, while keeping that client, is refused: send `clientCredentials` again, or `clearClientCredentials`. A changed `authorizationServer` that another MCPServer describes differently under the same issuer is refused, as on create
 - `clearClientCredentials` (boolean, optional) - Drops the client stored with `clientCredentials` and keeps `auth.authorizationServer`. Not with `clientCredentials` or `clientCredentialsSecretRef`
 - `clientCredentials` (object, optional, write-only) - Replaces the client: a new Secret owned by the server, then the reference switches to it. The previous Secret stays until the server is deleted. Same rules as on create
@@ -657,23 +672,30 @@ Update an existing MCP server definition. Only provided fields are updated.
 **Example Request:**
 ```json
 {
-  "name": "core_mcpserver_update",
+  "name": "core_mcpserver_connect",
   "arguments": {
     "name": "my-tools",
-    "description": "Updated: Custom tool server with monitoring",
     "env": {
       "API_KEY": "new-key-456",
-      "LOG_LEVEL": "info",
-      "METRICS_ENABLED": "true"
+      "LOG_LEVEL": "info"
     }
   }
 }
 ```
 
-**Use Cases:**
-- Update server configurations without recreating
-- Modify environment variables or command arguments
-- Change auto-start behavior
+### `core_mcpserver_set_approval`
+Replace a server's `spec.approval`, as the caller. A floor for agent callers.
+
+**Arguments:**
+- `name` (string, required) - Name of the MCP server
+- `approval` (object) or `preset` (string) - exactly one. `approval` is `{"rule": "Allow"|"Ask", "tools": {"<tool>": "Allow"|"Ask"|"Block"}}`; `preset` (`recommended`, `allow-all`, `ask-all`) is expanded, once, from the tools the server lists now into explicit settings
+
+**Returns:** `{"name", "approval", "message"}`
+
+```json
+{"name": "core_mcpserver_set_approval",
+ "arguments": {"name": "github", "approval": {"rule": "Ask", "tools": {"get_issue": "Allow", "delete_repository": "Block"}}}}
+```
 
 ### `core_mcpserver_delete`
 Delete an MCP server definition. Server must be stopped before deletion.

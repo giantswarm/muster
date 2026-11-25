@@ -69,6 +69,8 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
 | `toolsetPresets` | `map[string]Preset` | `{}` | Toolset presets an agent's `X-muster-Toolset` header can name as `preset:<name>`; `read-only`, `none` and `full` are built in and cannot be redefined. See [Toolsets](toolsets.md). |
 | `secretBinding` | `SecretBindingConfig` | `{}` | The admission policy muster requires before it reads a Secret for an MCPServer, and the Secrets it never reads for one. See [Protected Secrets](#protected-secrets). |
+| `approval` | `ApprovalConfig` | `{}` | The round trip of calls that ask ([Tool approval](../how-to/mcp-server-management.md#when-a-call-asks)): `ttl`, how long a pending approval can be decided and used (Go duration, default `5m`, at most `30m`; muster refuses to start otherwise), and `installation`, the name the approval page shows. Read once at start, outside `aggregator`, so `core_config_update_aggregator` cannot change it. Helm: `muster.approval`. |
+| `governance` | `GovernanceConfig` | unset | `mode` (`trusted` or `governed`) and `servers` (`agentManager`, `platformManager`, `connectorManager`: lists of MCPServer keys) of [governance](../how-to/mcp-server-management.md#governance-and-floors). Read once at start, outside `aggregator`, so `core_config_update_aggregator` cannot change it. Unset, or with another `mode`, muster applies the governed entries. Helm: `muster.governance`, which the agent-platform chart renders from its `governance` value. |
 
 ### Protected Secrets
 

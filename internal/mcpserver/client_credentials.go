@@ -18,7 +18,7 @@ import (
 )
 
 // A connector's client (giantswarm/giantswarm#38849): core_mcpserver_create
-// and core_mcpserver_update take clientCredentials and write them, as the
+// and core_mcpserver_connect take clientCredentials and write them, as the
 // caller, to a Secret with a generated name owned by the MCPServer. The
 // chart's admission policy (mcpserver-secret-references.yaml) does not ask
 // the writer to get a Secret with that name, since editors may only create
@@ -101,11 +101,11 @@ func checkGeneratedOwner(req *secretRequest, namespace string, secret *corev1.Se
 		return nil
 	}
 	if !ownedBy(req.owner, namespace, secret) {
-		return fmt.Errorf("MCPServer %s may not read Secret %s/%s named in %s: %w: a Secret with a generated client name must have an ownerReference to this MCPServer; set the client with core_mcpserver_update clientCredentials",
+		return fmt.Errorf("MCPServer %s may not read Secret %s/%s named in %s: %w: a Secret with a generated client name must have an ownerReference to this MCPServer; set the client with core_mcpserver_connect clientCredentials",
 			req.owner, namespace, secret.Name, req.field, api.ErrSecretNotOwned)
 	}
 	if want := req.owner.AuthorizationServer; want == "" || secret.Annotations[api.AuthorizationServerAnnotation] != want {
-		return fmt.Errorf("MCPServer %s may not read Secret %s/%s named in %s: %w: the issuer or an endpoint of spec.auth.authorizationServer changed since the client was stored; re-enter the client with core_mcpserver_update clientCredentials",
+		return fmt.Errorf("MCPServer %s may not read Secret %s/%s named in %s: %w: the issuer or an endpoint of spec.auth.authorizationServer changed since the client was stored; re-enter the client with core_mcpserver_connect clientCredentials",
 			req.owner, namespace, secret.Name, req.field, api.ErrSecretOtherAuthorizationServer)
 	}
 	return nil
@@ -240,7 +240,7 @@ func unusedSecret(name string) string {
 }
 
 // clientCredentialsArg is the clientCredentials argument of
-// core_mcpserver_create and core_mcpserver_update.
+// core_mcpserver_create and core_mcpserver_connect.
 func clientCredentialsArg(description string) api.ArgMetadata {
 	return api.ArgMetadata{Name: "clientCredentials", Type: api.ArgTypeObject, Required: false, Description: description, Sensitive: true, Schema: map[string]interface{}{
 		api.SchemaKeyType:        string(api.ArgTypeObject),
