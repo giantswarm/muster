@@ -81,6 +81,10 @@ type ToolApproval struct {
 	Setting string `json:"setting"`
 	Source  string `json:"source"`
 	New     bool   `json:"new,omitempty"`
+	// Unavailable says, for a tool that asks, why muster cannot ask here
+	// (no shared store on Valkey, no browser sign-in, no public URL, no
+	// person on the request): calls to it are refused until it is fixed.
+	Unavailable string `json:"unavailable,omitempty"`
 }
 
 // builtinAskTools are muster's own server configuration tools, which always

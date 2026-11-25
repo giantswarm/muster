@@ -354,3 +354,21 @@ func TestGate_ApprovalElicitation(t *testing.T) {
 		assert.Contains(t, text, "then run the tool again.")
 	})
 }
+
+// A tool that asks carries why muster cannot ask here, so a client can say
+// why its calls are refused; once approval is available it carries nothing.
+func TestApplyApprovals_ReportsWhyAskingIsUnavailable(t *testing.T) {
+	rig := newGateRig(t)
+	tools := rig.server.applyApprovals(rig.ctx, []mcp.Tool{approvalSoloTool("github", "merge_pull_request"), approvalSoloTool("github", "get_issue")})
+	for _, tool := range tools {
+		approval, _ := api.ToolApprovalOf(tool)
+		assert.Empty(t, approval.Unavailable, tool.Name)
+	}
+
+	api.RegisterApprovalStore(nil)
+	tools = rig.server.applyApprovals(rig.ctx, []mcp.Tool{approvalSoloTool("github", "merge_pull_request"), approvalSoloTool("github", "get_issue")})
+	merge, _ := api.ToolApprovalOf(tools[0])
+	assert.Contains(t, merge.Unavailable, "not on Valkey")
+	read, _ := api.ToolApprovalOf(tools[1])
+	assert.Empty(t, read.Unavailable, "a tool that runs is unaffected")
+}

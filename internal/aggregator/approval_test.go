@@ -32,6 +32,9 @@ func approvalOf(t *testing.T, tools []mcp.Tool, name string) (api.ToolApproval, 
 		if tool.Name == name {
 			approval, ok := api.ToolApprovalOf(tool)
 			require.True(t, ok, "%s carries no approval", name)
+			// Whether muster can ask here has its own test
+			// (TestApplyApprovals_ReportsWhyAskingIsUnavailable).
+			approval.Unavailable = ""
 			return approval, true
 		}
 	}

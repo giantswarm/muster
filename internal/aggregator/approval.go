@@ -94,6 +94,20 @@ func refuseBlocked(ctx context.Context, toolName, serverName, originalName strin
 // as Ask from source "unavailable" (fail closed in what is reported; a call
 // is still checked at dispatch).
 func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
+	out := a.resolveApprovals(ctx, tools)
+	if reason := a.approvalUnavailable(ctx); reason != "" {
+		for i := range out {
+			if approval, ok := api.ToolApprovalOf(out[i]); ok && approval.Setting == api.ApprovalSettingAsk {
+				approval.Unavailable = reason
+				api.SetToolApproval(&out[i], approval)
+			}
+		}
+	}
+	return out
+}
+
+// resolveApprovals is applyApprovals without the availability of asking.
+func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
 	var (
 		approvals map[string]*api.MCPServerApproval
 		readable  = true
