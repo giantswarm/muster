@@ -765,7 +765,7 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			for _, tool := range c.tools {
 				exposedTool := tool
 				exposedTool.Name = r.ExposedToolName(c.serverName, tool.Name)
-				toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: c.serverName})
+				toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: c.serverName, Tool: tool.Name})
 				soloTools = append(soloTools, exposedTool)
 			}
 			continue
@@ -830,7 +830,7 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		// The exposed name carries the family, so the family is the owning
 		// server; the members are recorded so server:<member> selects it on that
 		// member.
-		toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: key.family, Servers: sortedServers, InstanceArg: entry.instanceArg})
+		toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: key.family, Servers: sortedServers, InstanceArg: entry.instanceArg, Tool: key.toolName})
 
 		soloTools = append(soloTools, exposedTool)
 		for _, sn := range sortedServers {

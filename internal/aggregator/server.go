@@ -2083,6 +2083,9 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return nil, unseenError(view, "tool not found: "+toolName)
 		}
 		if sessionErr == nil {
+			if err := refuseBlocked(ctx, toolName, sessionServerName, originalName); err != nil {
+				return nil, err
+			}
 			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
 			start := time.Now()
@@ -2220,6 +2223,9 @@ func (a *AggregatorServer) familyToolUnavailableError(ctx context.Context, toolN
 func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, serverName, originalName string, args map[string]any, sessionID, sub string) (res *mcp.CallToolResult, err error) {
 	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
 		return nil, unseenError(view, "tool not found: "+toolName)
+	}
+	if err := refuseBlocked(ctx, toolName, serverName, originalName); err != nil {
+		return nil, err
 	}
 	start := time.Now()
 	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
@@ -3571,7 +3577,7 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	if sessionID == "" {
 		logging.Warn("Aggregator", "ListToolsForContext: no session ID in context — returning core tools only")
 		coreTools, _ := a.coreTools()
-		return coreTools
+		return a.applyApprovals(ctx, coreTools)
 	}
 	start := time.Now()
 
@@ -3589,6 +3595,10 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	allTools = append(allTools, mcpServerTools...)
 	allTools = append(allTools, coreTools...)
 	deriveWorkflowReadOnlyHints(allTools, workflowSteps)
+	// The approval settings come last: a blocked tool leaves the catalogue,
+	// after a workflow's read-only hint was derived from the tools its steps
+	// call (a workflow with a blocked step is refused at that step).
+	allTools = a.applyApprovals(ctx, allTools)
 
 	logging.DebugWithAttrs("Aggregator", "ListToolsForContext: returning tools",
 		slog.Int("total", len(allTools)),

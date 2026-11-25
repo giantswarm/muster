@@ -47,6 +47,10 @@ type ToolOrigin struct {
 	// InstanceArg is the argument a call to a family-grouped tool selects its
 	// member with. Empty for every other tool.
 	InstanceArg string
+	// Tool is the server's own name of a server tool (for a family-grouped
+	// tool, every member's), the name its approval settings are keyed by.
+	// Empty for workflows and core tools.
+	Tool string
 }
 
 // SetToolOrigin records origin on tool. The tool's _meta is cloned before it
