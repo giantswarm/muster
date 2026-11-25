@@ -40,11 +40,25 @@ type stubMusterClient struct {
 	// path; the mode now also decides whether a stdio definition is admitted
 	// at all (issue #1067).
 	filesystem bool
+
+	// written keeps what Create and Update wrote, so a write is read back
+	// as the API server would return it.
+	written map[string]*musterv1alpha1.MCPServer
+}
+
+func (s *stubMusterClient) store(obj *musterv1alpha1.MCPServer) {
+	if s.written == nil {
+		s.written = map[string]*musterv1alpha1.MCPServer{}
+	}
+	s.written[obj.Name] = obj.DeepCopy()
 }
 
 func (s *stubMusterClient) IsKubernetesMode() bool { return !s.filesystem }
 
 func (s *stubMusterClient) GetMCPServer(_ context.Context, name, namespace string) (*musterv1alpha1.MCPServer, error) {
+	if obj, ok := s.written[name]; ok {
+		return obj.DeepCopy(), nil
+	}
 	if s.existing != nil && s.existing.Name == name {
 		return s.existing.DeepCopy(), nil
 	}
@@ -53,11 +67,13 @@ func (s *stubMusterClient) GetMCPServer(_ context.Context, name, namespace strin
 
 func (s *stubMusterClient) CreateMCPServer(_ context.Context, obj *musterv1alpha1.MCPServer) error {
 	s.created = append(s.created, obj.Name)
+	s.store(obj)
 	return nil
 }
 
 func (s *stubMusterClient) UpdateMCPServer(_ context.Context, obj *musterv1alpha1.MCPServer) error {
 	s.updated = append(s.updated, obj.Name)
+	s.store(obj)
 	return nil
 }
 
@@ -104,11 +120,14 @@ func newCallerHarness(t *testing.T, existing *musterv1alpha1.MCPServer, injectEr
 	h := &callerHarness{sa: &stubMusterClient{existing: existing}}
 
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
-		Create: func(context.Context, ctrlclient.WithWatch, ctrlclient.Object, ...ctrlclient.CreateOption) error {
+		Create: func(_ context.Context, _ ctrlclient.WithWatch, obj ctrlclient.Object, _ ...ctrlclient.CreateOption) error {
 			if injectErr != nil {
 				return injectErr
 			}
 			h.created = append(h.created, "create")
+			if server, ok := obj.(*musterv1alpha1.MCPServer); ok {
+				h.sa.store(server) // what muster reads back
+			}
 			return nil
 		},
 		Update: func(_ context.Context, _ ctrlclient.WithWatch, obj ctrlclient.Object, _ ...ctrlclient.UpdateOption) error {
@@ -118,6 +137,7 @@ func newCallerHarness(t *testing.T, existing *musterv1alpha1.MCPServer, injectEr
 			h.updated = append(h.updated, "update")
 			if server, ok := obj.(*musterv1alpha1.MCPServer); ok {
 				h.updatedObjs = append(h.updatedObjs, server.DeepCopy())
+				h.sa.store(server)
 			}
 			return nil
 		},

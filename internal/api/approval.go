@@ -232,3 +232,22 @@ type MCPServerConnectorAdmin interface {
 	// the MCPServer with the given key (api.MCPServerKey).
 	IsConnectorAdmin(ctx context.Context, serverKey string) (bool, error)
 }
+
+// MCPServerApprovalSchema is the optional capability of the registered
+// MCPServer manager that tells whether approval settings can be trusted: the
+// served MCPServer CRD knows spec.approval. A CRD that does not prunes the
+// field on every write, so a connector's Ask and Block would silently run.
+type MCPServerApprovalSchema interface {
+	// ApprovalSchemaProblem returns "" when the CRD knows spec.approval, else
+	// why muster cannot trust approval settings.
+	ApprovalSchemaProblem(ctx context.Context) string
+}
+
+// ApprovalSchemaProblem returns why approval settings cannot be trusted, ""
+// when they can (or without a manager offering the check).
+func ApprovalSchemaProblem(ctx context.Context) string {
+	if checker, ok := GetMCPServerManager().(MCPServerApprovalSchema); ok {
+		return checker.ApprovalSchemaProblem(ctx)
+	}
+	return ""
+}

@@ -25,11 +25,13 @@ type recordingClient struct {
 
 func (r *recordingClient) CreateMCPServer(_ context.Context, obj *musterv1alpha1.MCPServer) error {
 	r.createdObjs = append(r.createdObjs, obj.DeepCopy())
+	r.store(obj)
 	return nil
 }
 
 func (r *recordingClient) UpdateMCPServer(_ context.Context, obj *musterv1alpha1.MCPServer) error {
 	r.updatedObjs = append(r.updatedObjs, obj.DeepCopy())
+	r.store(obj)
 	return nil
 }
 

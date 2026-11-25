@@ -241,6 +241,10 @@ type Adapter struct {
 	// mode; filesystem mode keeps the local client. Reads, validation, and
 	// muster's own controller writes are unaffected.
 	gate callerwrite.Gate
+
+	// approvalSchema remembers whether the API server's MCPServer CRD knows
+	// spec.approval (approval_schema.go).
+	approvalSchema approvalSchemaCache
 }
 
 // mcpServerWriter is the write surface the mutation handlers go through. The
@@ -999,6 +1003,9 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	if refused != nil {
 		return refused, nil
 	}
+	if problem := a.ApprovalSchemaProblem(ctx); problem != "" {
+		return simpleError("core_mcpserver_create cannot store the server's approval settings: " + problem)
+	}
 	var req api.MCPServerCreateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
 		return &api.CallToolResult{
@@ -1060,6 +1067,10 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 			Operation: "create",
 		})
 		return simpleError(fmt.Sprintf("Failed to create MCP server: %v", err))
+	}
+
+	if refused := a.verifyApprovalStored(ctx, req.Name, approval); refused != nil {
+		return refused, nil
 	}
 
 	var secretName string

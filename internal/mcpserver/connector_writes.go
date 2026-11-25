@@ -201,6 +201,9 @@ func (a *Adapter) handleMCPServerSetApproval(ctx context.Context, args map[strin
 	if refused := refuseTenantKey(name, "update"); refused != nil {
 		return refused, nil
 	}
+	if problem := a.ApprovalSchemaProblem(ctx); problem != "" {
+		return simpleError("core_mcpserver_set_approval cannot store approval settings: " + problem)
+	}
 	writer, errResult := a.mutationWriter(ctx)
 	if errResult != nil {
 		return errResult, nil
@@ -223,6 +226,9 @@ func (a *Adapter) handleMCPServerSetApproval(ctx context.Context, args map[strin
 			return simpleError(msg)
 		}
 		return simpleError(fmt.Sprintf("Failed to set approval of MCP server '%s': %v", name, err))
+	}
+	if refused := a.verifyApprovalStored(ctx, name, approval); refused != nil {
+		return refused, nil
 	}
 	auditApprovalChange(ctx, name, old, approval)
 	return &api.CallToolResult{
