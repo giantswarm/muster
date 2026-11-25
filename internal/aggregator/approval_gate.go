@@ -297,7 +297,7 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 		return nil, a.recordApprovalChallenge(ctx, request), nil
 	case !errors.Is(err, api.ErrApprovalNotFound):
 		a.auditApproval(ctx, "approval_refused", target, "", hash, "store unavailable", effective)
-		return nil, nil, fmt.Errorf("approval_unavailable: %s asks before it runs, and muster's approval store cannot be reached, so it cannot run: %w", name, err)
+		return nil, nil, storeUnreachable(name, err)
 	}
 
 	shown := display()
@@ -322,10 +322,18 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 		return nil, nil, fmt.Errorf("%s asks before it runs, and %s: decide or decline those at their approval links first, or wait until they expire (after at most %s)", name, limitReason(err), a.approval.ttl)
 	case err != nil:
 		a.auditApproval(ctx, "approval_refused", target, "", hash, "store unavailable", effective)
-		return nil, nil, fmt.Errorf("approval_unavailable: %s asks before it runs, and muster's approval store cannot be reached, so it cannot run: %w", name, err)
+		return nil, nil, storeUnreachable(name, err)
 	}
 	a.auditApproval(ctx, "approval_requested", target, request.ID, hash, "", effective)
 	return nil, a.recordApprovalChallenge(ctx, request), nil
+}
+
+// storeUnreachable refuses a call that asks while the approval store does
+// not answer. The store's own error, which can name internal hosts, is
+// logged, not returned to the caller (M1-MU-S-16).
+func storeUnreachable(name string, err error) error {
+	logging.Warn("Approval", "approval store unavailable for %s: %v", name, err)
+	return fmt.Errorf("approval_unavailable: %s asks before it runs, and muster's approval store cannot be reached, so it cannot run; try again later", name)
 }
 
 // limitReason says which cap refused a request.

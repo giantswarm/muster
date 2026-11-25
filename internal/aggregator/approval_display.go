@@ -211,7 +211,7 @@ func jsonType(value any) string {
 	case nil:
 		return "null"
 	case string:
-		return "string"
+		return string(api.ArgTypeString)
 	case bool:
 		return "boolean"
 	case float64, float32, int, int64, int32, json.Number:
