@@ -348,3 +348,32 @@ func TestPage_DecisionAfterSignInWithOriginNull(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, api.ApprovalStatusApproved, got.Status)
 }
+
+// Every outcome says whether the request was approved, declined or nothing
+// was decided, and what to do next (decision #77).
+func TestPage_OutcomesSayWhatHappened(t *testing.T) {
+	decide := func(t *testing.T, rig *pageRig, request *api.ApprovalRequest, client *http.Client, decision string) string {
+		_, body := rig.open(t, client, rig.page.URL(request.ID))
+		token := tokenPattern.FindStringSubmatch(body)[1]
+		resp, err := client.PostForm(rig.page.URL(request.ID), url.Values{"token": {token}, "decision": {decision}})
+		require.NoError(t, err)
+		text, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return string(text)
+	}
+	rig := newPageRig(t)
+	approved := rig.create(t, map[string]any{"pr": 1})
+	assert.Contains(t, decide(t, rig, approved, browser(t), "approve"), "You approved this request")
+	_, body := rig.open(t, browser(t), rig.page.URL(approved.ID))
+	assert.Contains(t, body, "This request was already approved")
+
+	declined := rig.create(t, map[string]any{"pr": 2, "x": 1})
+	assert.Contains(t, decide(t, rig, declined, browser(t), "decline"), "You declined this request")
+	_, body = rig.open(t, browser(t), rig.page.URL(declined.ID))
+	assert.Contains(t, body, "already declined")
+	assert.Contains(t, body, "It will not run")
+
+	_, body = rig.open(t, browser(t), rig.page.URL("gone"))
+	assert.Contains(t, body, "Nothing to decide: this request expired or was already used")
+	assert.Contains(t, body, "run it again")
+}

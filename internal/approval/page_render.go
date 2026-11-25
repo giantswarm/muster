@@ -92,11 +92,11 @@ func (p *Page) renderMessage(w http.ResponseWriter, status int, heading, body st
 func (p *Page) renderRequest(w http.ResponseWriter, request *api.ApprovalRequest, flow *api.ApprovalPageFlow) {
 	if flow.Identity != request.Identity {
 		p.renderMessage(w, http.StatusForbidden, "This request is someone else's",
-			"It was made for "+request.Identity.Subject+" at "+request.Identity.Issuer+". Only they can decide it.")
+			"Nothing was approved or declined. It was made for "+request.Identity.Subject+" at "+request.Identity.Issuer+"; only they can decide it. If you need the call, run it yourself.")
 		return
 	}
 	if request.Status != api.ApprovalStatusPending {
-		p.renderMessage(w, http.StatusConflict, "This request was already answered", "Go back to where the request came from and continue there.")
+		p.renderAnswered(w, request)
 		return
 	}
 	data := pageData{
@@ -111,6 +111,15 @@ func (p *Page) renderRequest(w http.ResponseWriter, request *api.ApprovalRequest
 		ReturnOrigin: originOf(flow.Redirect),
 	}
 	p.render(w, http.StatusOK, data)
+}
+
+// renderAnswered tells the person a request was answered already, and how.
+func (p *Page) renderAnswered(w http.ResponseWriter, request *api.ApprovalRequest) {
+	if request.Status == api.ApprovalStatusApproved {
+		p.renderMessage(w, http.StatusConflict, "This request was already approved", "It runs once when the tool is called again. Go back to where the request came from and continue there.")
+		return
+	}
+	p.renderMessage(w, http.StatusConflict, "This request was already declined", "It will not run. Go back to where the request came from and continue there.")
 }
 
 // heading is the page's question for the kind of call.

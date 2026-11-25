@@ -153,7 +153,7 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	store, identity := p.Store(), p.Identity()
 	if store == nil || identity == nil {
-		p.renderMessage(w, http.StatusServiceUnavailable, "Approval is not available", "muster cannot take decisions here: its shared store or its browser sign-in is not set up.")
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing can be decided here", "Nothing was approved or declined: muster cannot take decisions here, because its shared store or its browser sign-in is not set up. Tell the platform's operators; the tool that asked cannot run until then.")
 		return
 	}
 	request, err := store.Get(r.Context(), id)
@@ -209,7 +209,7 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 // is in it, expecting the person the request is bound to.
 func (p *Page) sendToSignIn(w http.ResponseWriter, r *http.Request, store api.ApprovalStore, identity api.BrowserIdentity, request *api.ApprovalRequest, cookie, key string, flow *api.ApprovalPageFlow) {
 	if err := identity.CheckRefusal(request.Identity); err != nil {
-		p.renderMessage(w, http.StatusForbidden, "muster cannot confirm who you are", "This request cannot be decided here. Ask for it again from a session muster can tell the person of.")
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: muster cannot confirm who you are", "This request cannot be decided here because muster cannot sign in the person it was made for. Run the tool again from a session muster can tell the person of.")
 		return
 	}
 	flow.Nonce = rand.Text()
@@ -219,7 +219,7 @@ func (p *Page) sendToSignIn(w http.ResponseWriter, r *http.Request, store api.Ap
 	}
 	returnURL, err := url.Parse(p.URL(request.ID))
 	if err != nil {
-		p.renderMessage(w, http.StatusInternalServerError, "The approval page is misconfigured", "")
+		p.renderMessage(w, http.StatusInternalServerError, "Nothing was decided: the approval page is misconfigured", "Nothing was approved or declined. Tell the platform's operators.")
 		return
 	}
 	sum := sha256.Sum256([]byte(identityVerifier(cookie, flow.Nonce)))
@@ -227,7 +227,7 @@ func (p *Page) sendToSignIn(w http.ResponseWriter, r *http.Request, store api.Ap
 	signIn, err := identity.SignInURL(r.Context(), returnURL, flow.Nonce, challenge, request.Identity)
 	if err != nil {
 		logging.Warn("Approval", "Cannot start the sign-in for approval %s: %v", logging.TruncateIdentifier(request.ID), err)
-		p.renderMessage(w, http.StatusServiceUnavailable, "The sign-in could not be started", "Try again in a moment.")
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing was decided yet: the sign-in could not be started", "Nothing was approved or declined. Open the approval link again in a moment.")
 		return
 	}
 	http.Redirect(w, r, signIn, http.StatusFound) //nolint:gosec // G710: built by muster's own OAuth server
@@ -239,13 +239,13 @@ func (p *Page) sendUnknownToSignIn(w http.ResponseWriter, r *http.Request, ident
 	p.ensureCookie(w, r)
 	returnURL, err := url.Parse(p.URL(id))
 	if err != nil {
-		p.renderMessage(w, http.StatusInternalServerError, "The approval page is misconfigured", "")
+		p.renderMessage(w, http.StatusInternalServerError, "Nothing was decided: the approval page is misconfigured", "Nothing was approved or declined. Tell the platform's operators.")
 		return
 	}
 	sum := sha256.Sum256([]byte(rand.Text()))
 	signIn, err := identity.SignInURL(r.Context(), returnURL, rand.Text(), base64.RawURLEncoding.EncodeToString(sum[:]), api.SignInIdentity{})
 	if err != nil {
-		p.renderMessage(w, http.StatusServiceUnavailable, "The sign-in could not be started", "Try again in a moment.")
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing was decided yet: the sign-in could not be started", "Nothing was approved or declined. Open the approval link again in a moment.")
 		return
 	}
 	http.Redirect(w, r, signIn, http.StatusFound) //nolint:gosec // G710: built by muster's own OAuth server
@@ -255,7 +255,7 @@ func (p *Page) sendUnknownToSignIn(w http.ResponseWriter, r *http.Request, ident
 func (p *Page) finishSignIn(w http.ResponseWriter, r *http.Request, store api.ApprovalStore, identity api.BrowserIdentity, request *api.ApprovalRequest) {
 	cookie := p.cookieValue(r)
 	if cookie == "" {
-		p.renderMessage(w, http.StatusBadRequest, "The sign-in came back to another browser", "Open the approval link again in the browser you signed in with.")
+		p.renderMessage(w, http.StatusBadRequest, "Nothing was decided: the sign-in came back to another browser", "Nothing was approved or declined. Open the approval link again in the browser you want to decide in.")
 		return
 	}
 	key := flowKey(cookie, request.ID)
@@ -266,18 +266,18 @@ func (p *Page) finishSignIn(w http.ResponseWriter, r *http.Request, store api.Ap
 	}
 	state := r.URL.Query().Get("state")
 	if flow.Nonce == "" || subtle.ConstantTimeCompare([]byte(state), []byte(flow.Nonce)) != 1 {
-		p.renderMessage(w, http.StatusBadRequest, "The sign-in does not belong to this page", "Open the approval link again.")
+		p.renderMessage(w, http.StatusBadRequest, "Nothing was decided: the sign-in does not belong to this page", "Nothing was approved or declined. The sign-in expired or was started from another tab. Open the approval link again.")
 		return
 	}
 	returnURL, err := url.Parse(p.URL(request.ID))
 	if err != nil {
-		p.renderMessage(w, http.StatusInternalServerError, "The approval page is misconfigured", "")
+		p.renderMessage(w, http.StatusInternalServerError, "Nothing was decided: the approval page is misconfigured", "Nothing was approved or declined. Tell the platform's operators.")
 		return
 	}
 	signedIn, err := identity.Identity(r.Context(), returnURL, r.URL.Query().Get("code"), identityVerifier(cookie, flow.Nonce))
 	if err != nil {
 		logging.Warn("Approval", "Sign-in for approval %s failed: %v", logging.TruncateIdentifier(request.ID), err)
-		p.renderMessage(w, http.StatusForbidden, "The sign-in could not be completed", "Open the approval link again.")
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: the sign-in could not be completed", "Nothing was approved or declined. Open the approval link again.")
 		return
 	}
 	flow.Identity, flow.Nonce = signedIn, ""
@@ -295,7 +295,7 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	store := p.Store()
 	if store == nil || p.Identity() == nil {
-		p.renderMessage(w, http.StatusServiceUnavailable, "Approval is not available", "Nothing was decided.")
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing can be decided here", "Nothing was approved or declined: muster cannot take decisions here right now. Tell the platform's operators.")
 		return
 	}
 	// Every refusal of a decision answers the browser alike and logs which
@@ -316,7 +316,7 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	if err := r.ParseForm(); err != nil {
-		p.renderMessage(w, http.StatusBadRequest, "The decision could not be read", "Nothing was decided. Open the approval link again.")
+		p.renderMessage(w, http.StatusBadRequest, "Nothing was decided: the answer could not be read", "Nothing was approved or declined. Open the approval link again and choose Approve or Decline.")
 		return
 	}
 	cookie := p.cookieValue(r)
@@ -346,7 +346,7 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	if flow.Identity == (api.SignInIdentity{}) || flow.Identity != request.Identity {
 		logging.WarnWithAttrs("Approval", "decision refused: the signed-in person is not the requester",
 			slog.String("approval", logging.TruncateIdentifier(id)))
-		p.renderMessage(w, http.StatusForbidden, "Only the person who asked can decide", "Nothing was decided.")
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: only the person who asked can decide", "Nothing was approved or declined. This request was made for someone else; only they can decide it.")
 		return
 	}
 	var approve bool
@@ -355,10 +355,17 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 		approve = true
 	case "decline":
 	default:
-		p.renderMessage(w, http.StatusBadRequest, "The decision could not be read", "")
+		p.renderMessage(w, http.StatusBadRequest, "Nothing was decided: the answer could not be read", "Nothing was approved or declined. Open the approval link again and choose Approve or Decline.")
 		return
 	}
 	if err := store.Decide(r.Context(), id, approve, flow.Identity); err != nil {
+		if errors.Is(err, api.ErrApprovalDecided) {
+			// Answered meanwhile (another tab): say what stands.
+			if current, getErr := store.Get(r.Context(), id); getErr == nil {
+				p.renderAnswered(w, current)
+				return
+			}
+		}
 		p.renderStoreError(w, err)
 		return
 	}
@@ -375,7 +382,11 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	p.renderMessage(w, http.StatusOK, "Your answer is recorded", "Go back to where the request came from and continue there.")
+	if approve {
+		p.renderMessage(w, http.StatusOK, "You approved this request", "It runs once when the tool is called again. Go back to where the request came from and continue there.")
+		return
+	}
+	p.renderMessage(w, http.StatusOK, "You declined this request", "It will not run. Go back to where the request came from and continue there.")
 }
 
 // originOf returns the scheme and host of raw, "" when it has none.
@@ -396,12 +407,12 @@ func sameOrigin(origin, publicURL string) bool {
 func (p *Page) renderStoreError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, api.ErrApprovalNotFound):
-		p.renderMessage(w, http.StatusNotFound, "This request has expired or was already used", "Run the tool again to ask anew.")
+		p.renderMessage(w, http.StatusNotFound, "Nothing to decide: this request expired or was already used", "Nothing was approved or declined now. If the tool still needs to run, run it again; it will ask anew.")
 	case errors.Is(err, api.ErrApprovalDecided):
-		p.renderMessage(w, http.StatusConflict, "This request was already answered", "Go back to where the request came from and continue there.")
+		p.renderMessage(w, http.StatusConflict, "This request was already answered", "Your answer now changes nothing. Go back to where the request came from and continue there.")
 	default:
 		logging.Warn("Approval", "Approval store unavailable: %v", err)
-		p.renderMessage(w, http.StatusServiceUnavailable, "Approval is unavailable right now", "Try again in a moment.")
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing was decided: approval is unavailable right now", "Nothing was approved or declined. Open the approval link again in a moment.")
 	}
 }
 
