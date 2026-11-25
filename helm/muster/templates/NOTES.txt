@@ -20,6 +20,25 @@ This chart bundles the MCPServer and Workflow CRDs in its `crds/` directory.
     lockstep with the app automatically. The standalone `muster-crds` chart is
     another option for a fully helm-managed, upgrade-friendly CRD lifecycle.
 
+Tool approval
+-------------
+  - The MCPServer CRD must know spec.approval: upgrade the CRDs (above) with
+    this chart. While the served CRD lacks the field muster refuses every
+    server tool call ("does not know spec.approval") rather than run tools a
+    connector admin may have set to Ask or Block.
+{{- if and .Values.rbac.create .Values.rbac.mcpServerEditor.create (not .Values.rbac.mcpServerEditor.subjects) }}
+  - Nobody may register or edit MCP servers as themselves: rbac.mcpServerEditor.subjects
+    is empty (the default since tool approval; earlier charts bound
+    system:authenticated). Whoever you bind is a connector admin.
+{{- end }}
+{{- if not .Values.muster.governance }}
+  - muster.governance is not set: muster applies the governed entries to
+    agent callers, and refuses to agents agent-manager's, the Platform
+    Manager's and the connector manager's governed tool names on any server
+    the configuration does not name. Set muster.governance (the agent-platform
+    chart renders it) before agents use those servers.
+{{- end }}
+
 1. Get the application URL by running these commands:
 {{- if .Values.ingress.enabled }}
 {{- range $host := .Values.ingress.hosts }}

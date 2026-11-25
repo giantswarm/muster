@@ -1077,6 +1077,9 @@
                         "create": {
                             "type": "boolean"
                         },
+                        "reviews": {
+                            "type": "boolean"
+                        },
                         "subjects": {
                             "type": "array",
                             "items": {
@@ -1107,6 +1110,9 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "allowRemovingBinding": {
+                            "type": "boolean"
+                        },
                         "create": {
                             "type": "boolean"
                         },

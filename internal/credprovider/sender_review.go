@@ -19,7 +19,7 @@ import (
 // ApprovalSenderHeader beside the person's bearer. muster reviews the token
 // (TokenReview, audience muster) and asks whether that identity may "bind"
 // "toolapprovals" in group muster.giantswarm.io in muster's namespace
-// (SubjectAccessReview): a permission on no real resource that only says
+// (LocalSubjectAccessReview): a permission on no real resource that only says
 // "may send approval settings". The muster chart ships the Role
 // (muster-approval-binder); the platform binds it to agent-manager. A bind
 // without the token is taken without settings; a token that fails the
@@ -74,7 +74,11 @@ func (k KubernetesSenderReviewer) Review(ctx context.Context, token string) erro
 	for key, values := range user.Extra {
 		extra[key] = authorizationv1.ExtraValue(values)
 	}
-	access, err := k.Client.AuthorizationV1().SubjectAccessReviews().Create(ctx, &authorizationv1.SubjectAccessReview{
+	// A LocalSubjectAccessReview in muster's own namespace: the review is
+	// namespaced, so muster needs no cluster-wide right to ask what any
+	// identity may do anywhere (M1-MU-S-14).
+	access, err := k.Client.AuthorizationV1().LocalSubjectAccessReviews(k.Namespace).Create(ctx, &authorizationv1.LocalSubjectAccessReview{
+		ObjectMeta: metav1.ObjectMeta{Namespace: k.Namespace},
 		Spec: authorizationv1.SubjectAccessReviewSpec{
 			User:   user.Username,
 			Groups: user.Groups,

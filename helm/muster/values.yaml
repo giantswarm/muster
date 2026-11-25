@@ -71,23 +71,44 @@ rbac:
     # RoleBinding subjects granted the mcpserver-editor Role. Standard
     # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
     # Empty (the default) renders no RoleBinding.
+    #
+    # UPGRADE: charts before tool approval bound system:authenticated here by
+    # default. With subjects empty, an upgrade deletes that RoleBinding and
+    # nobody can register MCP servers as themselves; the render fails while
+    # the cluster still holds it (see allowRemovingBinding). To keep the old
+    # behaviour set:
+    #   subjects: [{kind: Group, apiGroup: rbac.authorization.k8s.io, name: system:authenticated}]
+    # workflowEditor keeps binding system:authenticated by default.
     subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
+    # allowRemovingBinding lets an upgrade with empty subjects delete an
+    # existing mcpserver-editor RoleBinding instead of failing the render.
+    allowRemovingBinding: false
   # approvalBinder ships the Role muster-approval-binder: verb `bind` on
   # `toolapprovals` in group muster.giantswarm.io, a permission on no real
   # resource that says "may send approval settings with a Session binding".
   # muster takes a binding's per-entry settings, `default` and grant marks
   # only from a sender whose projected ServiceAccount token (audience muster)
-  # passes a TokenReview and whose identity a SubjectAccessReview allows that
-  # verb in muster's namespace; so muster's ServiceAccount gets `create` on
-  # tokenreviews and subjectaccessreviews (the ClusterRole
-  # system:auth-delegator). The chart binds the Role to nobody: the platform
+  # passes a TokenReview and whose identity a LocalSubjectAccessReview allows
+  # that verb in muster's namespace; so muster's ServiceAccount gets `create`
+  # on tokenreviews (a ClusterRole, the API is cluster-scoped) and on
+  # localsubjectaccessreviews in muster.namespace (rbac.approvalBinder.reviews;
+  # no cluster-wide system:auth-delegator). The Role, its RoleBinding and the
+  # review Role live in muster.namespace, where the review asks. The chart
+  # binds the Role to nobody: the platform
   # binds it to agent-manager's ServiceAccount (agent-platform's connectivity
   # chart); `subjects` binds it here instead. Granting it is Kubernetes RBAC
   # in muster's namespace.
   approvalBinder:
     create: true
+    # reviews grants muster's ServiceAccount the two reviews above. Off, a
+    # bind that carries a sender token is answered 503 (the review errors).
+    reviews: true
     # RoleBinding subjects granted muster-approval-binder. Empty (the
-    # default) renders no RoleBinding.
+    # default) renders no RoleBinding. Bind agent-manager's ServiceAccount
+    # and nothing else: muster trusts every subject bound here to send an
+    # agent's per-entry settings, `default` and grant marks, including the
+    # exceptions that let an agent skip a connector admin's Ask. Never bind
+    # a group "to make it work".
     subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
   # workflowEditor ships the default answer to "who may create and manage
   # workflows" under writes-as-caller: a namespaced Role granting

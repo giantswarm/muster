@@ -11,6 +11,19 @@ ships, the RoleBinding only for a non-empty rbac.mcpServerEditor.subjects
 register MCP servers).
 */}}
 {{- if and .Values.rbac.create .Values.rbac.mcpServerEditor.create -}}
+{{- /*
+Upgrade guard (M1-MU-C-05): charts before tool approval bound the Role to
+system:authenticated by default. An upgrade with no subjects would delete
+that RoleBinding and lock every person out of registering MCP servers, with
+no other sign. When the cluster still holds the binding, the render fails
+and says how to keep or drop it. `helm template` (no cluster) never fails.
+*/}}
+{{- if and (not .Values.rbac.mcpServerEditor.subjects) (not .Values.rbac.mcpServerEditor.allowRemovingBinding) }}
+{{- $existing := lookup "rbac.authorization.k8s.io/v1" "RoleBinding" (include "muster.namespace" .) "mcpserver-editor" }}
+{{- if $existing }}
+{{- fail (printf "rbac.mcpServerEditor.subjects is empty, so this upgrade would delete the RoleBinding mcpserver-editor in %s (today bound to %s) and nobody could register or edit MCP servers as themselves any more. The chart no longer binds system:authenticated by default (tool approval: whoever holds this Role is a connector admin). Either name who may (e.g. rbac.mcpServerEditor.subjects: [{kind: Group, apiGroup: rbac.authorization.k8s.io, name: <admin group>}], or system:authenticated to keep the old behaviour), or set rbac.mcpServerEditor.allowRemovingBinding=true to drop it." (include "muster.namespace" .) (toJson $existing.subjects)) }}
+{{- end }}
+{{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

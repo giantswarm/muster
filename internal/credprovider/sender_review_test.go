@@ -17,7 +17,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 )
 
-// fakeCluster answers TokenReviews and SubjectAccessReviews: the token
+// fakeCluster answers TokenReviews and LocalSubjectAccessReviews: the token
 // "agent-manager" is agent-manager's ServiceAccount, for audience muster,
 // allowed to bind toolapprovals; "other" is another ServiceAccount, not
 // allowed; "wrong-audience" is valid for another audience only.
@@ -42,8 +42,11 @@ func fakeCluster(t *testing.T, reviewErr error) (*fake.Clientset, *authorization
 		}
 		return true, review, nil
 	})
-	client.PrependReactor("create", "subjectaccessreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
-		review := action.(k8stesting.CreateAction).GetObject().(*authorizationv1.SubjectAccessReview)
+	client.PrependReactor("create", "localsubjectaccessreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		review := action.(k8stesting.CreateAction).GetObject().(*authorizationv1.LocalSubjectAccessReview)
+		if action.GetNamespace() != review.Spec.ResourceAttributes.Namespace {
+			return true, nil, errors.New("a local review asks in its own namespace")
+		}
 		asked = review.Spec
 		review.Status.Allowed = review.Spec.User == "system:serviceaccount:agent-platform:agent-manager"
 		return true, review, nil

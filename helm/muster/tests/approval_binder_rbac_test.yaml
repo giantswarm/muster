@@ -8,7 +8,7 @@ tests:
       namespace: muster-system
     asserts:
       - hasDocuments:
-          count: 2
+          count: 5
       - isKind:
           of: Role
         documentIndex: 0
@@ -28,29 +28,81 @@ tests:
               verbs: ["bind"]
         documentIndex: 0
 
-  - it: grants muster's ServiceAccount the token and access reviews (system:auth-delegator)
+  - it: puts the Role where muster reviews, muster.namespace (M1-MUH-01)
+    release:
+      namespace: rel
+    set:
+      muster.namespace: mcp-servers
+      rbac.approvalBinder.subjects:
+        - kind: ServiceAccount
+          name: agent-manager
+          namespace: agent-platform
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: mcp-servers
+        documentIndex: 0
+      - equal:
+          path: metadata.namespace
+          value: mcp-servers
+        documentIndex: 1
+      - equal:
+          path: metadata.namespace
+          value: mcp-servers
+        documentIndex: 4
+      - equal:
+          path: metadata.namespace
+          value: mcp-servers
+        documentIndex: 5
+
+  - it: grants muster's ServiceAccount token reviews cluster-wide and access reviews only in its namespace (M1-MU-S-14)
     release:
       name: muster
       namespace: muster-system
     asserts:
       - isKind:
-          of: ClusterRoleBinding
+          of: ClusterRole
         documentIndex: 1
       - equal:
-          path: roleRef
+          path: metadata.name
+          value: muster-muster-system-token-reviewer
+        documentIndex: 1
+      - equal:
+          path: rules
           value:
-            apiGroup: rbac.authorization.k8s.io
-            kind: ClusterRole
-            name: system:auth-delegator
+            - apiGroups: ["authentication.k8s.io"]
+              resources: ["tokenreviews"]
+              verbs: ["create"]
         documentIndex: 1
-      - equal:
-          path: subjects[0].kind
-          value: ServiceAccount
-        documentIndex: 1
+      - isKind:
+          of: ClusterRoleBinding
+        documentIndex: 2
       - equal:
           path: subjects[0].namespace
           value: muster-system
-        documentIndex: 1
+        documentIndex: 2
+      - isKind:
+          of: Role
+        documentIndex: 3
+      - equal:
+          path: rules
+          value:
+            - apiGroups: ["authorization.k8s.io"]
+              resources: ["localsubjectaccessreviews"]
+              verbs: ["create"]
+        documentIndex: 3
+
+  - it: binds the review rights to an external ServiceAccount too (M1-MUH-03)
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: external
+    asserts:
+      - hasDocuments:
+          count: 5
+      - equal:
+          path: subjects[0].name
+          value: external
+        documentIndex: 2
 
   - it: binds the Role to configured subjects
     set:
@@ -60,7 +112,7 @@ tests:
           namespace: agent-platform
     asserts:
       - hasDocuments:
-          count: 3
+          count: 6
       - isKind:
           of: RoleBinding
         documentIndex: 1
@@ -68,27 +120,20 @@ tests:
           path: roleRef.name
           value: muster-approval-binder
         documentIndex: 1
-      - equal:
-          path: subjects
-          value:
-            - kind: ServiceAccount
-              name: agent-manager
-              namespace: agent-platform
-        documentIndex: 1
 
-  - it: renders no ClusterRoleBinding without a chart ServiceAccount
+  - it: leaves the review rights out on their own switch
     set:
-      serviceAccount.create: false
+      rbac.approvalBinder.reviews: false
     asserts:
       - hasDocuments:
           count: 1
 
-  - it: creates nothing when rbac.approvalBinder.create is false
+  - it: keeps the review rights when the binder Role is managed out of band
     set:
       rbac.approvalBinder.create: false
     asserts:
       - hasDocuments:
-          count: 0
+          count: 4
 
   - it: creates nothing when rbac.create is false
     set:
