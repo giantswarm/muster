@@ -2,14 +2,14 @@ package aggregator
 
 import (
 	"context"
-	"sync"
-	"time"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
