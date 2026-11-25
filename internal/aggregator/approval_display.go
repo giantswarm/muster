@@ -174,22 +174,41 @@ func labelledArguments(schema mcp.ToolInputSchema, args map[string]any) []api.Ap
 				label = title
 			}
 		}
-		shown = append(shown, api.ApprovalArgument{Key: key, Label: label, Value: displayValue(args[key])})
+		shown = append(shown, api.ApprovalArgument{Key: key, Label: label, Value: displayValue(args[key]), Type: jsonType(args[key])})
 	}
 	return shown
 }
 
-// displayValue writes a value as the page shows it: a string as it is,
-// anything else in canonical JSON.
+// displayValue writes a value as the page shows it: in canonical JSON, a
+// string quoted, so the string "false" and the boolean false, or "1" and 1,
+// never look alike (M1-MU-S-06). The page marks invisible characters
+// (approval.Visible).
 func displayValue(value any) string {
-	if s, ok := value.(string); ok {
-		return s
-	}
 	canonical, _, err := approval.Canonical(map[string]any{"v": value})
 	if err != nil {
 		return fmt.Sprint(value)
 	}
 	return strings.TrimSuffix(strings.TrimPrefix(canonical, `{"v":`), "}")
+}
+
+// jsonType names a value's JSON type, shown beside it on the page.
+func jsonType(value any) string {
+	switch value.(type) {
+	case nil:
+		return "null"
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case float64, float32, int, int64, int32, json.Number:
+		return "number"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	default:
+		return "value"
+	}
 }
 
 // readable turns a name such as merge_pull_request into "Merge pull request".

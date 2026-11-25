@@ -258,3 +258,21 @@ func TestListToolsForContext_HidesBlockedTools(t *testing.T) {
 	_, found = approvalOf(t, tools, "x_github_delete_repository")
 	assert.False(t, found)
 }
+
+// Regression of the PoC for M1-MU-S-06: a string and the boolean, number or
+// object it spells are shown differently, with their JSON type.
+func TestLabelledArguments_DistinguishTypes(t *testing.T) {
+	strs := labelledArguments(mcp.ToolInputSchema{}, map[string]any{"force": "false", "n": "1", "o": `{"a":1}`})
+	typed := labelledArguments(mcp.ToolInputSchema{}, map[string]any{"force": false, "n": 1.0, "o": map[string]any{"a": 1.0}})
+	assert.NotEqual(t, strs, typed)
+	assert.Equal(t, []api.ApprovalArgument{
+		{Key: "force", Label: "Force", Value: `"false"`, Type: "string"},
+		{Key: "n", Label: "N", Value: `"1"`, Type: "string"},
+		{Key: "o", Label: "O", Value: `"{\"a\":1}"`, Type: "string"},
+	}, strs)
+	assert.Equal(t, []api.ApprovalArgument{
+		{Key: "force", Label: "Force", Value: `false`, Type: "boolean"},
+		{Key: "n", Label: "N", Value: `1`, Type: "number"},
+		{Key: "o", Label: "O", Value: `{"a":1}`, Type: "object"},
+	}, typed)
+}

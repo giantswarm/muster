@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -249,4 +250,32 @@ func TestPage_SignInBoundToBrowser(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.NotEqual(t, http.StatusSeeOther, resp.StatusCode)
+}
+
+// Regression of the PoC for M1-MU-S-06: bidi overrides and zero-width
+// characters in an argument reach the page only as visible markers, in the
+// labelled value and in "Show details"; the connector is shown with its
+// server key, not only its display name.
+func TestPage_MarksInvisibleCharacters(t *testing.T) {
+	p := &Page{PublicURL: "https://muster.example.com"}
+	req := &api.ApprovalRequest{ID: "x", Identity: alice, Status: api.ApprovalStatusPending, ExpiresAt: time.Now().Add(time.Minute),
+		Target:    api.ApprovalTarget{Kind: api.ApprovalTargetTool, Server: "team-a/github", Name: "delete_repository"},
+		Arguments: "{\"repo\":\"acme/\u202ediorp\u202c\u200b\"}",
+		Display: api.ApprovalDisplay{Title: "Delete repository", Connector: "GitHub",
+			Arguments: []api.ApprovalArgument{{Key: "repo", Label: "Repo", Value: "\"acme/\u202ediorp\u202c\u200b\"", Type: "string"}}}}
+	w := httptest.NewRecorder()
+	p.renderRequest(w, req, &api.ApprovalPageFlow{Identity: alice, Token: "t"})
+	body := w.Body.String()
+	for _, r := range []rune{'\u202e', '\u202c', '\u200b'} {
+		assert.NotContains(t, body, string(r))
+	}
+	assert.Equal(t, 2, strings.Count(body, "⟨U&#43;202E⟩"), "value and details both marked")
+	assert.Contains(t, body, "⟨U&#43;200B⟩") // html/template writes + as &#43;
+	assert.Contains(t, body, "(string)")
+	assert.Contains(t, body, "<code>team-a/github</code>", "the connector's server key is shown")
+}
+
+func TestVisible(t *testing.T) {
+	assert.Equal(t, "plain ü", Visible("plain ü"))
+	assert.Equal(t, "a⟨U+000A⟩b⟨U+2028⟩c⟨U+FEFF⟩", Visible("a\nb\u2028c\ufeff"))
 }

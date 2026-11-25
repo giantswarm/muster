@@ -103,7 +103,11 @@ func (t ApprovalTarget) bindingKey() string {
 type ApprovalArgument struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
+	// Value is the value in canonical JSON (a string quoted).
 	Value string `json:"value"`
+	// Type is the value's JSON type (string, number, boolean, null, object,
+	// array), shown beside it; empty for values that are not arguments.
+	Type string `json:"type,omitempty"`
 }
 
 // ApprovalChange is one field an edit changes, old to new.
@@ -119,6 +123,9 @@ type ApprovalStep struct {
 	Label string `json:"label"`
 	Tool  string `json:"tool"`
 	Asks  bool   `json:"asks,omitempty"`
+	// Workflow names the nested workflow the step belongs to, empty for a
+	// step of the workflow being approved.
+	Workflow string `json:"workflow,omitempty"`
 	// Arguments are the step's arguments as the definition builds them
 	// (templates shown as written).
 	Arguments []ApprovalArgument `json:"arguments,omitempty"`

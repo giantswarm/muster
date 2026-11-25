@@ -12,8 +12,10 @@ import (
 
 // The page's templates. html/template escapes every value: tool titles,
 // argument values and labels come from a connector's definition and an
-// agent's call and are shown as text, never as markup.
-var pageTemplate = template.Must(template.New("page").Parse(`<!doctype html>
+// agent's call and are shown as text, never as markup. Every such value also
+// goes through visible, which marks bidi controls, zero-width and other
+// invisible characters, so text cannot read differently from what runs.
+var pageTemplate = template.Must(template.New("page").Funcs(template.FuncMap{"visible": Visible}).Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Heading}} · muster</title>
 <style>
@@ -29,18 +31,18 @@ pre{white-space:pre-wrap;word-break:break-all;background:#f6f8fa;padding:.5rem}
 <h1>{{.Heading}}</h1>
 {{if .Body}}<p class="lead">{{.Body}}</p>{{end}}
 {{with .Request}}
-<p class="lead">{{.Display.Message}}</p>
+<p class="lead">{{visible .Display.Message}}</p>
 <dl>
-<dt>Action</dt><dd>{{.Display.Title}} <code>{{.Target.Name}}</code>{{if .Display.ChangesData}} <span class="tag">Changes data</span>{{end}}</dd>
-{{if .Display.Connector}}<dt>Connector</dt><dd>{{.Display.Connector}}</dd>{{end}}
-{{range .Display.Arguments}}<dt>{{.Label}} <code class="muted">{{.Key}}</code></dt><dd>{{.Value}}</dd>{{end}}
+<dt>Action</dt><dd>{{visible .Display.Title}} <code>{{visible .Target.Name}}</code>{{if .Display.ChangesData}} <span class="tag">Changes data</span>{{end}}</dd>
+{{if .Target.Server}}<dt>Connector</dt><dd>{{visible .Display.Connector}} <code>{{visible .Target.Server}}</code></dd>{{else if .Display.Connector}}<dt>Connector</dt><dd>{{visible .Display.Connector}}</dd>{{end}}
+{{range .Display.Arguments}}<dt>{{visible .Label}} <code class="muted">{{visible .Key}}</code></dt><dd>{{visible .Value}}{{if .Type}} <span class="muted">({{.Type}})</span>{{end}}</dd>{{end}}
 </dl>
-{{if .Display.Changes}}<h2>What changes</h2><dl>{{range .Display.Changes}}<dt>{{.Field}}</dt><dd>{{.Old}} → {{.New}}</dd>{{end}}</dl>{{end}}
-{{if .Display.Preset}}<h2>Settings the preset writes</h2><dl>{{range .Display.Preset}}<dt>{{.Label}}</dt><dd>{{.Value}}</dd>{{end}}</dl>{{end}}
-{{if .Display.Steps}}<h2>Steps</h2><ol>{{range .Display.Steps}}<li{{if .Asks}} class="asks"{{end}}>{{.Label}} <code>{{.Tool}}</code>{{range .Arguments}}<br><span class="muted">{{.Label}}: {{.Value}}</span>{{end}}</li>{{end}}</ol>{{end}}
+{{if .Display.Changes}}<h2>What changes</h2><dl>{{range .Display.Changes}}<dt>{{visible .Field}}</dt><dd>{{visible .Old}} → {{visible .New}}</dd>{{end}}</dl>{{end}}
+{{if .Display.Preset}}<h2>Settings the preset writes</h2><dl>{{range .Display.Preset}}<dt>{{visible .Label}}</dt><dd>{{visible .Value}}</dd>{{end}}</dl>{{end}}
+{{if .Display.Steps}}<h2>Steps</h2><ol>{{range .Display.Steps}}<li{{if .Asks}} class="asks"{{end}}>{{if .Workflow}}<span class="muted">in workflow {{visible .Workflow}}:</span> {{end}}{{visible .Label}} <code>{{visible .Tool}}</code>{{range .Arguments}}<br><span class="muted">{{visible .Label}}: {{visible .Value}}</span>{{end}}</li>{{end}}</ol>{{end}}
 {{end}}
-{{if .Request}}<p class="muted">Asks because: {{.Request.Display.Source}} setting · {{if $.Installation}}Installation {{$.Installation}} · {{end}}{{.Request.CallerKind}}{{if .Request.Agent}} · Agent {{.Request.Agent}}{{end}} · Session {{.Session}} · Expires in {{.ExpiresIn}} min</p>
-<details><summary>Show details</summary><pre>{{.Request.Arguments}}</pre><p class="muted">SHA-256 {{.Request.ArgumentsHash}}</p></details>
+{{if .Request}}<p class="muted">Asks because: {{.Request.Display.Source}} setting · {{if $.Installation}}Installation {{$.Installation}} · {{end}}{{.Request.CallerKind}}{{if .Request.Agent}} · Agent {{visible .Request.Agent}}{{end}} · Session {{.Session}} · Expires in {{.ExpiresIn}} min</p>
+<details><summary>Show details</summary><pre>{{visible .Request.Arguments}}</pre><p class="muted">SHA-256 {{.Request.ArgumentsHash}}</p></details>
 {{if .Token}}
 <form method="post" action="{{.Action}}">
 <input type="hidden" name="token" value="{{.Token}}">
