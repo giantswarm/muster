@@ -132,18 +132,25 @@ caller as `approval`, from its server's `spec.approval`
 - `source`: `tool` (the tool's own entry), `connector` (the server's rule), `unreviewed` (a
   server without approval settings, or a core tool: `allow`), `builtin` (muster's own
   configuration tools, `core_config_update_aggregator`, `core_config_save` and
-  `core_config_reload`, which always ask) or `unavailable` (the settings could not be read:
-  reported as `ask`, and a call is refused).
+  `core_config_reload`, which always ask; and, for an agent caller, a floor), `governance`
+  (for an agent caller on a governed platform: a governed server's tool outside its safe
+  list, or a core tool that is not a read) or `unavailable` (the settings could not be read,
+  the server's MCPServer is missing, or the CRD does not know `spec.approval`: reported as
+  `ask`, and a call is refused).
 - `new`: `true` for a tool without its own entry on a server that has settings; it follows
   the rule.
 - `unavailable`: on a tool whose setting is `ask`, why muster cannot ask here (no shared store
-  on Valkey, no browser sign-in, no public URL, no person on the request); calls to it are
-  refused until that is fixed. Omitted when muster can ask.
+  on Valkey, or the store cannot be reached, no browser sign-in, no public URL, no person on
+  the request, a CRD without `spec.approval`); calls to it are refused until that is fixed.
+  Omitted when muster can ask.
 
 `allow` runs, `block` is refused as not found, and `ask` asks the person through muster's
 approval page ([When a call asks](../how-to/mcp-server-management.md#when-a-call-asks)).
-Workflows carry no `approval` yet; a workflow run asks once, up front, when one of its steps
-asks.
+A workflow reports its strictest step (the steps of the workflows it calls included); a
+workflow run asks once, up front, when one of its steps asks. The report is evaluated for the
+caller: an agent sees the floors and, on a governed platform, the governed default.
+`filter_tools` also returns `governance: trusted|governed`, the platform's mode (never the
+governed servers or their safe lists); `core_mcpserver_list` returns it too.
 
 A server tool also carries `connectorAdmin`: whether the caller may change its server's
 settings, that is may `update` MCPServers in the server's namespace (for a family tool, of
@@ -688,9 +695,10 @@ Replace a server's `spec.approval`, as the caller. A floor for agent callers.
 
 **Arguments:**
 - `name` (string, required) - Name of the MCP server
-- `approval` (object) or `preset` (string) - exactly one. `approval` is `{"rule": "Allow"|"Ask", "tools": {"<tool>": "Allow"|"Ask"|"Block"}}`; `preset` (`recommended`, `allow-all`, `ask-all`) is expanded, once, from the tools the server lists now into explicit settings
+- `approval` (object) or `preset` (string) - exactly one. `approval` is `{"rule": "Allow"|"Ask"|"Block", "tools": {"<tool>": "Allow"|"Ask"|"Block"}}` (not empty; `rule: Block` hides every tool without its own entry); `preset` (`recommended`, `allow-all`, `ask-all`) is expanded, once, from the tools the server lists now into explicit settings. When the call asks, the person approves the expansion and that is what is written.
+- `expectedGeneration` (integer, optional) - the `generation` `core_mcpserver_get` or `_list` returned; the write is refused with `conflict: MCP server '<name>' changed since it was read (generation N now, expectedGeneration M): read it again ...` when the server changed since
 
-**Returns:** `{"name", "approval", "message"}`
+**Returns:** `{"name", "approval", "message"}`; the message says when a preset found no tools and only wrote its rule. A write the API server did not store (a CRD older than `spec.approval`) is refused.
 
 ```json
 {"name": "core_mcpserver_set_approval",

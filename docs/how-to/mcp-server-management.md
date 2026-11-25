@@ -553,8 +553,10 @@ Rules:
 - Keys of `tools` are the server's own tool names, as it lists them: without
   `toolPrefix`, the family name or muster's `x_` prefix. An entry wins over
   `rule`.
-- `rule` takes `Allow` or `Ask`; an entry takes `Allow`, `Ask` or `Block`. The
-  values are case-sensitive; at most 512 entries.
+- `rule` and an entry take `Allow`, `Ask` or `Block`. A `rule: Block` hides and
+  refuses every tool without its own entry, new tools included, exactly like a
+  tool's own `Block`, so nobody can add an unreviewed tool to the connector.
+  The values are case-sensitive; at most 512 entries.
 - A server without `approval` is `Allow` for every tool and is reported as not
   reviewed. The field has no default, so upgrading changes no existing server.
 - A value muster does not know, read from a file or an object written before
@@ -563,16 +565,33 @@ Rules:
   applies to the next one without a restart.
 - A blocked tool is absent from `list_tools`, `filter_tools` and
   `describe_tool`, and `call_tool` (a workflow step included) refuses it as not
-  found. The meta-tools report each tool's setting and where it comes from
+  found. `core_mcpserver_get` and `_list` leave a server's `Block` entries out
+  for a caller who is not its connector admin. The meta-tools report each
+  tool's setting and where it comes from
   ([Tool approval](../reference/mcp-tools.md#tool-approval)).
+- A registered server whose MCPServer object muster no longer finds (deleted,
+  or no longer served) is refused, never `Allow`.
+- **The CRD must know `spec.approval`.** An older CRD prunes the field on every
+  write. muster checks the served CRD; while it lacks the field every server
+  tool call is refused (`approval_unavailable: the MCPServer CRD in this
+  cluster does not know spec.approval ...`), and the write tools refuse to
+  store settings. Every settings write is read back and refused when the API
+  server dropped it. Upgrade the CRDs with the chart
+  ([upgrading](#upgrading-to-tool-approval)).
 
 Set the settings with `core_mcpserver_set_approval`, passing `approval`
 (`{rule, tools}`) or a `preset` that muster expands, once, from the tools the
 server lists now: `recommended` (rule `Ask`, each tool annotated
 `readOnlyHint: true` `Allow`, every other `Ask`), `allow-all` or `ask-all`.
-`core_mcpserver_create` requires `preset` or `approval`; a server not listed
-yet gets the preset's rule, so set the preset again once it lists its tools.
-Each change is audited old to new with who made it.
+`core_mcpserver_create` requires `preset` or `approval` (an empty `approval`
+is refused); a server not listed yet gets only the preset's rule -- the
+result says so, every tool then follows the rule and is reported `new` -- so
+set the preset again once it lists its tools. A preset that asks for
+approval is bound to its expansion: the person approves the per-tool
+settings it writes, and those are what runs. `expectedGeneration` (the
+`generation` `core_mcpserver_get` returned) refuses the write when the server
+changed since, so two admins saving from stale reads do not overwrite each
+other. Each change is audited old to new with who made it.
 
 The connector write tools are split, so each can be governed on its own:
 `core_mcpserver_create`, `core_mcpserver_update` (description, display name,
@@ -580,7 +599,8 @@ tags, `autoStart`, `timeout`, `progress`, `suspended`, `restartRequestedAt`),
 `core_mcpserver_connect` (type, URL, command, args, env, headers,
 `headersFrom`, `requestMeta`, auth, `clientCredentials`, family, `toolPrefix`),
 `core_mcpserver_set_approval` and `core_mcpserver_delete`. Each refuses an
-argument another one takes, naming it.
+argument another one takes, naming for each argument the tool that takes it
+(see [upgrading](#upgrading-to-tool-approval)).
 
 ### When a call asks
 
@@ -588,7 +608,8 @@ A call whose effective approval is `Ask` runs only after its person approved
 that exact call:
 
 1. `call_tool` records a pending approval, bound to the person (issuer and raw
-   `sub`), the muster session, the resolved target (server, its UID and
+   `sub`), the client's MCP connection (its MCP session within muster's
+   session: another client of the same person asks anew), the resolved target (server, its UID and
    generation, the server's own tool name; or the workflow and its
    definition) and the RFC 8785 canonical form of the arguments, and answers
    with a link to `https://<publicUrl>/approvals/<id>`. A client that declares
@@ -599,19 +620,28 @@ that exact call:
    identity provider; only the person the call was made for sees the call and
    the buttons. The page shows the tool by its title, the connector, whether
    it changes data and each argument in full.
-3. The client calls again with the same arguments. muster finds the decision
-   itself (the client's own "accept" counts for nothing): an approved call runs
-   once with the arguments the person saw, a declined one answers `declined`,
-   and an identical call made before a decision gets the same link.
+3. The client calls again with the same arguments over the same MCP
+   connection. muster finds the decision itself (the client's own "accept"
+   counts for nothing): an approved call runs once with the arguments the
+   person saw, a declined one answers `declined`, and an identical call made
+   before a decision gets the same link.
+
+Every page outcome says whether the request was approved, declined or nothing
+was decided, and what to do next; a refused decision is logged with its
+reason. When the server needs the session's sign-in first, the call answers
+with the sign-in before it asks, so one call never asks twice.
 
 An approval expires after `approval.ttl` (5 minutes) and is used up by one
-run. A person has at most 10 pending approvals, 3 per session; arguments are
+run. A person has at most 10 pending approvals across all their clients and
+agents, 3 per MCP connection; a decided request stops counting, and the
+refusal names the cap reached and when the waiting ones expire. Arguments are
 capped at 64 KiB. Resources and prompts are not gated: they are reads.
 
 A workflow asks once, up front: muster resolves every step's tool with the
 caller's settings; a blocked step refuses the run before anything runs, and
 if any step asks the whole run asks once, for the workflow's definition and
-inputs. The approved run's steps do not ask again; a step that resolves to
+inputs and the definitions of the workflows it calls (shown on the page with
+their steps). The approved run's steps do not ask again; a step that resolves to
 `Block`, to a tool the check did not see, or to `ask` in a run nobody
 approved, fails the run there.
 
@@ -627,25 +657,115 @@ report it as `approval.unavailable`. The page returns the browser to the
 Approval pages are only ever served on muster's own host. An agent that drives
 the person's signed-in browser acts as the person and can approve.
 
+Every request, decision, use and refusal (a `Block`, governance, a missing
+prerequisite) is an `[AUDIT]` log line with the issuer and full subject, the
+caller kind and the approval id; settings changes and connector writes are
+logged with the fields they changed, settings old to new.
+
 ### Governance and floors
 
-Agent callers (a Session's actor JWT, a delegated token) are asked before
-some calls whatever the settings say; a person acting directly is not:
+Agent callers -- a Session's actor JWT, a delegated token -- are asked before
+some calls whatever the connector's settings say. A person acting directly is
+not: the person is the approval.
 
-- in both modes: `core_mcpserver_create`, `core_mcpserver_connect`,
-  `core_mcpserver_set_approval`, `core_workflow_create`, `_update` and
-  `_delete`, and on the servers `governance.servers` names agent-manager's
-  `set_agent_approval` and `set_organization_connector` and the Platform
-  Manager's `approve_action` and `merge_action`;
-- on `governance.mode: governed` also agent-manager's `create_agent`,
-  `update_agent_access` and `start_session`, and `core_mcpserver_update` with
-  `suspended: true`.
+`governance` in muster's configuration (Helm `muster.governance`, rendered by
+the agent-platform chart) sets the mode and names the governed servers:
 
-muster's own configuration (`core_config_update_aggregator`,
-`core_config_save`, `core_config_reload`) asks every caller. A tool with one of
-those names on a server the configuration does not name for it is refused to
-agents. Requests of agent callers to a server the configuration names carry
-`X-Muster-Caller-Kind: agent`.
+```yaml
+governance:
+  mode: governed                  # or trusted
+  governedServers:
+    - server: agent-manager       # server key
+      role: agentManager          # which floors hold on it
+      safe: [get_info, list_agents, get_agent]   # tools agents call unasked
+    - server: kagent
+      role: sessionManager
+      safe: [list_sessions]
+```
+
+Roles: `agentManager`, `platformManager`, `connectorManager`,
+`sessionManager`, `modelManager`, `clusterManager`, `vmManager`,
+`workspaceManager`, `toolchainManager`, `skillManager`, `infrastructure`.
+muster refuses to start on an unknown role, a server named twice, a floor on a
+safe list, or both shapes at once. The earlier shape `servers: {agentManager:
+[..], platformManager: [..], connectorManager: [..]}` is still read: its
+servers are governed with empty safe lists.
+
+- **Floors, both modes** (agents are asked): muster's
+  `core_mcpserver_create`, `_connect`, `_set_approval`,
+  `core_workflow_create`, `_update`, `_delete`; by role: agentManager
+  `set_agent_approval`, `set_organization_connector`,
+  `add_organization_member`, `set_organization_model`,
+  `set_organization_egress_policy`, `replace_organization_credential`;
+  platformManager `approve_action`, `merge_action`; connectorManager
+  `mcpserver_create`, `_connect`, `_set_approval`; toolchainManager
+  `approve_source`; modelManager `add_backend`.
+- **Governed** (`mode: governed`, or no readable configuration): an agent is
+  asked before every tool of a governed server that is not on its safe list --
+  a tool the server adds or renames later included, until someone lists it --
+  and before every core tool except muster's reads (`core_*_list`, `_get`,
+  `_validate`, `_detect`, `_status`, `_available`, `_execution_*`,
+  `core_events`, `core_auth_*`): stopping, starting or restarting a service,
+  updating, pausing or deleting a connector all ask. A workflow step resolves
+  the same way, so a deployed workflow asks up front when a step would.
+- **Trusted**: the floors only.
+- A `Block` still wins over every ask. muster's own configuration
+  (`core_config_update_aggregator`, `_save`, `_reload`) asks every caller.
+- A floor name on a server that is not governed is refused to agents only
+  while no governed server holds that role (muster cannot tell the platform's
+  server from a look-alike then); once the role's server is named, a
+  same-named tool of a customer's own server follows its own settings.
+- A safe-list entry that names none of the server's tools is logged and
+  counted in the gauge `muster_governance_safe_list_unmatched{server}`; the
+  tool it meant keeps asking.
+- `filter_tools`, `describe_tool` and `list_tools` report what a call will do
+  for the caller (source `governance` or `builtin`), a workflow as its
+  strictest step; `filter_tools` and `core_mcpserver_list` report the mode
+  (`governance: trusted|governed`), never the server lists.
+- Requests of agent callers to a governed server carry
+  `X-Muster-Caller-Kind: agent` on every HTTP connection type; agents are
+  refused on a governed server reached over stdio, which cannot carry it.
+
+#### What governed mode does not cover
+
+- **A client holding a person's own token acts as the person.** Claude Code,
+  a coding agent's harness or any script calling muster with the person's
+  bearer is a person caller: neither the floors nor the governed default
+  apply to it, only the connector settings. muster has no way to tell it from
+  the person until delegated tokens name the agent.
+- Servers the configuration does not name follow their connector settings
+  only; name every server that can change the platform.
+- Calls that never reach muster: organization connectors agents call directly
+  (kagent `RemoteMCPServer`s), kagent's own sub-agent and A2A calls.
+- Whoever can write muster's ConfigMap or HelmRelease changes the mode and the
+  safe lists.
+
+### Upgrading to tool approval
+
+- **CRDs first.** `helm upgrade` does not update the chart's `crds/`; apply
+  them (`helm show crds giantswarm/muster | kubectl apply --server-side -f -`,
+  or Flux `upgrade.crds: CreateReplace`). Until the served CRD knows
+  `spec.approval`, muster refuses every server tool call.
+- **The connector write tools are split.** `core_mcpserver_update` no longer
+  takes `url`, `type`, `command`, `args`, `env`, `headers`, `headersFrom`,
+  `requestMeta`/`meta`, `auth`, `clientCredentials`, `family` or `toolPrefix`:
+  use `core_mcpserver_connect`; approval settings go through
+  `core_mcpserver_set_approval`. `core_mcpserver_create` (and `muster create
+  mcpserver`) needs `preset` (`recommended`, `allow-all`, `ask-all`) or
+  `approval`. Each refusal names the tool to use.
+- **The chart binds nobody to `mcpserver-editor` by default** (earlier charts
+  bound `system:authenticated`). Whoever holds it is a connector admin. An
+  upgrade with `rbac.mcpServerEditor.subjects` empty fails while the cluster
+  still has the old RoleBinding; set the subjects (to keep the old behaviour,
+  `[{kind: Group, apiGroup: rbac.authorization.k8s.io, name:
+  system:authenticated}]`) or `rbac.mcpServerEditor.allowRemovingBinding:
+  true`. `workflowEditor` keeps binding `system:authenticated`.
+- **Agents and governance.** Without `muster.governance` muster applies the
+  governed default to agent callers; set it before agents use the platform's
+  management servers.
+- `core_config_update_aggregator`, `_save` and `_reload` now ask every caller;
+  in filesystem mode (no Valkey store, no browser sign-in) they cannot run
+  through the tools: edit the configuration file and restart muster.
 
 ## Display name
 
