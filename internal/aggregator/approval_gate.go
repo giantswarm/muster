@@ -309,7 +309,8 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 		ElicitationID: rand.Text(),
 		Identity:      identity,
 		SessionID:     sessionID,
-		CallerKind:    api.CallerKind(ctx, sessionID),
+		CallerKind:    api.CallerKind(ctx, getSessionIDFromContext(ctx)),
+		RequesterName: requesterName(ctx),
 		Target:        target,
 		Arguments:     canonical,
 		ArgumentsHash: hash,
@@ -382,6 +383,19 @@ func approvalClient(ctx context.Context, session string) string {
 		return "client:" + info.ClientID
 	}
 	return ""
+}
+
+// requesterName is how another person sees whose request it is: the email
+// or name of the person's token, empty when it carries neither.
+func requesterName(ctx context.Context) string {
+	info, ok := oauthhandler.UserInfoFromContext(ctx)
+	if !ok || info == nil {
+		return ""
+	}
+	if info.Email != "" {
+		return info.Email
+	}
+	return info.Name
 }
 
 // declinedResult answers a retry of a call the person declined.

@@ -174,6 +174,9 @@ type ApprovalRequest struct {
 	// SessionID is the muster session the call came from (an actor's
 	// session for a Session sandbox).
 	SessionID string `json:"sessionId"`
+	// RequesterName is the person's name or email from their token, shown
+	// to another person who opens the link; empty when the token has none.
+	RequesterName string `json:"requesterName,omitempty"`
 	// Agent names the calling agent where muster knows it.
 	Agent string `json:"agent,omitempty"`
 	// CallerKind is the caller's kind and its evidence.

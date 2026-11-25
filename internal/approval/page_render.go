@@ -33,7 +33,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#f6f8fa;padding:.5rem}
 {{with .Request}}
 <p class="lead">{{visible .Display.Message}}</p>
 <dl>
-<dt>Action</dt><dd>{{visible .Display.Title}} <code>{{visible .Target.Name}}</code>{{if .Display.ChangesData}} <span class="tag">Changes data</span>{{end}}</dd>
+<dt>Action</dt><dd>{{visible .Display.Title}}{{if ne .Target.Kind "workflow"}} <code>{{visible .Target.Name}}</code>{{end}}{{if .Display.ChangesData}} <span class="tag">Changes data</span>{{end}}</dd>
 {{if .Target.Server}}<dt>Connector</dt><dd>{{visible .Display.Connector}} <code>{{visible .Target.Server}}</code></dd>{{else if .Display.Connector}}<dt>Connector</dt><dd>{{visible .Display.Connector}}</dd>{{end}}
 {{range .Display.Arguments}}<dt>{{visible .Label}} <code class="muted">{{visible .Key}}</code></dt><dd>{{visible .Value}}{{if .Type}} <span class="muted">({{.Type}})</span>{{end}}</dd>{{end}}
 </dl>
@@ -93,7 +93,7 @@ func (p *Page) renderMessage(w http.ResponseWriter, status int, heading, body st
 func (p *Page) renderRequest(w http.ResponseWriter, request *api.ApprovalRequest, flow *api.ApprovalPageFlow) {
 	if flow.Identity != request.Identity {
 		p.renderMessage(w, http.StatusForbidden, "This request is someone else's",
-			"Nothing was approved or declined. It was made for "+request.Identity.Subject+" at "+request.Identity.Issuer+"; only they can decide it. If you need the call, run it yourself.")
+			"Nothing was approved or declined. It was made for "+requester(request)+"; only they can decide it. If you need the call, run it yourself.")
 		return
 	}
 	if request.Status != api.ApprovalStatusPending {
@@ -112,6 +112,15 @@ func (p *Page) renderRequest(w http.ResponseWriter, request *api.ApprovalRequest
 		ReturnOrigin: originOf(flow.Redirect),
 	}
 	p.render(w, http.StatusOK, data)
+}
+
+// requester names the person a request was made for: their email or name,
+// else the identity provider's subject and issuer.
+func requester(request *api.ApprovalRequest) string {
+	if request.RequesterName != "" {
+		return Visible(request.RequesterName)
+	}
+	return request.Identity.Subject + " at " + request.Identity.Issuer
 }
 
 // renderAnswered tells the person a request was answered already, and how.

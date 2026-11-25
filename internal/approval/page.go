@@ -300,18 +300,17 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	// Every refusal of a decision answers the browser alike and logs which
 	// check refused it (no secrets): nothing was approved or declined.
-	refuse := func(reason string) {
+	refuse := func(reason, body string) {
 		logging.WarnWithAttrs("Approval", "decision refused: nothing was decided",
 			slog.String("approval", logging.TruncateIdentifier(id)), slog.String("reason", reason))
-		p.renderMessage(w, http.StatusForbidden, "Nothing was decided",
-			"This page expired, was opened in another browser or tab, or was answered already. Open the approval link again to decide.")
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided", "Nothing was approved or declined: "+body)
 	}
 	// A browser sends Origin: null on a same-origin POST from a page with
 	// Referrer-Policy: no-referrer (Fetch, "serializing a request origin";
 	// verified in Chromium): that carries no origin, like a missing header.
 	// The anti-forgery token bound to this browser's flow is the check.
 	if origin := r.Header.Get("Origin"); origin != "" && origin != "null" && !sameOrigin(origin, p.PublicURL) {
-		refuse("the Origin header names another origin")
+		refuse("the Origin header names another origin", "the answer did not come from this approval page. Open the approval link and decide on its page.")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
@@ -321,21 +320,21 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	cookie := p.cookieValue(r)
 	if cookie == "" {
-		refuse("the browser sent no approval cookie")
+		refuse("the browser sent no approval cookie", "this browser sent no approval session (cookies blocked, or the page was opened in another browser). Open the approval link again in this browser.")
 		return
 	}
 	key := flowKey(cookie, id)
 	flow, err := store.GetFlow(r.Context(), key)
 	if err != nil {
 		if errors.Is(err, api.ErrApprovalNotFound) {
-			refuse("no flow for this browser and request (expired, or another browser)")
+			refuse("no flow for this browser and request (expired, or another browser)", "this page expired (a page stays valid for 10 minutes after sign-in) or was opened in another browser. Open the approval link again.")
 			return
 		}
 		p.renderStoreError(w, err)
 		return
 	}
 	if flow.Token == "" || subtle.ConstantTimeCompare([]byte(r.PostForm.Get("token")), []byte(flow.Token)) != 1 {
-		refuse("the anti-forgery token does not match this browser's flow")
+		refuse("the anti-forgery token does not match this browser's flow", "this page is out of date: the approval link was opened again, in another tab, after it. Use the newest tab, or open the approval link again.")
 		return
 	}
 	request, err := store.Get(r.Context(), id)

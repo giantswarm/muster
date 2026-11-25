@@ -355,7 +355,8 @@ func TestPage_DecisionAfterSignInWithOriginNull(t *testing.T) {
 	_ = refused.Body.Close()
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode)
 	assert.Contains(t, string(text), "Nothing was decided")
-	assert.Contains(t, string(text), "Open the approval link again")
+	assert.Contains(t, string(text), "this page is out of date", "the refusal names its cause (lab R1-2)")
+	assert.Contains(t, string(text), "open the approval link again")
 
 	decided := post(token)
 	_ = decided.Body.Close()
@@ -392,4 +393,28 @@ func TestPage_OutcomesSayWhatHappened(t *testing.T) {
 	_, body = rig.open(t, browser(t), rig.page.URL("gone"))
 	assert.Contains(t, body, "Nothing to decide: this request expired or was already used")
 	assert.Contains(t, body, "run it again")
+}
+
+// Another person sees whose request it is by email or name, not the
+// identity provider's opaque subject (lab R1-1); a workflow's name is shown
+// once (lab R1-3).
+func TestPage_RequesterAndWorkflowName(t *testing.T) {
+	p := &Page{PublicURL: "https://muster.example.com"}
+	request := &api.ApprovalRequest{ID: "x", Identity: alice, RequesterName: "alice@example.com", Status: api.ApprovalStatusPending, ExpiresAt: time.Now().Add(time.Minute)}
+	w := httptest.NewRecorder()
+	p.renderRequest(w, request, &api.ApprovalPageFlow{Identity: bob})
+	assert.Contains(t, w.Body.String(), "It was made for alice@example.com;")
+	assert.NotContains(t, w.Body.String(), alice.Issuer)
+
+	request.RequesterName = ""
+	w = httptest.NewRecorder()
+	p.renderRequest(w, request, &api.ApprovalPageFlow{Identity: bob})
+	assert.Contains(t, w.Body.String(), "It was made for alice at https://dex.example.com;", "the subject only without a name")
+
+	workflow := &api.ApprovalRequest{ID: "w", Identity: alice, Status: api.ApprovalStatusPending, ExpiresAt: time.Now().Add(time.Minute),
+		Target:  api.ApprovalTarget{Kind: api.ApprovalTargetWorkflow, Name: "release"},
+		Display: api.ApprovalDisplay{Title: "workflow release"}}
+	w = httptest.NewRecorder()
+	p.renderRequest(w, workflow, &api.ApprovalPageFlow{Identity: alice, Token: "t"})
+	assert.NotContains(t, w.Body.String(), "<code>release</code>")
 }
