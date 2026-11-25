@@ -276,3 +276,18 @@ func TestLabelledArguments_DistinguishTypes(t *testing.T) {
 		{Key: "o", Label: "O", Value: `{"a":1}`, Type: "object"},
 	}, typed)
 }
+
+// Labels made from keys read as words (lab M1-8).
+func TestReadable(t *testing.T) {
+	for in, want := range map[string]string{
+		"merge_pull_request": "Merge pull request",
+		"dryRun":             "Dry run",
+		"adminUsers":         "Admin users",
+		"systemMessage":      "System message",
+		"pr":                 "Pr",
+		"toolPrefix2Name":    "Tool prefix2 name",
+		"":                   "",
+	} {
+		assert.Equal(t, want, readable(in), in)
+	}
+}

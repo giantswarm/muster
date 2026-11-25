@@ -157,6 +157,14 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	request, err := store.Get(r.Context(), id)
+	if errors.Is(err, api.ErrApprovalNotFound) && !r.URL.Query().Has("code") {
+		// An unknown, expired or used id answers like a live one before
+		// sign-in: the browser is sent to sign in, and only a signed-in
+		// browser learns that nothing is there (lab M1-5). Nothing is
+		// stored for it.
+		p.sendUnknownToSignIn(w, r, identity, id)
+		return
+	}
 	if err != nil {
 		p.renderStoreError(w, err)
 		return
@@ -219,6 +227,24 @@ func (p *Page) sendToSignIn(w http.ResponseWriter, r *http.Request, store api.Ap
 	signIn, err := identity.SignInURL(r.Context(), returnURL, flow.Nonce, challenge, request.Identity)
 	if err != nil {
 		logging.Warn("Approval", "Cannot start the sign-in for approval %s: %v", logging.TruncateIdentifier(request.ID), err)
+		p.renderMessage(w, http.StatusServiceUnavailable, "The sign-in could not be started", "Try again in a moment.")
+		return
+	}
+	http.Redirect(w, r, signIn, http.StatusFound) //nolint:gosec // G710: built by muster's own OAuth server
+}
+
+// sendUnknownToSignIn sends the browser to sign in for an id muster does not
+// hold, as for a live one; its return finds no request and answers 404.
+func (p *Page) sendUnknownToSignIn(w http.ResponseWriter, r *http.Request, identity api.BrowserIdentity, id string) {
+	p.ensureCookie(w, r)
+	returnURL, err := url.Parse(p.URL(id))
+	if err != nil {
+		p.renderMessage(w, http.StatusInternalServerError, "The approval page is misconfigured", "")
+		return
+	}
+	sum := sha256.Sum256([]byte(rand.Text()))
+	signIn, err := identity.SignInURL(r.Context(), returnURL, rand.Text(), base64.RawURLEncoding.EncodeToString(sum[:]), api.SignInIdentity{})
+	if err != nil {
 		p.renderMessage(w, http.StatusServiceUnavailable, "The sign-in could not be started", "Try again in a moment.")
 		return
 	}

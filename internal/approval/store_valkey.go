@@ -300,6 +300,14 @@ func (s *ValkeyStore) Decide(ctx context.Context, id string, approve bool, by ap
 	return nil
 }
 
+// Ping implements api.ApprovalStore.
+func (s *ValkeyStore) Ping(ctx context.Context) error {
+	if err := s.client.Do(ctx, s.client.B().Ping().Build()).Error(); err != nil {
+		return fmt.Errorf("approval store: %w", err)
+	}
+	return nil
+}
+
 // PutFlow implements api.ApprovalStore.
 func (s *ValkeyStore) PutFlow(ctx context.Context, key string, flow api.ApprovalPageFlow, ttl time.Duration) error {
 	sealed, err := s.seal(flow)

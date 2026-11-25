@@ -571,3 +571,54 @@ func TestGate_SignInBeforeApproval(t *testing.T) {
 	_, _, needed = rig.server.signInFirst(rig.ctx, "github", "merge_pull_request", map[string]any{})
 	assert.False(t, needed, "a server without per-session sign-in asks as before")
 }
+
+// An approval is bound to the client's MCP connection, not only to muster's
+// session (which a forwarded bearer shares across every client of a
+// person): another connection of the same person asks anew, and its pending
+// asks do not fill the first connection's cap (lab M1-2).
+func TestGate_ApprovalBoundToTheMCPConnection(t *testing.T) {
+	rig := newGateRig(t)
+	server := mcpserver.NewMCPServer("muster", "test")
+	connA := server.WithContext(rig.ctx, newLegacySession("connection-a", mcp.ClientCapabilities{}))
+	connB := server.WithContext(rig.ctx, newLegacySession("connection-b", mcp.ClientCapabilities{}))
+
+	result, err := rig.server.CallToolInternal(connA, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
+	require.NoError(t, err)
+	id := approvalIDOf(t, result)
+	require.NoError(t, rig.store.Decide(context.Background(), id, true, alice))
+
+	other, err := rig.server.CallToolInternal(connB, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
+	require.NoError(t, err)
+	assert.NotEqual(t, id, approvalIDOf(t, other), "another connection asks anew")
+	assert.Zero(t, rig.client.count("merge_pull_request"))
+
+	_, err = rig.server.CallToolInternal(connA, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
+	require.NoError(t, err)
+	assert.Equal(t, 1, rig.client.count("merge_pull_request"), "the asking connection runs it")
+
+	for i := range 2 { // connection B now holds its cap of 3
+		_, err := rig.server.CallToolInternal(connB, "x_github_merge_pull_request", map[string]any{"pr": float64(10 + i)})
+		require.NoError(t, err)
+	}
+	_, err = rig.server.CallToolInternal(connB, "x_github_merge_pull_request", map[string]any{"pr": 50.0})
+	require.ErrorContains(t, err, "3 of this connection's calls already wait")
+	result, err = rig.server.CallToolInternal(connA, "x_github_merge_pull_request", map[string]any{"pr": 99.0})
+	require.NoError(t, err)
+	approvalIDOf(t, result)
+}
+
+type unreachableStore struct{ approval.MemoryStore }
+
+func (*unreachableStore) Ping(context.Context) error { return errors.New("valkey unavailable") }
+
+// During a store outage the listing reports why asking tools are refused,
+// as it does for a missing prerequisite (lab M1-3).
+func TestApplyApprovals_ReportsAStoreOutage(t *testing.T) {
+	rig := newGateRig(t)
+	api.RegisterApprovalStore(&unreachableStore{})
+	tools := rig.server.applyApprovals(rig.ctx, []mcp.Tool{approvalSoloTool("github", "merge_pull_request"), approvalSoloTool("github", "get_issue")})
+	merge, _ := api.ToolApprovalOf(tools[0])
+	assert.Equal(t, "muster's approval store cannot be reached", merge.Unavailable)
+	read, _ := api.ToolApprovalOf(tools[1])
+	assert.Empty(t, read.Unavailable)
+}

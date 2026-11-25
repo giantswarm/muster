@@ -247,6 +247,16 @@ func TestPage_DecisionNeedsBrowserAndToken(t *testing.T) {
 
 func TestPage_ExpiredAndUnavailable(t *testing.T) {
 	rig := newPageRig(t)
+	// Before sign-in an unknown id answers like someone else's live request:
+	// a redirect to sign in (lab M1-5).
+	foreign := rig.create(t, map[string]any{"pr": 1})
+	for _, id := range []string{"unknown", foreign.ID} {
+		resp, err := browser(t).Get(rig.page.URL(id))
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, http.StatusFound, resp.StatusCode, id)
+	}
+
 	resp, body := rig.open(t, browser(t), rig.page.URL("unknown"))
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	assert.Contains(t, body, "expired")

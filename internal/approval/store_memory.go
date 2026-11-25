@@ -184,6 +184,9 @@ func (s *MemoryStore) Decide(_ context.Context, id string, approve bool, by api.
 	return nil
 }
 
+// Ping implements api.ApprovalStore: an in-process store is always there.
+func (s *MemoryStore) Ping(context.Context) error { return nil }
+
 // PutFlow implements api.ApprovalStore.
 func (s *MemoryStore) PutFlow(_ context.Context, key string, flow api.ApprovalPageFlow, ttl time.Duration) error {
 	s.mu.Lock()

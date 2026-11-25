@@ -61,7 +61,15 @@ func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServe
 // what is reported; a call is refused at dispatch).
 func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
 	out := a.resolveApprovals(ctx, tools)
-	if reason := a.approvalUnavailable(ctx); reason != "" {
+	reason := a.approvalUnavailable(ctx)
+	if reason == "" && anyAsks(out) {
+		// A store that is registered but cannot be reached refuses every
+		// call that asks; the listing says so too (lab M1-3).
+		if err := api.GetApprovalStore().Ping(ctx); err != nil {
+			reason = "muster's approval store cannot be reached"
+		}
+	}
+	if reason != "" {
 		for i := range out {
 			if approval, ok := api.ToolApprovalOf(out[i]); ok && approval.Setting == api.ApprovalSettingAsk {
 				approval.Unavailable = reason
@@ -70,6 +78,16 @@ func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool)
 		}
 	}
 	return out
+}
+
+// anyAsks reports whether a tool of the listing asks.
+func anyAsks(tools []mcp.Tool) bool {
+	for _, tool := range tools {
+		if approval, ok := api.ToolApprovalOf(tool); ok && approval.Setting == api.ApprovalSettingAsk {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveApprovals is applyApprovals without the availability of asking.

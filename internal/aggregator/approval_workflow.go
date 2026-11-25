@@ -245,10 +245,19 @@ func (a *AggregatorServer) planStep(ctx context.Context, owner, id, tool, descri
 	}
 	label := description
 	if label == "" {
-		label = readable(tool)
+		label = a.stepLabel(tool)
 	}
 	plan.steps = append(plan.steps, api.ApprovalStep{ID: id, Label: label, Tool: tool, Asks: asks, Workflow: owner, Arguments: labelledArguments(mcp.ToolInputSchema{}, args)})
 	return nil
+}
+
+// stepLabel names an undescribed step by its tool's own name made readable
+// ("List agents", not "X agent manager list agents").
+func (a *AggregatorServer) stepLabel(tool string) string {
+	if _, original, err := a.registry.ResolveToolName(tool); err == nil && original != "" {
+		return readable(original)
+	}
+	return readable(strings.TrimPrefix(tool, "core_"))
 }
 
 // stepApproval resolves the effective approval of one step's tool for the

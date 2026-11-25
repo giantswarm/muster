@@ -286,6 +286,9 @@ type ApprovalStore interface {
 	// Decide records the decision on a pending request, once.
 	Decide(ctx context.Context, id string, approve bool, by SignInIdentity) error
 
+	// Ping reports whether the store can be reached now.
+	Ping(ctx context.Context) error
+
 	// PutFlow, GetFlow and DeleteFlow keep the page's browser flows.
 	PutFlow(ctx context.Context, key string, flow ApprovalPageFlow, ttl time.Duration) error
 	GetFlow(ctx context.Context, key string) (*ApprovalPageFlow, error)

@@ -225,16 +225,25 @@ func jsonType(value any) string {
 	}
 }
 
-// readable turns a name such as merge_pull_request into "Merge pull request".
+// readable turns a name such as merge_pull_request or dryRun into "Merge
+// pull request" or "Dry run": words split at _, -, . and where a lower-case
+// letter or digit meets an upper-case one.
 func readable(name string) string {
-	words := strings.FieldsFunc(name, func(r rune) bool { return r == '_' || r == '-' || r == '.' })
+	var spaced strings.Builder
+	runes := []rune(name)
+	for i, r := range runes {
+		if i > 0 && unicode.IsUpper(r) && (unicode.IsLower(runes[i-1]) || unicode.IsDigit(runes[i-1])) {
+			spaced.WriteRune(' ')
+		}
+		spaced.WriteRune(r)
+	}
+	words := strings.FieldsFunc(spaced.String(), func(r rune) bool { return r == '_' || r == '-' || r == '.' || r == ' ' })
 	if len(words) == 0 {
 		return name
 	}
-	text := strings.ToLower(strings.Join(words, " "))
-	runes := []rune(text)
-	runes[0] = unicode.ToUpper(runes[0])
-	return string(runes)
+	text := []rune(strings.ToLower(strings.Join(words, " ")))
+	text[0] = unicode.ToUpper(text[0])
+	return string(text)
 }
 
 func sortedKeys[V any](m map[string]V) []string {

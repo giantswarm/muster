@@ -274,7 +274,7 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 		return nil, nil, fmt.Errorf("%s asks before it runs, and its arguments cannot be shown for approval: %w", name, err)
 	}
 	store := api.GetApprovalStore()
-	sessionID := getSessionIDFromContext(ctx)
+	sessionID := approvalSessionID(ctx)
 	identity := api.SignInIdentityFromContext(ctx)
 	key := api.ApprovalBindingKey(identity, sessionID, "", target, hash)
 
@@ -332,9 +332,25 @@ func limitReason(err error) string {
 		return fmt.Sprintf("%d of this person's calls already wait for a decision, across all their sessions and agents", limit.Limit)
 	}
 	if limit != nil {
-		return fmt.Sprintf("%d of this session's calls already wait for a decision", limit.Limit)
+		return fmt.Sprintf("%d of this connection's calls already wait for a decision (the cap is per MCP session)", limit.Limit)
 	}
 	return "too many calls already wait for a decision"
+}
+
+// approvalSessionID is the session an approval and the per-session cap are
+// bound to: the client's MCP connection (its Mcp-Session-Id) within muster's
+// session. A forwarded person's bearer gives every client of that person one
+// muster session, so without the connection an approval asked in one client
+// could be used by another, and one client's pending asks would fill every
+// other client's cap (lab M1-2). A call without a transport session (muster's
+// own) keeps muster's session.
+func approvalSessionID(ctx context.Context) string {
+	session := getSessionIDFromContext(ctx)
+	transport := getTransportSessionID(ctx)
+	if transport == "" || transport == session {
+		return session
+	}
+	return session + "/" + transport
 }
 
 // declinedResult answers a retry of a call the person declined.
