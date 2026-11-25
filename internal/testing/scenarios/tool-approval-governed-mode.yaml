@@ -1,0 +1,113 @@
+name: "tool-approval-governed-mode"
+description: "On a governed platform the governance mode is reported to every client (filter_tools, core_mcpserver_list) without its server lists; a person calling a governed server's tool outside its safe list is not asked (only agents are), and a Block rule hides and refuses every tool without its own entry"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["approval", "governance", "metatools", "mcpserver"]
+timeout: "3m"
+
+# Given: muster runs governed; agent-manager is a governed server of role
+#        agentManager with list_agents on its safe list, its connector
+#        Allow all; legacy has rule Block with get_status Allow.
+# When:  a person (the scenario's own client, not an agent) lists and calls.
+# Then:  listings report governance governed and not the server lists;
+#        update_agent, outside the safe list, runs for the person and is
+#        reported allow; legacy's tools without an entry are hidden and
+#        refused as not found, get_status runs.
+# Agent callers (actor JWT, delegated token) cannot be driven by the
+# scenario framework; the Go tests TestGovernance_* in internal/aggregator
+# cover them.
+
+pre_configuration:
+  main_config:
+    config:
+      governance:
+        mode: governed
+        governedServers:
+          - server: agent-manager
+            role: agentManager
+            safe: [list_agents]
+
+  mcp_servers:
+    - name: "agent-manager"
+      config:
+        approval:
+          rule: "Allow"
+        tools:
+          - name: "list_agents"
+            description: "List agents"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { agents: [] } }]
+          - name: "update_agent"
+            description: "Update an agent"
+            annotations: { read_only_hint: false }
+            responses: [{ response: { updated: true } }]
+    - name: "legacy"
+      config:
+        approval:
+          rule: "Block"
+          tools:
+            get_status: "Allow"
+        tools:
+          - name: "get_status"
+            description: "Get the status"
+            responses: [{ response: { ok: true } }]
+          - name: "wipe"
+            description: "Wipe everything"
+            responses: [{ response: { wiped: true } }]
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["agent-manager", "legacy", "governed"]
+
+  - id: "filter-tools-reports-the-mode-only"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "x_agent-manager_*" } }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        governance: "governed"
+      contains: ["x_agent-manager_update_agent"]
+      not_contains: ["agentManager", "governedServers"]
+
+  - id: "person-sees-the-connector-setting"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_agent-manager_update_agent" } }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "allow"
+        approval.source: "connector"
+
+  - id: "person-is-not-asked"
+    tool: "x_agent-manager_update_agent"
+    args: {}
+    expected:
+      success: true
+      contains: ["updated"]
+
+  - id: "block-rule-hides-new-tools"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_legacy_wipe" } }
+    expected:
+      success: false
+      contains: ["not found"]
+
+  - id: "block-rule-refuses-the-call"
+    tool: "x_legacy_wipe"
+    args: {}
+    expected:
+      success: false
+      contains: ["tool not found: x_legacy_wipe"]
+
+  - id: "own-entry-wins-over-block-rule"
+    tool: "x_legacy_get_status"
+    args: {}
+    expected:
+      success: true
+      contains: ["ok"]

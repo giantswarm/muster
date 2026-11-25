@@ -443,12 +443,13 @@
           "properties": {
             "approval": {
               "additionalProperties": false,
-              "description": "Explicit approval settings {rule: Allow|Ask, tools: {\u003ctool\u003e: Allow|Ask|Block}}; not with preset",
+              "description": "Explicit settings {rule: Allow|Ask|Block, tools: {\u003ctool\u003e: Allow|Ask|Block}}; rule covers tools without an entry, new ones too; not with preset",
               "properties": {
                 "rule": {
                   "enum": [
                     "Allow",
-                    "Ask"
+                    "Ask",
+                    "Block"
                   ],
                   "type": "string"
                 },
@@ -888,12 +889,13 @@
           "properties": {
             "approval": {
               "additionalProperties": false,
-              "description": "Explicit approval settings {rule: Allow|Ask, tools: {\u003ctool\u003e: Allow|Ask|Block}}; not with preset",
+              "description": "Explicit settings {rule: Allow|Ask|Block, tools: {\u003ctool\u003e: Allow|Ask|Block}}; rule covers tools without an entry, new ones too; not with preset",
               "properties": {
                 "rule": {
                   "enum": [
                     "Allow",
-                    "Ask"
+                    "Ask",
+                    "Block"
                   ],
                   "type": "string"
                 },
@@ -910,6 +912,10 @@
                 }
               },
               "type": "object"
+            },
+            "expectedGeneration": {
+              "description": "The generation core_mcpserver_get returned; the write is refused when the server changed since, so a concurrent change is not overwritten",
+              "type": "integer"
             },
             "name": {
               "description": "Name of the MCP server",

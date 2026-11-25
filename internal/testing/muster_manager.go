@@ -2413,12 +2413,15 @@ func applyMockSpecOptions(spec map[string]interface{}, cfg map[string]interface{
 }
 
 // mockApprovalBlocks reports whether a pre-configured mock server's
-// spec.approval blocks its tool named tool.
+// spec.approval blocks its tool named tool: its own entry, else the rule.
 func mockApprovalBlocks(cfg map[string]interface{}, tool string) bool {
 	approval, _ := cfg["approval"].(map[string]interface{})
 	tools, _ := approval["tools"].(map[string]interface{})
-	setting, _ := tools[tool].(string)
-	return setting == "Block"
+	if setting, ok := tools[tool].(string); ok {
+		return setting == "Block"
+	}
+	rule, _ := approval["rule"].(string)
+	return rule == "Block"
 }
 
 // extractExpectedMCPServers extracts all MCP server names from the configuration.
