@@ -37,8 +37,22 @@ var connectFields = []string{"type", "toolPrefix", "family", "command", "args", 
 var updateFields = []string{"description", "displayName", "tags", "autoStart", "timeout", "progress",
 	"suspended", "restartRequestedAt"}
 
-// refuseOtherFields refuses arguments a write tool does not take, naming the
-// tool that does.
+// toolTaking names the connector write tool that takes an argument.
+func toolTaking(field string) string {
+	switch {
+	case slices.Contains(connectFields, field):
+		return "core_mcpserver_connect"
+	case slices.Contains(updateFields, field):
+		return "core_mcpserver_update"
+	case field == "preset" || field == "approval" || field == "expectedGeneration":
+		return "core_mcpserver_set_approval"
+	}
+	return ""
+}
+
+// refuseOtherFields refuses arguments a write tool does not take, naming for
+// each the tool that does (M1-MU-C-04: callers written before the tools were
+// split learn exactly where each argument went).
 func refuseOtherFields(tool string, args map[string]any, allowed []string, elsewhere string) *api.CallToolResult {
 	var other []string
 	for key := range args {
@@ -50,7 +64,23 @@ func refuseOtherFields(tool string, args map[string]any, allowed []string, elsew
 		return nil
 	}
 	slices.Sort(other)
-	refused, _ := simpleError(fmt.Sprintf("%s does not take %s: use %s", tool, strings.Join(other, ", "), elsewhere))
+	byTool := map[string][]string{}
+	var unknown []string
+	for _, key := range other {
+		if owner := toolTaking(key); owner != "" && owner != tool {
+			byTool[owner] = append(byTool[owner], key)
+		} else {
+			unknown = append(unknown, key)
+		}
+	}
+	var parts []string
+	for _, owner := range slices.Sorted(maps.Keys(byTool)) {
+		parts = append(parts, fmt.Sprintf("%s: use %s", strings.Join(byTool[owner], ", "), owner))
+	}
+	if len(unknown) > 0 {
+		parts = append(parts, fmt.Sprintf("%s: not an argument of any connector write tool (see %s)", strings.Join(unknown, ", "), elsewhere))
+	}
+	refused, _ := simpleError(fmt.Sprintf("%s does not take %s. Since tool approval the connector write tools are split: core_mcpserver_update (description, display name, tags, autoStart, timeout, progress, suspended, restart), core_mcpserver_connect (where the server is and how muster reaches it), core_mcpserver_set_approval (approval settings)", tool, strings.Join(parts, "; ")))
 	return refused
 }
 
