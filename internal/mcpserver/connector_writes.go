@@ -385,8 +385,11 @@ func opaqueToken(segment string) bool {
 	if len(segment) < 20 || !strings.ContainsAny(segment, "0123456789") {
 		return false
 	}
+	tokenAlphabet := func(r rune) bool {
+		return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-._~+=", r)
+	}
 	for _, r := range segment {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-._~+=", r)) {
+		if !tokenAlphabet(r) {
 			return false
 		}
 	}
