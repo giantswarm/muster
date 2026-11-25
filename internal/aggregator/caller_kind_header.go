@@ -3,9 +3,8 @@ package aggregator
 import (
 	"context"
 
-	"github.com/mark3labs/mcp-go/client/transport"
-
 	"github.com/giantswarm/muster/v5/internal/api"
+	internalmcp "github.com/giantswarm/muster/v5/internal/mcpserver"
 )
 
 // HeaderCallerKind tells a server muster's governance configuration names
@@ -17,17 +16,15 @@ import (
 // server, so a client cannot set it.
 const HeaderCallerKind = "X-Muster-Caller-Kind"
 
-// callerKindHeaderFunc returns the header function adding HeaderCallerKind
-// to an agent caller's requests to a server the governance configuration
-// names, nil for every other server.
-func callerKindHeaderFunc(sessionID string, serverInfo *ServerInfo) transport.HTTPHeaderFunc {
-	if serverInfo == nil || !api.GetGovernance().NamesServer(serverInfo.Name) {
-		return nil
+// withCallerKind returns the context a call to server runs under: for an
+// agent caller's call to a server the governance configuration names, it
+// carries HeaderCallerKind, which every HTTP-based client adds to its
+// requests whatever connection the call takes (shared, per session, token
+// exchange or forwarding). A server reached over stdio cannot carry it;
+// agent callers are refused there (serverToolApproval).
+func withCallerKind(ctx context.Context, server string) context.Context {
+	if !api.GetGovernance().NamesServer(server) || !api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
+		return ctx
 	}
-	return func(ctx context.Context) map[string]string {
-		if !api.IsAgentCaller(api.CallerKind(ctx, sessionID)) {
-			return nil
-		}
-		return map[string]string{HeaderCallerKind: "agent"}
-	}
+	return internalmcp.WithCallHeaders(ctx, map[string]string{HeaderCallerKind: "agent"})
 }

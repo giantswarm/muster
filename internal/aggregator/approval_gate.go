@@ -77,6 +77,9 @@ func serverToolApproval(ctx context.Context, server, original string, args map[s
 		return info, effective, nil
 	}
 	if api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
+		if info != nil && info.Type == string(api.MCPServerTypeStdio) && api.GetGovernance().NamesServer(server) {
+			return info, api.ToolApproval{}, fmt.Errorf("agents may not call server %s over stdio: muster's governance configuration names it, and a stdio connection cannot tell it that an agent calls (X-Muster-Caller-Kind)", server)
+		}
 		floor, applies, refused := api.GetGovernance().ServerFloor(server, original, args)
 		if refused {
 			return info, api.ToolApproval{}, fmt.Errorf("agents may not call %s on server %s: muster's governance configuration does not name that server for it", original, server)
