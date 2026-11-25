@@ -551,3 +551,23 @@ func (rig *gateRig) setSettings(t *testing.T, settings *api.MCPServerApproval) {
 	info.Approval = settings
 	manager.servers["github"] = info
 }
+
+// A call that asks on a server the session must first sign in to is
+// answered with the sign-in, before an approval is asked for or used: the
+// person is not asked twice for one call (M1-MU-C-09).
+func TestGate_SignInBeforeApproval(t *testing.T) {
+	rig := newGateRig(t)
+	require.NoError(t, rig.server.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: "hubspot", ToolPrefix: "hubspot"},
+		URL:                "http://127.0.0.1:1/mcp",
+		AuthInfo:           &AuthInfo{Issuer: "https://idp.example.com", Scope: "mcp:read"},
+		AuthConfig:         &api.MCPServerAuth{Type: "oauth"},
+	}))
+	answer, err, needed := rig.server.signInFirst(rig.ctx, "hubspot", "create_contact", map[string]any{})
+	require.True(t, needed)
+	if err == nil {
+		require.NotNil(t, answer)
+	}
+	_, _, needed = rig.server.signInFirst(rig.ctx, "github", "merge_pull_request", map[string]any{})
+	assert.False(t, needed, "a server without per-session sign-in asks as before")
+}

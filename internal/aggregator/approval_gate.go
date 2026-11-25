@@ -160,12 +160,36 @@ func (a *AggregatorServer) gateServerTool(ctx context.Context, toolName, server,
 	if effective.Setting == api.ApprovalSettingAllow {
 		return args, nil, nil
 	}
+	if answer, err, needed := a.signInFirst(ctx, server, original, args); needed {
+		return nil, answer, err
+	}
 	if info != nil {
 		target.UID, target.Generation = info.UID, info.Generation
 	}
 	return a.ask(ctx, target, effective, args, func() api.ApprovalDisplay {
 		return a.toolDisplay(ctx, toolName, info, original, args)
 	})
+}
+
+// signInFirst answers a call that asks with the server's sign-in when the
+// session must sign in to the server before the call could run: asking
+// first would use the approval up on a call that then cannot run, and the
+// person would be asked twice for one call (M1-MU-C-09). needed is false
+// when the session can call the server.
+func (a *AggregatorServer) signInFirst(ctx context.Context, server, original string, args map[string]any) (*mcp.CallToolResult, error, bool) {
+	serverInfo, exists := a.registry.GetServerInfo(server)
+	sessionID := getSessionIDFromContext(ctx)
+	if !exists || serverInfo == nil || !serverInfo.RequiresSessionAuth() || sessionID == "" {
+		return nil, nil, false
+	}
+	sub := getUserSubjectFromContext(ctx)
+	err := a.requireSessionAuth(ctx, serverInfo, sessionID, sub)
+	notAuthenticated, ok := errors.AsType[*sessionNotAuthenticatedError](err)
+	if !ok {
+		return nil, nil, false
+	}
+	answer, err := a.authRequiredAnswer(ctx, server, original, args, sessionID, sub, notAuthenticated.reason())
+	return answer, err, true
 }
 
 // gateCoreTool applies the effective approval to a call of a core tool.
