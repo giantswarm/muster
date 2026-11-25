@@ -287,14 +287,14 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		aggConfig := aggregator.AggregatorConfig{
 			ApprovalTTL:          ttl,
 			ApprovalInstallation: cfg.MusterConfig.Approval.Installation,
-			Port:         cfg.MusterConfig.Aggregator.Port,
-			Host:         cfg.MusterConfig.Aggregator.Host,
-			Transport:    cfg.MusterConfig.Aggregator.Transport,
-			MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
-			Version:      cfg.Version,
-			ConfigDir:    cfg.ConfigPath,
-			Debug:        cfg.Debug,
-			OAuth:        mergedOAuthMCPClientConfig,
+			Port:                 cfg.MusterConfig.Aggregator.Port,
+			Host:                 cfg.MusterConfig.Aggregator.Host,
+			Transport:            cfg.MusterConfig.Aggregator.Transport,
+			MusterPrefix:         cfg.MusterConfig.Aggregator.MusterPrefix,
+			Version:              cfg.Version,
+			ConfigDir:            cfg.ConfigPath,
+			Debug:                cfg.Debug,
+			OAuth:                mergedOAuthMCPClientConfig,
 			OAuthServer: aggregator.OAuthServerConfig{
 				// serve command flag overrides config file if enabled
 				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuth.Server.Enabled,

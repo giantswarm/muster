@@ -247,7 +247,7 @@ func (p *Page) finishSignIn(w http.ResponseWriter, r *http.Request, store api.Ap
 		p.renderStoreError(w, err)
 		return
 	}
-	http.Redirect(w, r, p.URL(request.ID), http.StatusSeeOther)
+	http.Redirect(w, r, p.URL(request.ID), http.StatusSeeOther) //nolint:gosec // G710: muster's own page, from its public URL and the stored request's id
 }
 
 // handleDecision records a decision: only from the browser signed in as the
