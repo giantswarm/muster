@@ -124,13 +124,23 @@ func identityVerifier(cookie, nonce string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func securityHeaders(w http.ResponseWriter, scriptNonce string) {
+// securityHeaders sets the page's headers. returnOrigin is the origin the
+// decision's 303 sends the browser to: Chromium applies form-action to every
+// redirect of a form submission, under the policy of the page that holds the
+// form, so that page names exactly that origin besides its own (and nothing
+// when there is no return). Verified in Chromium: with form-action 'self'
+// alone the redirect after the decision POST is blocked.
+func securityHeaders(w http.ResponseWriter, scriptNonce, returnOrigin string) {
 	h := w.Header()
 	h.Set("Cache-Control", "no-store")
 	h.Set("Referrer-Policy", "no-referrer")
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("X-Frame-Options", "DENY")
-	csp := "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+	formAction := "'self'"
+	if returnOrigin != "" {
+		formAction += " " + returnOrigin
+	}
+	csp := "default-src 'none'; style-src 'unsafe-inline'; form-action " + formAction + "; frame-ancestors 'none'; base-uri 'none'"
 	if scriptNonce != "" {
 		csp += "; script-src 'nonce-" + scriptNonce + "'"
 	}
@@ -166,7 +176,9 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 		p.renderStoreError(w, err)
 		return
 	}
-	if redirect := r.URL.Query().Get("redirect"); redirect != "" {
+	// The first allowed return of this browser's flow is kept; a later link
+	// cannot replace it (M1-MU-S-12).
+	if redirect := r.URL.Query().Get("redirect"); redirect != "" && flow.Redirect == "" {
 		if p.RedirectAllowed != nil && p.RedirectAllowed(redirect) {
 			flow.Redirect = redirect
 		} else {
@@ -318,12 +330,21 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 			query := target.Query()
 			query.Set("elicitationId", request.ElicitationID)
 			target.RawQuery = query.Encode()
-			securityHeaders(w, "")
+			securityHeaders(w, "", "")
 			http.Redirect(w, r, target.String(), http.StatusSeeOther) //nolint:gosec // G710: allowlist-checked when the page stored it
 			return
 		}
 	}
 	p.renderMessage(w, http.StatusOK, "Your answer is recorded", "Go back to where the request came from and continue there.")
+}
+
+// originOf returns the scheme and host of raw, "" when it has none.
+func originOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 func sameOrigin(origin, publicURL string) bool {

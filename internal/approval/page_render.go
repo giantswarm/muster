@@ -67,10 +67,13 @@ type pageData struct {
 	Action       string
 	Token        string
 	ScriptNonce  string
+	// ReturnOrigin is the origin of the flow's return, which the form's
+	// policy admits (securityHeaders).
+	ReturnOrigin string
 }
 
 func (p *Page) render(w http.ResponseWriter, status int, data pageData) {
-	securityHeaders(w, data.ScriptNonce)
+	securityHeaders(w, data.ScriptNonce, data.ReturnOrigin)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if err := pageTemplate.Execute(w, data); err != nil {
@@ -105,6 +108,7 @@ func (p *Page) renderRequest(w http.ResponseWriter, request *api.ApprovalRequest
 		Action:       p.URL(request.ID),
 		Token:        flow.Token,
 		ScriptNonce:  rand.Text(),
+		ReturnOrigin: originOf(flow.Redirect),
 	}
 	p.render(w, http.StatusOK, data)
 }

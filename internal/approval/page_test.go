@@ -118,6 +118,10 @@ func TestPage_ApproveAndReturn(t *testing.T) {
 	assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
 	assert.Equal(t, "no-referrer", resp.Header.Get("Referrer-Policy"))
 	assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'")
+	// Chromium applies form-action to the decision's redirect, under this
+	// page's policy: the return's origin, and only it, is admitted
+	// (M1-MU-C-07).
+	assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "form-action 'self' https://portal.example.com;")
 	assert.Contains(t, body, "Approve this action?")
 	assert.Contains(t, body, "Changes data")
 	assert.Contains(t, body, "&lt;script&gt;alert(1)&lt;/script&gt;", "argument values are escaped")
@@ -151,6 +155,24 @@ func TestPage_ApproveAndReturn(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+// The first allowed return of a browser's flow is kept: a later link with
+// another return does not replace it (M1-MU-S-12).
+func TestPage_ReturnIsSetOnce(t *testing.T) {
+	rig := newPageRig(t)
+	request := rig.create(t, map[string]any{"pr": 1})
+	client := browser(t)
+	_, _ = rig.open(t, client, rig.page.URL(request.ID)+"?redirect="+url.QueryEscape("https://portal.example.com/s/1"))
+	resp, body := rig.open(t, client, rig.page.URL(request.ID)+"?redirect="+url.QueryEscape("https://portal.example.com/elsewhere?x=1"))
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	token := tokenPattern.FindStringSubmatch(body)[1]
+	resp, err := client.PostForm(rig.page.URL(request.ID), url.Values{"token": {token}, "decision": {"approve"}})
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	location, err := url.Parse(resp.Header.Get("Location"))
+	require.NoError(t, err)
+	assert.Equal(t, "/s/1", location.Path)
 }
 
 func TestPage_DeclineWithoutReturn(t *testing.T) {
