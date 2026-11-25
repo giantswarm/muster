@@ -525,6 +525,48 @@ Rules:
   it as `requestMeta` when it creates or updates a server, and refuses a
   definition that sets both. It will be removed in a later release.
 
+## Tool approval
+
+`spec.approval` sets, per tool of a server, whether a call runs (`Allow`), asks a
+person to confirm the exact call first (`Ask`) or is hidden and refused
+(`Block`). Whoever may `update` MCPServers in the server's namespace sets it: a
+connector admin of every server there.
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: github
+spec:
+  type: streamable-http
+  url: "https://mcp.example.com/mcp"
+  approval:
+    rule: Ask                    # every tool without its own entry, new ones too
+    tools:
+      get_issue: Allow
+      merge_pull_request: Ask
+      delete_repository: Block
+```
+
+Rules:
+
+- Keys of `tools` are the server's own tool names, as it lists them: without
+  `toolPrefix`, the family name or muster's `x_` prefix. An entry wins over
+  `rule`.
+- `rule` takes `Allow` or `Ask`; an entry takes `Allow`, `Ask` or `Block`. The
+  values are case-sensitive; at most 512 entries.
+- A server without `approval` is `Allow` for every tool and is reported as not
+  reviewed. The field has no default, so upgrading changes no existing server.
+- A value muster does not know, read from a file or an object written before
+  the CRD knew the field, counts as `Ask`.
+- muster reads the settings on every listing and every call, so a change
+  applies to the next one without a restart.
+- In this release muster enforces `Block` only: a blocked tool is absent from
+  `list_tools`, `filter_tools` and `describe_tool`, and `call_tool` (a workflow
+  step included) refuses it as not found. `Ask` is reported, and the call
+  still runs. The meta-tools report each tool's setting and where it comes from
+  ([Tool approval](../reference/mcp-tools.md#tool-approval)).
+
 ## Display name
 
 UIs such as the developer portal show an MCPServer by the

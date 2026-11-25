@@ -63,7 +63,8 @@ Use `list_tools` for a bounded look at what is there; use `filter_tools` to *fin
 `server`, `kind` and `annotations`, and an `invocation` line naming the call that runs it.
 The downstream tool's `title` (its own, else its annotations' title) and `outputSchema`, the
 contract of the `structuredContent` it returns, are forwarded as well. `title`,
-`annotations` and `outputSchema` are omitted when the tool does not set them.
+`annotations` and `outputSchema` are omitted when the tool does not set them. `approval` and
+`connectorAdmin` are as in [Tool approval](#tool-approval).
 Every tool it can describe lives **inside** muster, where an MCP client sees only the
 meta-tools: issuing an aggregated tool's name as a tool call fails. Such a tool is reached
 through `call_tool`, and only through `call_tool`.
@@ -99,7 +100,7 @@ through `call_tool`, and only through `call_tool`.
 | `toolset` | string[] | — | Inline toolset selectors (`preset:<name>`, `server:<name>`, `workflow:<name>`, `tool:<name>`, at most 32) to resolve against the caller's catalogue. The response adds `toolset` (echo of the argument; without the argument, of the request's `X-muster-Toolset`, so a scoped caller can learn what bounds it), `toolset_unmatched` (selectors that selected nothing for the caller) and `presets` (with the argument or `include_presets`). With `X-muster-Toolset` also on the request, the argument resolves within the header's toolset and never widens it. See [Toolsets](toolsets.md). |
 | `include_presets` | bool | `false` | Add the known toolset presets (`name`, `description`, `icon`, `built_in`) to the response. |
 
-The response carries `total` (matches across the caller's catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present), the owning `server` (omitted for workflows and core tools), the `kind` (`tool` | `workflow` | `core`) and the tool's `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` as the server declared them; for a workflow the derived `readOnlyHint` when every step tool is read-only; omitted when none). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it — it carries the same `server`, `kind` and `annotations`.
+The response carries `total` (matches across the caller's catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present), the owning `server` (omitted for workflows and core tools), the `kind` (`tool` | `workflow` | `core`) and the tool's `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` as the server declared them; for a workflow the derived `readOnlyHint` when every step tool is read-only; omitted when none). Each tool also carries its `approval` and, for a server tool, `connectorAdmin` ([Tool approval](#tool-approval)). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it — it carries the same `server`, `kind`, `annotations`, `approval` and `connectorAdmin`.
 
 It also carries `servers_requiring_auth` when a sign-in would unlock a server whose tools the `pattern` could match once they are listed — every such server without a pattern; with `x_slack_*`, the `slack` server alone — each with `name`, `status`, `auth_tool` (`core_auth_login`, or `error` instead when the sign-in cannot pass for this session), `tool_prefix` and, for a family member, `family`, as `list_tools` reports them. Neither the toolset (`toolset_requiring_auth`, see [Toolsets](toolsets.md)) nor the other filters narrow it, and it is not paged. A tool you cannot find may be one of theirs: an agent that filters for `*slack*` before the person has signed in to Slack gets no tool and `servers_requiring_auth: [{"name": "slack", "auth_tool": "core_auth_login", …}]`, and calls `core_auth_login` with `server: slack`.
 
@@ -117,6 +118,36 @@ filter_tools(pattern="*workflow*", limit=25, offset=25)
 
 # A server the caller has not signed in to is named, not silently absent
 filter_tools(pattern="x_slack_*")   # tools: [], servers_requiring_auth: [{"name": "slack", "auth_tool": "core_auth_login", …}]
+```
+
+#### Tool approval
+
+`list_tools`, `filter_tools` and `describe_tool` report each tool's effective approval for the
+caller as `approval`, from its server's `spec.approval`
+([Tool approval](../how-to/mcp-server-management.md#tool-approval)):
+
+- `setting`: `allow`, `ask` or `block`. A `block` tool is never listed or described and
+  `call_tool` refuses it as `tool not found`; a family tool drops the members that block it
+  from its instance argument.
+- `source`: `tool` (the tool's own entry), `connector` (the server's rule), `unreviewed` (a
+  server without approval settings, or a core tool: `allow`), `builtin` (muster's own
+  configuration tools, `core_config_update_aggregator`, `core_config_save` and
+  `core_config_reload`, which always ask) or `unavailable` (the settings could not be read:
+  reported as `ask`, and a call is refused).
+- `new`: `true` for a tool without its own entry on a server that has settings; it follows
+  the rule.
+
+Workflows carry no `approval` yet. In this release only `block` is enforced; `ask` is reported
+and the call still runs.
+
+A server tool also carries `connectorAdmin`: whether the caller may change its server's
+settings, that is may `update` MCPServers in the server's namespace (for a family tool, of
+every member). In Kubernetes mode muster asks the API server with a SelfSubjectAccessReview as
+the caller; in filesystem mode every caller is one.
+
+```json
+{"name": "x_github_merge_pull_request", "server": "github", "kind": "tool",
+ "approval": {"setting": "ask", "source": "connector", "new": true}, "connectorAdmin": true}
 ```
 
 ### Tool Execution
@@ -574,7 +605,7 @@ Get detailed information about a specific MCP server definition.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to retrieve
 
-**Returns:** Complete MCP server definition object. `displayName`, `tags` (array), `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server
+**Returns:** Complete MCP server definition object. `displayName`, `tags` (array), `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server; `approval` is the server's `spec.approval`, omitted when unset
 
 **Example Request:**
 ```json
