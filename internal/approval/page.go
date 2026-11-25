@@ -295,35 +295,47 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	store := p.Store()
 	if store == nil || p.Identity() == nil {
-		p.renderMessage(w, http.StatusServiceUnavailable, "Approval is not available", "")
+		p.renderMessage(w, http.StatusServiceUnavailable, "Approval is not available", "Nothing was decided.")
 		return
 	}
-	if origin := r.Header.Get("Origin"); origin != "" && !sameOrigin(origin, p.PublicURL) {
-		p.renderMessage(w, http.StatusForbidden, "The decision did not come from this page", "")
+	// Every refusal of a decision answers the browser alike and logs which
+	// check refused it (no secrets): nothing was approved or declined.
+	refuse := func(reason string) {
+		logging.WarnWithAttrs("Approval", "decision refused: nothing was decided",
+			slog.String("approval", logging.TruncateIdentifier(id)), slog.String("reason", reason))
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided",
+			"This page expired, was opened in another browser or tab, or was answered already. Open the approval link again to decide.")
+	}
+	// A browser sends Origin: null on a same-origin POST from a page with
+	// Referrer-Policy: no-referrer (Fetch, "serializing a request origin";
+	// verified in Chromium): that carries no origin, like a missing header.
+	// The anti-forgery token bound to this browser's flow is the check.
+	if origin := r.Header.Get("Origin"); origin != "" && origin != "null" && !sameOrigin(origin, p.PublicURL) {
+		refuse("the Origin header names another origin")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 	if err := r.ParseForm(); err != nil {
-		p.renderMessage(w, http.StatusBadRequest, "The decision could not be read", "")
+		p.renderMessage(w, http.StatusBadRequest, "The decision could not be read", "Nothing was decided. Open the approval link again.")
 		return
 	}
 	cookie := p.cookieValue(r)
 	if cookie == "" {
-		p.renderMessage(w, http.StatusForbidden, "The decision did not come from this page", "Open the approval link again.")
+		refuse("the browser sent no approval cookie")
 		return
 	}
 	key := flowKey(cookie, id)
 	flow, err := store.GetFlow(r.Context(), key)
 	if err != nil {
 		if errors.Is(err, api.ErrApprovalNotFound) {
-			p.renderMessage(w, http.StatusForbidden, "The decision did not come from this page", "Open the approval link again.")
+			refuse("no flow for this browser and request (expired, or another browser)")
 			return
 		}
 		p.renderStoreError(w, err)
 		return
 	}
 	if flow.Token == "" || subtle.ConstantTimeCompare([]byte(r.PostForm.Get("token")), []byte(flow.Token)) != 1 {
-		p.renderMessage(w, http.StatusForbidden, "The decision did not come from this page", "Open the approval link again.")
+		refuse("the anti-forgery token does not match this browser's flow")
 		return
 	}
 	request, err := store.Get(r.Context(), id)
@@ -332,7 +344,9 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if flow.Identity == (api.SignInIdentity{}) || flow.Identity != request.Identity {
-		p.renderMessage(w, http.StatusForbidden, "Only the person who asked can decide", "")
+		logging.WarnWithAttrs("Approval", "decision refused: the signed-in person is not the requester",
+			slog.String("approval", logging.TruncateIdentifier(id)))
+		p.renderMessage(w, http.StatusForbidden, "Only the person who asked can decide", "Nothing was decided.")
 		return
 	}
 	var approve bool

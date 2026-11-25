@@ -311,3 +311,40 @@ func TestVisible(t *testing.T) {
 	assert.Equal(t, "plain ü", Visible("plain ü"))
 	assert.Equal(t, "a⟨U+000A⟩b⟨U+2028⟩c⟨U+FEFF⟩", Visible("a\nb\u2028c\ufeff"))
 }
+
+// The decision a browser sends after the sign-in round trip is taken: under
+// the page's Referrer-Policy: no-referrer a browser sends Origin: null on
+// the form's same-origin POST (Fetch; seen in Chromium), which must not
+// count as another origin (lab defect: "The decision did not come from this
+// page"). A refused decision says plainly that nothing was decided.
+func TestPage_DecisionAfterSignInWithOriginNull(t *testing.T) {
+	rig := newPageRig(t)
+	request := rig.create(t, map[string]any{"pr": 7})
+	client := browser(t)
+	resp, body := rig.open(t, client, rig.page.URL(request.ID)+"?redirect="+url.QueryEscape("https://portal.example.com/s/1"))
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	token := tokenPattern.FindStringSubmatch(body)[1]
+
+	post := func(token string) *http.Response {
+		req, err := http.NewRequest(http.MethodPost, rig.page.URL(request.ID), strings.NewReader(url.Values{"token": {token}, "decision": {"approve"}}.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Origin", "null")
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		return resp
+	}
+	refused := post("forged")
+	text, _ := io.ReadAll(refused.Body)
+	_ = refused.Body.Close()
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode)
+	assert.Contains(t, string(text), "Nothing was decided")
+	assert.Contains(t, string(text), "Open the approval link again")
+
+	decided := post(token)
+	_ = decided.Body.Close()
+	require.Equal(t, http.StatusSeeOther, decided.StatusCode)
+	got, err := rig.store.Get(context.Background(), request.ID)
+	require.NoError(t, err)
+	assert.Equal(t, api.ApprovalStatusApproved, got.Status)
+}
