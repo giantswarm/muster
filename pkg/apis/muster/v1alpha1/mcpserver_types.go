@@ -206,6 +206,34 @@ type MCPServerSpec struct {
 	// into status — repeated reconciles of an already-processed request are
 	// no-ops (issue #1055).
 	RestartRequestedAt *metav1.Time `json:"restartRequestedAt,omitempty" yaml:"restartRequestedAt,omitempty"`
+
+	// Approval sets, per tool of this server, whether a call runs (Allow),
+	// asks a person first (Ask) or is hidden and refused (Block). It is set
+	// by the server's connector admins: whoever may update MCPServers in its
+	// namespace.
+	//
+	// Unset, every tool is Allow and reported as not reviewed. There is
+	// deliberately no default: a default would be applied to existing objects
+	// on read and change what they allow.
+	// +optional
+	Approval *MCPServerApproval `json:"approval,omitempty" yaml:"approval,omitempty"`
+}
+
+// MCPServerApproval holds a server's approval settings.
+type MCPServerApproval struct {
+	// Rule is what a tool without its own entry in Tools gets, a tool the
+	// server adds later included: Allow or Ask. Unset, such a tool is Allow.
+	// +kubebuilder:validation:XValidation:rule="self in ['Allow', 'Ask']",message="rule must be Allow or Ask"
+	// +optional
+	Rule string `json:"rule,omitempty" yaml:"rule,omitempty"`
+
+	// Tools maps a tool's own name, as the server lists it (without
+	// spec.toolPrefix, the family name or muster's x_ prefix), to Allow, Ask
+	// or Block. An entry wins over Rule.
+	// +kubebuilder:validation:MaxProperties=512
+	// +kubebuilder:validation:XValidation:rule="self.all(k, self[k] in ['Allow', 'Ask', 'Block'])",message="a tool's setting must be Allow, Ask or Block"
+	// +optional
+	Tools map[string]string `json:"tools,omitempty" yaml:"tools,omitempty"`
 }
 
 // MCPServerHeaderFrom is an HTTP header whose value muster reads from a

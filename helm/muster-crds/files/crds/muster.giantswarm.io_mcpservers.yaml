@@ -57,6 +57,38 @@ spec:
           spec:
             description: MCPServerSpec defines the desired state of MCPServer
             properties:
+              approval:
+                description: |-
+                  Approval sets, per tool of this server, whether a call runs (Allow),
+                  asks a person first (Ask) or is hidden and refused (Block). It is set
+                  by the server's connector admins: whoever may update MCPServers in its
+                  namespace.
+
+                  Unset, every tool is Allow and reported as not reviewed. There is
+                  deliberately no default: a default would be applied to existing objects
+                  on read and change what they allow.
+                properties:
+                  rule:
+                    description: |-
+                      Rule is what a tool without its own entry in Tools gets, a tool the
+                      server adds later included: Allow or Ask. Unset, such a tool is Allow.
+                    type: string
+                    x-kubernetes-validations:
+                    - message: rule must be Allow or Ask
+                      rule: self in ['Allow', 'Ask']
+                  tools:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      Tools maps a tool's own name, as the server lists it (without
+                      spec.toolPrefix, the family name or muster's x_ prefix), to Allow, Ask
+                      or Block. An entry wins over Rule.
+                    maxProperties: 512
+                    type: object
+                    x-kubernetes-validations:
+                    - message: a tool's setting must be Allow, Ask or Block
+                      rule: self.all(k, self[k] in ['Allow', 'Ask', 'Block'])
+                type: object
               args:
                 description: |-
                   Args specifies the command line arguments for stdio type servers.
