@@ -254,8 +254,17 @@ data:
       {{- toYaml . | nindent 6 }}
     {{- end }}
     {{- with .Values.muster.approval }}
-    {{- if and .ttl (not (regexMatch `^[0-9]+(\.[0-9]+)?(s|m)$` (toString .ttl))) }}
-    {{- fail (printf "muster.approval.ttl must be a duration in s or m, at most 30m, not %q" (toString .ttl)) }}
+    {{- with .ttl }}
+    {{- $ttl := toString . }}
+    {{- if not (regexMatch `^([0-9]+(\.[0-9]+)?(s|m))+$` $ttl) }}
+    {{- fail (printf "muster.approval.ttl must be a duration in s and m (e.g. 5m, 1m30s), at most 30m, not %q" $ttl) }}
+    {{- end }}
+    {{- if and (regexMatch `^[0-9]+m$` $ttl) (gt (atoi (trimSuffix "m" $ttl)) 30) }}
+    {{- fail (printf "muster.approval.ttl must be at most 30m, not %q (muster would not start)" $ttl) }}
+    {{- end }}
+    {{- if and (regexMatch `^[0-9]+s$` $ttl) (gt (atoi (trimSuffix "s" $ttl)) 1800) }}
+    {{- fail (printf "muster.approval.ttl must be at most 30m, not %q (muster would not start)" $ttl) }}
+    {{- end }}
     {{- end }}
     approval:
       {{- toYaml . | nindent 6 }}

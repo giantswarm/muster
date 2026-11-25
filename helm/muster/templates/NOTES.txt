@@ -32,11 +32,11 @@ Tool approval
     system:authenticated). Whoever you bind is a connector admin.
 {{- end }}
 {{- if not .Values.muster.governance }}
-  - muster.governance is not set: muster applies the governed entries to
-    agent callers, and refuses to agents agent-manager's, the Platform
-    Manager's and the connector manager's governed tool names on any server
-    the configuration does not name. Set muster.governance (the agent-platform
-    chart renders it) before agents use those servers.
+  - muster.governance is not set: muster applies the governed default to
+    agent callers (every core tool but muster's reads asks them) and refuses
+    to agents the floor tool names of a role no governed server holds. Set
+    muster.governance.governedServers (the agent-platform chart renders it)
+    before agents use the platform's management servers.
 {{- end }}
 
 1. Get the application URL by running these commands:

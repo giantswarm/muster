@@ -407,4 +407,11 @@ tests:
       muster.approval.ttl: 2h
     asserts:
       - failedTemplate:
-          errorMessage: 'muster.approval.ttl must be a duration in s or m, at most 30m, not "2h"'
+          errorMessage: 'muster.approval.ttl must be a duration in s and m (e.g. 5m, 1m30s), at most 30m, not "2h"'
+
+  - it: fails on an approval ttl above 30m
+    set:
+      muster.approval.ttl: 45m
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.approval.ttl must be at most 30m, not "45m" (muster would not start)'

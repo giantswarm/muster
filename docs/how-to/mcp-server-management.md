@@ -608,8 +608,10 @@ A call whose effective approval is `Ask` runs only after its person approved
 that exact call:
 
 1. `call_tool` records a pending approval, bound to the person (issuer and raw
-   `sub`), the client's MCP connection (its MCP session within muster's
-   session: another client of the same person asks anew), the resolved target (server, its UID and
+   `sub`), the calling client within muster's session (the OAuth client the
+   person's token was issued to, the acting party of a delegated token, or
+   the agent's Session: another client of the same person asks anew, the
+   same client reconnecting does not), the resolved target (server, its UID and
    generation, the server's own tool name; or the workflow and its
    definition) and the RFC 8785 canonical form of the arguments, and answers
    with a link to `https://<publicUrl>/approvals/<id>`. A client that declares
@@ -620,8 +622,8 @@ that exact call:
    identity provider; only the person the call was made for sees the call and
    the buttons. The page shows the tool by its title, the connector, whether
    it changes data and each argument in full.
-3. The client calls again with the same arguments over the same MCP
-   connection. muster finds the decision itself (the client's own "accept"
+3. The client calls again with the same arguments (a new MCP connection of
+   the same client is fine). muster finds the decision itself (the client's own "accept"
    counts for nothing): an approved call runs once with the arguments the
    person saw, a declined one answers `declined`, and an identical call made
    before a decision gets the same link.
@@ -633,7 +635,7 @@ with the sign-in before it asks, so one call never asks twice.
 
 An approval expires after `approval.ttl` (5 minutes) and is used up by one
 run. A person has at most 10 pending approvals across all their clients and
-agents, 3 per MCP connection; a decided request stops counting, and the
+agents, 3 per client; a decided request stops counting, and the
 refusal names the cap reached and when the waiting ones expire. Arguments are
 capped at 64 KiB. Resources and prompts are not gated: they are reads.
 
@@ -711,10 +713,12 @@ servers are governed with empty safe lists.
 - **Trusted**: the floors only.
 - A `Block` still wins over every ask. muster's own configuration
   (`core_config_update_aggregator`, `_save`, `_reload`) asks every caller.
-- A floor name on a server that is not governed is refused to agents only
-  while no governed server holds that role (muster cannot tell the platform's
-  server from a look-alike then); once the role's server is named, a
-  same-named tool of a customer's own server follows its own settings.
+- A floor name on a server that is not governed is refused to agents while
+  no governed server holds that role (muster cannot tell the platform's
+  server from a look-alike then); once the role's server is named, it asks
+  agents on governed (an unnamed second instance fails closed) and follows
+  the server's own settings on trusted. Generic names that are no floor are
+  never touched.
 - A safe-list entry that names none of the server's tools is logged and
   counted in the gauge `muster_governance_safe_list_unmatched{server}`; the
   tool it meant keeps asking.
@@ -759,7 +763,10 @@ servers are governed with empty safe lists.
   still has the old RoleBinding; set the subjects (to keep the old behaviour,
   `[{kind: Group, apiGroup: rbac.authorization.k8s.io, name:
   system:authenticated}]`) or `rbac.mcpServerEditor.allowRemovingBinding:
-  true`. `workflowEditor` keeps binding `system:authenticated`.
+  true`. Unattended upgrades (Flux, Renovate) fail until then. Pipelines that
+  only run `helm template` (Argo CD) have no cluster to look at and are not
+  protected: set the value before upgrading. `workflowEditor` keeps binding
+  `system:authenticated`.
 - **Agents and governance.** Without `muster.governance` muster applies the
   governed default to agent callers; set it before agents use the platform's
   management servers.
