@@ -788,21 +788,21 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case "mcpserver_detect":
 		return a.handleMCPServerDetect(ctx, args)
 	case "mcpserver_create":
-		return a.handleMCPServerCreate(ctx, args)
+		return audited(ctx, "core_mcpserver_create", args, func() (*api.CallToolResult, error) { return a.handleMCPServerCreate(ctx, args) })
 	case "mcpserver_update":
 		if refused := refuseOtherFields("core_mcpserver_update", args, updateFields, "core_mcpserver_connect or core_mcpserver_set_approval"); refused != nil {
 			return refused, nil
 		}
-		return a.handleMCPServerUpdate(ctx, args)
+		return audited(ctx, "core_mcpserver_update", args, func() (*api.CallToolResult, error) { return a.handleMCPServerUpdate(ctx, args) })
 	case "mcpserver_connect":
 		if refused := refuseOtherFields("core_mcpserver_connect", args, connectFields, "core_mcpserver_update or core_mcpserver_set_approval"); refused != nil {
 			return refused, nil
 		}
-		return a.handleMCPServerUpdate(ctx, args)
+		return audited(ctx, "core_mcpserver_connect", args, func() (*api.CallToolResult, error) { return a.handleMCPServerUpdate(ctx, args) })
 	case "mcpserver_set_approval":
 		return a.handleMCPServerSetApproval(ctx, args)
 	case "mcpserver_delete":
-		return a.handleMCPServerDelete(ctx, args)
+		return audited(ctx, "core_mcpserver_delete", args, func() (*api.CallToolResult, error) { return a.handleMCPServerDelete(ctx, args) })
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -1072,6 +1072,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 	if refused := a.verifyApprovalStored(ctx, req.Name, approval); refused != nil {
 		return refused, nil
 	}
+	auditApprovalChange(ctx, "core_mcpserver_create", req.Name, nil, approval)
 
 	var secretName string
 	if secrets != nil {

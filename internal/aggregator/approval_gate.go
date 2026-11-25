@@ -141,12 +141,13 @@ func coreName(toolName string) string {
 func (a *AggregatorServer) gateServerTool(ctx context.Context, toolName, server, original string, args map[string]any) (map[string]any, *mcp.CallToolResult, error) {
 	run := workflowRunFromContext(ctx)
 	info, effective, err := serverToolApproval(ctx, server, original, args)
+	target := api.ApprovalTarget{Kind: api.ApprovalTargetTool, Server: server, Name: original, Exposed: toolName}
 	if err != nil {
+		a.auditApproval(ctx, "call_refused", target, "", "", err.Error(), effective)
 		return nil, nil, fmt.Errorf("tool %s cannot be called: %w", toolName, err)
 	}
 	if effective.Setting == api.ApprovalSettingBlock {
-		logging.InfoWithAttrs("Aggregator", "call refused: the tool is blocked by its server's approval settings",
-			slog.String("tool", toolName), slog.String("server", server), slog.String("original", original))
+		a.auditApproval(ctx, "call_refused", target, "", "", "blocked by the server's approval settings", effective)
 		return nil, nil, fmt.Errorf("tool not found: %s", toolName)
 	}
 	if run == nil && !api.ApprovalGateFromContext(ctx) {
@@ -159,7 +160,6 @@ func (a *AggregatorServer) gateServerTool(ctx context.Context, toolName, server,
 	if effective.Setting == api.ApprovalSettingAllow {
 		return args, nil, nil
 	}
-	target := api.ApprovalTarget{Kind: api.ApprovalTargetTool, Server: server, Name: original, Exposed: toolName}
 	if info != nil {
 		target.UID, target.Generation = info.UID, info.Generation
 	}
@@ -242,7 +242,7 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 		name = target.Name
 	}
 	if reason := a.approvalUnavailable(ctx); reason != "" {
-		a.auditApproval(ctx, "approval_refused", target, "", reason)
+		a.auditApproval(ctx, "approval_refused", target, "", "", reason, effective)
 		return nil, nil, fmt.Errorf("approval_unavailable: %s asks before it runs (%s from %s), and %s, so it cannot run", name, effective.Setting, effective.Source, reason)
 	}
 	canonical, hash, err := approval.Canonical(args)
@@ -261,15 +261,15 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 		if decodeErr != nil {
 			return nil, nil, decodeErr
 		}
-		a.auditApproval(ctx, "approval_used", target, hash, "")
+		a.auditApproval(ctx, "approval_used", target, request.ID, hash, "", effective)
 		return approved, nil, nil
 	case err == nil && request.Status == api.ApprovalStatusDeclined:
-		a.auditApproval(ctx, "approval_declined", target, hash, "")
+		a.auditApproval(ctx, "approval_declined", target, request.ID, hash, "", effective)
 		return nil, declinedResult(name), nil
 	case err == nil:
 		return nil, a.recordApprovalChallenge(ctx, request), nil
 	case !errors.Is(err, api.ErrApprovalNotFound):
-		a.auditApproval(ctx, "approval_refused", target, hash, "store unavailable")
+		a.auditApproval(ctx, "approval_refused", target, "", hash, "store unavailable", effective)
 		return nil, nil, fmt.Errorf("approval_unavailable: %s asks before it runs, and muster's approval store cannot be reached, so it cannot run: %w", name, err)
 	}
 
@@ -291,13 +291,13 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 	})
 	switch {
 	case errors.Is(err, api.ErrApprovalLimit):
-		a.auditApproval(ctx, "approval_refused", target, hash, "too many pending approvals")
+		a.auditApproval(ctx, "approval_refused", target, "", hash, "too many pending approvals", effective)
 		return nil, nil, fmt.Errorf("%s asks before it runs, and %s: decide or decline those at their approval links first, or wait until they expire (after at most %s)", name, limitReason(err), a.approval.ttl)
 	case err != nil:
-		a.auditApproval(ctx, "approval_refused", target, hash, "store unavailable")
+		a.auditApproval(ctx, "approval_refused", target, "", hash, "store unavailable", effective)
 		return nil, nil, fmt.Errorf("approval_unavailable: %s asks before it runs, and muster's approval store cannot be reached, so it cannot run: %w", name, err)
 	}
-	a.auditApproval(ctx, "approval_requested", target, hash, "")
+	a.auditApproval(ctx, "approval_requested", target, request.ID, hash, "", effective)
 	return nil, a.recordApprovalChallenge(ctx, request), nil
 }
 
@@ -318,20 +318,20 @@ func declinedResult(name string) *mcp.CallToolResult {
 	return mcp.NewToolResultError(fmt.Sprintf("declined: the person declined %s. It did not run.", name))
 }
 
-// auditApproval records a request, refusal or use of an approval: who, which
-// caller kind, which target and the arguments' hash (never the arguments).
-func (a *AggregatorServer) auditApproval(ctx context.Context, action string, target api.ApprovalTarget, hash, reason string) {
-	identity := api.SignInIdentityFromContext(ctx)
-	sessionID := getSessionIDFromContext(ctx)
+// auditApproval records a request, refusal or use of an approval: who,
+// which caller kind, the approval id when there is one, the target, why it
+// asks and the arguments' hash (never the arguments).
+func (a *AggregatorServer) auditApproval(ctx context.Context, action string, target api.ApprovalTarget, id, hash, reason string, effective api.ToolApproval) {
 	attrs := []slog.Attr{
-		slog.String("action", action),
-		slog.String("requester", identity.Issuer+"#"+identity.Subject),
-		slog.String("callerKind", api.CallerKind(ctx, sessionID)),
-		slog.String("session", logging.TruncateIdentifier(sessionID)),
+		slog.String("session", getSessionIDFromContext(ctx)),
 		slog.String("targetKind", target.Kind),
 		slog.String("server", target.Server),
 		slog.String("target", target.Name),
-		slog.String("governance", api.GetGovernance().Mode),
+		slog.String("setting", effective.Setting),
+		slog.String("source", effective.Source),
+	}
+	if id != "" {
+		attrs = append(attrs, slog.String("approval", id))
 	}
 	if hash != "" {
 		attrs = append(attrs, slog.String("argumentsHash", hash))
@@ -339,7 +339,7 @@ func (a *AggregatorServer) auditApproval(ctx context.Context, action string, tar
 	if reason != "" {
 		attrs = append(attrs, slog.String("reason", reason))
 	}
-	logging.InfoWithAttrsCtx(ctx, "Approval", "[AUDIT] "+action, attrs...)
+	api.AuditApproval(ctx, action, attrs...)
 }
 
 // newApprovalSettings registers the approval store when muster's shared

@@ -1,9 +1,12 @@
 package aggregator
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"strings"
 	"net/url"
 	"sync"
 	"sync/atomic"
@@ -16,6 +19,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/approval"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 var (
@@ -483,4 +487,41 @@ func TestGate_GovernedAsksBeforePausingOrRemoving(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, api.ApprovalSourceGovernance, request.Display.Source, call.tool)
 	}
+}
+
+// Every approval event carries who in full, the caller kind and the approval
+// id, so a request, its decision and its use join on one id; Block
+// refusals are audit events too (M1-MU-S-10, M1-MU-C-16).
+func TestGate_AuditCarriesTheApprovalID(t *testing.T) {
+	var buf bytes.Buffer
+	logging.InitForCLI(logging.LevelInfo, &buf)
+	t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, io.Discard) })
+	rig := newGateRig(t)
+	result, err := rig.server.CallToolInternal(rig.ctx, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
+	require.NoError(t, err)
+	id := approvalIDOf(t, result)
+	require.NoError(t, rig.store.Decide(context.Background(), id, true, alice))
+	_, err = rig.server.CallToolInternal(rig.ctx, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
+	require.NoError(t, err)
+	_, _ = rig.server.CallToolInternal(rig.ctx, "x_github_delete_repository", map[string]any{})
+
+	logs := buf.String()
+	for _, action := range []string{"approval_requested", "approval_used"} {
+		line := lineWith(logs, "[AUDIT] "+action)
+		require.NotEmpty(t, line, action)
+		assert.Contains(t, line, "approval="+id, action)
+		assert.Contains(t, line, "subject=alice", action)
+		assert.Contains(t, line, "issuer=https://dex.example.com", action)
+		assert.Contains(t, line, `callerKind="person bearer"`, action)
+	}
+	assert.Contains(t, lineWith(logs, "[AUDIT] call_refused"), "blocked by the server's approval settings")
+}
+
+func lineWith(logs, needle string) string {
+	for _, line := range strings.Split(logs, "\n") {
+		if strings.Contains(line, needle) {
+			return line
+		}
+	}
+	return ""
 }

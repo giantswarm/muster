@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
 	"github.com/giantswarm/muster/v5/internal/api"
-	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 // The connector write tools, split so each can be governed on its own:
@@ -230,7 +230,7 @@ func (a *Adapter) handleMCPServerSetApproval(ctx context.Context, args map[strin
 	if refused := a.verifyApprovalStored(ctx, name, approval); refused != nil {
 		return refused, nil
 	}
-	auditApprovalChange(ctx, name, old, approval)
+	auditApprovalChange(ctx, "core_mcpserver_set_approval", name, old, approval)
 	return &api.CallToolResult{
 		Content: []interface{}{map[string]interface{}{
 			"name":     name,
@@ -241,27 +241,53 @@ func (a *Adapter) handleMCPServerSetApproval(ctx context.Context, args map[strin
 }
 
 // auditApprovalChange records a change of a connector's approval settings,
-// old to new, with who made it.
-func auditApprovalChange(ctx context.Context, server string, old, updated *musterv1alpha1.MCPServerApproval) {
-	logging.Audit(logging.AuditEvent{
-		Action:  "approval_settings_change",
-		Outcome: "success",
-		Subject: logging.TruncateIdentifier(subjectFromContext(ctx)),
-		Target:  server,
-		Details: fmt.Sprintf("old=%s new=%s", approvalSummary(old), approvalSummary(updated)),
-	})
+// old to new as structured values, with who made it in full.
+func auditApprovalChange(ctx context.Context, tool, server string, old, updated *musterv1alpha1.MCPServerApproval) {
+	api.AuditApproval(ctx, "approval_settings_change",
+		slog.String("tool", tool),
+		slog.String("server", server),
+		slog.Any("old", approvalValue(old)),
+		slog.Any("new", approvalValue(updated)))
 }
 
-// approvalSummary writes settings compactly for the audit log.
-func approvalSummary(approval *musterv1alpha1.MCPServerApproval) string {
+// auditConnectorWrite records a connector write other than its settings:
+// which fields the call set. Values are left out: headers, env, auth and
+// client credentials can carry secrets; the URL, type, command and prefix
+// are recorded, as where a connector points is what its floors protect.
+func auditConnectorWrite(ctx context.Context, tool, server string, args map[string]any) {
+	fields := make([]string, 0, len(args))
+	for key := range args {
+		if key != "name" {
+			fields = append(fields, key)
+		}
+	}
+	slices.Sort(fields)
+	attrs := []slog.Attr{slog.String("tool", tool), slog.String("server", server), slog.Any("fields", fields)}
+	for _, key := range []string{"url", "type", "command", "toolPrefix", "suspended", "autoStart"} {
+		if value, ok := args[key]; ok {
+			attrs = append(attrs, slog.Any(key, value))
+		}
+	}
+	api.AuditApproval(ctx, "connector_write", attrs...)
+}
+
+// audited runs a connector write and records it when it succeeded.
+func audited(ctx context.Context, tool string, args map[string]any, run func() (*api.CallToolResult, error)) (*api.CallToolResult, error) {
+	result, err := run()
+	if err != nil || result == nil || result.IsError {
+		return result, err
+	}
+	name, _ := args["name"].(string)
+	auditConnectorWrite(ctx, tool, name, args)
+	return result, nil
+}
+
+// approvalValue is settings as the audit records them.
+func approvalValue(approval *musterv1alpha1.MCPServerApproval) any {
 	if approval == nil {
-		return "none"
+		return nil
 	}
-	parts := []string{"rule:" + approval.Rule}
-	for _, tool := range slices.Sorted(maps.Keys(approval.Tools)) {
-		parts = append(parts, tool+":"+approval.Tools[tool])
-	}
-	return "{" + strings.Join(parts, ",") + "}"
+	return map[string]any{"rule": approval.Rule, "tools": approval.Tools}
 }
 
 // noTools is the tool list of a server not created yet.

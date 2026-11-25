@@ -365,25 +365,26 @@ func (p *Page) renderStoreError(w http.ResponseWriter, err error) {
 	}
 }
 
-// auditDecision records who decided what, for whom, on which target.
+// auditDecision records who decided what, for whom, on which target. The
+// approver is the person signed in on the page; the request's own caller is
+// named as requester.
 func auditDecision(ctx context.Context, request *api.ApprovalRequest, approve bool, approver api.SignInIdentity) {
 	outcome := "declined"
 	if approve {
 		outcome = "approved"
 	}
-	logging.InfoWithAttrsCtx(ctx, "Approval", "[AUDIT] approval decided",
-		slog.String("action", "approval_decision"),
+	ctx = api.WithSignInIdentity(ctx, approver)
+	api.AuditApproval(ctx, "approval_decision",
 		slog.String("outcome", outcome),
-		slog.String("approval", logging.TruncateIdentifier(request.ID)),
-		slog.String("approver", approver.Issuer+"#"+approver.Subject),
-		slog.String("requester", request.Identity.Issuer+"#"+request.Identity.Subject),
-		slog.String("callerKind", request.CallerKind),
-		slog.String("session", logging.TruncateIdentifier(request.SessionID)),
+		slog.String("approval", request.ID),
+		slog.String("requesterIssuer", request.Identity.Issuer),
+		slog.String("requesterSubject", request.Identity.Subject),
+		slog.String("requesterCallerKind", request.CallerKind),
+		slog.String("session", request.SessionID),
 		slog.String("targetKind", request.Target.Kind),
 		slog.String("server", request.Target.Server),
 		slog.String("target", request.Target.Name),
 		slog.String("argumentsHash", request.ArgumentsHash),
 		slog.String("setting", request.Display.Setting),
-		slog.String("source", request.Display.Source),
-		slog.String("governance", api.GetGovernance().Mode))
+		slog.String("source", request.Display.Source))
 }
