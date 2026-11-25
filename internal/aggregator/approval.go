@@ -2,8 +2,11 @@ package aggregator
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/clock"
 	"github.com/giantswarm/muster/v5/internal/toolset"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
@@ -65,7 +68,7 @@ func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool)
 	if reason == "" && anyAsks(out) {
 		// A store that is registered but cannot be reached refuses every
 		// call that asks; the listing says so too (lab M1-3).
-		if err := api.GetApprovalStore().Ping(ctx); err != nil {
+		if !a.approvalStoreReachable(ctx) {
 			reason = "muster's approval store cannot be reached"
 		}
 	}
@@ -78,6 +81,34 @@ func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool)
 		}
 	}
 	return out
+}
+
+// storePingInterval is how long a store check of a listing holds: listings
+// are frequent, and one command each would add to every listing's cost.
+const storePingInterval = 10 * time.Second
+
+// storeReachability remembers the last check of the approval store.
+type storeReachability struct {
+	mu        sync.Mutex
+	checkedAt time.Time
+	reachable bool
+}
+
+// approvalStoreReachable checks the registered store at most once per
+// storePingInterval.
+func (a *AggregatorServer) approvalStoreReachable(ctx context.Context) bool {
+	r := a.approval.reach
+	if r == nil {
+		return api.GetApprovalStore().Ping(ctx) == nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := clock.Now()
+	if !r.checkedAt.IsZero() && now.Sub(r.checkedAt) < storePingInterval {
+		return r.reachable
+	}
+	r.checkedAt, r.reachable = now, api.GetApprovalStore().Ping(ctx) == nil
+	return r.reachable
 }
 
 // anyAsks reports whether a tool of the listing asks.

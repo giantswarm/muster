@@ -39,6 +39,8 @@ type approvalSettings struct {
 	page *approval.Page
 	// ttl is how long a request lives.
 	ttl time.Duration
+	// reach remembers whether the store answered lately (listings).
+	reach *storeReachability
 }
 
 // approvalUnavailable returns why muster cannot ask here, "" when it can.
@@ -387,7 +389,7 @@ func (a *AggregatorServer) auditApproval(ctx context.Context, action string, tar
 // the in-memory stores none is registered and every call that asks is
 // refused.
 func newApprovalSettings(cfg AggregatorConfig, stores storeBundle) approvalSettings {
-	settings := approvalSettings{ttl: cfg.ApprovalTTL}
+	settings := approvalSettings{ttl: cfg.ApprovalTTL, reach: &storeReachability{}}
 	if settings.ttl <= 0 {
 		settings.ttl = DefaultApprovalTTL
 	}
