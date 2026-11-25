@@ -815,6 +815,11 @@ type MCPServerInfo struct {
 	// affects that call's budget.
 	Progress *MCPServerProgress `json:"progress,omitempty"`
 
+	// Approval is the server's spec.approval: per tool, whether a call runs,
+	// asks first or is refused. Nil when the server has none (every tool
+	// Allow, not reviewed).
+	Approval *MCPServerApproval `json:"approval,omitempty"`
+
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`
 

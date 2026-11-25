@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,15 @@ func convertCRDProgressToAPI(src *musterv1alpha1.MCPServerProgress) *api.MCPServ
 		return nil
 	}
 	return &api.MCPServerProgress{MaxDuration: src.MaxDuration}
+}
+
+// convertCRDApprovalToAPI converts a CRD MCPServerApproval to an API
+// MCPServerApproval, values as written. Returns nil if the input is nil.
+func convertCRDApprovalToAPI(src *musterv1alpha1.MCPServerApproval) *api.MCPServerApproval {
+	if src == nil {
+		return nil
+	}
+	return &api.MCPServerApproval{Rule: src.Rule, Tools: maps.Clone(src.Tools)}
 }
 
 // convertAPIProgressToCRD converts an API MCPServerProgress to a CRD
@@ -516,6 +526,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		RequestMeta:           crdRequestMeta(server.Spec),
 		Timeout:               server.Spec.Timeout,
 		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
+		Approval:              convertCRDApprovalToAPI(server.Spec.Approval),
 		Error:                 server.Status.LastError,
 		State:                 string(server.Status.State),
 		ConsecutiveFailures:   server.Status.ConsecutiveFailures,
