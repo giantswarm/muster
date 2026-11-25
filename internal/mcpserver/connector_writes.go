@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -333,7 +334,10 @@ func auditConnectorWrite(ctx context.Context, tool, server string, args map[stri
 	}
 	slices.Sort(fields)
 	attrs := []slog.Attr{slog.String("tool", tool), slog.String("server", server), slog.Any("fields", fields)}
-	for _, key := range []string{"url", "type", "command", "toolPrefix", "suspended", "autoStart"} {
+	if raw, ok := args["url"].(string); ok {
+		attrs = append(attrs, slog.String("url", auditURL(raw)))
+	}
+	for _, key := range []string{"type", "command", "toolPrefix", "suspended", "autoStart"} {
 		if value, ok := args[key]; ok {
 			attrs = append(attrs, slog.Any(key, value))
 		}
@@ -350,6 +354,16 @@ func audited(ctx context.Context, tool string, args map[string]any, run func() (
 	name, _ := args["name"].(string)
 	auditConnectorWrite(ctx, tool, name, args)
 	return result, nil
+}
+
+// auditURL keeps a URL's scheme, host and path for the audit: userinfo, the
+// query and the fragment can carry credentials (re-check R-S-04).
+func auditURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "(not a URL)"
+	}
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path}).String()
 }
 
 // approvalValue is settings as the audit records them.

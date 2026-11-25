@@ -185,3 +185,9 @@ func TestList_ReportsTheGovernanceMode(t *testing.T) {
 	listed := result.Content[0].(map[string]interface{})
 	assert.Equal(t, "trusted", listed["governance"])
 }
+
+// The connector-write audit line never records credentials a URL carries.
+func TestAuditURL(t *testing.T) {
+	assert.Equal(t, "https://mcp.example.com/sse", auditURL("https://user:secret@mcp.example.com/sse?api_key=k#frag"))
+	assert.Equal(t, "(not a URL)", auditURL("not a url"))
+}
