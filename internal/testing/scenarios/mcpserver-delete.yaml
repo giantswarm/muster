@@ -10,6 +10,7 @@ steps:
   description: "Create a stdio MCP server to test deletion"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "delete-test-server"
     type: "stdio"
     command: "echo"

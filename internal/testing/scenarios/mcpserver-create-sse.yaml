@@ -10,6 +10,7 @@ steps:
   description: "Create a new SSE MCP server"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "sse-server"
     type: "sse"
     url: "http://localhost:8080/sse"

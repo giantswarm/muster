@@ -10,6 +10,7 @@ steps:
   description: "Create an MCPServer that signs with SigV4, deriving the service from the hostname"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "aws-signed-server"
     type: "streamable-http"
     url: "https://aws-mcp.eu-central-1.api.aws/mcp"
@@ -44,6 +45,7 @@ steps:
   description: "Reject sigv4 with no region: the endpoint checks the credential scope, so it cannot be defaulted"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "sigv4-no-region"
     type: "streamable-http"
     url: "https://aws-mcp.eu-central-1.api.aws/mcp"
@@ -58,6 +60,7 @@ steps:
   description: "Reject sigv4 on an sse server, which would otherwise connect unsigned"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "sigv4-on-sse"
     type: "sse"
     url: "https://aws-mcp.eu-central-1.api.aws/mcp"
@@ -76,6 +79,7 @@ steps:
   description: "Reject sigv4 together with forwardToken: a machine identity relays no caller token"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "sigv4-and-forward-token"
     type: "streamable-http"
     url: "https://aws-mcp.eu-central-1.api.aws/mcp"
@@ -95,6 +99,7 @@ steps:
   description: "Reject sigv4 together with authorizationServer: a machine identity flow has no authorization server"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "sigv4-and-authorization-server"
     type: "streamable-http"
     url: "https://aws-mcp.eu-central-1.api.aws/mcp"
@@ -115,6 +120,7 @@ steps:
   description: "Reject a sigv4 block under another auth type, so the spec cannot claim signing it will not do"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "sigv4-block-under-oauth"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"
@@ -131,6 +137,7 @@ steps:
   description: "Reject sigv4 without requestMeta.AWS_REGION: the AWS MCP server would run every call in us-east-1"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "sigv4-no-aws-region"
     type: "streamable-http"
     url: "https://aws-mcp.eu-central-1.api.aws/mcp"
@@ -147,6 +154,7 @@ steps:
   description: "Accept requestMeta without sigv4: the entries are added by a shared HTTP transport, not by the signer"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "plain-server-with-request-meta"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"
@@ -160,6 +168,7 @@ steps:
   description: "Accept the deprecated meta name and store it as requestMeta"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "server-with-deprecated-meta"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"
@@ -184,6 +193,7 @@ steps:
   description: "Reject requestMeta and meta together instead of picking one"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "server-with-both-names"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"
@@ -200,6 +210,7 @@ steps:
   description: "Reject a key muster or OpenTelemetry sets on each request"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "server-with-reserved-key"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"
@@ -214,6 +225,7 @@ steps:
   description: "Reject a key under a prefix MCP reserves"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "server-with-mcp-prefix"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"
@@ -228,6 +240,7 @@ steps:
   description: "Reject requestMeta on a stdio server, which has no HTTP transport to add it"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "stdio-with-request-meta"
     type: "stdio"
     command: "echo"

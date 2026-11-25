@@ -57,6 +57,7 @@ steps:
     description: "Create an MCP server as the authenticated user"
     tool: "core_mcpserver_create"
     args:
+      preset: "allow-all"
       name: "stamped-server"
       displayName: "Stamped Server"
       type: "stdio"

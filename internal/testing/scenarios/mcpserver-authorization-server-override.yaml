@@ -10,6 +10,7 @@ steps:
   description: "Create an MCPServer with the authorizationServer override (Atlassian-style)"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "atlassian-style-server"
     type: "streamable-http"
     url: "https://mcp.example.com/v1/mcp"

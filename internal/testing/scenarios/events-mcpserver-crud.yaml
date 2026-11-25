@@ -15,6 +15,7 @@ steps:
   description: "Create an MCPServer CRD"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "events-crud-server"
     type: "streamable-http"
     url: "https://api.example.com/mcp"
@@ -36,11 +37,17 @@ steps:
 
 - id: "update-mcpserver"
   description: "Update the MCPServer CRD"
+  tool: "core_mcpserver_connect"
+  args:
+    name: "events-crud-server"
+    url: "https://updated.example.com/mcp"
+  expected:
+    success: true
+
+- id: "update-mcpserver-update-fields"
   tool: "core_mcpserver_update"
   args:
     name: "events-crud-server"
-    type: "streamable-http"
-    url: "https://updated.example.com/mcp"
     timeout: 90
     autoStart: false
   expected:

@@ -111,9 +111,9 @@ steps:
     expected:
       success: true
       json_path:
-        total: 30
+        total: 32
         tools.0.kind: "core"
-      # 30 = the 17 read-only tools the next step lists + the 13 writes it excludes:
+      # 32 = the 17 read-only tools the next step lists + the 15 writes it excludes:
       # every core tool is classified one way or the other.
       contains: ["core_auth_login", "core_auth_logout", "core_config_get", "core_config_save", "core_events", "core_mcpserver_detect", "core_service_restart", "core_workflow_execution_get"]
 

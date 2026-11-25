@@ -9,7 +9,7 @@ steps:
 - id: "create-missing-name"
   description: "Attempt to create MCP server without name arg"
   tool: "core_mcpserver_create"
-  args: {}
+  args: { preset: "allow-all" }
   expected:
     success: false
     error_contains: ["name", "required"]

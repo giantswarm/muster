@@ -167,7 +167,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "gh-hosted"
-      type: "streamable-http"
       autoStart: true
       restartRequestedAt: "2026-09-04T20:00:00Z"
     expected:
@@ -189,7 +188,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "gh-inhouse"
-      type: "streamable-http"
       autoStart: true
       restartRequestedAt: "2026-09-04T20:00:00Z"
     expected:

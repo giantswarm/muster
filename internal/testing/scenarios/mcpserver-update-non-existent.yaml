@@ -8,13 +8,11 @@ timeout: "30s"
 steps:
 - id: "update-non-existent-mcpserver"
   description: "Try to update a non-existent MCP server"
-  tool: "core_mcpserver_update"
+  tool: "core_mcpserver_connect"
   args:
     name: "non-existent-server"
-    type: "stdio"
     command: "echo"
     args: ["update-test"]
-    autoStart: true
   expected:
     success: false
     error_contains: ["not found"]

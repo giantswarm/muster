@@ -10,6 +10,7 @@ steps:
   description: "Create a valid stdio MCP server"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "valid-error-test-server"
     type: "stdio"
     command: "echo"
@@ -22,6 +23,7 @@ steps:
   description: "Try to create a server with duplicate name"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "valid-error-test-server"
     type: "stdio"
     command: "echo"
@@ -42,7 +44,7 @@ steps:
 
 - id: "try-update-nonexistent-server"
   description: "Try to update a non-existent MCP server"
-  tool: "core_mcpserver_update"
+  tool: "core_mcpserver_connect"
   args:
     name: "nonexistent-update-server"
     type: "stdio"

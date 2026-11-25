@@ -10,6 +10,7 @@ steps:
   description: "Create a stdio MCP server for lifecycle testing"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "lifecycle-test-server"
     type: "stdio"
     command: "echo"
@@ -38,12 +39,18 @@ steps:
 
 - id: "update-lifecycle-server"
   description: "Update the MCP server configuration"
+  tool: "core_mcpserver_connect"
+  args:
+    name: "lifecycle-test-server"
+    command: "echo"
+    args: ["updated-lifecycle-test"]
+  expected:
+    success: true
+
+- id: "update-lifecycle-server-update-fields"
   tool: "core_mcpserver_update"
   args:
     name: "lifecycle-test-server"
-    type: "stdio"
-    command: "echo"
-    args: ["updated-lifecycle-test"]
     autoStart: true
   expected:
     success: true

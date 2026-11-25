@@ -15,6 +15,7 @@ steps:
     description: "Create an MCP server with a display name and autoStart"
     tool: "core_mcpserver_create"
     args:
+      preset: "allow-all"
       name: "kagi-search"
       displayName: "Kagi"
       type: "stdio"

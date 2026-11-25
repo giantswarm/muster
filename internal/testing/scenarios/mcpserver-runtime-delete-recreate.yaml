@@ -52,6 +52,7 @@ steps:
     description: "Create the MCPServer definition"
     tool: "core_mcpserver_create"
     args:
+      preset: "allow-all"
       name: "recreated-server"
       type: "streamable-http"
       autoStart: true
@@ -108,6 +109,7 @@ steps:
     description: "Re-create the MCPServer definition with the same name"
     tool: "core_mcpserver_create"
     args:
+      preset: "allow-all"
       name: "recreated-server"
       type: "streamable-http"
       autoStart: true

@@ -90,16 +90,22 @@ steps:
 
   - id: headers-change-on-the-definition
     description: "The operator widens the toolset selector; the reconciler restarts the service and registers the new configuration"
-    tool: "core_mcpserver_update"
+    tool: "core_mcpserver_connect"
     args:
       name: "hdr-fixture"
-      type: "streamable-http"
-      autoStart: true
       headers:
         X-MCP-Toolsets: "default,git,actions"
     expected:
       success: true
     timeout: "15s"
+
+  - id: "headers-change-on-the-definition-update-fields"
+    tool: "core_mcpserver_update"
+    args:
+      name: "hdr-fixture"
+      autoStart: true
+    expected:
+      success: true
 
   - id: definition-carries-the-new-headers
     tool: "core_mcpserver_get"

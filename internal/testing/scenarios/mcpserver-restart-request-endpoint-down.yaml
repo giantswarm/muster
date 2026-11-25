@@ -79,7 +79,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "restart-loop-server"
-      type: "streamable-http"
       autoStart: true
       restartRequestedAt: "2026-09-05T18:33:46Z"
     expected:
@@ -133,7 +132,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "restart-loop-server"
-      type: "streamable-http"
       autoStart: true
       restartRequestedAt: "2026-09-05T18:40:00Z"
     expected:

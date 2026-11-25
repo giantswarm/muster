@@ -122,7 +122,7 @@ steps:
 
   - id: flip-to-forward-token
     description: "Add auth.forwardToken; the reconciler restarts the server while the backend still answers anonymously"
-    tool: "core_mcpserver_update"
+    tool: "core_mcpserver_connect"
     args:
       name: "anon-flip"
       type: "streamable-http"
