@@ -113,7 +113,11 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]any) 
 		return errorResult(fmt.Sprintf("Tool not found: %s", name)), nil
 	}
 
-	jsonData, err := p.formatters.FormatToolDetailJSON(*tool)
+	var connectorAdmin *bool
+	if lookup := connectorAdminLookup(ctx); lookup != nil {
+		connectorAdmin = lookup(*tool)
+	}
+	jsonData, err := p.formatters.formatToolDetailJSON(*tool, connectorAdmin)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to format tool info: %v", err)), nil
 	}
@@ -345,6 +349,7 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 
 	// 4. Project each tool to a discovery- or detail-shaped entry.
 	toolInfos := make([]ToolInfo, 0, len(page))
+	connectorAdmin := connectorAdminLookup(ctx)
 	for _, st := range page {
 		info := ToolInfo{Name: st.tool.Name}
 		if opts.summarize {
@@ -360,6 +365,10 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 		}
 		info.Server, info.Kind = originOf(st.tool)
 		info.Annotations = annotationsOf(st.tool)
+		info.Approval = approvalOf(st.tool)
+		if connectorAdmin != nil {
+			info.ConnectorAdmin = connectorAdmin(st.tool)
+		}
 		if opts.includeSchema {
 			info.InputSchema = st.tool.InputSchema
 		}
