@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
+	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/assert"
@@ -19,6 +21,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/approval"
+	oauthstore "github.com/giantswarm/muster/v5/internal/oauth/store"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -262,6 +265,7 @@ func TestGate_StoreOutageRefuses(t *testing.T) {
 	api.RegisterApprovalStore(&failingStore{})
 	_, err := rig.server.CallToolInternal(rig.ctx, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
 	require.ErrorContains(t, err, "approval store cannot be reached")
+	assert.NotContains(t, err.Error(), "valkey unavailable", "the store's own error stays in the log (M1-MU-S-16)")
 	assert.Zero(t, rig.client.count("merge_pull_request"))
 }
 
@@ -554,55 +558,78 @@ func (rig *gateRig) setSettings(t *testing.T, settings *api.MCPServerApproval) {
 
 // A call that asks on a server the session must first sign in to is
 // answered with the sign-in, before an approval is asked for or used: the
-// person is not asked twice for one call (M1-MU-C-09).
+// person is not asked twice for one call (M1-MU-C-09). Driven through the
+// dispatch path, so removing the check from the gate fails it (re-check
+// R-C-04).
 func TestGate_SignInBeforeApproval(t *testing.T) {
-	rig := newGateRig(t)
-	require.NoError(t, rig.server.registry.RegisterPendingAuth(PendingAuthRegistration{
-		ServerRegistration: ServerRegistration{Name: "hubspot", ToolPrefix: "hubspot"},
-		URL:                "http://127.0.0.1:1/mcp",
-		AuthInfo:           &AuthInfo{Issuer: "https://idp.example.com", Scope: "mcp:read"},
+	a := newTestAggregatorWithPool(t)
+	require.NoError(t, a.registry.RegisterPendingAuth(PendingAuthRegistration{
+		ServerRegistration: ServerRegistration{Name: answerServer, ToolPrefix: answerServer},
+		URL:                "https://svc.example.com/mcp",
+		AuthInfo:           &AuthInfo{Issuer: answerIssuer, Scope: "repo"},
 		AuthConfig:         &api.MCPServerAuth{Type: "oauth"},
 	}))
-	answer, err, needed := rig.server.signInFirst(rig.ctx, "hubspot", "create_contact", map[string]any{})
-	require.True(t, needed)
-	if err == nil {
-		require.NotNil(t, answer)
-	}
-	_, _, needed = rig.server.signInFirst(rig.ctx, "github", "merge_pull_request", map[string]any{})
-	assert.False(t, needed, "a server without per-session sign-in asks as before")
+	handler := &challengeCountingOAuthHandler{issuerMockOAuthHandler: issuerMockOAuthHandler{enabled: true}}
+	api.RegisterOAuthHandler(handler)
+	t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
+	ctx := context.Background()
+	// The session knows the server's tools but is not signed in to it.
+	require.NoError(t, a.capabilityStore.Set(ctx, answerSession, answerServer, &oauthstore.Capabilities{Tools: []mcp.Tool{{Name: "op"}}}))
+	registerApprovals(t, map[string]*api.MCPServerApproval{answerServer: {Rule: api.ApprovalAsk}})
+	store := approval.NewMemoryStore()
+	api.RegisterApprovalStore(store)
+	api.RegisterBrowserIdentity(&stubBrowserIdentity{})
+	t.Cleanup(func() {
+		api.RegisterApprovalStore(nil)
+		api.RegisterBrowserIdentity(nil)
+	})
+	a.approval.page = &approval.Page{PublicURL: "https://muster.example.com"}
+
+	call := api.WithSignInIdentity(api.WithSubject(api.WithSessionID(ctx, answerSession), answerSubject), alice)
+	result, err := a.CallToolInternal(call, "x_svc_op", map[string]any{})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	text := mcpText(result)
+	assert.Contains(t, text, "auth_required")
+	assert.NotContains(t, text, "approval_required", "no approval is asked for before the sign-in")
 }
 
-// An approval is bound to the client's MCP connection, not only to muster's
-// session (which a forwarded bearer shares across every client of a
-// person): another connection of the same person asks anew, and its pending
-// asks do not fill the first connection's cap (lab M1-2).
-func TestGate_ApprovalBoundToTheMCPConnection(t *testing.T) {
+// An approval is bound to the calling client -- the OAuth client a person's
+// token was issued to -- not to the transport session: the same client
+// reconnecting between ask and retry (a new Mcp-Session-Id) runs it, another
+// client of the same person asks anew, and each client has its own cap
+// (lab M1-2, re-check R-C-01, R-S-01).
+func TestGate_ApprovalBoundToTheClient(t *testing.T) {
 	rig := newGateRig(t)
 	server := mcpserver.NewMCPServer("muster", "test")
-	connA := server.WithContext(rig.ctx, newLegacySession("connection-a", mcp.ClientCapabilities{}))
-	connB := server.WithContext(rig.ctx, newLegacySession("connection-b", mcp.ClientCapabilities{}))
+	client := func(clientID, transport string) context.Context {
+		ctx := oauthhandler.ContextWithUserInfo(rig.ctx, &providers.UserInfo{ID: alice.Subject, ClientID: clientID})
+		return server.WithContext(ctx, newLegacySession(transport, mcp.ClientCapabilities{}))
+	}
+	portal, portalReconnected := client("portal", "connection-a"), client("portal", "connection-b")
+	claude := client("claude-code", "connection-c")
 
-	result, err := rig.server.CallToolInternal(connA, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
+	result, err := rig.server.CallToolInternal(portal, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
 	require.NoError(t, err)
 	id := approvalIDOf(t, result)
 	require.NoError(t, rig.store.Decide(context.Background(), id, true, alice))
 
-	other, err := rig.server.CallToolInternal(connB, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
+	other, err := rig.server.CallToolInternal(claude, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
 	require.NoError(t, err)
-	assert.NotEqual(t, id, approvalIDOf(t, other), "another connection asks anew")
+	assert.NotEqual(t, id, approvalIDOf(t, other), "another client of the person asks anew")
 	assert.Zero(t, rig.client.count("merge_pull_request"))
 
-	_, err = rig.server.CallToolInternal(connA, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
+	_, err = rig.server.CallToolInternal(portalReconnected, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
 	require.NoError(t, err)
-	assert.Equal(t, 1, rig.client.count("merge_pull_request"), "the asking connection runs it")
+	assert.Equal(t, 1, rig.client.count("merge_pull_request"), "the asking client runs it after reconnecting")
 
-	for i := range 2 { // connection B now holds its cap of 3
-		_, err := rig.server.CallToolInternal(connB, "x_github_merge_pull_request", map[string]any{"pr": float64(10 + i)})
+	for i := range 2 { // the other client now holds its cap of 3
+		_, err := rig.server.CallToolInternal(claude, "x_github_merge_pull_request", map[string]any{"pr": float64(10 + i)})
 		require.NoError(t, err)
 	}
-	_, err = rig.server.CallToolInternal(connB, "x_github_merge_pull_request", map[string]any{"pr": 50.0})
-	require.ErrorContains(t, err, "3 of this connection's calls already wait")
-	result, err = rig.server.CallToolInternal(connA, "x_github_merge_pull_request", map[string]any{"pr": 99.0})
+	_, err = rig.server.CallToolInternal(client("claude-code", "connection-d"), "x_github_merge_pull_request", map[string]any{"pr": 50.0})
+	require.ErrorContains(t, err, "3 of this client's calls already wait", "a new transport session does not reset the cap")
+	result, err = rig.server.CallToolInternal(portal, "x_github_merge_pull_request", map[string]any{"pr": 99.0})
 	require.NoError(t, err)
 	approvalIDOf(t, result)
 }

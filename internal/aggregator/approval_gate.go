@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/v5/internal/api"
@@ -343,25 +344,44 @@ func limitReason(err error) string {
 		return fmt.Sprintf("%d of this person's calls already wait for a decision, across all their sessions and agents", limit.Limit)
 	}
 	if limit != nil {
-		return fmt.Sprintf("%d of this connection's calls already wait for a decision (the cap is per MCP session)", limit.Limit)
+		return fmt.Sprintf("%d of this client's calls already wait for a decision", limit.Limit)
 	}
 	return "too many calls already wait for a decision"
 }
 
 // approvalSessionID is the session an approval and the per-session cap are
-// bound to: the client's MCP connection (its Mcp-Session-Id) within muster's
-// session. A forwarded person's bearer gives every client of that person one
-// muster session, so without the connection an approval asked in one client
-// could be used by another, and one client's pending asks would fill every
-// other client's cap (lab M1-2). A call without a transport session (muster's
-// own) keeps muster's session.
+// bound to: muster's session and the calling client. A forwarded person's
+// bearer gives every client of that person one muster session, so without
+// the client an approval asked in one client could be used by another, and
+// one client's pending asks would fill the others' cap (lab M1-2). The
+// client is not the transport session (Mcp-Session-Id): clients reconnect
+// between ask and retry (token refresh, idle eviction, a restart, another
+// replica), and the id is the client's to choose (re-check R-C-01,
+// R-S-01). It is what the request's credential says: the agent's Session for
+// an actor JWT (muster's session is that Session's), the acting party of a
+// delegated token, or the OAuth client a person's token was issued to (azp).
+// A request without either keeps muster's session; a 2026-07-28 request,
+// which carries no transport session, is bound the same way.
 func approvalSessionID(ctx context.Context) string {
 	session := getSessionIDFromContext(ctx)
-	transport := getTransportSessionID(ctx)
-	if transport == "" || transport == session {
-		return session
+	if client := approvalClient(ctx, session); client != "" {
+		return session + "/" + client
 	}
-	return session + "/" + transport
+	return session
+}
+
+// approvalClient names the calling client from the request's credential.
+func approvalClient(ctx context.Context, session string) string {
+	if api.IsActorSession(session) {
+		return "" // muster's session is the agent's Session
+	}
+	if caller, ok := api.DelegatedCallerFromContext(ctx); ok && len(caller.ActorChain) > 0 {
+		return "actor:" + caller.ActorIssuer + "#" + caller.ActorChain[0]
+	}
+	if info, ok := oauthhandler.UserInfoFromContext(ctx); ok && info != nil && info.ClientID != "" {
+		return "client:" + info.ClientID
+	}
+	return ""
 }
 
 // declinedResult answers a retry of a call the person declined.
