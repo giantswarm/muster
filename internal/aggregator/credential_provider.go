@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/credprovider"
 	"github.com/giantswarm/muster/v5/pkg/logging"
@@ -50,7 +53,25 @@ func (a *AggregatorServer) newCredentialProvider() (*credprovider.Provider, erro
 		BindingTTL:      ttl,
 		Store:           store,
 		Grants:          releaseSubjectGrant,
+		Senders:         approvalSenderReviewer(a.config.MusterNamespace),
 	})
+}
+
+// approvalSenderReviewer reviews the senders of approval settings with the
+// Kubernetes API as muster's ServiceAccount; nil (every bind carrying a
+// sender token refused) without a cluster to ask.
+func approvalSenderReviewer(namespace string) credprovider.SenderReviewer {
+	cfg, err := ctrlconfig.GetConfig()
+	if err != nil {
+		logging.Warn("Aggregator", "No Kubernetes API to review senders of approval settings: binds that carry one are refused: %v", err)
+		return nil
+	}
+	client, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		logging.Warn("Aggregator", "No Kubernetes client to review senders of approval settings: binds that carry one are refused: %v", err)
+		return nil
+	}
+	return credprovider.KubernetesSenderReviewer{Client: client, Namespace: namespace}
 }
 
 // releaseSubjectGrant is the provider's GrantSource: the person's grant held

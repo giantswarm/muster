@@ -83,9 +83,19 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	approvalSender, refused := p.reviewSender(r)
+	if refused != 0 {
+		logging.WarnWithAttrs(logSubsystem, "bind_refused",
+			slog.String("reason", "the approval settings sender did not pass the review"), slog.String("sub", sub),
+			slog.String("actor", req.Actor), slog.String("session", req.Session))
+		http.Error(w, http.StatusText(refused)+": the sender of approval settings did not pass the review", refused)
+		return
+	}
+
 	signIn := api.SignInIdentityFromContext(r.Context())
 	b := Binding{
-		Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
+		ApprovalSender: approvalSender,
+		Subject:        sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
 		SignInIssuer: signIn.Issuer, SignInSubject: signIn.Subject, BoundAt: time.Now().UTC(),
 	}
 	b.LoginSession, b.LoginIssuer, b.LoginSubject = bindLogin(r)
@@ -106,7 +116,7 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		slog.String("sub", sub), slog.String("session", req.Session),
 		slog.String("actor", req.Actor), slog.Any("providers", req.Providers),
 		slog.String("login", loginKind(b.LoginSession)),
-		slog.Any("toolset", req.Toolset), slog.Duration("ttl", p.ttl))
+		slog.Any("toolset", req.Toolset), slog.Bool("approvalSender", approvalSender), slog.Duration("ttl", p.ttl))
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -192,4 +202,30 @@ func (p *Provider) releasableNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// reviewSender reviews the bind's ApprovalSenderHeader token. Without one
+// the bind is taken without approval settings (false, 0). A token that fails
+// the review refuses the bind (403), as does a review that could not be made
+// (503) or a muster that cannot review (403): an outage never strips an
+// agent's Ask or Block.
+func (p *Provider) reviewSender(r *http.Request) (bool, int) {
+	token := strings.TrimSpace(r.Header.Get(ApprovalSenderHeader))
+	if token == "" {
+		return false, 0
+	}
+	if p.senders == nil {
+		return false, http.StatusForbidden
+	}
+	err := p.senders.Review(r.Context(), token)
+	switch {
+	case err == nil:
+		return true, 0
+	case errors.Is(err, ErrSenderNotAllowed):
+		logging.WarnWithAttrs(logSubsystem, "approval_sender_refused", slog.String("error", err.Error()))
+		return false, http.StatusForbidden
+	default:
+		logging.WarnWithAttrs(logSubsystem, "approval_sender_review_failed", slog.String("error", err.Error()))
+		return false, http.StatusServiceUnavailable
+	}
 }

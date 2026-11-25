@@ -28,6 +28,10 @@ type Binding struct {
 	// none (implicit full access); a binding stored before toolsets were bound
 	// reads as nil.
 	Toolset []string `json:"toolset,omitempty"`
+	// ApprovalSender is true when the bind came from a sender Kubernetes
+	// allows to send approval settings (sender_review.go). Approval settings
+	// in a binding are honoured only then.
+	ApprovalSender bool `json:"approvalSender,omitempty"`
 	// SignInIssuer and SignInSubject are the issuer and raw sub of the
 	// bind request's bearer: who the person signed in as, which a sign-in
 	// link the actor's requests are answered with must be completed by
