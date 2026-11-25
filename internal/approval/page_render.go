@@ -44,14 +44,15 @@ pre{white-space:pre-wrap;word-break:break-all;background:#f6f8fa;padding:.5rem}
 {{if .Request}}<p class="muted">Asks because: {{.Request.Display.Source}} setting · {{if $.Installation}}Installation {{$.Installation}} · {{end}}{{.Request.CallerKind}}{{if .Request.Agent}} · Agent {{visible .Request.Agent}}{{end}} · Session {{.Session}} · Expires in {{.ExpiresIn}} min</p>
 <details><summary>Show details</summary><pre>{{visible .Request.Arguments}}</pre><p class="muted">SHA-256 {{.Request.ArgumentsHash}}</p></details>
 {{if .Token}}
-<form method="post" action="{{.Action}}">
+<form id="decide" method="post" action="{{.Action}}">
 <input type="hidden" name="token" value="{{.Token}}">
 <div class="actions"><button name="decision" value="decline" disabled>Decline</button><button class="approve" name="decision" value="approve" disabled>Approve</button></div>
 </form>
 <noscript><p class="muted">The buttons need JavaScript.</p></noscript>
 <script nonce="{{.ScriptNonce}}">
 (function(){function arm(){setTimeout(function(){document.querySelectorAll('button[name=decision]').forEach(function(b){b.disabled=false})},1000)}
-if(document.visibilityState==='visible'){arm()}else{document.addEventListener('visibilitychange',function v(){if(document.visibilityState==='visible'){document.removeEventListener('visibilitychange',v);arm()}})}})();
+if(document.visibilityState==='visible'){arm()}else{document.addEventListener('visibilitychange',function v(){if(document.visibilityState==='visible'){document.removeEventListener('visibilitychange',v);arm()}})}
+document.getElementById('decide').addEventListener('submit',function(){setTimeout(function(){document.querySelectorAll('button[name=decision]').forEach(function(b){b.disabled=true})},0)})})();
 </script>
 {{end}}{{end}}
 </body></html>`))

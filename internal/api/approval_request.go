@@ -262,6 +262,9 @@ type ApprovalPageFlow struct {
 	// Redirect is the allowlisted return the client asked for, used only
 	// after a decision.
 	Redirect string `json:"redirect,omitempty"`
+	// Decided is set once this browser decided: a repeated submit (a double
+	// click) is answered with what stands, not as a stale page.
+	Decided bool `json:"decided,omitempty"`
 }
 
 // ApprovalStore keeps approval requests, their decisions and the page's

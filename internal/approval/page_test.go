@@ -150,11 +150,18 @@ func TestPage_ApproveAndReturn(t *testing.T) {
 	assert.Equal(t, api.ApprovalStatusApproved, got.Status)
 	assert.Equal(t, alice, got.DecidedBy)
 
-	// The same form again is refused: its flow is used up.
+	// The same form again (a double click) changes nothing and says what
+	// stands (re-check R-C-02).
 	resp, err = client.PostForm(rig.page.URL(request.ID), url.Values{"token": {token}, "decision": {"decline"}})
 	require.NoError(t, err)
+	again, _ := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()
-	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+	assert.Contains(t, string(again), "This request was already approved")
+	assert.NotContains(t, string(again), "Nothing was decided")
+	got, err = rig.store.Get(context.Background(), request.ID)
+	require.NoError(t, err)
+	assert.Equal(t, api.ApprovalStatusApproved, got.Status, "the second submit changed nothing")
 }
 
 // The first allowed return of a browser's flow is kept: a later link with
@@ -305,6 +312,14 @@ func TestPage_MarksInvisibleCharacters(t *testing.T) {
 	assert.Contains(t, body, "⟨U&#43;200B⟩") // html/template writes + as &#43;
 	assert.Contains(t, body, "(string)")
 	assert.Contains(t, body, "<code>team-a/github</code>", "the connector's server key is shown")
+}
+
+// Blank look-alikes are marked too (re-check R-S-03).
+func TestVisible_BlankLookAlikes(t *testing.T) {
+	for _, r := range []rune{'\u00a0', '\u2003', '\u3000', '\u3164', '\u115f', '\uffa0', '\u2800', '\ufe0f', '\u034f'} {
+		assert.NotEqual(t, "a"+string(r)+"b", Visible("a"+string(r)+"b"), "U+%04X", r)
+	}
+	assert.Equal(t, "a b", Visible("a b"))
 }
 
 func TestVisible(t *testing.T) {

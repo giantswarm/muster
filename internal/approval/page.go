@@ -209,7 +209,7 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 // is in it, expecting the person the request is bound to.
 func (p *Page) sendToSignIn(w http.ResponseWriter, r *http.Request, store api.ApprovalStore, identity api.BrowserIdentity, request *api.ApprovalRequest, cookie, key string, flow *api.ApprovalPageFlow) {
 	if err := identity.CheckRefusal(request.Identity); err != nil {
-		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: muster cannot confirm who you are", "This request cannot be decided here because muster cannot sign in the person it was made for. Run the tool again from a session muster can tell the person of.")
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: muster cannot confirm who you are", "Nothing was approved or declined. muster cannot check sign-ins for the account this request was made for, so it cannot be decided on this page. Ask the platform's operators to enable the sign-in check for your identity provider (dex.identityCheckConnectors).")
 		return
 	}
 	flow.Nonce = rand.Text()
@@ -343,6 +343,11 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 		p.renderStoreError(w, err)
 		return
 	}
+	if flow.Decided && flow.Identity == request.Identity {
+		// This browser decided already (a double click): say what stands.
+		p.renderAnswered(w, request)
+		return
+	}
 	if flow.Identity == (api.SignInIdentity{}) || flow.Identity != request.Identity {
 		logging.WarnWithAttrs("Approval", "decision refused: the signed-in person is not the requester",
 			slog.String("approval", logging.TruncateIdentifier(id)))
@@ -369,7 +374,10 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 		p.renderStoreError(w, err)
 		return
 	}
-	_ = store.DeleteFlow(r.Context(), key)
+	// The flow stays, marked decided, until it expires: a repeated submit of
+	// the same form is answered with the decision, not as a stale page.
+	flow.Decided = true
+	_ = store.PutFlow(r.Context(), key, *flow, flowTTL)
 	auditDecision(r.Context(), request, approve, flow.Identity)
 
 	if flow.Redirect != "" {
