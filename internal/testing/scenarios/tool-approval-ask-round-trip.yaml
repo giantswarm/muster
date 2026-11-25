@@ -101,7 +101,9 @@ steps:
       json_path:
         page_status: 403
         buttons: false
-      contains: ["someone else", "alice"]
+      # The requester is named by the email in their token (the mock
+      # identity provider gives every subject test@example.com).
+      contains: ["someone else", "It was made for test@example.com"]
       not_contains: ["Changes data"]
 
   - id: "still-not-run"
