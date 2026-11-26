@@ -580,8 +580,10 @@ Rules:
   A server muster never read is still refused, and so is a read that fails
   any other way (not found, forbidden, not decodable). Agent settings and
   governance floors do not come from the API server and apply unchanged. The
-  meta-tools' listings still report the server's tools `unavailable`
-  meanwhile.
+  meta-tools' listings (`list_tools`, `filter_tools`) use the same last
+  observed definitions meanwhile, so a listing and a call agree; a server
+  muster never read is reported `unavailable`, and a listing that fails any
+  other way reports every server tool `unavailable`.
 - Keep secrets out of a connector's URL (use `headersFrom`): the audit line of
   a connector write records the URL's scheme, host and path, with userinfo,
   query, fragment and matrix parameters dropped and token-like path segments

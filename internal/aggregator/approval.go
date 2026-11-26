@@ -40,6 +40,11 @@ func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServe
 	}
 	definitions, err := manager.ListMCPServers(ctx)
 	if err != nil {
+		if last, found := lastObservedListingWhileUnreachable(err); found {
+			definitions, err = last, nil
+		}
+	}
+	if err != nil {
 		logging.Warn("Aggregator", "approval settings unavailable: listing MCPServers failed: %v", err)
 		return nil, nil, true, false
 	}

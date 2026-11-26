@@ -53,6 +53,39 @@ func (o *observedServers) get(key string) (*api.MCPServerInfo, time.Time, bool) 
 	return &info, observed.at, true
 }
 
+// replaceAll remembers infos as the definitions of all servers, read now,
+// and forgets every other: a server a successful listing does not return is
+// deleted or no longer served.
+func (o *observedServers) replaceAll(infos []api.MCPServerInfo) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	now := clock.Now()
+	o.byKey = make(map[string]observedServer, len(infos))
+	for _, info := range infos {
+		o.byKey[info.ServerKey()] = observedServer{info: info, at: now}
+	}
+}
+
+// all returns copies of every remembered definition and the oldest read.
+func (o *observedServers) all() ([]api.MCPServerInfo, time.Time, bool) {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	infos := make([]api.MCPServerInfo, 0, len(o.byKey))
+	var oldest time.Time
+	for _, observed := range o.byKey {
+		infos = append(infos, observed.info)
+		if oldest.IsZero() || observed.at.Before(oldest) {
+			oldest = observed.at
+		}
+	}
+	return infos, oldest, len(infos) > 0
+}
+
+// LastObservedMCPServers implements api.MCPServerLastObserved.
+func (a *Adapter) LastObservedMCPServers() ([]api.MCPServerInfo, time.Time, bool) {
+	return a.observed.all()
+}
+
 // LastObservedMCPServer implements api.MCPServerLastObserved.
 func (a *Adapter) LastObservedMCPServer(key string) (*api.MCPServerInfo, time.Time, bool) {
 	return a.observed.get(key)

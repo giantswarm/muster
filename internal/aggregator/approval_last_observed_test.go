@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +33,21 @@ func (m outageManager) GetMCPServer(ctx context.Context, name string) (*api.MCPS
 		return nil, m.readErr
 	}
 	return m.stubMCPServerManager.GetMCPServer(ctx, name)
+}
+
+func (m outageManager) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error) {
+	if m.readErr != nil {
+		return nil, m.readErr
+	}
+	return m.stubMCPServerManager.ListMCPServers(ctx)
+}
+
+func (m outageManager) LastObservedMCPServers() ([]api.MCPServerInfo, time.Time, bool) {
+	infos := make([]api.MCPServerInfo, 0, len(m.observed))
+	for _, info := range m.observed {
+		infos = append(infos, info)
+	}
+	return infos, clock.Now().Add(-3 * time.Second), len(infos) > 0
 }
 
 func (m outageManager) LastObservedMCPServer(key string) (*api.MCPServerInfo, time.Time, bool) {
@@ -160,4 +176,45 @@ func TestAPIServerUnreachable(t *testing.T) {
 	} {
 		assert.Equal(t, tc.want, apiServerUnreachable(tc.err), name)
 	}
+}
+
+// A listing agrees with the calls while the API server cannot be reached:
+// the last observed settings report Allow, Ask and Block as a call would be
+// decided; a server never observed is reported unavailable, and so is any
+// failure that is not an unreachable API server.
+func TestApplyApprovals_UnreachableAPIServerListsByTheLastObservedSettings(t *testing.T) {
+	tools := []mcp.Tool{
+		approvalSoloTool("github", "get_issue"),
+		approvalSoloTool("github", "merge_pull_request"),
+		approvalSoloTool("github", "delete_repository"),
+	}
+	ask := api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}
+
+	t.Run("observed", func(t *testing.T) {
+		rig := newGateRig(t)
+		withOutage(t, connectionRefused(), []string{"github"})
+		listed := rig.server.applyApprovals(rig.ctx, tools)
+		got, found := approvalOf(t, listed, "x_github_get_issue")
+		require.True(t, found)
+		assert.Equal(t, api.ApprovalSettingAllow, got.Setting)
+		got, _ = approvalOf(t, listed, "x_github_merge_pull_request")
+		assert.Equal(t, api.ApprovalSettingAsk, got.Setting)
+		assert.NotEqual(t, api.ApprovalSourceUnavailable, got.Source)
+		_, found = approvalOf(t, listed, "x_github_delete_repository")
+		assert.False(t, found, "a tool the last observed settings block leaves the listing, as the call refuses it")
+	})
+	t.Run("never observed", func(t *testing.T) {
+		rig := newGateRig(t)
+		withOutage(t, connectionRefused(), nil)
+		got, found := approvalOf(t, rig.server.applyApprovals(rig.ctx, tools), "x_github_get_issue")
+		require.True(t, found)
+		assert.Equal(t, ask, got, "a server never observed is unavailable")
+	})
+	t.Run("other failure", func(t *testing.T) {
+		rig := newGateRig(t)
+		withOutage(t, errors.New("json: cannot unmarshal"), []string{"github"})
+		got, found := approvalOf(t, rig.server.applyApprovals(rig.ctx, tools), "x_github_get_issue")
+		require.True(t, found)
+		assert.Equal(t, ask, got, "only an unreachable API server falls back")
+	})
 }

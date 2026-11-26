@@ -86,3 +86,22 @@ func apiServerUnreachable(err error) bool {
 	var netErr net.Error
 	return errors.As(err, &netErr)
 }
+
+// lastObservedListingWhileUnreachable returns the last observed definitions
+// of every server when err says the API server cannot be reached, so a
+// listing reports what a call would be decided by. ok is false when the
+// listing failed otherwise or muster observed no server.
+func lastObservedListingWhileUnreachable(err error) (infos []api.MCPServerInfo, ok bool) {
+	if !apiServerUnreachable(err) {
+		return nil, false
+	}
+	infos, oldest, ok := api.LastObservedMCPServers()
+	if !ok {
+		return nil, false
+	}
+	logging.WarnWithAttrs("Approval", "API server unreachable: listing by the servers' last observed approval settings",
+		slog.Int("servers", len(infos)),
+		slog.Duration("oldestAge", clock.Now().Sub(oldest).Round(time.Millisecond)),
+		slog.String("error", err.Error()))
+	return infos, true
+}

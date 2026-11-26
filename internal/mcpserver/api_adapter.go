@@ -423,6 +423,7 @@ func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, erro
 	for i := range servers {
 		result = append(result, a.toInfo(&servers[i]))
 	}
+	a.observed.replaceAll(result)
 	return result, nil
 }
 
