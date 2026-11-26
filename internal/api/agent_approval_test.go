@@ -140,6 +140,10 @@ func TestAgentApproval_Validate(t *testing.T) {
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("valid settings refused: %v", err)
 	}
+	noUID := &AgentApproval{Entries: []AgentApprovalEntry{{"tool:x", ApprovalAllow}}, Grants: []AgentApprovalGrant{{"tool:x", "s", ""}}}
+	if err := noUID.Validate(); err != nil || noUID.Granted("tool:x", "s", "") {
+		t.Fatalf("a grant without a UID is accepted and matches nothing: %v", err)
+	}
 	bad := []*AgentApproval{
 		{Entries: []AgentApprovalEntry{{"github", ApprovalAsk}}},
 		{Entries: []AgentApprovalEntry{{"server:github", "ask"}}},
@@ -148,7 +152,6 @@ func TestAgentApproval_Validate(t *testing.T) {
 		{Entries: []AgentApprovalEntry{{"server:github", ApprovalAsk}}, Grants: []AgentApprovalGrant{{"server:github", "github", "u"}}},
 		{Grants: []AgentApprovalGrant{{AgentDefaultEntry, "github", "u"}}},
 		{Entries: []AgentApprovalEntry{{"tool:x", ApprovalAllow}}, Grants: []AgentApprovalGrant{{"tool:x", "", "u"}}},
-		{Entries: []AgentApprovalEntry{{"tool:x", ApprovalAllow}}, Grants: []AgentApprovalGrant{{"tool:x", "s", ""}}},
 	}
 	for i, a := range bad {
 		if err := a.Validate(); err == nil {

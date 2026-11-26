@@ -68,7 +68,7 @@ type AgentApproval struct {
 
 // Validate checks the settings' shape: selectors in the toolset grammar, each
 // once, values Allow, Ask or Block, grants naming an Allow entry (or an
-// allowing default), a server and a UID.
+// allowing default) and a server.
 func (a *AgentApproval) Validate() error {
 	if a == nil {
 		return nil
@@ -96,8 +96,10 @@ func (a *AgentApproval) Validate() error {
 		return fmt.Errorf("approval default %q: use Allow, Ask or Block", a.Default)
 	}
 	for _, g := range a.Grants {
-		if g.Server == "" || g.UID == "" {
-			return fmt.Errorf("approval grant for %q needs server and uid", g.Entry)
+		// A grant without a UID (a server read in filesystem mode) is kept
+		// but never matches (Granted): it lifts nothing.
+		if g.Server == "" {
+			return fmt.Errorf("approval grant for %q needs a server", g.Entry)
 		}
 		setting := settings[g.Entry]
 		if g.Entry == AgentDefaultEntry {

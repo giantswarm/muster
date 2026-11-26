@@ -78,7 +78,7 @@ func TestBindRejectsBadAgentSettings(t *testing.T) {
 		"entry outside the toolset": strings.Replace(settingsBindBody, `"toolset":["server:github",`, `"toolset":[`, 1),
 		"unknown setting":           strings.Replace(settingsBindBody, `"setting":"Ask"`, `"setting":"Deny"`, 1),
 		"grant without an Allow":    strings.Replace(settingsBindBody, `"grants":[{"entry":"tool:x_github_merge_pull_request"`, `"grants":[{"entry":"server:github"`, 1),
-		"grant without a uid":       strings.Replace(settingsBindBody, `"uid":"u-github"`, `"uid":""`, 1),
+		"grant without a server":    strings.Replace(settingsBindBody, `"server":"github"`, `"server":""`, 1),
 		"agent not ns/name":         strings.Replace(settingsBindBody, `"agent":"kagent/alert-review"`, `"agent":"alert-review"`, 1),
 	}
 	for name, body := range bad {
