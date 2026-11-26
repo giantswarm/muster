@@ -146,3 +146,21 @@ func TestAgentToolsRefusedToAgents(t *testing.T) {
 		assert.Contains(t, errorText(t, result), "agentTools is for people", tool)
 	}
 }
+
+// A tool the toolset names but approval settings hide (a Block) is refused
+// as not found, like the call itself refuses it, not as outside a toolset
+// that visibly names it (M3I-4); a tool the toolset does not name stays
+// outside it.
+func TestCallToolRefusesABlockedToolAsNotFound(t *testing.T) {
+	defer registerMockHandler(toolsetFixture())()
+	p := NewProvider()
+	ctx := withHeader("tool:x_k8s_get,tool:x_k8s_blocked", true)
+
+	result, err := p.ExecuteTool(ctx, "call_tool", map[string]any{"name": "x_k8s_blocked"})
+	require.NoError(t, err)
+	assert.Equal(t, "tool not found: x_k8s_blocked", errorText(t, result))
+
+	result, err = p.ExecuteTool(ctx, "call_tool", map[string]any{"name": "x_gh_issues"})
+	require.NoError(t, err)
+	assert.Contains(t, errorText(t, result), `tool "x_gh_issues" is outside the toolset`)
+}

@@ -292,6 +292,16 @@ func (c *scopedCatalogue) refuse(ctx context.Context, name string, args map[stri
 	if outside == nil {
 		return nil
 	}
+	if !listed(c.all, name) && namesTool(outside.ts, name) {
+		// The toolset names the tool, but the session's catalogue does not
+		// hold it: its approval settings block it (a connector's or the
+		// agent's own Block, which hide the tool). Refused the way the call
+		// itself refuses a blocked tool, not as outside a toolset that
+		// visibly names it (M3I-4).
+		logging.InfoWithAttrs("metatools", fmt.Sprintf("call_tool refused: tool %q is not in the session's catalogue", name),
+			append([]slog.Attr{slog.String("tool", name), slog.String("toolset", outside.ts.String())}, sessionAttrs(ctx)...)...)
+		return errorResult("tool not found: " + name)
+	}
 	attrs := append([]slog.Attr{
 		slog.String("tool", name),
 		slog.String("toolset", outside.ts.String()),
@@ -364,4 +374,18 @@ func (p *Provider) scopedPrompts(ctx context.Context, handler api.MetaToolsHandl
 		return nil, nil, errorResult(fmt.Sprintf("Failed to list prompts: %v", err))
 	}
 	return cat.prompts(prompts), cat, nil
+}
+
+// namesTool reports whether a toolset names the exposed tool with a tool:
+// selector (a workflow also by its workflow: selector).
+func namesTool(ts toolset.Toolset, name string) bool {
+	for _, sel := range ts.Selectors {
+		switch {
+		case sel.Kind == toolset.KindTool && sel.Name == name:
+			return true
+		case sel.Kind == toolset.KindWorkflow && "workflow_"+sel.Name == name:
+			return true
+		}
+	}
+	return false
 }
