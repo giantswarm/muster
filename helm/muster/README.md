@@ -39,6 +39,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | rbac.approvalBinder.create | bool | `true` |  |
 | rbac.approvalBinder.reviews | bool | `true` |  |
 | rbac.approvalBinder.subjects | list | `[]` |  |
+| rbac.approvalDecider.create | bool | `true` |  |
+| rbac.approvalDecider.subjects | list | `[]` |  |
 | rbac.workflowEditor.create | bool | `true` |  |
 | rbac.workflowEditor.subjects[0].apiGroup | string | `"rbac.authorization.k8s.io"` |  |
 | rbac.workflowEditor.subjects[0].kind | string | `"Group"` |  |
@@ -312,6 +314,17 @@ on `localsubjectaccessreviews` in muster's namespace only
 agent-manager's ServiceAccount: every subject bound is trusted to send an
 agent's settings and grant marks. `rbac.approvalBinder.subjects` binds the Role
 here instead.
+
+A trusted client (`approval.trustedClients`, the portal) decides a person's
+approvals and asks for sign-in handoff tickets with the person's bearer only
+together with its backend's own projected ServiceAccount token (audience
+muster, header `X-Muster-Approval-Client`), whose identity a `TokenReview` and
+a `LocalSubjectAccessReview` must allow verb `decide` on `toolapprovals` in
+muster's namespace. The chart ships that permission as the Role
+`muster-approval-decider` (`rbac.approvalDecider`), bound to nobody by default:
+the Agent Platform binds it to the portal's ServiceAccount. It uses the review
+rights above. Bind only the portal backend's ServiceAccount: with a person's
+portal token, every subject bound can approve that person's requests.
 
 ## Rolling on credential rotation
 

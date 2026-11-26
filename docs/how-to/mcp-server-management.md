@@ -719,6 +719,20 @@ own UI (below) and spare the person muster's browser sign-in on muster's pages
 its ids are trusted too. Empty (the default): approvals are decided on
 muster's page only.
 
+A person's token of the trusted client proves who decides, not who presents
+it: the same token reaches the person's browser, the servers muster forwards
+it to (`forwardToken`) and, on some configurations, an agent's runtime. So
+muster also authenticates the client's backend: every request below carries
+its own projected ServiceAccount token (audience `muster`) in
+`X-Muster-Approval-Client`, and muster takes the request only when a
+`TokenReview` accepts that token and a `LocalSubjectAccessReview` allows its
+identity verb `decide` on `toolapprovals` (group `muster.giantswarm.io`) in
+muster's namespace. The muster chart ships that permission as the Role
+`muster-approval-decider` (`rbac.approvalDecider.subjects`, bound to nobody by
+default; the Agent Platform binds the portal's ServiceAccount). The person's
+token alone, or the workload token alone, decides nothing and mints no ticket.
+muster without a Kubernetes API takes neither.
+
 #### Deciding inline from a trusted client
 
 A trusted client shows the person's pending approval in its own UI and posts
@@ -727,6 +741,7 @@ the person's click, with the person's own bearer:
 ```
 GET /approvals/<id>
 Authorization: Bearer <the person's token>
+X-Muster-Approval-Client: <the client backend's ServiceAccount token, audience muster>
 -> 200 {"id", "status", "heading", "message", "tool": {"title", "name", "exposed", "kind"},
         "connector": {"displayName", "server"}, "changesData", "arguments": [{"key", "label", "value", "type"}],
         "changes", "preset", "steps", "agentSays", "agent": {"namespace", "name"},
@@ -735,6 +750,7 @@ Authorization: Bearer <the person's token>
 
 POST /approvals/<id>/decision
 Authorization: Bearer <the person's token>
+X-Muster-Approval-Client: <the client backend's ServiceAccount token, audience muster>
 {"decision": "approve" | "decline", "digest": "<the digest the GET returned>"}
 -> 200 {"status": "approved" | "declined"}
 ```
@@ -754,6 +770,9 @@ muster takes the decision only:
   refused (403 `acting_party`). An agent never decides an approval, also not
   its own;
 - from a client on `approval.trustedClients` (else 403 `untrusted_client`);
+- from that client's own workload: `X-Muster-Approval-Client` with a token
+  that passes the review for `decide` (else 403 `untrusted_workload`; 503
+  `unavailable` while the review cannot be made);
 - for the person the request was made for, by issuer and subject (else 403
   `foreign`);
 - on a pending request (404 `not_found` when unknown, expired or used; 409
@@ -761,18 +780,23 @@ muster takes the decision only:
   once, used once, exactly as on the page.
 
 A decision is audited as `approval_decision` like a page decision, with
-`path=api` and the `client`; the page's carry `path=page`. muster sends the
+`path=api` and the `client`; the page's carry `path=page`. A refused view or
+decision by an agent's credential, a foreign client or workload, another
+person, or with a digest that is not the request's is audited too:
+`approval_decision` with `outcome=refused`, the `reason`, the caller's
+`callerSubject` (truncated), its `client` and `path=api`. muster sends the
 asking session `notifications/elicitation/complete` as for a page decision.
 Counted in `muster_approval_decisions_total{outcome, path}` and refusals in
 `muster_approval_refusals_total{reason, path}`.
 
-Security: whoever holds the person's bearer of a trusted client can approve
-without muster's browser sign-in, so the trusted client must decide only on
-the person's click, never from message content. Script injected into a
-trusted client (XSS) can approve the person's pending requests. This is the
-same exposure as the sign-in handoff, which already turns such a bearer into a
-signed-in approval page. Never list a client an agent, a CLI or kubectl signs
-in through.
+Security: the trusted client's backend, holding both the person's bearer and
+its own workload token, can approve without muster's browser sign-in, so it
+must decide only on the person's click, never from message content. Script
+injected into the trusted client's UI (XSS) can ask its backend to approve the
+person's pending requests. This is the same exposure as the sign-in handoff.
+A person's token held anywhere else is worth nothing here. Never list a
+client an agent, a CLI or kubectl signs in through, and bind
+`muster-approval-decider` to the portal backend's ServiceAccount only.
 
 #### Sign-in handoff from a trusted client
 
@@ -782,6 +806,7 @@ sign-in on one page. The client asks muster with the person's own bearer:
 ```
 POST /handoff-tickets
 Authorization: Bearer <the person's token>
+X-Muster-Approval-Client: <the client backend's ServiceAccount token, audience muster>
 {"url": "https://<publicUrl>/approvals/<id>"}
 -> 201 {"ticket": "<one-time ticket>", "expiresIn": 60}
 ```
@@ -790,10 +815,18 @@ and opens the link with `&handoff=<ticket>`. The page redeems the ticket,
 treats the browser as signed in as that person for that one request and
 sends it (303) to the same address without the ticket. A connector sign-in
 start (`/oauth/proxy/start?state=...`) takes a ticket the same way and skips
-the sign-in check of that flow.
+the sign-in check of that flow, but not muster's own confirmation: the clean
+start shows *Connect <connector> as <person>?* (the person the ticket was
+issued to, by email) with *Cancel* and *Continue*, armed after a second.
+Only *Continue*, posted from the same browser with the page's anti-forgery
+token (and muster's `Origin`), binds the flow to the browser and goes on to
+the connector's sign-in; *Cancel* drops the handoff and connects nothing. A
+ticket names the person who asked for it, not the browser that opens the
+link, so without this a person could pass a link to someone else's browser
+and have that browser's connector account filed under their own session.
 
 - A ticket is issued only for a bearer of a listed client that names no acting
-  party, only for the person the approval is bound to (another person's or an
+  party, sent with the client's own workload token (as for deciding inline), only for the person the approval is bound to (another person's or an
   unknown approval: 403 alike), and only for muster's own approval page or
   sign-in start on its public URL (anything else: 400). A sign-in start
   checks the person when the ticket is redeemed.
@@ -804,9 +837,10 @@ the sign-in check of that flow.
   signs the browser in itself, and says nothing about the ticket.
 - The decision keeps every other check: the anti-forgery token, `Origin`, the
   person the request is bound to.
-- Never list a client an agent or a CLI signs in through: holding the person's
-  bearer of a listed client is enough to obtain a ticket, and so to decide.
-  The portal asks only when the person clicks *Open* in its chat.
+- Never list a client an agent or a CLI signs in through. The person's bearer
+  of a listed client obtains a ticket only together with the client backend's
+  workload token. The portal asks only when the person clicks *Open* in its
+  chat.
 
 Counted in `muster_approval_handoffs_total{outcome, page, reason}`.
 

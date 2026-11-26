@@ -99,6 +99,17 @@ agent-manager's ServiceAccount: every subject bound is trusted to send an
 agent's settings and grant marks. `rbac.approvalBinder.subjects` binds the Role
 here instead.
 
+A trusted client (`approval.trustedClients`, the portal) decides a person's
+approvals and asks for sign-in handoff tickets with the person's bearer only
+together with its backend's own projected ServiceAccount token (audience
+muster, header `X-Muster-Approval-Client`), whose identity a `TokenReview` and
+a `LocalSubjectAccessReview` must allow verb `decide` on `toolapprovals` in
+muster's namespace. The chart ships that permission as the Role
+`muster-approval-decider` (`rbac.approvalDecider`), bound to nobody by default:
+the Agent Platform binds it to the portal's ServiceAccount. It uses the review
+rights above. Bind only the portal backend's ServiceAccount: with a person's
+portal token, every subject bound can approve that person's requests.
+
 ## Rolling on credential rotation
 
 muster reads its OAuth credentials (the Dex or Google client secret, the registration token, the token

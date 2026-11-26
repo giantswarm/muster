@@ -3,6 +3,7 @@ package approval
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -18,6 +19,27 @@ import (
 
 const portalClient = "portal"
 
+// The workload tokens the fake review knows: the portal backend's
+// ServiceAccount (allowed to decide), another ServiceAccount (not allowed),
+// and one whose review cannot be made.
+const (
+	portalWorkload   = "portal-sa-token"
+	otherWorkload    = "other-sa-token"
+	brokenWorkload   = "broken-review"
+	portalWorkloadSA = "system:serviceaccount:agent-platform:backstage"
+)
+
+// fakeWorkloadReview reviews the tokens above.
+func fakeWorkloadReview(_ context.Context, token string) (string, error) {
+	switch token {
+	case portalWorkload:
+		return portalWorkloadSA, nil
+	case brokenWorkload:
+		return "", errors.New("apiserver unavailable")
+	}
+	return "", ErrWorkloadNotAllowed
+}
+
 // handoffRig is a page rig whose page redeems handoffs, plus the issuing
 // endpoint as the portal's bearer reaches it (identity and client already
 // validated by the OAuth server).
@@ -25,17 +47,22 @@ type handoffRig struct {
 	*pageRig
 	handoffs *Handoffs
 	client   string
+	workload string
+	agent    string
 }
 
 func newHandoffRig(t *testing.T) *handoffRig {
 	t.Helper()
-	rig := &handoffRig{pageRig: newPageRig(t), client: portalClient}
+	rig := &handoffRig{pageRig: newPageRig(t), client: portalClient, workload: portalWorkload}
 	rig.handoffs = &Handoffs{
-		PublicURL: rig.server.URL,
-		StartPath: "/oauth/proxy/start",
-		Clients:   []string{portalClient},
-		Store:     func() api.ApprovalStore { return rig.store },
-		ClientOf:  func(context.Context) string { return rig.client },
+		PublicURL:       rig.server.URL,
+		StartPath:       "/oauth/proxy/start",
+		Clients:         []string{portalClient},
+		Store:           func() api.ApprovalStore { return rig.store },
+		ClientOf:        func(context.Context) string { return rig.client },
+		AgentCredential: func(context.Context) string { return rig.agent },
+		Workload:        fakeWorkloadReview,
+		NameOf:          func(context.Context) string { return "alice@example.com" },
 	}
 	rig.page.Handoffs = rig.handoffs
 	return rig
@@ -48,6 +75,9 @@ func (rig *handoffRig) issue(t *testing.T, person api.SignInIdentity, link strin
 	body, err := json.Marshal(handoffRequest{URL: link})
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPost, HandoffPath, strings.NewReader(string(body)))
+	if rig.workload != "" {
+		req.Header.Set(ClientWorkloadHeader, rig.workload)
+	}
 	req = req.WithContext(api.WithSignInIdentity(req.Context(), person))
 	rec := httptest.NewRecorder()
 	rig.handoffs.ServeHTTP(rec, req)
@@ -94,6 +124,29 @@ func TestHandoff_IssuedOnlyToTheRequestersOwnAdmittedClient(t *testing.T) {
 	status, _ = rig.issue(t, api.SignInIdentity{}, link)
 	assert.Equal(t, http.StatusForbidden, status, "no person")
 
+	// IA-01: the person's bearer alone (no workload token of the portal
+	// backend), another workload, an agent's credential: no ticket.
+	rig.workload = ""
+	status, _ = rig.issue(t, alice, link)
+	assert.Equal(t, http.StatusForbidden, status, "the person's token alone")
+	rig.workload = otherWorkload
+	status, _ = rig.issue(t, alice, link)
+	assert.Equal(t, http.StatusForbidden, status, "another workload")
+	rig.workload = brokenWorkload
+	status, _ = rig.issue(t, alice, link)
+	assert.Equal(t, http.StatusServiceUnavailable, status, "the review cannot be made")
+	rig.workload = portalWorkload
+	status, _ = rig.issue(t, api.SignInIdentity{}, link)
+	assert.Equal(t, http.StatusForbidden, status, "the workload alone, no person")
+	rig.agent = "the token is an actor JWT"
+	status, _ = rig.issue(t, alice, link)
+	assert.Equal(t, http.StatusForbidden, status, "an agent's credential")
+	rig.agent = ""
+	rig.handoffs.Workload = nil
+	status, _ = rig.issue(t, alice, link)
+	assert.Equal(t, http.StatusForbidden, status, "muster cannot review workloads")
+	rig.handoffs.Workload = fakeWorkloadReview
+
 	for _, other := range []string{
 		"https://evil.example.com/approvals/" + request.ID,
 		rig.server.URL + "/approvals/",
@@ -108,7 +161,9 @@ func TestHandoff_IssuedOnlyToTheRequestersOwnAdmittedClient(t *testing.T) {
 
 	assert.EqualValues(t, 1, sum(t, reader, "muster.approval.handoffs", map[string]string{"outcome": HandoffIssued, "page": api.HandoffKindApproval}))
 	assert.EqualValues(t, 2, sum(t, reader, "muster.approval.handoffs", map[string]string{"outcome": HandoffRefused, "reason": HandoffReasonForeign}))
-	assert.EqualValues(t, 4, sum(t, reader, "muster.approval.handoffs", map[string]string{"outcome": HandoffRefused, "reason": HandoffReasonClient}))
+	assert.EqualValues(t, 5, sum(t, reader, "muster.approval.handoffs", map[string]string{"outcome": HandoffRefused, "reason": HandoffReasonClient}))
+	assert.EqualValues(t, 3, sum(t, reader, "muster.approval.handoffs", map[string]string{"outcome": HandoffRefused, "reason": HandoffReasonWorkload}))
+	assert.EqualValues(t, 1, sum(t, reader, "muster.approval.handoffs", map[string]string{"outcome": HandoffRefused, "reason": HandoffReasonActingParty}))
 	assert.EqualValues(t, 6, sum(t, reader, "muster.approval.handoffs", map[string]string{"outcome": HandoffRefused, "reason": HandoffReasonTarget}))
 }
 
@@ -119,7 +174,9 @@ func TestHandoff_IssuedForAConnectorSignInStart(t *testing.T) {
 	assert.False(t, rig.handoffs.Redeem(context.Background(), ticket, api.HandoffKindSignIn, "abc", bob), "the start's person is checked on redemption")
 
 	_, ticket = rig.issue(t, alice, rig.server.URL+"/oauth/proxy/start?state=abc")
-	assert.True(t, rig.handoffs.Redeem(context.Background(), ticket, api.HandoffKindSignIn, "abc", alice))
+	handoff, ok := rig.handoffs.RedeemHandoff(context.Background(), ticket, api.HandoffKindSignIn, "abc", alice)
+	assert.True(t, ok)
+	assert.Equal(t, "alice@example.com", handoff.Name, "the start's confirmation names the person the ticket was issued to")
 }
 
 func TestHandoff_RedeemedOnceForItsPageAndPersonWithinItsTTL(t *testing.T) {

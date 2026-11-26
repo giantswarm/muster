@@ -13,6 +13,7 @@ import (
 	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/approval"
 	"github.com/giantswarm/muster/v5/internal/credprovider"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -74,6 +75,36 @@ func approvalSenderReviewer(namespace string) credprovider.SenderReviewer {
 		return nil
 	}
 	return credprovider.KubernetesSenderReviewer{Client: client, Namespace: namespace}
+}
+
+// approvalDeciderReviewer reviews a trusted client's own workload token (the
+// portal backend's projected ServiceAccount token, audience muster) for verb
+// decide on toolapprovals in muster's namespace; nil (every decision and
+// handoff of a trusted client refused) without a cluster to ask.
+func approvalDeciderReviewer(namespace string) approval.WorkloadReviewer {
+	cfg, err := ctrlconfig.GetConfig()
+	if err != nil {
+		logging.Warn("Aggregator", "No Kubernetes API to review trusted clients' workloads: inline decisions and sign-in handoffs are refused: %v", err)
+		return nil
+	}
+	client, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		logging.Warn("Aggregator", "No Kubernetes client to review trusted clients' workloads: inline decisions and sign-in handoffs are refused: %v", err)
+		return nil
+	}
+	return deciderReview(credprovider.KubernetesSenderReviewer{Client: client, Namespace: namespace, Verb: credprovider.ApprovalDeciderVerb})
+}
+
+// deciderReview adapts a sender review to the approval package's workload
+// review: a token that does not pass is approval.ErrWorkloadNotAllowed.
+func deciderReview(reviewer credprovider.SenderReviewer) approval.WorkloadReviewer {
+	return func(ctx context.Context, token string) (string, error) {
+		identity, err := reviewer.Review(ctx, token)
+		if errors.Is(err, credprovider.ErrSenderNotAllowed) {
+			return "", fmt.Errorf("%w: %w", approval.ErrWorkloadNotAllowed, err)
+		}
+		return identity, err
+	}
 }
 
 // releaseSubjectGrant is the provider's GrantSource: the person's grant held

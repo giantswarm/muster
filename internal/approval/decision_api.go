@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 	"time"
 
@@ -32,16 +31,14 @@ const (
 const maxDecisionBody = 4 << 10
 
 // Error codes of the decision API, the "error" field of a refusal.
+// (untrusted_client, untrusted_workload, acting_party, foreign and
+// unavailable are shared with the handoff endpoint: trusted_caller.go.)
 const (
-	apiErrClient      = "untrusted_client"
-	apiErrActingParty = "acting_party"
-	apiErrForeign     = "foreign"
-	apiErrNotFound    = "not_found"
-	apiErrDecided     = "decided"
-	apiErrExpired     = "expired"
-	apiErrChanged     = "changed"
-	apiErrBadRequest  = "bad_request"
-	apiErrUnavailable = "unavailable"
+	apiErrNotFound   = "not_found"
+	apiErrDecided    = "decided"
+	apiErrExpired    = "expired"
+	apiErrChanged    = "changed"
+	apiErrBadRequest = "bad_request"
 )
 
 // DecisionAPI lets a trusted client (approval.trustedClients: the portal's
@@ -54,16 +51,20 @@ const (
 // Both sit behind the OAuth server's subject check, which validates the
 // bearer and refuses a token naming an acting party (act). DecisionAPI then
 // refuses any agent's credential (actor JWT, delegated token, an actor
-// Session), any bearer whose OAuth client is not trusted, and any person but
-// the request's. A decision is taken once, on a pending, unexpired request
+// Session), any bearer whose OAuth client is not trusted, any request without
+// the trusted client's own workload token (ClientWorkloadHeader, reviewed by
+// Workload), and any person but the request's. The person's bearer proves who
+// decides; the workload token proves the portal backend presents it, so a
+// person's portal token held elsewhere (the browser, a forwardToken server,
+// an agent runtime handed the caller's credential) decides nothing. A decision is taken once, on a pending, unexpired request
 // whose digest is the one the client showed; it is audited and counted like
 // a page decision, with path=api and the client.
 //
-// Security: whoever holds the person's bearer of a trusted client can decide
-// without muster's browser sign-in, so a trusted client must decide only on
-// the person's click, and a script injected into it (XSS) can approve. This is
-// the same exposure as the sign-in handoff (Handoffs), which a trusted client
-// can already turn into a signed-in approval page.
+// Security: the trusted client's backend (holding both the person's bearer
+// and its own workload token) can decide without muster's browser sign-in, so
+// it must decide only on the person's click; a script injected into its UI
+// (XSS) can ask it to. This is the same exposure as the sign-in handoff
+// (Handoffs), which the same backend can turn into a signed-in approval page.
 type DecisionAPI struct {
 	// Clients are the trusted OAuth client ids (azp, else the single
 	// audience). Empty: every request is refused.
@@ -78,6 +79,9 @@ type DecisionAPI struct {
 	// (actor JWT, delegated token, an actor Session, the actor issuer), ""
 	// for a person's own bearer.
 	AgentCredential func(context.Context) string
+	// Workload reviews the trusted client's own workload token
+	// (ClientWorkloadHeader); nil: every request is refused.
+	Workload WorkloadReviewer
 	// Now is the clock; nil: muster's clock.
 	Now func() time.Time
 	// OnDecided is called once for the request a decision decided, as for
@@ -112,30 +116,20 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// caller checks the bearer: a person's own, of a trusted client. It answers
-// the refusal itself and returns ok false.
-func (d *DecisionAPI) caller(w http.ResponseWriter, r *http.Request, refuse func(int, string, string, string)) (api.SignInIdentity, string, bool) {
-	ctx := r.Context()
-	if d.AgentCredential != nil {
-		if why := d.AgentCredential(ctx); why != "" {
-			refuse(http.StatusForbidden, apiErrActingParty, why, "Only the person can decide an approval: a token of an agent or naming an acting party cannot.")
-			return api.SignInIdentity{}, "", false
-		}
+// caller checks the bearer and the client's workload (callerCheck). It
+// answers the refusal itself and returns ok false.
+func (d *DecisionAPI) caller(r *http.Request, refuse refuseFunc) (trustedCaller, bool) {
+	caller, refusal := callerCheck{
+		clients:         d.Clients,
+		clientOf:        d.ClientOf,
+		agentCredential: d.AgentCredential,
+		workload:        d.Workload,
+	}.check(r)
+	if refusal != nil {
+		refuse.with(refusal.subject, refusal.client)(refusal.status, refusal.code, refusal.reason, refusal.message)
+		return trustedCaller{}, false
 	}
-	client := ""
-	if d.ClientOf != nil {
-		client = d.ClientOf(ctx)
-	}
-	if client == "" || !slices.Contains(d.Clients, client) {
-		refuse(http.StatusForbidden, apiErrClient, "client not on approval.trustedClients", "This client may not decide approvals: muster takes decisions only on its approval page and from the clients on approval.trustedClients.")
-		return api.SignInIdentity{}, "", false
-	}
-	identity := api.SignInIdentityFromContext(ctx)
-	if identity.Subject == "" {
-		refuse(http.StatusForbidden, apiErrForeign, "no person on the bearer", "muster cannot tell which person this request is for.")
-		return api.SignInIdentity{}, "", false
-	}
-	return identity, client, true
+	return caller, true
 }
 
 // load reads the request and checks it is the caller's.
@@ -161,14 +155,59 @@ func (d *DecisionAPI) load(r *http.Request, identity api.SignInIdentity, refuse 
 	return request, store, true
 }
 
-func (d *DecisionAPI) refuser(w http.ResponseWriter, r *http.Request, kind string) func(int, string, string, string) {
+// refuseFunc answers a refusal; with names the subject and client the audit
+// event carries.
+type refuseFunc struct {
+	w    http.ResponseWriter
+	r    *http.Request
+	kind string
+}
+
+func (d *DecisionAPI) refuser(w http.ResponseWriter, r *http.Request, kind string) refuseFunc {
+	return refuseFunc{w: w, r: r, kind: kind}
+}
+
+// with returns the refusal answer for a caller of subject through client.
+func (f refuseFunc) with(subject, client string) func(int, string, string, string) {
 	return func(status int, code, reason, message string) {
-		DefaultMetrics().DecisionRefused(r.Context(), refusalReason(code), "", PathAPI)
+		ctx := f.r.Context()
+		metricReason := refusalReason(code)
+		DefaultMetrics().DecisionRefused(ctx, metricReason, "", PathAPI)
 		logging.WarnWithAttrs("Approval", "decision API refused: nothing was decided",
-			slog.String("approval", logging.TruncateIdentifier(r.PathValue("id"))),
-			slog.String("request", kind), slog.String("reason", reason))
-		writeJSON(w, status, apiError{Error: code, Message: message})
+			slog.String("approval", logging.TruncateIdentifier(f.r.PathValue("id"))),
+			slog.String("request", f.kind), slog.String("reason", reason))
+		if audited(code) {
+			auditRefusal(ctx, f.r.PathValue("id"), f.kind, metricReason, reason, subject, client)
+		}
+		writeJSON(f.w, status, apiError{Error: code, Message: message})
 	}
+}
+
+// audited says which refusals are written to the audit log: who tried to
+// decide what they may not (an agent, a foreign client or workload, another
+// person) and a decision on something else than was shown. Store outages,
+// expiry and malformed bodies are counted and logged, not audited.
+func audited(code string) bool {
+	switch code {
+	case apiErrActingParty, apiErrClient, apiErrWorkload, apiErrForeign, apiErrChanged:
+		return true
+	}
+	return false
+}
+
+// auditRefusal records a refused view or decision as an approval_decision
+// event with outcome refused: the reason, the caller's subject (truncated),
+// its OAuth client and the path.
+func auditRefusal(ctx context.Context, id, kind, reason, detail, subject, client string) {
+	api.AuditApproval(ctx, "approval_decision",
+		slog.String("outcome", "refused"),
+		slog.String("approval", logging.TruncateIdentifier(id)),
+		slog.String("request", kind),
+		slog.String("reason", reason),
+		slog.String("detail", detail),
+		slog.String("callerSubject", logging.TruncateIdentifier(subject)),
+		slog.String("path", PathAPI),
+		slog.String("client", client))
 }
 
 // refusalReason maps an API error code onto the refusal metric's reasons.
@@ -178,12 +217,20 @@ func refusalReason(code string) string {
 		return ReasonForeign
 	case apiErrClient:
 		return ReasonUntrustedClient
+	case apiErrWorkload:
+		return ReasonUntrustedWorkload
 	case apiErrActingParty:
 		return ReasonActingParty
 	case apiErrChanged:
 		return ReasonChanged
 	case apiErrUnavailable:
 		return ReasonStoreUnavailable
+	case apiErrNotFound:
+		return ReasonNotFound
+	case apiErrExpired:
+		return ReasonExpired
+	case apiErrBadRequest:
+		return ReasonBadRequest
 	}
 	return ReasonNotPending
 }
@@ -191,12 +238,12 @@ func refusalReason(code string) string {
 // ServeView answers GET /approvals/{id} for a trusted client: what the page
 // shows, made safe the same way, and the digest a decision must carry.
 func (d *DecisionAPI) ServeView(w http.ResponseWriter, r *http.Request) {
-	refuse := d.refuser(w, r, "view")
-	identity, _, ok := d.caller(w, r, refuse)
+	refuser := d.refuser(w, r, "view")
+	caller, ok := d.caller(r, refuser)
 	if !ok {
 		return
 	}
-	request, _, ok := d.load(r, identity, refuse)
+	request, _, ok := d.load(r, caller.identity, refuser.with(caller.identity.Subject, caller.client))
 	if !ok {
 		return
 	}
@@ -205,11 +252,13 @@ func (d *DecisionAPI) ServeView(w http.ResponseWriter, r *http.Request) {
 
 // ServeDecision answers POST /approvals/{id}/decision.
 func (d *DecisionAPI) ServeDecision(w http.ResponseWriter, r *http.Request) {
-	refuse := d.refuser(w, r, "decision")
-	identity, client, ok := d.caller(w, r, refuse)
+	refuser := d.refuser(w, r, "decision")
+	caller, ok := d.caller(r, refuser)
 	if !ok {
 		return
 	}
+	identity, client := caller.identity, caller.client
+	refuse := refuser.with(identity.Subject, client)
 	var body decisionBody
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxDecisionBody)).Decode(&body); err != nil {
 		refuse(http.StatusBadRequest, apiErrBadRequest, "body unreadable", `The body must be {"decision": "approve"|"decline", "digest": "<digest>"}.`)

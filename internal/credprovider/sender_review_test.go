@@ -79,6 +79,18 @@ func TestKubernetesSenderReviewer(t *testing.T) {
 	require.NotErrorIs(t, err, ErrSenderNotAllowed)
 }
 
+// The decider review asks for verb decide: agent-manager, allowed to bind,
+// is not thereby allowed to decide (the fake cluster allows any verb to
+// agent-manager, so the verb asked is what is checked here).
+func TestKubernetesSenderReviewer_AsksForItsVerb(t *testing.T) {
+	client, asked := fakeCluster(t, nil)
+	reviewer := KubernetesSenderReviewer{Client: client, Namespace: "muster", Verb: ApprovalDeciderVerb}
+	_, err := reviewer.Review(context.Background(), "agent-manager")
+	require.NoError(t, err)
+	assert.Equal(t, "decide", asked.ResourceAttributes.Verb)
+	assert.Equal(t, "toolapprovals", asked.ResourceAttributes.Resource)
+}
+
 func bindWithSender(t *testing.T, p *Provider, token string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()

@@ -22,22 +22,24 @@ import (
 // OAuth client and whether the credential is an agent's are set per test.
 type decisionRig struct {
 	*pageRig
-	api     *DecisionAPI
-	client  string
-	agent   string
-	now     time.Time
-	decided []string
+	api      *DecisionAPI
+	client   string
+	agent    string
+	workload string
+	now      time.Time
+	decided  []string
 }
 
 func newDecisionRig(t *testing.T) *decisionRig {
 	t.Helper()
-	rig := &decisionRig{pageRig: newPageRig(t), client: portalClient, now: time.Now()}
+	rig := &decisionRig{pageRig: newPageRig(t), client: portalClient, workload: portalWorkload, now: time.Now()}
 	rig.api = &DecisionAPI{
 		Clients:         []string{portalClient},
 		Installation:    "example",
 		Store:           func() api.ApprovalStore { return rig.store },
 		ClientOf:        func(context.Context) string { return rig.client },
 		AgentCredential: func(context.Context) string { return rig.agent },
+		Workload:        fakeWorkloadReview,
 		Now:             func() time.Time { return rig.now },
 		OnDecided:       func(r *api.ApprovalRequest) { rig.decided = append(rig.decided, r.ID) },
 	}
@@ -57,6 +59,9 @@ func (rig *decisionRig) serve(t *testing.T, person api.SignInIdentity, method, p
 	}
 	req := httptest.NewRequest(method, path, reader)
 	req.Header.Set("Authorization", "Bearer token")
+	if rig.workload != "" {
+		req.Header.Set(ClientWorkloadHeader, rig.workload)
+	}
 	req = req.WithContext(api.WithSignInIdentity(req.Context(), person))
 	rec := httptest.NewRecorder()
 	mux := http.NewServeMux()
@@ -185,6 +190,10 @@ func TestDecisionAPI_Refusals(t *testing.T) {
 		{name: "another client (the CLI's)", setup: func() { rig.client = "agent-platform" }, status: http.StatusForbidden, errCode: apiErrClient},
 		{name: "a bearer naming no client", setup: func() { rig.client = "" }, status: http.StatusForbidden, errCode: apiErrClient},
 		{name: "no trusted client configured", setup: func() { rig.api.Clients = nil }, status: http.StatusForbidden, errCode: apiErrClient},
+		{name: "the person's token alone, no workload token", setup: func() { rig.workload = "" }, status: http.StatusForbidden, errCode: apiErrWorkload},
+		{name: "another workload", setup: func() { rig.workload = otherWorkload }, status: http.StatusForbidden, errCode: apiErrWorkload},
+		{name: "muster cannot review workloads", setup: func() { rig.api.Workload = nil }, status: http.StatusForbidden, errCode: apiErrWorkload},
+		{name: "workload review unavailable", setup: func() { rig.workload = brokenWorkload }, status: http.StatusServiceUnavailable, errCode: apiErrUnavailable},
 		{name: "another person", person: bob, status: http.StatusForbidden, errCode: apiErrForeign},
 		{name: "no person", person: api.SignInIdentity{}, status: http.StatusForbidden, errCode: apiErrForeign},
 		{name: "unknown request", id: "unknown", status: http.StatusNotFound, errCode: apiErrNotFound},
@@ -195,8 +204,9 @@ func TestDecisionAPI_Refusals(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rig.client, rig.agent, rig.now, rig.api.Clients = portalClient, "", time.Now(), []string{portalClient}
+			rig.client, rig.agent, rig.workload, rig.now, rig.api.Clients = portalClient, "", portalWorkload, time.Now(), []string{portalClient}
 			rig.api.Store = func() api.ApprovalStore { return rig.store }
+			rig.api.Workload = fakeWorkloadReview
 			if tc.setup != nil {
 				tc.setup()
 			}
@@ -229,6 +239,9 @@ func TestDecisionAPI_Refusals(t *testing.T) {
 	assert.EqualValues(t, 3, sum(t, reader, "muster.approval.refusals", map[string]string{"reason": ReasonActingParty, "path": PathAPI}))
 	assert.EqualValues(t, 3, sum(t, reader, "muster.approval.refusals", map[string]string{"reason": ReasonUntrustedClient, "path": PathAPI}))
 	assert.EqualValues(t, 2, sum(t, reader, "muster.approval.refusals", map[string]string{"reason": ReasonChanged, "path": PathAPI}))
+	assert.EqualValues(t, 3, sum(t, reader, "muster.approval.refusals", map[string]string{"reason": ReasonUntrustedWorkload, "path": PathAPI}))
+	assert.EqualValues(t, 1, sum(t, reader, "muster.approval.refusals", map[string]string{"reason": ReasonNotFound, "path": PathAPI}))
+	assert.EqualValues(t, 1, sum(t, reader, "muster.approval.refusals", map[string]string{"reason": ReasonExpired, "path": PathAPI}))
 }
 
 func TestDecisionAPI_ViewRefusals(t *testing.T) {
@@ -294,4 +307,96 @@ func TestDecisionAPI_ViewCarriesTheAgentDisplayName(t *testing.T) {
 	status, view, _ := rig.view(t, alice, request.ID)
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, &ViewAgent{Namespace: "team-a", Name: "reviewer", DisplayName: "Code⟨U+202E⟩ Reviewer"}, view.Agent)
+}
+
+// IA-01: a person's bearer of the trusted client proves who decides, the
+// client's own workload token that the portal backend presents it. Neither
+// alone views or decides; both together do.
+func TestDecisionAPI_NeedsThePersonAndTheClientWorkload(t *testing.T) {
+	rig := newDecisionRig(t)
+	request := rig.create(t, map[string]any{"pr": 1})
+	digest := DisplayDigest(request, "example")
+
+	// The person's portal token alone: a token that reached the browser, a
+	// forwardToken server or an agent runtime.
+	rig.workload = ""
+	status, _, refusal := rig.view(t, alice, request.ID)
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Equal(t, apiErrWorkload, refusal.Error)
+	status, answer := rig.decide(t, alice, request.ID, "approve", digest)
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Equal(t, apiErrWorkload, answer["error"])
+
+	// The portal's workload token alone: no person's bearer (the OAuth
+	// server answers 401 before; behind it nobody is named).
+	rig.workload, rig.client = portalWorkload, ""
+	status, answer = rig.decide(t, api.SignInIdentity{}, request.ID, "approve", digest)
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Equal(t, apiErrClient, answer["error"])
+	rig.client = portalClient
+	status, answer = rig.decide(t, api.SignInIdentity{}, request.ID, "approve", digest)
+	assert.Equal(t, http.StatusForbidden, status)
+	assert.Equal(t, apiErrForeign, answer["error"])
+	stored, err := rig.store.Get(context.Background(), request.ID)
+	require.NoError(t, err)
+	assert.Equal(t, api.ApprovalStatusPending, stored.Status, "nothing decided so far")
+
+	// Both.
+	status, _, _ = rig.view(t, alice, request.ID)
+	assert.Equal(t, http.StatusOK, status)
+	status, answer = rig.decide(t, alice, request.ID, "approve", digest)
+	assert.Equal(t, http.StatusOK, status, answer)
+	assert.Equal(t, api.ApprovalStatusApproved, answer["status"])
+}
+
+// IA-07: a refused view or decision by an agent, a foreign client or
+// workload, another person, or on something else than was shown is audited
+// with its reason, the caller's subject and client and the path.
+func TestDecisionAPI_RefusalsAreAudited(t *testing.T) {
+	var logs bytes.Buffer
+	logging.InitForCLI(logging.LevelDebug, &logs)
+	rig := newDecisionRig(t)
+	request := rig.create(t, map[string]any{"pr": 1})
+
+	audited := func(t *testing.T, reason string) string {
+		t.Helper()
+		line := ""
+		for _, l := range strings.Split(logs.String(), "\n") {
+			if strings.Contains(l, "[AUDIT] approval_decision") && strings.Contains(l, "outcome=refused") {
+				line = l
+			}
+		}
+		require.NotEmpty(t, line, "a refused decision is audited")
+		assert.Contains(t, line, "reason="+reason)
+		assert.Contains(t, line, "path=api")
+		logs.Reset()
+		return line
+	}
+
+	rig.client = "agent-platform"
+	rig.decide(t, alice, request.ID, "approve", "x")
+	line := audited(t, ReasonUntrustedClient)
+	assert.Contains(t, line, "client=agent-platform")
+	assert.Contains(t, line, "callerSubject=alice")
+	rig.client = portalClient
+
+	rig.agent = "the token is an actor JWT"
+	rig.view(t, alice, request.ID)
+	assert.Contains(t, audited(t, ReasonActingParty), "request=view")
+	rig.agent = ""
+
+	rig.workload = otherWorkload
+	rig.decide(t, alice, request.ID, "approve", "x")
+	audited(t, ReasonUntrustedWorkload)
+	rig.workload = portalWorkload
+
+	rig.decide(t, bob, request.ID, "approve", "x")
+	assert.Contains(t, audited(t, ReasonForeign), "callerSubject=bob")
+
+	rig.decide(t, alice, request.ID, "approve", strings.Repeat("0", 64))
+	audited(t, ReasonChanged)
+
+	// An unknown request is counted and logged, not audited.
+	rig.decide(t, alice, "unknown", "approve", "x")
+	assert.NotContains(t, logs.String(), "outcome=refused")
 }

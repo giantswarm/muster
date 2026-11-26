@@ -53,6 +53,12 @@ const (
 	// HandoffReasonInvalid is a ticket muster does not hold: unknown,
 	// expired or used.
 	HandoffReasonInvalid = "invalid"
+	// HandoffReasonWorkload is a ticket asked for without the client's own
+	// workload token, or with one that does not pass the review.
+	HandoffReasonWorkload = "workload"
+	// HandoffReasonActingParty is a ticket asked for with an agent's
+	// credential.
+	HandoffReasonActingParty = "acting_party"
 	// HandoffReasonUnavailable is a handoff while the store is missing or
 	// does not answer.
 	HandoffReasonUnavailable = "unavailable"
@@ -99,9 +105,21 @@ const (
 	// ReasonChanged is a decision whose digest is not the request's: the
 	// client showed something else.
 	ReasonChanged = "changed"
-	// ReasonNotPending is a decision on a request that is unknown, expired,
-	// used or already decided, or an unreadable decision.
+	// ReasonUntrustedWorkload is a decision posted by a trusted client's
+	// bearer without the client's own workload token, or with one that does
+	// not pass the review (decide toolapprovals).
+	ReasonUntrustedWorkload = "untrusted_workload"
+	// ReasonNotPending is a decision on a request that is already decided.
 	ReasonNotPending = "not_pending"
+	// ReasonNotFound is a decision or view of a request that is unknown,
+	// expired from the store or used.
+	ReasonNotFound = "not_found"
+	// ReasonExpired is a decision on a request past its expiry while still
+	// in the store.
+	ReasonExpired = "expired"
+	// ReasonBadRequest is a decision whose body is unreadable or names
+	// neither approve nor decline.
+	ReasonBadRequest = "bad_request"
 )
 
 // Metrics holds the instruments of approval:

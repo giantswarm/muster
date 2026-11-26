@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 	"time"
 
@@ -54,6 +53,15 @@ type Handoffs struct {
 	Store func() api.ApprovalStore
 	// ClientOf names the OAuth client the request's bearer was issued to.
 	ClientOf func(context.Context) string
+	// AgentCredential returns why the request's credential is an agent's,
+	// "" for a person's own bearer (as for the decision API).
+	AgentCredential func(context.Context) string
+	// Workload reviews the trusted client's own workload token
+	// (ClientWorkloadHeader); nil: muster issues no ticket.
+	Workload WorkloadReviewer
+	// NameOf names the bearer's person for people (email, else name); the
+	// connector sign-in's confirmation shows it.
+	NameOf func(context.Context) string
 }
 
 type handoffRequest struct {
@@ -103,10 +111,12 @@ func (h *Handoffs) targetOf(raw string) (kind, target string, ok bool) {
 
 // ServeHTTP issues a ticket: POST {"url": "<a page of muster>"} with the
 // person's bearer (behind the OAuth server's subject check, which refuses a
-// token naming an acting party). Answers 201 {"ticket", "expiresIn"}; 403
-// for a client not on approval.trustedClients and for an approval that is not
-// the person's (or unknown: both answer alike); 400 for a link to no page
-// muster hands off to; 503 while the store is unavailable.
+// token naming an acting party) and the trusted client's own workload token
+// (ClientWorkloadHeader). Answers 201 {"ticket", "expiresIn"}; 403 for an
+// agent's credential, a client not on approval.trustedClients, a missing or
+// refused workload token and for an approval that is not the person's (or
+// unknown: both answer alike); 400 for a link to no page muster hands off to;
+// 503 while the store or the workload review is unavailable.
 func (h *Handoffs) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	ctx := r.Context()
@@ -118,15 +128,26 @@ func (h *Handoffs) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, message, status)
 	}
 
-	identity := api.SignInIdentityFromContext(ctx)
-	client := ""
-	if h.ClientOf != nil {
-		client = h.ClientOf(ctx)
-	}
-	if identity.Subject == "" || client == "" || !slices.Contains(h.Clients, client) {
-		refuse(http.StatusForbidden, "", HandoffReasonClient, "muster hands off sign-ins only to the clients on approval.trustedClients")
+	caller, refusal := callerCheck{
+		clients:         h.Clients,
+		clientOf:        h.ClientOf,
+		agentCredential: h.AgentCredential,
+		workload:        h.Workload,
+	}.check(r)
+	if refusal != nil {
+		reason := HandoffReasonClient
+		switch refusal.code {
+		case apiErrWorkload:
+			reason = HandoffReasonWorkload
+		case apiErrActingParty:
+			reason = HandoffReasonActingParty
+		case apiErrUnavailable:
+			reason = HandoffReasonUnavailable
+		}
+		refuse(refusal.status, "", reason, "muster hands off sign-ins only to the clients on approval.trustedClients, with the client's own workload token")
 		return
 	}
+	identity, client := caller.identity, caller.client
 	store := h.Store()
 	if store == nil {
 		refuse(http.StatusServiceUnavailable, "", HandoffReasonUnavailable, "muster's approval store is not set up")
@@ -160,30 +181,42 @@ func (h *Handoffs) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A connector sign-in's person is checked when the ticket is redeemed:
 	// the start compares it with the person its flow was started for.
 
+	name := ""
+	if h.NameOf != nil {
+		name = h.NameOf(ctx)
+	}
 	ticket := rand.Text()
-	if err := store.PutHandoff(ctx, digest(ticket), api.SignInHandoff{Kind: kind, Target: target, Identity: identity}, HandoffTTL); err != nil {
+	if err := store.PutHandoff(ctx, digest(ticket), api.SignInHandoff{Kind: kind, Target: target, Identity: identity, Name: name}, HandoffTTL); err != nil {
 		logging.Warn("Approval", "Approval store unavailable for a handoff: %v", err)
 		refuse(http.StatusServiceUnavailable, kind, HandoffReasonUnavailable, "muster's approval store cannot be reached")
 		return
 	}
 	m.Handoff(ctx, HandoffIssued, kind, HandoffReasonNone)
 	logging.InfoWithAttrs("Approval", "sign-in handoff issued",
-		slog.String("page", kind), slog.String("client", client),
+		slog.String("page", kind), slog.String("client", client), slog.String("workload", caller.workload),
 		slog.String("subject", logging.TruncateIdentifier(identity.Subject)))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(handoffAnswer{Ticket: ticket, ExpiresIn: int(HandoffTTL.Seconds())})
 }
 
-// Redeem implements api.HandoffRedeemer. The ticket is taken from the store
-// whatever the outcome, so a ticket shown to a wrong page is spent.
+// Redeem redeems a ticket for a page; see RedeemHandoff.
 func (h *Handoffs) Redeem(ctx context.Context, ticket, kind, target string, want api.SignInIdentity) bool {
+	_, ok := h.RedeemHandoff(ctx, ticket, kind, target, want)
+	return ok
+}
+
+// RedeemHandoff implements api.HandoffRedeemer: the handoff a ticket was
+// issued as, when it is bound to kind, target and want. The ticket is taken
+// from the store whatever the outcome, so a ticket shown to a wrong page is
+// spent.
+func (h *Handoffs) RedeemHandoff(ctx context.Context, ticket, kind, target string, want api.SignInIdentity) (api.SignInHandoff, bool) {
 	m := DefaultMetrics()
-	refuse := func(reason string) bool {
+	refuse := func(reason string) (api.SignInHandoff, bool) {
 		m.Handoff(ctx, HandoffRefused, kind, reason)
 		logging.InfoWithAttrs("Approval", "sign-in handoff not redeemed: the page signs the browser in itself",
 			slog.String("page", kind), slog.String("reason", reason))
-		return false
+		return api.SignInHandoff{}, false
 	}
 	if ticket == "" || len(ticket) > maxTicketLength {
 		return refuse(HandoffReasonInvalid)
@@ -207,5 +240,5 @@ func (h *Handoffs) Redeem(ctx context.Context, ticket, kind, target string, want
 	m.Handoff(ctx, HandoffRedeemed, kind, HandoffReasonNone)
 	logging.InfoWithAttrs("Approval", "sign-in handoff redeemed",
 		slog.String("page", kind), slog.String("subject", logging.TruncateIdentifier(want.Subject)))
-	return true
+	return *handoff, true
 }

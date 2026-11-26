@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
@@ -10,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/approval"
+	"github.com/giantswarm/muster/v5/internal/credprovider"
 )
 
 // The decision API refuses every agent's credential: only a person's own
@@ -41,4 +44,27 @@ func TestAgentCredential(t *testing.T) {
 			}
 		})
 	}
+}
+
+type stubSenderReviewer struct {
+	identity string
+	err      error
+}
+
+func (s stubSenderReviewer) Review(context.Context, string) (string, error) { return s.identity, s.err }
+
+// The decider review maps a token that does not pass onto the approval
+// package's refusal, and passes a review error through as one.
+func TestDeciderReview(t *testing.T) {
+	ctx := context.Background()
+	identity, err := deciderReview(stubSenderReviewer{identity: "system:serviceaccount:agent-platform:backstage"})(ctx, "t")
+	assert.NoError(t, err)
+	assert.Equal(t, "system:serviceaccount:agent-platform:backstage", identity)
+
+	_, err = deciderReview(stubSenderReviewer{err: credprovider.ErrSenderNotAllowed})(ctx, "t")
+	assert.ErrorIs(t, err, approval.ErrWorkloadNotAllowed)
+
+	_, err = deciderReview(stubSenderReviewer{err: errors.New("apiserver unavailable")})(ctx, "t")
+	assert.Error(t, err)
+	assert.NotErrorIs(t, err, approval.ErrWorkloadNotAllowed)
 }

@@ -75,6 +75,16 @@ const (
 // in the browser that passed the check (handler_identity.go).
 func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 	identity := api.GetBrowserIdentity()
+	if r.Method == http.MethodPost {
+		// The confirmation of a sign-in handed over by a trusted client
+		// (handler_handoff.go); the start itself is a GET.
+		if identity == nil {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		h.confirmHandoff(w, r)
+		return
+	}
 	if identity != nil && r.URL.Query().Has("code") {
 		h.finishIdentityCheck(w, r, identity)
 		return
@@ -118,6 +128,10 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if identity != nil && !h.boundToBrowser(r, state) {
+		if h.handedToBrowser(r, state) {
+			h.showHandoffConfirmation(w, r, stateParam, state)
+			return
+		}
 		h.sendToIdentityCheck(w, r, identity, state)
 		return
 	}

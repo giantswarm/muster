@@ -188,8 +188,11 @@ are a small fixed set or the name of an MCPServer.
   and `page_check` (the approval page refused a decision on its origin, cookie,
   anti-forgery token or expired flow); a trusted client's decision is also
   refused as `untrusted_client` (a client not on `approval.trustedClients`),
-  `acting_party` (an agent's credential), `changed` (the digest is not the
-  request's) or `not_pending` (unknown, expired, used or decided). Refused
+  `untrusted_workload` (without the client backend's own ServiceAccount token,
+  or one not allowed to `decide`), `acting_party` (an agent's credential),
+  `changed` (the digest is not the request's), `not_found` (unknown, expired
+  from the store or used), `expired` (past its expiry), `bad_request` (an
+  unreadable decision) or `not_pending` (already decided). Refused
   decisions carry `path` `page` or `api`. Every refusal fails closed.
 - **Cap hits**: `scope` is `person` (10 pending per person, across clients) or
   `session` (3 pending per client). A cap hit is also a `cap_reached` refusal.
@@ -197,6 +200,8 @@ are a small fixed set or the name of an MCPServer.
   `approval.trustedClients`, `redeemed` on muster's page, or `refused`;
   `page` is `approval` or `sign_in` (`other` when the link named no page),
   `reason` is `none` (issued, redeemed), `client` (a client not on the list),
+  `workload` (no or a refused workload token of the client), `acting_party`
+  (an agent's credential),
   `target` (a link to no page muster hands off to, or a ticket shown to
   another page), `foreign` (another person, or an unknown approval),
   `invalid` (an unknown, expired or used ticket) or `unavailable` (the store).

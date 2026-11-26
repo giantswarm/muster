@@ -30,12 +30,16 @@ type SignInHandoff struct {
 	Kind     string         `json:"kind"`
 	Target   string         `json:"target"`
 	Identity SignInIdentity `json:"identity"`
+	// Name is how the person is named for people (email, else name), as the
+	// client's bearer said when the ticket was issued; shown on the connector
+	// sign-in's confirmation.
+	Name string `json:"name,omitempty"`
 }
 
-// HandoffRedeemer redeems a ticket for a page: true when the ticket exists,
-// is unused and unexpired, and is bound to kind and target and to the person
-// want. The ticket is used up whatever the answer.
-type HandoffRedeemer func(ctx context.Context, ticket, kind, target string, want SignInIdentity) bool
+// HandoffRedeemer redeems a ticket for a page: the handoff and true when the
+// ticket exists, is unused and unexpired, and is bound to kind and target and
+// to the person want. The ticket is used up whatever the answer.
+type HandoffRedeemer func(ctx context.Context, ticket, kind, target string, want SignInIdentity) (SignInHandoff, bool)
 
 var (
 	handoffRedeemer      HandoffRedeemer
@@ -51,12 +55,12 @@ func RegisterHandoffRedeemer(r HandoffRedeemer) {
 
 // RedeemHandoff redeems a ticket with the registered redeemer; false
 // without one.
-func RedeemHandoff(ctx context.Context, ticket, kind, target string, want SignInIdentity) bool {
+func RedeemHandoff(ctx context.Context, ticket, kind, target string, want SignInIdentity) (SignInHandoff, bool) {
 	handoffRedeemerMutex.RLock()
 	r := handoffRedeemer
 	handoffRedeemerMutex.RUnlock()
 	if r == nil {
-		return false
+		return SignInHandoff{}, false
 	}
 	return r(ctx, ticket, kind, target, want)
 }

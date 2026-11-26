@@ -33,3 +33,13 @@ func Failed(summary, errorCode string) pagekit.Page {
 		Detail:  pagekit.OAuthErrorCode(errorCode),
 	}
 }
+
+// Cancelled returns the page for a connector sign-in to name the person
+// cancelled on its confirmation: nothing was connected.
+func Cancelled(name string) pagekit.Page {
+	return pagekit.Page{
+		Heading: "Sign-in cancelled",
+		Summary: "Nothing was connected to " + name,
+		Message: "You can close this tab. If you did not expect this sign-in, tell the person who sent you the link.",
+	}
+}

@@ -110,6 +110,24 @@ rbac:
     # exceptions that let an agent skip a connector admin's Ask. Never bind
     # a group "to make it work".
     subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
+  # approvalDecider ships the Role muster-approval-decider: verb `decide` on
+  # `toolapprovals` in group muster.giantswarm.io, a permission on no real
+  # resource that says "may decide a person's approvals with the person's
+  # bearer, and ask for sign-in handoff tickets". muster takes a trusted
+  # client's (approval.trustedClients) decision or ticket request only with
+  # the client backend's own projected ServiceAccount token (audience
+  # muster, header X-Muster-Approval-Client) beside the person's bearer, and
+  # only when its identity passes a TokenReview and a
+  # LocalSubjectAccessReview for that verb in muster's namespace (the review
+  # rights are rbac.approvalBinder.reviews). The chart binds the Role to
+  # nobody: the platform binds it to the portal's ServiceAccount.
+  approvalDecider:
+    create: true
+    # RoleBinding subjects granted muster-approval-decider. Empty (the
+    # default) renders no RoleBinding. Bind the portal backend's
+    # ServiceAccount and nothing else: with a person's token of a trusted
+    # client, every subject bound here can approve that person's requests.
+    subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
   # workflowEditor ships the default answer to "who may create and manage
   # workflows" under writes-as-caller: a namespaced Role granting
   # create/update/patch/delete on workflows, plus a RoleBinding.

@@ -35,6 +35,12 @@ const (
 	ApprovalSenderGroup    = "muster.giantswarm.io"
 	ApprovalSenderResource = "toolapprovals"
 	ApprovalSenderVerb     = "bind"
+	// ApprovalDeciderVerb is the permission a trusted client's own workload
+	// (the portal backend) needs to decide a person's approvals and to ask
+	// for sign-in handoff tickets with the person's bearer: "decide"
+	// toolapprovals, granted by the platform to the portal's ServiceAccount
+	// alone (muster-approval-decider).
+	ApprovalDeciderVerb = "decide"
 )
 
 // ErrSenderNotAllowed is a sender whose token does not pass the review.
@@ -54,6 +60,16 @@ type SenderReviewer interface {
 type KubernetesSenderReviewer struct {
 	Client    kubernetes.Interface
 	Namespace string
+	// Verb is the verb on toolapprovals the identity needs; empty:
+	// ApprovalSenderVerb (bind).
+	Verb string
+}
+
+func (k KubernetesSenderReviewer) verb() string {
+	if k.Verb != "" {
+		return k.Verb
+	}
+	return ApprovalSenderVerb
 }
 
 // Review implements SenderReviewer.
@@ -87,7 +103,7 @@ func (k KubernetesSenderReviewer) Review(ctx context.Context, token string) (str
 			Extra:  extra,
 			ResourceAttributes: &authorizationv1.ResourceAttributes{
 				Namespace: k.Namespace,
-				Verb:      ApprovalSenderVerb,
+				Verb:      k.verb(),
 				Group:     ApprovalSenderGroup,
 				Resource:  ApprovalSenderResource,
 			},
@@ -97,7 +113,7 @@ func (k KubernetesSenderReviewer) Review(ctx context.Context, token string) (str
 		return "", fmt.Errorf("subject access review: %w", err)
 	}
 	if !access.Status.Allowed {
-		return "", fmt.Errorf("%w: %s may not %s %s.%s", ErrSenderNotAllowed, user.Username, ApprovalSenderVerb, ApprovalSenderResource, ApprovalSenderGroup)
+		return "", fmt.Errorf("%w: %s may not %s %s.%s", ErrSenderNotAllowed, user.Username, k.verb(), ApprovalSenderResource, ApprovalSenderGroup)
 	}
 	return user.Username, nil
 }

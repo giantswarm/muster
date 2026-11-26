@@ -521,12 +521,22 @@ func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL stri
 		return
 	}
 	trusted := a.config.ApprovalTrustedClients
+	// The trusted client's own workload (the portal backend's ServiceAccount)
+	// is reviewed beside the person's bearer; only while a client is trusted,
+	// so muster without one never builds a Kubernetes client for it.
+	var workload approval.WorkloadReviewer
+	if len(trusted) > 0 {
+		workload = approvalDeciderReviewer(a.config.MusterNamespace)
+	}
 	handoffs := &approval.Handoffs{
-		PublicURL: publicURL,
-		StartPath: config.DefaultOAuthProxyStartPath,
-		Clients:   trusted,
-		Store:     api.GetApprovalStore,
-		ClientOf:  bearerClient,
+		PublicURL:       publicURL,
+		StartPath:       config.DefaultOAuthProxyStartPath,
+		Clients:         trusted,
+		Store:           api.GetApprovalStore,
+		ClientOf:        bearerClient,
+		AgentCredential: a.agentCredential,
+		Workload:        workload,
+		NameOf:          requesterName,
 	}
 	decisions := &approval.DecisionAPI{
 		Clients:         trusted,
@@ -534,6 +544,7 @@ func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL stri
 		Store:           api.GetApprovalStore,
 		ClientOf:        bearerClient,
 		AgentCredential: a.agentCredential,
+		Workload:        workload,
 		OnDecided:       a.completeApprovalElicitations,
 	}
 	page := &approval.Page{
@@ -548,7 +559,7 @@ func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL stri
 	}
 	page.Register(mux)
 	a.approval.page = page
-	api.RegisterHandoffRedeemer(handoffs.Redeem)
+	api.RegisterHandoffRedeemer(handoffs.RedeemHandoff)
 	mux.Handle("POST "+approval.HandoffPath, authenticate(handoffs))
 	mux.Handle("POST "+approval.PathPrefix+"{id}"+approval.DecisionSuffix, authenticate(http.HandlerFunc(decisions.ServeDecision)))
 	logging.InfoWithAttrs("Aggregator", "Mounted the approval page", slog.String("path", approval.PathPrefix+"{id}"),

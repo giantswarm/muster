@@ -1,0 +1,45 @@
+{{/*
+muster-approval-decider: whose workload may decide a person's approvals
+with the person's bearer, and ask for sign-in handoff tickets.
+
+A trusted client (approval.trustedClients, the portal) shows a person's
+pending approval and posts the person's decision with the person's own
+token. That token also reaches the browser and may be forwarded further, so
+muster takes it only together with the client backend's own projected
+ServiceAccount token (audience muster, header X-Muster-Approval-Client):
+muster reviews it (TokenReview) and asks Kubernetes whether its identity may
+`decide` `toolapprovals` in group muster.giantswarm.io in muster's namespace
+(LocalSubjectAccessReview), a permission on no real resource. This Role is
+that permission and nothing else; the chart binds it to nobody by default
+(the platform binds the portal's ServiceAccount). The review rights are
+rbac.approvalBinder.reviews.
+*/}}
+{{- if and .Values.rbac.create .Values.rbac.approvalDecider.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: muster-approval-decider
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["muster.giantswarm.io"]
+    resources: ["toolapprovals"]
+    verbs: ["decide"]
+{{- with .Values.rbac.approvalDecider.subjects }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: muster-approval-decider
+  namespace: {{ include "muster.namespace" $ }}
+  labels:
+    {{- include "muster.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: muster-approval-decider
+subjects:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
