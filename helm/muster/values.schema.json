@@ -447,6 +447,10 @@
                                 "allowPublicClientRegistration": {
                                     "type": "boolean"
                                 },
+                                "allowedOrigins": {
+                                    "type": "string",
+                                    "description": "Comma-separated browser origins allowed to call the MCP transports. Same-origin and requests without Origin are allowed. Other Origins log DEPRECATED without changing the response during the overlap. List exact origins with no path; wildcards and null are not allowed."
+                                },
                                 "baseUrl": {
                                     "type": "string"
                                 },

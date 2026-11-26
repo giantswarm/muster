@@ -1059,24 +1059,24 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		assert.Equal(t, mcp.URL, md.Resource)
 	})
 
-	t.Run("resource declared by an advertised document is dropped when it is another party", func(t *testing.T) {
+	t.Run("metadata declaring another party's resource is rejected", func(t *testing.T) {
 		mcp, pointer, resource := newAdvertisingMCP(t)
 		*pointer = mcp.URL + "/.well-known/oauth-protected-resource/v1/mcp"
 		*resource = "https://payments.example/api"
 
 		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
-		require.NoError(t, err)
-		assert.Equal(t, "https://issuer.example", md.Issuer, "the issuer of the advertised document is kept")
-		assert.Empty(t, md.Resource, "the caller then derives the indicator from the backend URL")
+		require.Error(t, err)
+		require.Nil(t, md, "the authorization server of an invalid document must not be retained")
 	})
 
 	t.Run("path-based PRM well-known retains MCP URL path", func(t *testing.T) {
 		var seenPaths []string
-		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var mcp *httptest.Server
+		mcp = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			seenPaths = append(seenPaths, r.URL.Path)
 			if r.URL.Path == "/.well-known/oauth-protected-resource/v1/mcp" {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example/v1/mcp"))
+				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", mcp.URL+"/v1/mcp"))
 				return
 			}
 			http.NotFound(w, r)
@@ -1092,11 +1092,12 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 
 	t.Run("trailing slash on MCP URL path is stripped before composing well-known", func(t *testing.T) {
 		var seenPaths []string
-		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var mcp *httptest.Server
+		mcp = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			seenPaths = append(seenPaths, r.URL.Path)
 			if r.URL.Path == "/.well-known/oauth-protected-resource/v1/mcp" {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example/v1/mcp"))
+				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", mcp.URL+"/v1/mcp"))
 				return
 			}
 			http.NotFound(w, r)
@@ -1112,10 +1113,11 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 	})
 
 	t.Run("falls back to root well-known when path-based 404s", func(t *testing.T) {
-		mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var mcp *httptest.Server
+		mcp = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/.well-known/oauth-protected-resource" {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", "https://mcp.example"))
+				_, _ = fmt.Fprint(w, prmBody("https://issuer.example", mcp.URL))
 				return
 			}
 			http.NotFound(w, r)

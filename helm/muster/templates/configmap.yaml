@@ -215,6 +215,9 @@ data:
           {{- with .Values.muster.oauth.server.resourceIdentifier }}
           resourceIdentifier: {{ . | quote }}
           {{- end }}
+          {{- with .Values.muster.oauth.server.allowedOrigins }}
+          allowedOrigins: {{ . | quote }}
+          {{- end }}
           {{- with .Values.muster.oauth.server.tokenExchangeBroker }}
           tokenExchangeBroker:
             {{- toYaml . | nindent 12 }}

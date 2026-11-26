@@ -1677,11 +1677,11 @@ func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) (http.Handler,
 		if err != nil {
 			return nil, err
 		}
-		return security.RequestIDMiddleware(mux), nil
+		return security.RequestIDMiddleware(a.warnUntrustedOrigins(mux)), nil
 	}
 
 	// Standard mux without OAuth server protection
-	return security.RequestIDMiddleware(a.createStandardMux(mcpHandler)), nil
+	return security.RequestIDMiddleware(a.warnUntrustedOrigins(a.createStandardMux(mcpHandler))), nil
 }
 
 // createStandardMux creates a standard HTTP mux without OAuth server protection.
@@ -1819,7 +1819,9 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	if err := a.registerSubjectRoutes(outerMux, oauthHTTPServer); err != nil {
 		return nil, err
 	}
-	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated); err != nil {
+	metadataConfiguration := oauth.ServerConfig{Issuer: cfg.BaseURL, ResourceIdentifier: cfg.ResourceIdentifier}
+	challenge := fmt.Sprintf(`Bearer resource_metadata=%q`, metadataConfiguration.ProtectedResourceMetadataEndpoint())
+	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated, challenge); err != nil {
 		return nil, err
 	}
 
@@ -2834,7 +2836,11 @@ func discoverProtectedResourceMetadata(ctx context.Context, serverURL string, ov
 	for _, u := range wellKnown {
 		md, err := fetchProtectedResourceMetadata(ctx, httpClient, u)
 		if err == nil {
-			return md, nil
+			err = validateDiscoveredResource(md, serverURL)
+			if err == nil {
+				return md, nil
+			}
+			logging.Warn("AuthTools", "Ignoring protected resource metadata at %s: %v", u, err)
 		}
 		lastErr = err
 	}
@@ -2889,15 +2895,9 @@ func tryWWWAuthenticate(ctx context.Context, httpClient *http.Client, serverURL 
 		logging.Debug("AuthTools", "WWW-Authenticate probe: fetch %s failed: %v", challenge.ResourceMetadataURL, err)
 		return nil
 	}
-	// A document the well-known path reaches is bound to the backend by the
-	// URL construction. This one was only pointed at, so a resource it
-	// declares must still identify the backend. An omitted field is not a
-	// failure: the caller then derives the indicator from the backend URL.
-	if md.Resource != "" {
-		if err := pkgoauth.ValidateAdvertisedResource(md.Resource, serverURL); err != nil {
-			logging.Warn("AuthTools", "WWW-Authenticate probe: dropping the resource declared by %s: %v", serverURL, err)
-			md.Resource = ""
-		}
+	if err := validateDiscoveredResource(md, serverURL); err != nil {
+		logging.Warn("AuthTools", "WWW-Authenticate probe: ignoring protected resource metadata for %s: %v", serverURL, err)
+		return nil
 	}
 	return md
 }
@@ -2925,11 +2925,6 @@ func fetchProtectedResourceMetadata(ctx context.Context, httpClient *http.Client
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
 		return nil, fmt.Errorf("failed to parse resource metadata: %w", err)
-	}
-	// RFC 9728 §3.2 lists `resource` as REQUIRED but real backends omit it.
-	// Log + accept rather than reject so spec-noncompliant servers still work.
-	if metadata.Resource == "" {
-		logging.Warn("AuthTools", "RFC 9728 PRM at %s omits REQUIRED `resource` field", metadataURL)
 	}
 	if len(metadata.AuthorizationServers) == 0 {
 		return nil, fmt.Errorf("no authorization servers in resource metadata at %s", metadataURL)

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	oauth "github.com/giantswarm/mcp-oauth"
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/providers/oidc"
@@ -99,6 +100,7 @@ func TestSubjectEndpointRefusesTokensNamingAnActor(t *testing.T) {
 			{Issuer: "https://obo.example.com"},
 		},
 	}}
+	s.oauthServer = &oauth.Server{Config: newOAuthServerConfig(s.config, oauthTokenLifetimes{})}
 	onBehalfOf := &providers.UserInfo{
 		ID:           "CgdwZXJzb24xEgNkZXg",
 		Issuer:       "https://obo.example.com",
