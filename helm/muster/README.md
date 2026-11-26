@@ -162,6 +162,10 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.enableClientManagementEndpoint | bool | `false` |  |
 | muster.oauth.server.encryptionKey | bool | `false` |  |
 | muster.oauth.server.encryptionKeyValue | string | `""` |  |
+| muster.oauth.server.requestStateKey | bool | `false` |  |
+| muster.oauth.server.requestStateKeyValue | string | `""` |  |
+| muster.oauth.server.requestStatePreviousKey | bool | `false` |  |
+| muster.oauth.server.requestStatePreviousKeyValue | string | `""` |  |
 | muster.oauth.server.trustedPublicRegistrationSchemes | list | `[]` |  |
 | muster.oauth.server.trustedPublicRegistrationRedirectURIs | list | `[]` |  |
 | muster.oauth.server.enableCIMD | bool | `true` |  |

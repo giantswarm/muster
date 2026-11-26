@@ -220,7 +220,7 @@ spec:
           projected:
             defaultMode: 0440
             sources:
-              # OAuth credentials (dex-client-secret, oauth-encryption-key, registration-token)
+              # OAuth credentials (dex-client-secret, oauth-encryption-key, oauth-request-state-key, registration-token)
               - secret:
                   name: {{ .Values.muster.oauth.server.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
               {{- if and (eq .Values.muster.oauth.server.storage.type "valkey") (or .Values.muster.oauth.server.storage.valkey.existingSecret .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.storage.valkey.password) }}

@@ -109,7 +109,8 @@ the effective exporter list. Distinguishes "prometheus" /
 {{/*
 Data of the OAuth credentials Secret the chart renders (templates/oauth-secret.yaml),
 one "key: base64" line per entry: the provider's client secret (and Google's
-client id), the registration token, the token encryption key and, with Valkey
+client id), the registration token, the token encryption key, the requestState
+keys and, with Valkey
 storage and no Valkey Secret of its own, the Valkey password. Its SHA-256 is the
 pod template's checksum/oauth-secret annotation, so muster rolls when one of
 them changes; the Secret template and the annotation share it so the two
@@ -146,6 +147,20 @@ cannot drift. The gates fail the render the way the Secret template did.
 {{- $lines = append $lines (printf "oauth-encryption-key: %s" ($s.encryptionKeyValue | b64enc | quote)) -}}
 {{- else -}}
 {{- fail "muster.oauth.server.encryptionKeyValue is required when encryptionKey is true and existingSecret is not set" -}}
+{{- end -}}
+{{- end -}}
+{{- if $s.requestStateKey -}}
+{{- if $s.requestStateKeyValue -}}
+{{- $lines = append $lines (printf "oauth-request-state-key: %s" ($s.requestStateKeyValue | b64enc | quote)) -}}
+{{- else -}}
+{{- fail "muster.oauth.server.requestStateKeyValue is required when requestStateKey is true and existingSecret is not set" -}}
+{{- end -}}
+{{- if $s.requestStatePreviousKey -}}
+{{- if $s.requestStatePreviousKeyValue -}}
+{{- $lines = append $lines (printf "oauth-request-state-previous-key: %s" ($s.requestStatePreviousKeyValue | b64enc | quote)) -}}
+{{- else -}}
+{{- fail "muster.oauth.server.requestStatePreviousKeyValue is required when requestStatePreviousKey is true and existingSecret is not set" -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- if and (eq $s.storage.type "valkey") (not $s.storage.valkey.existingSecret) $s.storage.valkey.password -}}

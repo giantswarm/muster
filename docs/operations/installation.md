@@ -171,15 +171,17 @@ muster:
       dex:
         issuerUrl: https://dex.example.com
         clientId: muster
-      existingSecret: muster-oauth        # dex-client-secret, registration-token, oauth-encryption-key
+      existingSecret: muster-oauth        # dex-client-secret, registration-token, oauth-encryption-key, oauth-request-state-key
       encryptionKey: true
+      requestStateKey: true               # every replica seals requestState with the same key
 ```
 
 ```bash
 kubectl -n muster create secret generic muster-oauth \
   --from-literal=dex-client-secret=<dex client secret> \
   --from-literal=registration-token="$(openssl rand -hex 32)" \
-  --from-literal=oauth-encryption-key="$(openssl rand -base64 32)"
+  --from-literal=oauth-encryption-key="$(openssl rand -base64 32)" \
+  --from-literal=oauth-request-state-key="$(openssl rand -base64 32)"
 ```
 
 Dex needs a client `muster` with `https://muster.example.com/oauth/callback` as redirect URI.
@@ -190,7 +192,9 @@ identity token when their `MCPServer` sets `auth.forwardToken: true`.
 ### More than one replica
 
 Sessions, grants and OAuth state live in memory by default. For more than one replica, or to
-survive a pod restart without every client logging in again, back them with Valkey:
+survive a pod restart without every client logging in again, back them with Valkey, and give every
+replica the same requestState key (`requestStateKey: true` above), so a client's retry of a sign-in
+or a server's question can reach any replica:
 
 ```yaml
 replicaCount: 2

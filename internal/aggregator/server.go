@@ -29,6 +29,7 @@ import (
 
 	oauth "github.com/giantswarm/mcp-oauth"
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
+	"github.com/giantswarm/mcp-oauth/requeststate"
 	"github.com/giantswarm/mcp-oauth/security"
 	oauthserver "github.com/giantswarm/mcp-oauth/server"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -149,6 +150,10 @@ type AggregatorServer struct {
 	// signInElicitations are the sign-in URL elicitations sent as -32042,
 	// awaiting notifications/elicitation/complete (url_elicitation.go).
 	signInElicitations signInElicitations
+
+	// requestStates seals the requestState muster answers a tool call with
+	// (request_state.go).
+	requestStates *requeststate.Sealer
 
 	// Per-backend tool dispatch metrics. May be nil when instrument
 	// creation failed; record() is nil-safe.
@@ -841,6 +846,11 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		return nil, fmt.Errorf("provider Apps: %w", err)
 	}
 	setAppOwnedIssuers(providerApps)
+	oauthServer, _ := aggConfig.OAuthServer.Config.(config.OAuthServerConfig)
+	requestStates, err := newRequestStateSealer(oauthServer)
+	if err != nil {
+		return nil, fmt.Errorf("requestState: %w", err)
+	}
 
 	var deviceStore deviceSignInStore = newMemoryDeviceSignInStore()
 	var bearerExpiries bearerExpiryStore
@@ -872,6 +882,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		valkeyKeyPrefix:   stores.keyPrefix,
 		valkeyEncryptor:   stores.encryptor,
 		core:              newCoreCatalogue(),
+		requestStates:     requestStates,
 	}, nil
 }
 

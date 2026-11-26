@@ -138,6 +138,8 @@ func resolveSecretFiles(config *MusterConfig) error {
 		{oauthServer.Google.ClientSecretFile, &oauthServer.Google.ClientSecret, "Google client secret"},
 		{oauthServer.InitialAccessTokenFile, &oauthServer.InitialAccessToken, "initial access token"},
 		{oauthServer.EncryptionKeyFile, &oauthServer.EncryptionKey, "encryption key"},
+		{oauthServer.RequestStateKeyFile, &oauthServer.RequestStateKey, "requestState key"},
+		{oauthServer.RequestStatePreviousKeyFile, &oauthServer.RequestStatePreviousKey, "previous requestState key"},
 		{oauthServer.Storage.Valkey.PasswordFile, &oauthServer.Storage.Valkey.Password, "Valkey password"},
 	}
 

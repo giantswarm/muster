@@ -97,6 +97,12 @@ data:
           {{- if .Values.muster.oauth.server.encryptionKey }}
           encryptionKeyFile: {{ printf "%s/oauth-encryption-key" $secretsPath | quote }}
           {{- end }}
+          {{- if .Values.muster.oauth.server.requestStateKey }}
+          requestStateKeyFile: {{ printf "%s/oauth-request-state-key" $secretsPath | quote }}
+          {{- if .Values.muster.oauth.server.requestStatePreviousKey }}
+          requestStatePreviousKeyFile: {{ printf "%s/oauth-request-state-previous-key" $secretsPath | quote }}
+          {{- end }}
+          {{- end }}
           {{- if eq (.Values.muster.oauth.server.provider | default "dex") "dex" }}
           dex:
             issuerUrl: {{ .Values.muster.oauth.server.dex.issuerUrl | quote }}

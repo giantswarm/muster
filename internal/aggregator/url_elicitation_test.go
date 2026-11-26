@@ -48,7 +48,7 @@ func newLegacySession(id string, capabilities mcp.ClientCapabilities) *legacySes
 }
 
 func modernContext(ctx context.Context, capabilities mcp.ClientCapabilities) context.Context {
-	return mcpserver.WithRequestProtocolInfo(api.WithSessionID(ctx, "family-1"), &mcpserver.RequestProtocolInfo{
+	return mcpserver.WithRequestProtocolInfo(withTestCaller(api.WithSessionID(ctx, "family-1")), &mcpserver.RequestProtocolInfo{
 		Modern:             true,
 		ProtocolVersion:    mcp.ProtocolVersion20260728,
 		ClientCapabilities: &capabilities,
@@ -80,7 +80,7 @@ func signInHandler(record bool) mcpserver.ToolHandlerFunc {
 
 func TestURLElicitation(t *testing.T) {
 	t.Run("a 2026-07-28 request is answered with an input_required URL elicitation", func(t *testing.T) {
-		a := &AggregatorServer{}
+		a := elicitingAggregator(t)
 		ctx := modernContext(t.Context(), urlElicitationCapabilities())
 
 		result, err := a.urlElicitation()(signInHandler(true))(ctx, mcp.CallToolRequest{})
@@ -97,13 +97,13 @@ func TestURLElicitation(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, request.Elicitation.ElicitationID, again.InputRequests[signInInputKey].Elicitation.ElicitationID,
 			"one link, one elicitationId")
-		require.Equal(t, signInRequestState{Server: "github", Link: testAuthURL}, decodeSignInRequestState(result.RequestState),
+		require.Equal(t, signInRequestState{Server: "github", Link: testAuthURL}, *openedState(t, a, ctx, mcp.CallToolRequest{}, result).SignIn,
 			"the retry names the sign-in to wait for")
 		require.Empty(t, result.Content, "the link must not reach the model as tool output")
 	})
 
 	t.Run("a core_auth_login challenge is answered with a URL elicitation", func(t *testing.T) {
-		a := &AggregatorServer{}
+		a := elicitingAggregator(t)
 		ctx := modernContext(t.Context(), urlElicitationCapabilities())
 		login := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			recordSignInChallenge(ctx, signInChallenge{sessionID: "family-1", server: "github", authURL: testAuthURL})
@@ -122,7 +122,7 @@ func TestURLElicitation(t *testing.T) {
 	})
 
 	t.Run("a 2025-11-25 session is answered with URLElicitationRequiredError", func(t *testing.T) {
-		a := &AggregatorServer{}
+		a := elicitingAggregator(t)
 		session := newLegacySession("transport-1", urlElicitationCapabilities())
 		ctx := mcpserver.NewMCPServer("muster", "test").WithContext(t.Context(), session)
 
@@ -151,14 +151,14 @@ func TestURLElicitation(t *testing.T) {
 	t.Run("a 2026-07-28 retry that declined or cancelled the sign-in is not asked again", func(t *testing.T) {
 		for _, action := range []mcp.ElicitationResponseAction{mcp.ElicitationResponseActionDecline, mcp.ElicitationResponseActionCancel} {
 			t.Run(string(action), func(t *testing.T) {
-				a := &AggregatorServer{}
+				a := elicitingAggregator(t)
 				ctx := modernContext(t.Context(), urlElicitationCapabilities())
 				var req mcp.CallToolRequest
 				req.Params.InputResponses = mcp.InputResponses{
 					signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: action}}),
 				}
 
-				req.Params.RequestState = signInRequestState{Server: "github", Link: testAuthURL}.encode()
+				req.Params.RequestState = sealedFor(t, a, ctx, req, sealedRequestState{Kind: stateKindSignIn, SignIn: &signInRequestState{Server: "github", Link: testAuthURL}})
 				ran := false
 				handler := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 					ran = true
@@ -178,7 +178,7 @@ func TestURLElicitation(t *testing.T) {
 	})
 
 	t.Run("a client without elicitation.url keeps the auth_required answer", func(t *testing.T) {
-		a := &AggregatorServer{}
+		a := elicitingAggregator(t)
 		formOnly := mcp.ClientCapabilities{Elicitation: &mcp.ElicitationCapability{Form: &struct{}{}}}
 
 		for name, ctx := range map[string]context.Context{
@@ -198,7 +198,7 @@ func TestURLElicitation(t *testing.T) {
 		// SECURITY: a backend can return a result shaped like muster's
 		// auth_required answer with a link of its own; it must never be
 		// presented to the person as muster's sign-in.
-		a := &AggregatorServer{}
+		a := elicitingAggregator(t)
 		ctx := modernContext(t.Context(), urlElicitationCapabilities())
 
 		result, err := a.urlElicitation()(signInHandler(false))(ctx, mcp.CallToolRequest{})
@@ -208,7 +208,7 @@ func TestURLElicitation(t *testing.T) {
 	})
 
 	t.Run("an auth_required result with another link than muster's challenge is passed through", func(t *testing.T) {
-		a := &AggregatorServer{}
+		a := elicitingAggregator(t)
 		ctx := modernContext(t.Context(), urlElicitationCapabilities())
 		backend := authRequiredResult("github", "backend", &api.CallToolResult{
 			StructuredContent: map[string]any{"authUrl": "https://attacker.example.com/"},
@@ -225,7 +225,7 @@ func TestURLElicitation(t *testing.T) {
 	})
 
 	t.Run("a call answered with anything but auth_required is passed through", func(t *testing.T) {
-		a := &AggregatorServer{}
+		a := elicitingAggregator(t)
 		ctx := modernContext(t.Context(), urlElicitationCapabilities())
 		ok := mcp.NewToolResultText("done")
 		handler := func(ctx context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -322,7 +322,7 @@ func TestSignInElicitationsPerLink(t *testing.T) {
 // TestURLElicitationOnTheWire sends real tools/call messages through an mcp-go
 // server with the middleware installed, as a client of each protocol version.
 func TestURLElicitationOnTheWire(t *testing.T) {
-	a := &AggregatorServer{}
+	a := elicitingAggregator(t)
 	srv := mcpserver.NewMCPServer("muster", "test", mcpserver.WithToolHandlerMiddleware(a.urlElicitation()))
 	srv.AddTool(mcp.NewTool("github_list_repos"), signInHandler(true))
 
@@ -353,7 +353,7 @@ func TestURLElicitationOnTheWire(t *testing.T) {
 		message := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"github_list_repos","_meta":{%q:%q,%q:{"elicitation":{"url":{}}}}}}`,
 			mcp.MetaKeyProtocolVersion, mcp.ProtocolVersion20260728, mcp.MetaKeyClientCapabilities)
 
-		reply := srv.HandleMessage(t.Context(), []byte(message))
+		reply := srv.HandleMessage(withTestCaller(t.Context()), []byte(message))
 
 		raw, err := json.Marshal(reply)
 		require.NoError(t, err)
@@ -431,7 +431,7 @@ func TestURLElicitation_CallToolRelaysMustersChallenge(t *testing.T) {
 		})
 		return convertToMCPResult(result), err
 	}
-	ctx := mcpserver.WithRequestProtocolInfo(api.WithSubject(api.WithSessionID(t.Context(), answerSession), answerSubject), &mcpserver.RequestProtocolInfo{
+	ctx := mcpserver.WithRequestProtocolInfo(withTestCaller(api.WithSubject(api.WithSessionID(t.Context(), answerSession), answerSubject)), &mcpserver.RequestProtocolInfo{
 		Modern:             true,
 		ProtocolVersion:    mcp.ProtocolVersion20260728,
 		ClientCapabilities: new(urlElicitationCapabilities()),
@@ -444,18 +444,22 @@ func TestURLElicitation_CallToolRelaysMustersChallenge(t *testing.T) {
 	request := result.InputRequests[signInInputKey]
 	require.NotNil(t, request.Elicitation)
 	require.Contains(t, request.Elicitation.URL, "/oauth/proxy/start")
-	require.Equal(t, answerServer, decodeSignInRequestState(result.RequestState).Server)
+	require.Equal(t, answerServer, openedState(t, f.agg, ctx, mcp.CallToolRequest{}, result).SignIn.Server)
 	require.Empty(t, result.Content, "the call_tool envelope carries the link too")
 }
 
 // acceptedRetry is a 2026-07-28 retry of a call whose sign-in elicitation the
-// person accepted.
-func acceptedRetry() mcp.CallToolRequest {
+// person accepted, with the requestState muster answered the call with.
+func acceptedRetry(t *testing.T, a *AggregatorServer, ctx context.Context) mcp.CallToolRequest {
+	t.Helper()
 	var req mcp.CallToolRequest
 	req.Params.InputResponses = mcp.InputResponses{
 		signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{ElicitationResponse: mcp.ElicitationResponse{Action: mcp.ElicitationResponseActionAccept}}),
 	}
-	req.Params.RequestState = signInRequestState{Server: "github", Link: testAuthURL}.encode()
+	req.Params.RequestState = sealedFor(t, a, ctx, req, sealedRequestState{
+		Kind:   stateKindSignIn,
+		SignIn: &signInRequestState{Server: "github", Link: testAuthURL},
+	})
 	return req
 }
 
@@ -474,7 +478,7 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 	t.Run("the call runs once the sign-in completes", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			store := oauthstore.NewInMemorySessionAuthStore(time.Hour)
-			a := &AggregatorServer{authStore: store}
+			a := &AggregatorServer{authStore: store, requestStates: testRequestStateSealer(t)}
 			ctx := modernContext(t.Context(), urlElicitationCapabilities())
 			go func() {
 				time.Sleep(30 * time.Second)
@@ -488,7 +492,7 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 				return gatedHandler(store)(ctx, req)
 			}
 
-			result, err := a.urlElicitation()(counted)(ctx, acceptedRetry())
+			result, err := a.urlElicitation()(counted)(ctx, acceptedRetry(t, a, ctx))
 
 			require.NoError(t, err)
 			require.Equal(t, "done", mcpText(result))
@@ -499,11 +503,11 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 
 	t.Run("a sign-in that does not complete is asked again", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour), requestStates: testRequestStateSealer(t)}
 			ctx := modernContext(t.Context(), urlElicitationCapabilities())
 			start := time.Now()
 
-			result, err := a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry())
+			result, err := a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry(t, a, ctx))
 
 			require.NoError(t, err)
 			require.Equal(t, mcp.ResultTypeInputRequired, result.ResultType)
@@ -516,7 +520,7 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 			finished := &finishedSignInHandler{}
 			api.RegisterOAuthHandler(finished)
 			t.Cleanup(func() { api.RegisterOAuthHandler(nil) })
-			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour), requestStates: testRequestStateSealer(t)}
 			pending := pendingSignInKey{sessionID: "family-1", server: "github"}
 			a.pendingSignIns.put(pending, &api.CallToolResult{StructuredContent: map[string]any{"authUrl": testAuthURL}})
 			ctx := modernContext(t.Context(), urlElicitationCapabilities())
@@ -526,7 +530,7 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 			}()
 			start := time.Now()
 
-			result, err := a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry())
+			result, err := a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry(t, a, ctx))
 
 			require.NoError(t, err)
 			require.Equal(t, mcp.ResultTypeInputRequired, result.ResultType, "the person is asked again at once")
@@ -536,12 +540,33 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 		})
 	})
 
-	t.Run("an unreadable requestState waits for nothing", func(t *testing.T) {
+	t.Run("a requestState muster did not seal is refused without running or waiting", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour), requestStates: testRequestStateSealer(t)}
 			ctx := modernContext(t.Context(), urlElicitationCapabilities())
-			req := acceptedRetry()
-			req.Params.RequestState = "github"
+			req := acceptedRetry(t, a, ctx)
+			req.Params.RequestState = `{"server":"github","link":"` + testAuthURL + `"}`
+			ran := false
+			handler := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				ran = true
+				return mcp.NewToolResultText("done"), nil
+			}
+			start := time.Now()
+
+			_, err := a.urlElicitation()(handler)(ctx, req)
+
+			requireInvalidParams(t, err)
+			require.False(t, ran)
+			require.Zero(t, time.Since(start))
+		})
+	})
+
+	t.Run("a lapsed requestState waits for nothing and asks again", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour), requestStates: testRequestStateSealer(t)}
+			ctx := modernContext(t.Context(), urlElicitationCapabilities())
+			req := acceptedRetry(t, a, ctx)
+			time.Sleep(requestStateTTL + time.Second)
 			start := time.Now()
 
 			result, err := a.urlElicitation()(gatedHandler(a.authStore))(ctx, req)
@@ -554,12 +579,12 @@ func TestURLElicitation_AcceptedRetryWaitsForTheSignIn(t *testing.T) {
 
 	t.Run("a cancelled call stops waiting", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
-			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour)}
+			a := &AggregatorServer{authStore: oauthstore.NewInMemorySessionAuthStore(time.Hour), requestStates: testRequestStateSealer(t)}
 			ctx, cancel := context.WithTimeout(modernContext(t.Context(), urlElicitationCapabilities()), time.Minute)
 			defer cancel()
 			start := time.Now()
 
-			_, _ = a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry())
+			_, _ = a.urlElicitation()(gatedHandler(a.authStore))(ctx, acceptedRetry(t, a, ctx))
 
 			require.Equal(t, time.Minute, time.Since(start))
 		})

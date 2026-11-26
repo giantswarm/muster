@@ -620,13 +620,15 @@ muster:
 
       # Use an existing secret for OAuth credentials
       # The secret should contain keys: dex-client-secret, registration-token,
-      # oauth-encryption-key (optional), valkey-password (if using Valkey)
+      # oauth-encryption-key (optional), oauth-request-state-key (optional),
+      # valkey-password (if using Valkey)
       #
       # Example secret creation:
       #   kubectl create secret generic muster-oauth \
       #     --from-literal=dex-client-secret=<your-dex-client-secret> \
       #     --from-literal=registration-token=$(openssl rand -hex 32) \
       #     --from-literal=oauth-encryption-key=$(openssl rand -base64 32) \
+      #     --from-literal=oauth-request-state-key=$(openssl rand -base64 32) \
       #     --from-literal=valkey-password=<your-valkey-password>
       existingSecret: ""
 
@@ -766,6 +768,27 @@ muster:
       # Only used if encryptionKey is true and existingSecret is not set
       # SECURITY: Use existingSecret for production deployments
       encryptionKeyValue: ""
+
+      # Seal the requestState muster answers a tool call with (MCP 2026-07-28)
+      # with a key every replica shares. If "true", the key must be provided
+      # in the secret (oauth-request-state-key). Without it, each pod seals
+      # with a key of its own, and a retry that reaches another replica is
+      # refused: enable it whenever replicaCount is above 1.
+      requestStateKey: false
+
+      # requestState key value (32 bytes, base64-encoded)
+      # Only used if requestStateKey is true and existingSecret is not set
+      # SECURITY: Use existingSecret for production deployments
+      requestStateKeyValue: ""
+
+      # The requestState key the current one replaced, still accepted for
+      # requestState sealed before a rotation (oauth-request-state-previous-key
+      # in the secret). Only used if requestStateKey is true.
+      requestStatePreviousKey: false
+
+      # Previous requestState key value (32 bytes, base64-encoded)
+      # Only used if requestStatePreviousKey is true and existingSecret is not set
+      requestStatePreviousKeyValue: ""
 
       # Custom URI schemes whose redirect URIs are accepted without a
       # registration token. Use for native desktop apps that register a

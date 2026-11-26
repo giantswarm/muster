@@ -38,7 +38,7 @@ func TestURLElicitation_AppHeldGrantRecordsNothing(t *testing.T) {
 
 func TestElicitSignIn_NamesTheAppOfAnAppFlow(t *testing.T) {
 	agg := &AggregatorServer{}
-	_, err := agg.elicitSignIn(t.Context(), signInChallenge{
+	_, err := agg.elicitSignIn(t.Context(), mcp.CallToolRequest{}, signInChallenge{
 		sessionID: "session-1",
 		server:    api.ProviderAppFlowPrefix + "github",
 		authURL:   "https://muster.example.com/oauth/proxy/start?for=app:github",

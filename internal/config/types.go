@@ -525,6 +525,23 @@ type OAuthServerConfig struct {
 	// This is the recommended way to provide secrets in production deployments.
 	EncryptionKeyFile string `yaml:"encryptionKeyFile,omitempty"`
 
+	// RequestStateKey is the AES-256 key (32 bytes, base64-encoded) that seals
+	// the requestState muster answers a tool call with, so a client cannot
+	// forge or change it. Every replica needs the same key. Without one,
+	// muster seals with a key of its own process.
+	RequestStateKey string `yaml:"requestStateKey,omitempty"`
+
+	// RequestStateKeyFile is the path to a file containing RequestStateKey.
+	RequestStateKeyFile string `yaml:"requestStateKeyFile,omitempty"`
+
+	// RequestStatePreviousKey is the key RequestStateKey replaced, which
+	// still opens requestState sealed before a rotation.
+	RequestStatePreviousKey string `yaml:"requestStatePreviousKey,omitempty"`
+
+	// RequestStatePreviousKeyFile is the path to a file containing
+	// RequestStatePreviousKey.
+	RequestStatePreviousKeyFile string `yaml:"requestStatePreviousKeyFile,omitempty"`
+
 	// TrustedPublicRegistrationSchemes lists URI schemes allowed for unauthenticated
 	// client registration. Enables Cursor/VSCode without registration tokens.
 	// Example: ["cursor", "vscode"]

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -46,10 +45,10 @@ type signInChallenge struct {
 	reason    string
 }
 
-// signInRequestState is the requestState of a sign-in elicitation, echoed by
-// the client on its retry: the server whose sign-in the retry waits for and
-// the sign-in link, which names the OAuth flow whose callback ends the wait.
-// Being the client's echo, it only decides what the retry waits for: the call
+// signInRequestState is the state of a sign-in elicitation, sealed into the
+// requestState the client echoes on its retry: the server whose sign-in the
+// retry waits for and the sign-in link, which names the OAuth flow whose
+// callback ends the wait. It only decides what the retry waits for: the call
 // is gated as any other afterwards.
 type signInRequestState struct {
 	Server string `json:"server"`
@@ -65,19 +64,6 @@ func urlElicitationID(link string) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-func (s signInRequestState) encode() string {
-	encoded, _ := json.Marshal(s)
-	return string(encoded)
-}
-
-// decodeSignInRequestState reads a retry's requestState; an unreadable one
-// is the zero value, which waits for nothing.
-func decodeSignInRequestState(requestState string) signInRequestState {
-	var state signInRequestState
-	_ = json.Unmarshal([]byte(requestState), &state)
-	return state
-}
-
 type challengeRecorderKey struct{}
 
 // challengeRecorder holds the sign-in challenge muster issued while handling
@@ -88,7 +74,7 @@ type challengeRecorderKey struct{}
 // which only muster's dispatch records (backend_elicitation.go).
 type challengeRecorder struct {
 	challenge    atomic.Pointer[signInChallenge]
-	backendInput atomic.Pointer[mcp.CallToolResult]
+	backendInput atomic.Pointer[recordedBackendInput]
 }
 
 func withChallengeRecorder(ctx context.Context) (context.Context, *challengeRecorder) {
@@ -112,8 +98,10 @@ func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
 // passes through the model's context.
 //
 // A request on protocol 2026-07-28 or later gets an input_required result
-// carrying the elicitation, with the server and the link as its requestState
-// (signInRequestState). The client retries the call once the person agreed
+// carrying the elicitation, with the server and the link sealed for the caller
+// and the call as its requestState (signInRequestState, request_state.go); a
+// caller it cannot be bound to fails the call. A retry's requestState that muster did not seal for that caller and call is refused
+// with -32602; a lapsed one is ignored. The client retries the call once the person agreed
 // to open the link: that retry first waits for the sign-in (awaitSignIn),
 // then runs as any other call, so a sign-in that did not complete is asked
 // again. A retry carrying a declined or cancelled elicitation runs nothing and
@@ -130,33 +118,41 @@ func recordSignInChallenge(ctx context.Context, challenge signInChallenge) {
 func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 	return func(next mcpserver.ToolHandlerFunc) mcpserver.ToolHandlerFunc {
 		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			if state, ok := decodeBackendInputState(req.Params.RequestState); ok {
-				ctx = withBackendRoundTrip(ctx, state, req.Params.InputResponses)
-				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
+			// The client's call, as sent: requestState is sealed for and
+			// opened against it, whatever the call is routed to.
+			call := req
+			state, err := a.openRequestState(ctx, call)
+			if err != nil {
+				return nil, err
 			}
 			supportsURL := clientSupportsURLElicitation(ctx)
-			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); supportsURL && answer != nil {
-				state := decodeSignInRequestState(req.Params.RequestState)
-				if answer.Action != mcp.ElicitationResponseActionAccept {
-					return declinedSignInResult(answer.Action, state.Server), nil
+			if state != nil && state.Kind == stateKindBackend {
+				ctx = withBackendRoundTrip(ctx, *state.Backend, req.Params.InputResponses)
+			} else if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); supportsURL && answer != nil {
+				var signIn signInRequestState
+				if state != nil {
+					signIn = *state.SignIn
 				}
-				a.awaitSignIn(ctx, getSessionIDFromContext(ctx), state)
-				req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
+				if answer.Action != mcp.ElicitationResponseActionAccept {
+					return declinedSignInResult(answer.Action, signIn.Server), nil
+				}
+				a.awaitSignIn(ctx, getSessionIDFromContext(ctx), signIn)
 			}
+			req.Params.MultiRoundTripParams = mcp.MultiRoundTripParams{}
 
 			callCtx, recorder := withChallengeRecorder(ctx)
 			result, err := next(callCtx, req)
 			if err != nil {
 				return result, err
 			}
-			if input := recorder.backendInput.Load(); input != nil && backendInputMarker(result) == input.RequestState {
-				return passBackendInput(callCtx, input)
+			if input := recorder.backendInput.Load(); input != nil && backendInputMarker(result) == input.marker {
+				return a.passBackendInput(callCtx, call, input)
 			}
 			if !supportsURL {
 				return result, err
 			}
 			if challenge := recorder.challenge.Load(); challenge != nil && signInLink(result) == challenge.authURL {
-				return a.elicitSignIn(callCtx, *challenge)
+				return a.elicitSignIn(callCtx, call, *challenge)
 			}
 			return result, err
 		}
@@ -207,7 +203,7 @@ func (a *AggregatorServer) awaitSignIn(ctx context.Context, sessionID string, st
 
 // elicitSignIn answers a tool call with a URL elicitation of the challenge's
 // sign-in link, in the shape of the request's protocol version.
-func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInChallenge) (*mcp.CallToolResult, error) {
+func (a *AggregatorServer) elicitSignIn(ctx context.Context, call mcp.CallToolRequest, challenge signInChallenge) (*mcp.CallToolResult, error) {
 	name := challenge.server
 	if app, ok := providerAppOfFlow(name); ok {
 		name = app
@@ -218,8 +214,14 @@ func (a *AggregatorServer) elicitSignIn(ctx context.Context, challenge signInCha
 	}
 
 	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
-		state := signInRequestState{Server: challenge.server, Link: challenge.authURL}
-		return mcpserver.NewInputRequestBuilder(state.encode()).Elicit(signInInputKey, mcp.ElicitationParams{
+		sealed, err := a.sealRequestState(ctx, call, sealedRequestState{
+			Kind:   stateKindSignIn,
+			SignIn: &signInRequestState{Server: challenge.server, Link: challenge.authURL},
+		})
+		if err != nil {
+			return nil, err
+		}
+		return mcpserver.NewInputRequestBuilder(sealed).Elicit(signInInputKey, mcp.ElicitationParams{
 			Mode:          mcp.ElicitationModeURL,
 			Message:       message,
 			URL:           challenge.authURL,
