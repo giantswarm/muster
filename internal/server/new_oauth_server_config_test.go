@@ -81,7 +81,7 @@ func TestNewOAuthServerConfig_PreservesAdjacentFields(t *testing.T) {
 
 	require.Equal(t, "https://muster.example.com", got.Issuer)
 	require.False(t, got.AllowPublicClientRegistration)
-	require.Equal(t, "tok", got.RegistrationAccessToken)
+	require.Equal(t, "tok", got.InitialAccessToken)
 	require.True(t, got.EnableClientIDMetadataDocuments)
 	require.True(t, got.AllowPrivateIPClientMetadata)                                             //nolint:staticcheck // SA1019: covers the deprecated setting
 	require.Equal(t, []string{"gateway.internal.example"}, got.AllowPrivateIPClientMetadataHosts) //nolint:staticcheck // SA1019: covers the deprecated setting
