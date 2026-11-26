@@ -415,6 +415,7 @@ func (a *Adapter) Close() error {
 
 // ListMCPServers returns all MCP server definitions
 func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error) {
+	startedAt := a.observed.clockNow()
 	servers, err := a.listServed(ctx)
 	if err != nil {
 		return nil, err
@@ -423,7 +424,7 @@ func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, erro
 	for i := range servers {
 		result = append(result, a.toInfo(&servers[i]))
 	}
-	a.observed.replaceAll(result)
+	a.observed.replaceAll(result, startedAt)
 	return result, nil
 }
 

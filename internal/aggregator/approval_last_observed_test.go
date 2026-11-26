@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -26,9 +27,25 @@ type outageManager struct {
 	*stubMCPServerManager
 	readErr  error
 	observed map[string]api.MCPServerInfo
+	// age is how long ago the definitions were observed (3s when zero);
+	// reads counts the live GetMCPServer calls; throttled is how many of
+	// them fail with HTTP 429 before readErr or the stub answers.
+	age       time.Duration
+	reads     *atomic.Int32
+	throttled int32
+}
+
+func (m outageManager) observedAt() time.Time {
+	if m.age == 0 {
+		return clock.Now().Add(-3 * time.Second)
+	}
+	return clock.Now().Add(-m.age)
 }
 
 func (m outageManager) GetMCPServer(ctx context.Context, name string) (*api.MCPServerInfo, error) {
+	if m.reads != nil && m.reads.Add(1) <= m.throttled {
+		return nil, fmt.Errorf("failed to get MCPServer %s: %w", name, apierrors.NewTooManyRequests("slow down", 0))
+	}
 	if m.readErr != nil {
 		return nil, m.readErr
 	}
@@ -47,7 +64,7 @@ func (m outageManager) LastObservedMCPServers() ([]api.MCPServerInfo, time.Time,
 	for _, info := range m.observed {
 		infos = append(infos, info)
 	}
-	return infos, clock.Now().Add(-3 * time.Second), len(infos) > 0
+	return infos, m.observedAt(), len(infos) > 0
 }
 
 func (m outageManager) LastObservedMCPServer(key string) (*api.MCPServerInfo, time.Time, bool) {
@@ -55,7 +72,7 @@ func (m outageManager) LastObservedMCPServer(key string) (*api.MCPServerInfo, ti
 	if !ok {
 		return nil, time.Time{}, false
 	}
-	return &info, clock.Now().Add(-3 * time.Second), true
+	return &info, m.observedAt(), true
 }
 
 // connectionRefused is what a live read returns once the API server is gone:
@@ -69,12 +86,24 @@ func connectionRefused() error {
 // and which observed the servers of observed (all of the stub's when nil).
 func withOutage(t *testing.T, readErr error, observed []string) {
 	t.Helper()
+	withOutageManager(t, outageManager{readErr: readErr}, observed)
+}
+
+// withOutageManager is withOutage for a manager configured by the caller
+// (its age, its throttling); the stub and the observed servers are filled in.
+// The throttle waits are cut to nothing: no test sleeps.
+func withOutageManager(t *testing.T, m outageManager, observed []string) {
+	t.Helper()
+	saved := throttleBackoffs
+	throttleBackoffs = []time.Duration{0, 0, 0}
+	t.Cleanup(func() { throttleBackoffs = saved })
 	stub := api.GetMCPServerManager().(*stubMCPServerManager)
 	seen := map[string]api.MCPServerInfo{}
 	for _, name := range observed {
 		seen[name] = stub.servers[name]
 	}
-	api.RegisterMCPServerManager(outageManager{stubMCPServerManager: stub, readErr: readErr, observed: seen})
+	m.stubMCPServerManager, m.observed = stub, seen
+	api.RegisterMCPServerManager(m)
 	t.Cleanup(func() { api.RegisterMCPServerManager(stub) })
 }
 
@@ -164,7 +193,7 @@ func TestAPIServerUnreachable(t *testing.T) {
 		"connection refused":  {connectionRefused(), true},
 		"service unavailable": {apierrors.NewServiceUnavailable("etcd"), true},
 		"server timeout":      {apierrors.NewServerTimeout(gr, "get", 1), true},
-		"too many requests":   {apierrors.NewTooManyRequests("slow down", 1), true},
+		"too many requests":   {apierrors.NewTooManyRequests("slow down", 1), false},
 		"deadline exceeded":   {fmt.Errorf("get: %w", context.DeadlineExceeded), true},
 		"canceled":            {fmt.Errorf("get: %w", context.Canceled), false},
 		"not found":           {apierrors.NewNotFound(gr, "github"), false},
@@ -217,4 +246,110 @@ func TestApplyApprovals_UnreachableAPIServerListsByTheLastObservedSettings(t *te
 		require.True(t, found)
 		assert.Equal(t, ask, got, "only an unreachable API server falls back")
 	})
+}
+
+func setMaxAge(t *testing.T, d time.Duration) {
+	t.Helper()
+	lastObservedMaxAge.Store(int64(d))
+	t.Cleanup(func() { lastObservedMaxAge.Store(0) })
+}
+
+// A definition older than the maximum age no longer decides a call: it is
+// refused as "approval settings unavailable", whatever the definition said.
+// The default is 10 minutes, and a configured age replaces it.
+func TestGate_UnreachableAPIServerRefusesAnOverAgeDefinition(t *testing.T) {
+	for name, tc := range map[string]struct {
+		age    time.Duration
+		maxAge time.Duration
+		runs   bool
+	}{
+		"within the default": {age: DefaultLastObservedMaxAge - time.Second, runs: true},
+		"beyond the default": {age: DefaultLastObservedMaxAge + time.Second},
+		"configured longer":  {age: 30 * time.Minute, maxAge: time.Hour, runs: true},
+		"configured shorter": {age: 2 * time.Minute, maxAge: time.Minute},
+		"configured within":  {age: 30 * time.Second, maxAge: time.Minute, runs: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rig := newGateRig(t)
+			if tc.maxAge > 0 {
+				setMaxAge(t, tc.maxAge)
+			}
+			withOutageManager(t, outageManager{readErr: connectionRefused(), age: tc.age}, []string{"github"})
+
+			result, err := rig.server.CallToolInternal(rig.ctx, "x_github_get_issue", map[string]any{})
+			if tc.runs {
+				require.NoError(t, err)
+				assert.False(t, result.IsError)
+				assert.Equal(t, 1, rig.client.count("get_issue"))
+				return
+			}
+			require.ErrorContains(t, err, "the approval settings of server github could not be read: approval settings unavailable")
+			require.ErrorContains(t, err, "old (maximum ")
+			assert.Zero(t, rig.client.count("get_issue"))
+		})
+	}
+}
+
+// A throttled read (HTTP 429) is retried within the call: it recovers when
+// the API server answers on a retry, and is refused, never decided by the
+// last observed definition, when it stays throttled.
+func TestGate_ThrottledReadRetriesThenRefuses(t *testing.T) {
+	t.Run("recovers on a retry", func(t *testing.T) {
+		rig := newGateRig(t)
+		reads := &atomic.Int32{}
+		withOutageManager(t, outageManager{reads: reads, throttled: 2}, []string{"github"})
+
+		result, err := rig.server.CallToolInternal(rig.ctx, "x_github_get_issue", map[string]any{})
+		require.NoError(t, err)
+		assert.False(t, result.IsError)
+		assert.EqualValues(t, 3, reads.Load(), "two throttled reads, then the answer")
+		assert.Equal(t, 1, rig.client.count("get_issue"))
+	})
+	t.Run("stays throttled", func(t *testing.T) {
+		rig := newGateRig(t)
+		reads := &atomic.Int32{}
+		withOutageManager(t, outageManager{reads: reads, throttled: 100}, []string{"github"})
+
+		_, err := rig.server.CallToolInternal(rig.ctx, "x_github_get_issue", map[string]any{})
+		require.ErrorContains(t, err, "approval settings unavailable: the API server throttled the read (HTTP 429)")
+		assert.EqualValues(t, 1+len(throttleBackoffs), reads.Load(), "the first read and one per backoff")
+		assert.Zero(t, rig.client.count("get_issue"), "an observed Allow does not decide a throttled call")
+	})
+	t.Run("deadline ends the retries", func(t *testing.T) {
+		rig := newGateRig(t)
+		reads := &atomic.Int32{}
+		withOutageManager(t, outageManager{reads: reads, throttled: 100}, []string{"github"})
+		throttleBackoffs = []time.Duration{time.Hour, time.Hour}
+		ctx, cancel := context.WithTimeout(rig.ctx, time.Minute)
+		defer cancel()
+
+		_, err := rig.server.CallToolInternal(ctx, "x_github_get_issue", map[string]any{})
+		require.ErrorContains(t, err, "the API server throttled the read")
+		assert.EqualValues(t, 1, reads.Load(), "a wait that outlasts the call's deadline is not taken")
+	})
+}
+
+// A listing agrees with the calls: a last observed definition beyond the
+// maximum age is reported unavailable, and a throttled listing is never
+// answered from the last observed definitions.
+func TestApplyApprovals_OverAgeAndThrottledListingsAreUnavailable(t *testing.T) {
+	tools := []mcp.Tool{approvalSoloTool("github", "get_issue")}
+	ask := api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}
+
+	for name, readErr := range map[string]error{
+		"over age":  connectionRefused(),
+		"throttled": apierrors.NewTooManyRequests("slow down", 0),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rig := newGateRig(t)
+			age := time.Duration(0)
+			if name == "over age" {
+				age = DefaultLastObservedMaxAge + time.Second
+			}
+			withOutageManager(t, outageManager{readErr: readErr, age: age}, []string{"github"})
+			got, found := approvalOf(t, rig.server.applyApprovals(rig.ctx, tools), "x_github_get_issue")
+			require.True(t, found)
+			assert.Equal(t, ask, got)
+		})
+	}
 }

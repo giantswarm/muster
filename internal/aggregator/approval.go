@@ -38,9 +38,9 @@ func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServe
 	if manager == nil {
 		return nil, nil, false, true
 	}
-	definitions, err := manager.ListMCPServers(ctx)
+	definitions, err := readThrottleRetried(ctx, func() ([]api.MCPServerInfo, error) { return manager.ListMCPServers(ctx) })
 	if err != nil {
-		if last, found := lastObservedListingWhileUnreachable(err); found {
+		if last, found := lastObservedListingWhileUnreachable(ctx, err); found {
 			definitions, err = last, nil
 		}
 	}

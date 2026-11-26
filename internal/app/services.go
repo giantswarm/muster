@@ -285,18 +285,24 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			return nil, err
 		}
 
+		maxAge, err := approvalLastObservedMaxAge(cfg.MusterConfig.Approval)
+		if err != nil {
+			return nil, err
+		}
+
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{
-			ApprovalTTL:          ttl,
-			ApprovalInstallation: cfg.MusterConfig.Approval.Installation,
-			Port:                 cfg.MusterConfig.Aggregator.Port,
-			Host:                 cfg.MusterConfig.Aggregator.Host,
-			Transport:            cfg.MusterConfig.Aggregator.Transport,
-			MusterPrefix:         cfg.MusterConfig.Aggregator.MusterPrefix,
-			Version:              cfg.Version,
-			ConfigDir:            cfg.ConfigPath,
-			Debug:                cfg.Debug,
-			OAuth:                mergedOAuthMCPClientConfig,
+			ApprovalTTL:                ttl,
+			ApprovalLastObservedMaxAge: maxAge,
+			ApprovalInstallation:       cfg.MusterConfig.Approval.Installation,
+			Port:                       cfg.MusterConfig.Aggregator.Port,
+			Host:                       cfg.MusterConfig.Aggregator.Host,
+			Transport:                  cfg.MusterConfig.Aggregator.Transport,
+			MusterPrefix:               cfg.MusterConfig.Aggregator.MusterPrefix,
+			Version:                    cfg.Version,
+			ConfigDir:                  cfg.ConfigPath,
+			Debug:                      cfg.Debug,
+			OAuth:                      mergedOAuthMCPClientConfig,
 			OAuthServer: aggregator.OAuthServerConfig{
 				// serve command flag overrides config file if enabled
 				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuth.Server.Enabled,

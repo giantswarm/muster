@@ -390,6 +390,11 @@ func (s *ServerInfo) SecretOwner() api.SecretOwner {
 type AggregatorConfig struct {
 	// ApprovalTTL is how long a pending approval lives (approval.ttl).
 	ApprovalTTL time.Duration
+	// ApprovalLastObservedMaxAge is how old a server's last observed
+	// definition may be and still decide a call while the API server cannot
+	// be reached (approval.lastObservedMaxAge); zero is
+	// DefaultLastObservedMaxAge.
+	ApprovalLastObservedMaxAge time.Duration
 	// ApprovalInstallation names the installation on the approval page.
 	ApprovalInstallation string
 

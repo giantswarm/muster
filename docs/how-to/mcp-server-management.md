@@ -577,13 +577,23 @@ Rules:
   each watch event and resync): the servers muster runs keep working through
   the outage. muster logs each such call with the server and the age of the
   definition and counts it in `muster_approval_last_observed_fallbacks_total`.
-  A server muster never read is still refused, and so is a read that fails
-  any other way (not found, forbidden, not decodable). Agent settings and
+  The definition must be at most `approval.lastObservedMaxAge` old (default
+  `10m`, at most `1h`; Helm: `muster.approval.lastObservedMaxAge`): a muster
+  that alone cannot reach the API server looks like an outage, and an admin
+  may have tightened the connector meanwhile, so an older definition decides
+  nothing and the call is refused as `approval settings unavailable` (logged
+  and counted in `muster_approval_settings_refusals_total` with reason
+  `last_observed_too_old`). A throttled read (HTTP 429) is not an outage: it
+  is retried for about a second within the call's deadline and then refused
+  (reason `throttled`), never decided by the last definition. A server muster
+  never read is still refused (reason `never_observed`), and so is a read
+  that fails any other way (not found, forbidden, not decodable). Agent settings and
   governance floors do not come from the API server and apply unchanged. The
   meta-tools' listings (`list_tools`, `filter_tools`) use the same last
   observed definitions meanwhile, so a listing and a call agree; a server
   muster never read is reported `unavailable`, and a listing that fails any
-  other way reports every server tool `unavailable`.
+  other way, stays throttled, or finds the oldest definition beyond the
+  maximum age reports every server tool `unavailable`.
 - Keep secrets out of a connector's URL (use `headersFrom`): the audit line of
   a connector write records the URL's scheme, host and path, with userinfo,
   query, fragment and matrix parameters dropped and token-like path segments

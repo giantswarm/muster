@@ -148,12 +148,17 @@ last got) and `send_failed` (the caller's session could not take it).
 
 | OTel name                                 | Type           | Attributes       | Prometheus export name                           |
 |-------------------------------------------|----------------|------------------|--------------------------------------------------|
-| `muster.approval.last_observed_fallbacks` | `Int64Counter` | `mcpserver.name` | `muster_approval_last_observed_fallbacks_total`  |
+| `muster.approval.last_observed_fallbacks` | `Int64Counter` | `mcpserver.name`, `reason` | `muster_approval_last_observed_fallbacks_total`  |
+| `muster.approval.settings_refusals`       | `Int64Counter` | `mcpserver.name`, `reason` | `muster_approval_settings_refusals_total`        |
 
 It counts the tool calls whose approval settings came from the server's
 last observed definition because the API server could not be reached
 ([Tool approval](../how-to/mcp-server-management.md#tool-approval)). It
-rises only during an API server outage.
+rises only during an API server outage; `reason` is `api_server_unreachable`.
+`muster.approval.settings_refusals` counts the reads that had no usable
+fallback, with `reason` `last_observed_too_old` (older than
+`approval.lastObservedMaxAge`), `never_observed` or `throttled` (HTTP 429, not
+a fallback case). The same reasons are in the warning log lines.
 
 ### Grafana dashboard
 

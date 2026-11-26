@@ -272,6 +272,25 @@ data:
     {{- fail (printf "muster.approval.ttl must be above 0 and at most 30m, not %q (muster would not start)" $ttl) }}
     {{- end }}
     {{- end }}
+    {{- with .lastObservedMaxAge }}
+    {{- $age := toString . }}
+    {{- if not (regexMatch `^([0-9]+(\.[0-9]+)?(h|m|s))+$` $age) }}
+    {{- fail (printf "muster.approval.lastObservedMaxAge must be a duration in h, m and s (e.g. 10m, 90s), above 0 and at most 1h, not %q" $age) }}
+    {{- end }}
+    {{- $ageSeconds := 0.0 }}
+    {{- range regexFindAll `[0-9]+(\.[0-9]+)?(h|m|s)` $age -1 }}
+    {{- if hasSuffix "h" . }}
+    {{- $ageSeconds = addf $ageSeconds (mulf (float64 (trimSuffix "h" .)) 3600) }}
+    {{- else if hasSuffix "m" . }}
+    {{- $ageSeconds = addf $ageSeconds (mulf (float64 (trimSuffix "m" .)) 60) }}
+    {{- else }}
+    {{- $ageSeconds = addf $ageSeconds (float64 (trimSuffix "s" .)) }}
+    {{- end }}
+    {{- end }}
+    {{- if or (le $ageSeconds 0.0) (gt $ageSeconds 3600.0) }}
+    {{- fail (printf "muster.approval.lastObservedMaxAge must be above 0 and at most 1h, not %q (muster would not start)" $age) }}
+    {{- end }}
+    {{- end }}
     approval:
       {{- toYaml . | nindent 6 }}
     {{- end }}

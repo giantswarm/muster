@@ -137,7 +137,8 @@ caller as `approval`, from its server's `spec.approval`
   list, or a core tool that is not a read) or `unavailable` (the settings could not be read,
   the server's MCPServer is missing, or the CRD does not know `spec.approval`: reported as
   `ask`, and a call is refused). While the API server cannot be reached, the listing and a call
-  are both decided by the server's last observed settings
+  are both decided by the server's last observed settings, if not older than
+  `approval.lastObservedMaxAge`, else they are `unavailable`
   ([Tool approval](../how-to/mcp-server-management.md#tool-approval)).
 - `new`: `true` for a tool without its own entry on a server that has settings; it follows
   the rule.

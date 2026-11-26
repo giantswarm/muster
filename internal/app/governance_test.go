@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/muster/v5/internal/aggregator"
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 )
@@ -66,5 +67,30 @@ func TestApprovalTTL(t *testing.T) {
 	for _, bad := range []string{"soon", "0s", "-1m", "2h"} {
 		_, err := approvalTTL(config.ApprovalConfig{TTL: bad})
 		require.Error(t, err, bad)
+	}
+}
+
+func TestApprovalLastObservedMaxAge(t *testing.T) {
+	for name, tc := range map[string]struct {
+		in      string
+		want    time.Duration
+		wantErr bool
+	}{
+		"default":  {"", aggregator.DefaultLastObservedMaxAge, false},
+		"set":      {"2m", 2 * time.Minute, false},
+		"at most":  {"1h", time.Hour, false},
+		"too long": {"61m", 0, true},
+		"zero":     {"0s", 0, true},
+		"garbage":  {"soon", 0, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := approvalLastObservedMaxAge(config.ApprovalConfig{LastObservedMaxAge: tc.in})
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
 	}
 }

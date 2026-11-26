@@ -420,8 +420,11 @@ muster:
   governance: {}  # @schema additionalProperties: true
 
   # The approval round trip, rendered verbatim into config.yaml as `approval`:
-  # ttl (how long a pending approval lives, default "5m", at most "30m") and
-  # installation (the name the approval page shows). Asking also needs
+  # ttl (how long a pending approval lives, default "5m", at most "30m"),
+  # lastObservedMaxAge (how old a server's last observed approval settings may
+  # be and still decide a call while the API server cannot be reached, default
+  # "10m", at most "1h"; older, the call is refused as "approval settings
+  # unavailable") and installation (the name the approval page shows). Asking also needs
   # oauth.server with storage.type valkey and oauth.mcpClient.publicUrl.
   approval: {}  # @schema additionalProperties: true
 

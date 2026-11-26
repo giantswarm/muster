@@ -89,3 +89,20 @@ func approvalTTL(cfg config.ApprovalConfig) (time.Duration, error) {
 	}
 	return ttl, nil
 }
+
+// maxLastObservedMaxAge bounds approval.lastObservedMaxAge: the window in
+// which a connector tightened through a reachable API server goes unseen by
+// a muster that cannot read it.
+const maxLastObservedMaxAge = time.Hour
+
+// approvalLastObservedMaxAge parses approval.lastObservedMaxAge.
+func approvalLastObservedMaxAge(cfg config.ApprovalConfig) (time.Duration, error) {
+	if cfg.LastObservedMaxAge == "" {
+		return aggregator.DefaultLastObservedMaxAge, nil
+	}
+	age, err := time.ParseDuration(cfg.LastObservedMaxAge)
+	if err != nil || age <= 0 || age > maxLastObservedMaxAge {
+		return 0, fmt.Errorf("approval.lastObservedMaxAge %q must be a duration above 0 and at most %s", cfg.LastObservedMaxAge, maxLastObservedMaxAge)
+	}
+	return age, nil
+}

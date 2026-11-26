@@ -51,6 +51,11 @@ type ApprovalConfig struct {
 	// TTL is how long a pending approval can be decided and used, a Go
 	// duration (default "5m", at most "30m").
 	TTL string `yaml:"ttl,omitempty"`
+	// LastObservedMaxAge is the oldest a server's last observed definition
+	// may be and still decide a call while the API server cannot be reached,
+	// a Go duration (default "10m", at most "1h"). Older, the call is
+	// refused as "approval settings unavailable".
+	LastObservedMaxAge string `yaml:"lastObservedMaxAge,omitempty"`
 	// Installation names the installation on the approval page.
 	Installation string `yaml:"installation,omitempty"`
 }

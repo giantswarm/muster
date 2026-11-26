@@ -12,6 +12,7 @@ import (
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/mark3labs/mcp-go/mcp"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/approval"
@@ -111,18 +112,27 @@ func (a *AggregatorServer) serverToolApproval(ctx context.Context, server, origi
 // its object (deleted, or no longer served), and its settings, Block
 // included, cannot be known, so it must not resolve to Allow. While the API
 // server cannot be reached, the server's last observed definition decides
-// (approval_last_observed.go); without one the read's error stands.
+// (approval_last_observed.go) while it is not too old; a throttled read is
+// retried briefly, then refused; without a usable definition the read's error
+// stands.
 func connectorInfo(ctx context.Context, serverKey string) (*api.MCPServerInfo, error) {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
 		return nil, nil
 	}
-	info, err := manager.GetMCPServer(ctx, serverKey)
+	info, err := readThrottleRetried(ctx, func() (*api.MCPServerInfo, error) { return manager.GetMCPServer(ctx, serverKey) })
 	if err != nil {
 		if api.IsNotFound(err) {
 			return nil, fmt.Errorf("its MCPServer object cannot be found (deleted, or no longer served)")
 		}
-		if last := lastObservedWhileUnreachable(ctx, serverKey, err); last != nil {
+		if apierrors.IsTooManyRequests(err) {
+			return nil, throttledRefusal(ctx, serverKey, err)
+		}
+		last, refused := lastObservedWhileUnreachable(ctx, serverKey, err)
+		if refused != nil {
+			return nil, refused
+		}
+		if last != nil {
 			return last, nil
 		}
 		return nil, err
@@ -474,6 +484,7 @@ func (a *AggregatorServer) auditApproval(ctx context.Context, action string, tar
 // the in-memory stores none is registered and every call that asks is
 // refused.
 func newApprovalSettings(cfg AggregatorConfig, stores storeBundle) approvalSettings {
+	lastObservedMaxAge.Store(int64(cfg.ApprovalLastObservedMaxAge))
 	settings := approvalSettings{ttl: cfg.ApprovalTTL, reach: &storeReachability{}}
 	if settings.ttl <= 0 {
 		settings.ttl = DefaultApprovalTTL

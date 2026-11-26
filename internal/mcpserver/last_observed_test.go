@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -108,3 +109,33 @@ func TestAdapter_ListingRemembersAndForgetsLastObserved(t *testing.T) {
 type kubeListingClient struct{ listingClient }
 
 func (*kubeListingClient) IsKubernetesMode() bool { return true }
+
+// A listing that began before a single read finished does not overwrite the
+// newer single read, and does not forget a server that read created.
+func TestObservedServers_ReplaceAllKeepsAReadNewerThanTheListing(t *testing.T) {
+	at := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	o := &observedServers{now: func() time.Time { return at }}
+	listingStarted := at
+
+	at = at.Add(time.Second)
+	o.record("github", api.MCPServerInfo{Name: "github", UID: "single-read"})
+	o.record("created-meanwhile", api.MCPServerInfo{Name: "created-meanwhile"})
+
+	at = at.Add(time.Second)
+	o.replaceAll([]api.MCPServerInfo{{Name: "github", UID: "listing"}, {Name: "other"}}, listingStarted)
+
+	info, _, ok := o.get("github")
+	require.True(t, ok)
+	assert.Equal(t, "single-read", info.UID, "the newer of the two reads stays")
+	_, _, ok = o.get("created-meanwhile")
+	assert.True(t, ok)
+	_, _, ok = o.get("other")
+	assert.True(t, ok)
+
+	at = at.Add(time.Second)
+	o.replaceAll([]api.MCPServerInfo{{Name: "github", UID: "later-listing"}}, at.Add(-time.Millisecond))
+	info, _, _ = o.get("github")
+	assert.Equal(t, "later-listing", info.UID, "a listing that began after the read replaces it")
+	_, _, ok = o.get("created-meanwhile")
+	assert.False(t, ok, "a server a later listing does not return is forgotten")
+}

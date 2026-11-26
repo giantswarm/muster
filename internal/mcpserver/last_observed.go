@@ -16,6 +16,15 @@ import (
 type observedServers struct {
 	mu    sync.RWMutex
 	byKey map[string]observedServer
+	// now is the clock; nil is clock.Now.
+	now func() time.Time
+}
+
+func (o *observedServers) clockNow() time.Time {
+	if o.now != nil {
+		return o.now()
+	}
+	return clock.Now()
 }
 
 // observedServer is one remembered definition and when it was read.
@@ -31,7 +40,7 @@ func (o *observedServers) record(key string, info api.MCPServerInfo) {
 	if o.byKey == nil {
 		o.byKey = make(map[string]observedServer)
 	}
-	o.byKey[key] = observedServer{info: info, at: clock.Now()}
+	o.byKey[key] = observedServer{info: info, at: o.clockNow()}
 }
 
 // forget drops a server the definition source reported deleted.
@@ -53,17 +62,29 @@ func (o *observedServers) get(key string) (*api.MCPServerInfo, time.Time, bool) 
 	return &info, observed.at, true
 }
 
-// replaceAll remembers infos as the definitions of all servers, read now,
-// and forgets every other: a server a successful listing does not return is
-// deleted or no longer served.
-func (o *observedServers) replaceAll(infos []api.MCPServerInfo) {
+// replaceAll remembers infos as the definitions of all servers and forgets
+// every other: a server a successful listing does not return is deleted or
+// no longer served. startedAt is when the listing's read began: a definition
+// recorded after it (a single read that finished meanwhile) is newer than the
+// listing and is kept.
+func (o *observedServers) replaceAll(infos []api.MCPServerInfo, startedAt time.Time) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	now := clock.Now()
-	o.byKey = make(map[string]observedServer, len(infos))
-	for _, info := range infos {
-		o.byKey[info.ServerKey()] = observedServer{info: info, at: now}
+	now := o.clockNow()
+	next := make(map[string]observedServer, len(infos))
+	for key, observed := range o.byKey {
+		if observed.at.After(startedAt) {
+			next[key] = observed
+		}
 	}
+	for _, info := range infos {
+		key := info.ServerKey()
+		if _, newer := next[key]; newer {
+			continue
+		}
+		next[key] = observedServer{info: info, at: now}
+	}
+	o.byKey = next
 }
 
 // all returns copies of every remembered definition and the oldest read.
