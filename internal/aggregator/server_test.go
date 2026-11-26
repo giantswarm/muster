@@ -1059,14 +1059,15 @@ func TestDiscoverProtectedResourceMetadata(t *testing.T) {
 		assert.Equal(t, mcp.URL, md.Resource)
 	})
 
-	t.Run("metadata declaring another party's resource is rejected", func(t *testing.T) {
+	t.Run("cross-origin resource is retained for operator-managed discovery", func(t *testing.T) {
 		mcp, pointer, resource := newAdvertisingMCP(t)
 		*pointer = mcp.URL + "/.well-known/oauth-protected-resource/v1/mcp"
 		*resource = "https://payments.example/api"
 
-		md, err := discoverProtectedResourceMetadata(context.Background(), mcp.URL+"/v1/mcp", nil)
-		require.Error(t, err)
-		require.Nil(t, md, "the authorization server of an invalid document must not be retained")
+		metadata, err := discoverProtectedResourceMetadata(t.Context(), mcp.URL+"/v1/mcp", nil)
+		require.NoError(t, err)
+		require.Equal(t, "https://issuer.example", metadata.Issuer)
+		require.Equal(t, "https://payments.example/api", metadata.Resource)
 	})
 
 	t.Run("path-based PRM well-known retains MCP URL path", func(t *testing.T) {

@@ -11,7 +11,11 @@ func validateDiscoveredResource(metadata *ProtectedResourceMetadata, serverURL s
 		return nil
 	}
 	if err := pkgoauth.ValidateAdvertisedResource(metadata.Resource, serverURL); err != nil {
-		return err
+		if resourceError := pkgoauth.ValidateResourceURI(metadata.Resource); resourceError != nil {
+			return resourceError
+		}
+		logging.Warn("AuthTools", "DEPRECATED: protected resource metadata resource %q is not on the origin of %q; verify the operator-managed backend and its private tunnel mapping; RFC 9728 resource matching is not enforced on this discovery path", metadata.Resource, serverURL)
+		return nil
 	}
 	resource, err := pkgoauth.DeriveResourceURI(serverURL)
 	if err != nil {
