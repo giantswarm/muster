@@ -311,6 +311,21 @@
                         "releasable": {
                             "type": "object",
                             "additionalProperties": true
+                        },
+                        "sessionBindings": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "allowedFrom": {
+                                    "type": "array"
+                                },
+                                "onMainPort": {
+                                    "type": "boolean"
+                                },
+                                "port": {
+                                    "type": "integer"
+                                }
+                            }
                         }
                     }
                 },

@@ -123,6 +123,9 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.credentialProvider.actorBearer.jwksUrl | string | `""` |  |
 | muster.credentialProvider.actorBearer.audience | string | `""` |  |
 | muster.credentialProvider.actorBearer.allowPrivateIPJWKSHosts | list | `[]` |  |
+| muster.credentialProvider.sessionBindings.port | int | `8091` |  |
+| muster.credentialProvider.sessionBindings.onMainPort | bool | `true` |  |
+| muster.credentialProvider.sessionBindings.allowedFrom | list | `[]` |  |
 | muster.extraCaFile.path | string | `"/etc/muster/ca/extra-ca.pem"` |  |
 | muster.extraCaFile.secret.name | string | `""` |  |
 | muster.extraCaFile.secret.key | string | `"ca.pem"` |  |

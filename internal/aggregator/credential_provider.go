@@ -2,8 +2,10 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -88,20 +90,63 @@ func releaseSubjectGrant(ctx context.Context, subject, issuer string) *api.OAuth
 	return releaser.SubjectGrantForRelease(ctx, subject, issuer)
 }
 
-// registerSessionBindingRoutes builds the credential provider and puts its
-// binding endpoints on the authenticated mux. A disabled provider registers
-// nothing.
+// registerSessionBindingRoutes builds the credential provider and its
+// session bindings API: on a listener of its own (startCredentialProvider)
+// and, while sessionBindings.onMainPort is on (deprecated), on the
+// aggregator's mux too. A disabled provider registers nothing.
 func (a *AggregatorServer) registerSessionBindingRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Handler) error {
 	provider, err := a.newCredentialProvider()
 	if err != nil || provider == nil {
 		return err
 	}
+	a.sessionBindings = sessionBindingsHandler(provider, authenticate)
+	if a.config.CredentialProvider.SessionBindings.MainPort() {
+		logging.Warn("Aggregator", "The session bindings API is also served on the aggregator's port (credentialProvider.sessionBindings.onMainPort, deprecated): point agent-manager at the session bindings port and turn it off, so a network policy can admit agent-manager alone")
+		registerSessionBindingsOn(mux, provider, authenticate)
+	}
+	a.credProvider = provider
+	return nil
+}
+
+// sessionBindingsHandler is the session bindings API alone.
+func sessionBindingsHandler(provider *credprovider.Provider, authenticate func(http.Handler) http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	registerSessionBindingsOn(mux, provider, authenticate)
+	return mux
+}
+
+func registerSessionBindingsOn(mux *http.ServeMux, provider *credprovider.Provider, authenticate func(http.Handler) http.Handler) {
 	mux.Handle("PUT "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleBind)))
 	mux.Handle("DELETE "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleUnbind)))
 	// Authorized by the approval sender's token alone (no person's bearer):
 	// it only removes grant marks (M2-S3-C-04).
 	mux.Handle("PATCH "+credprovider.GrantsPath, http.HandlerFunc(provider.HandleDropGrants))
-	a.credProvider = provider
+}
+
+// sessionBindingsReadTimeout bounds reading a request on the bindings
+// listener (headers and the body, at most 256 KiB).
+const sessionBindingsReadTimeout = 30 * time.Second
+
+// startSessionBindings starts the session bindings API's own listener.
+func (a *AggregatorServer) startSessionBindings() error {
+	addr := a.config.CredentialProvider.SessionBindings.Address()
+	if addr == "" || a.sessionBindings == nil {
+		return nil
+	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("session bindings: listen on %s: %w", addr, err)
+	}
+	srv := &http.Server{Handler: a.sessionBindings, ReadHeaderTimeout: sessionBindingsReadTimeout, ReadTimeout: sessionBindingsReadTimeout}
+	a.mu.Lock()
+	a.bindingsServer, a.bindingsAddr = srv, listener.Addr().String()
+	a.mu.Unlock()
+	go func() {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logging.Error("Aggregator", err, "Session bindings listener stopped")
+		}
+	}()
+	logging.InfoWithAttrs("Aggregator", "Session bindings API listening", slog.String("addr", listener.Addr().String()))
 	return nil
 }
 
@@ -115,6 +160,9 @@ func (a *AggregatorServer) startCredentialProvider(ctx context.Context) error {
 	}
 	if a.credProvider == nil {
 		return fmt.Errorf("credential provider: needs the OAuth server (aggregator.oauth.server.enabled), whose identity the session binding endpoints authenticate")
+	}
+	if err := a.startSessionBindings(); err != nil {
+		return err
 	}
 	srv, err := credprovider.Listen(ctx, cfg.ListenAddress, credprovider.TLSFiles{
 		ServerCredBundle: cfg.ServerCredBundle,
@@ -132,12 +180,20 @@ func (a *AggregatorServer) startCredentialProvider(ctx context.Context) error {
 	return nil
 }
 
-// stopCredentialProvider drains and stops the FetchSecret listener.
+// stopCredentialProvider drains and stops the FetchSecret and session
+// bindings listeners.
 func (a *AggregatorServer) stopCredentialProvider(ctx context.Context) {
 	a.mu.Lock()
 	srv := a.credProviderServer
 	a.credProviderServer = nil
+	bindings := a.bindingsServer
+	a.bindingsServer = nil
 	a.mu.Unlock()
+	if bindings != nil {
+		shutdownCtx, cancel := context.WithTimeout(ctx, credentialProviderStopTimeout)
+		_ = bindings.Shutdown(shutdownCtx)
+		cancel()
+	}
 	if srv == nil {
 		return
 	}

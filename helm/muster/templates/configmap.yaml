@@ -21,6 +21,9 @@ data:
         serverCredBundle: /run/servicedns.podcert.ate.dev/credential-bundle.pem
         clientCAFile: /run/podidentity.podcert.ate.dev/trust-bundle.pem
         gatewayIdentity: {{ .gatewayIdentity | quote }}
+        sessionBindings:
+          listenAddress: ":{{ .sessionBindings.port }}"
+          onMainPort: {{ .sessionBindings.onMainPort }}
         authority: {{ .authority | quote }}
         bindingTTL: {{ .bindingTTL | quote }}
         {{- with .releasable }}

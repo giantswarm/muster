@@ -126,3 +126,64 @@ func TestSubjectRoutesAreAuthenticated(t *testing.T) {
 		})
 	}
 }
+
+// The session bindings API has a listener of its own, so a network policy
+// can admit agent-manager alone; with onMainPort off (what the platform
+// sets) the aggregator's port no longer serves it (decision #88).
+func TestSessionBindingsOnTheirOwnListener(t *testing.T) {
+	off := false
+	a := &AggregatorServer{}
+	a.config.CredentialProvider = credentialProviderConfig()
+	a.config.CredentialProvider.SessionBindings = config.SessionBindingsConfig{ListenAddress: "127.0.0.1:0", OnMainPort: &off}
+	mux := http.NewServeMux()
+	authenticate := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Authorization") != "Bearer alice" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(api.WithSubject(r.Context(), "alice")))
+		})
+	}
+	require.NoError(t, a.registerSessionBindingRoutes(mux, authenticate))
+	body := `{"actor":"spiffe://substrate-actor.local/actor/kagent/s1","session":"kagent/s1","providers":["github"]}`
+
+	req := httptest.NewRequest(http.MethodPut, credprovider.BindingsPath, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer alice")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code, "not on the aggregator's port")
+
+	require.NoError(t, a.startSessionBindings())
+	t.Cleanup(func() { a.stopCredentialProvider(context.Background()) })
+	require.NotEmpty(t, a.bindingsAddr)
+	for _, tc := range []struct {
+		method, path, bearer string
+		want                 int
+	}{
+		{http.MethodPut, credprovider.BindingsPath, "", http.StatusUnauthorized},
+		{http.MethodPut, credprovider.BindingsPath, "alice", http.StatusNoContent},
+		{http.MethodPatch, credprovider.GrantsPath, "", http.StatusForbidden},
+		{http.MethodPost, "/mcp", "alice", http.StatusNotFound},
+	} {
+		r, err := http.NewRequest(tc.method, "http://"+a.bindingsAddr+tc.path, strings.NewReader(body))
+		require.NoError(t, err)
+		if tc.bearer != "" {
+			r.Header.Set("Authorization", "Bearer "+tc.bearer)
+		}
+		resp, err := http.DefaultClient.Do(r)
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+		assert.Equal(t, tc.want, resp.StatusCode, "%s %s", tc.method, tc.path)
+	}
+}
+
+// With onMainPort unset (the default, deprecated) the API stays on the
+// aggregator's port too, so an upgrade keeps working.
+func TestSessionBindingsStayOnTheMainPortByDefault(t *testing.T) {
+	assert.Equal(t, config.DefaultSessionBindingsAddress, config.SessionBindingsConfig{}.Address())
+	assert.Empty(t, config.SessionBindingsConfig{ListenAddress: "-"}.Address())
+	assert.True(t, config.SessionBindingsConfig{}.MainPort())
+	off := false
+	assert.False(t, config.SessionBindingsConfig{OnMainPort: &off}.MainPort())
+}

@@ -196,8 +196,14 @@ gateway: a sandbox's git and gh requests to a provider's hosts are sent with the
 token of the person who started the Session, without the token ever reaching the sandbox.
 The data path stays the gateway's; muster only answers whose token, and only to the gateway.
 
-- **Session bindings.** The component that starts a Session calls muster as the person
-  (their bearer, validated like every request on the aggregator port):
+- **Session bindings.** The component that starts a Session (agent-manager) calls muster as
+  the person (their bearer, validated as on the aggregator port), on the session bindings
+  API's own HTTP listener, `credentialProvider.sessionBindings.listenAddress` (default
+  `:8091`; `-` for none), so a network policy can admit agent-manager alone (muster chart
+  `muster.credentialProvider.sessionBindings.{port, allowedFrom}`).
+  `credentialProvider.sessionBindings.onMainPort` (default `true`, deprecated) also serves it
+  on the aggregator port, where it was before; turn it off once agent-manager calls the new
+  port (the agent-platform chart does). The listener speaks plain HTTP inside the cluster.
   `PUT /session-bindings` with `{"actor": "spiffe://substrate-actor.local/actor/<atespace>/<actor>",
   "session": "<namespace>/<name>", "providers": ["github"], "toolset": ["preset:read-only"]}`
   binds the Session's sandbox actor to the caller (`204`; `403` when the actor is bound to

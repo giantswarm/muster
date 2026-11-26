@@ -520,6 +520,24 @@ muster:
       # Key set hosts that may resolve to a private address; empty means the
       # issuer's host (an in-cluster Service).
       allowPrivateIPJWKSHosts: []
+    # The session bindings API (PUT/DELETE /session-bindings, PATCH
+    # /session-bindings/grants), which only agent-manager calls, on a port of
+    # its own: agent-manager's bindings URL is
+    # http://<muster service>.<namespace>.svc:<port>/session-bindings.
+    sessionBindings:
+      # HTTP port of the session bindings API, on the Service as
+      # `session-bindings`.
+      port: 8091
+      # Deprecated: also serve the API on the aggregator's port, where a
+      # network policy cannot tell it from /mcp. On by default so an upgrade
+      # keeps working; turn it off once agent-manager calls the port above
+      # (the agent-platform chart does).
+      onMainPort: true
+      # Who muster's network policy admits to the port: entries
+      # {namespace, podLabels}. Empty admits nobody through the policy (only
+      # without a network policy is the port reachable at all).
+      # Example: [{namespace: agent-platform, podLabels: {app.kubernetes.io/name: agent-manager}}]
+      allowedFrom: []
 
   # Append a PEM file to muster's system trust pool at startup. Use this when
   # muster talks to backends served by an internal CA (for example, the SPIFFE

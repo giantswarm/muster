@@ -273,6 +273,11 @@ type AggregatorServer struct {
 	// bindings; nil when disabled. credProviderServer is its gRPC listener.
 	credProvider       *credprovider.Provider
 	credProviderServer *credprovider.Server
+	// sessionBindings serves the session bindings API; bindingsServer is
+	// its own listener (nil without one).
+	sessionBindings http.Handler
+	bindingsServer  *http.Server
+	bindingsAddr    string
 
 	// approval is how calls that ask are asked (approval_gate.go).
 	approval approvalSettings

@@ -16,6 +16,10 @@ spec:
       targetPort: credprovider
       protocol: TCP
       name: credprovider
+    - port: {{ .Values.muster.credentialProvider.sessionBindings.port }}
+      targetPort: bindings
+      protocol: TCP
+      name: session-bindings
     {{- end }}
     {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
     - port: {{ .Values.muster.observability.metrics.prometheus.port }}

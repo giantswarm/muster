@@ -291,6 +291,45 @@ type CredentialProviderConfig struct {
 	// ActorBearer lets a bound Session's sandbox call muster itself as its
 	// person, with no credential in the sandbox. Disabled by default.
 	ActorBearer ActorBearerConfig `yaml:"actorBearer,omitempty"`
+
+	// SessionBindings places the session bindings API (PUT and DELETE
+	// /session-bindings, PATCH /session-bindings/grants): everything only
+	// agent-manager calls, on a listener of its own so a network policy can
+	// admit agent-manager alone.
+	SessionBindings SessionBindingsConfig `yaml:"sessionBindings,omitempty"`
+}
+
+// DefaultSessionBindingsAddress is where the session bindings API listens
+// unless configured.
+const DefaultSessionBindingsAddress = ":8091"
+
+// SessionBindingsConfig places the session bindings API.
+type SessionBindingsConfig struct {
+	// ListenAddress is the HTTP listen address of the session bindings API
+	// (default ":8091"); "-" serves it on no listener of its own.
+	ListenAddress string `yaml:"listenAddress,omitempty"`
+
+	// OnMainPort also serves it on the aggregator's port, where it was
+	// before it had its own listener. Deprecated: a network policy cannot
+	// tell it from /mcp there. Default: true, so an upgrade keeps working
+	// until the caller moves to the new port.
+	OnMainPort *bool `yaml:"onMainPort,omitempty"`
+}
+
+// Address returns the listen address, "" for none.
+func (c SessionBindingsConfig) Address() string {
+	switch c.ListenAddress {
+	case "":
+		return DefaultSessionBindingsAddress
+	case "-":
+		return ""
+	}
+	return c.ListenAddress
+}
+
+// MainPort reports whether the API is also served on the aggregator's port.
+func (c SessionBindingsConfig) MainPort() bool {
+	return c.OnMainPort == nil || *c.OnMainPort
 }
 
 // ActorBearerConfig accepts Substrate's actor JWT, which the egress gateway
