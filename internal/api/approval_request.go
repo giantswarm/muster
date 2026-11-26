@@ -182,6 +182,9 @@ type ApprovalRequest struct {
 	RequesterName string `json:"requesterName,omitempty"`
 	// Agent names the calling agent where muster knows it.
 	Agent string `json:"agent,omitempty"`
+	// AgentDisplayName is the agent's display name from its sender-bound
+	// binding, "" when it has none. Not part of the binding key.
+	AgentDisplayName string `json:"agentDisplayName,omitempty"`
 	// CallerKind is the caller's kind and its evidence.
 	CallerKind string `json:"callerKind"`
 

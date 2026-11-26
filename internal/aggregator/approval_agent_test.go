@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -106,6 +107,35 @@ func TestAgentSettings_TightenAndBlock(t *testing.T) {
 	assert.Equal(t, "tool:x_github_get_issue", got.Entry)
 	require.NotNil(t, got.Admin)
 	assert.Equal(t, api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceTool}, *got.Admin)
+}
+
+// The prompt names the agent by the display name its sender bound, marked
+// like other agent-controlled text and capped; the technical name stays on
+// the request and stands in when no display name is bound.
+func TestAgentSettings_MessageUsesTheDisplayName(t *testing.T) {
+	cases := []struct {
+		name, display, message string
+	}{
+		{"display name", "Alert Review", "Alert Review wants to run Get issue in github."},
+		{"fallback to the technical name", "", "Agent kagent/alert-review wants to run Get issue in github."},
+		{"marked", "Alert\u202e Review\u200b", "Alert⟨U+202E⟩ Review⟨U+200B⟩ wants to run Get issue in github."},
+		{"capped", strings.Repeat("x", api.MaxAgentDisplayName+20), strings.Repeat("x", api.MaxAgentDisplayName) + " wants to run Get issue in github."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rig := agentRig(t)
+			ctx := boundAgent(rig, &api.AgentApproval{AgentDisplayName: tc.display, Entries: []api.AgentApprovalEntry{
+				{Entry: "tool:x_github_get_issue", Setting: api.ApprovalAsk},
+			}})
+			result, err := rig.server.CallToolInternal(ctx, "x_github_get_issue", map[string]any{"id": 1.0})
+			require.NoError(t, err)
+			request, err := rig.store.Get(context.Background(), approvalIDOf(t, result))
+			require.NoError(t, err)
+			assert.Equal(t, tc.message, request.Display.Message)
+			assert.Equal(t, "kagent/alert-review", request.Agent)
+			assert.Equal(t, tc.display, request.AgentDisplayName)
+		})
+	}
 }
 
 // The default applies to tools no entry selects; the most specific entry

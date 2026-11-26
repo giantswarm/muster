@@ -91,6 +91,9 @@ type Binding struct {
 	// Agent is the Session's agent, <namespace>/<name>; set only by an
 	// approval sender.
 	Agent string `json:"agent,omitempty"`
+	// AgentDisplayName is the agent's display name, capped; set only by an
+	// approval sender, with Agent.
+	AgentDisplayName string `json:"agentDisplayName,omitempty"`
 	// Approval is the agent's approval settings at the Session's start:
 	// entries with Allow, Ask or Block, the default and the grant marks.
 	// Set only by an approval sender; grant marks can later be removed by

@@ -112,7 +112,7 @@ func TestDecisionAPI_ViewShowsWhatThePageShows(t *testing.T) {
 	require.Len(t, view.Arguments, 1)
 	assert.Equal(t, `"1⟨U+202E⟩2"`, view.Arguments[0].Value, "bidi controls are marked as on the page")
 	assert.Equal(t, "merge it⟨U+200B⟩ now", view.AgentSays)
-	assert.Equal(t, &ViewAgent{Namespace: "team-a", Name: "reviewer"}, view.Agent)
+	assert.Equal(t, &ViewAgent{Namespace: "team-a", Name: "reviewer"}, view.Agent, "no display name bound: the technical name only")
 	assert.Equal(t, ViewWhy{Setting: "ask", Source: "connector"}, view.Why)
 	assert.Equal(t, ViewPerson{Name: "alice@example.com", Subject: "alice", Issuer: alice.Issuer}, view.ActsFor)
 	assert.Equal(t, "example", view.Installation)
@@ -280,4 +280,18 @@ func TestDisplayDigest_ChangesWithWhatIsShown(t *testing.T) {
 	assert.NotEqual(t, base, DisplayDigest(request, "other"))
 	request.Display.AgentSays = "please"
 	assert.NotEqual(t, base, DisplayDigest(request, "example"))
+}
+
+func TestDecisionAPI_ViewCarriesTheAgentDisplayName(t *testing.T) {
+	rig := newDecisionRig(t)
+	request := rig.create(t, map[string]any{"pr": "1"})
+	request.Agent = "team-a/reviewer"
+	request.AgentDisplayName = "Code\u202e Reviewer"
+	request.ID = "req-name"
+	_, err := rig.store.Create(context.Background(), request)
+	require.NoError(t, err)
+
+	status, view, _ := rig.view(t, alice, request.ID)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, &ViewAgent{Namespace: "team-a", Name: "reviewer", DisplayName: "Code⟨U+202E⟩ Reviewer"}, view.Agent)
 }

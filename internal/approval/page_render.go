@@ -44,7 +44,7 @@ blockquote.says{margin:0;padding:.5rem .8rem;border:1px solid #8c959f;border-rad
 {{if .Display.Preset}}<h2>Approval settings written</h2><dl>{{range .Display.Preset}}<dt>{{visible .Label}}</dt><dd>{{visible .Value}}</dd>{{end}}</dl>{{end}}
 {{if .Display.Steps}}<h2>Steps</h2><ol>{{range .Display.Steps}}<li{{if .Asks}} class="asks"{{end}}>{{if .Workflow}}<span class="muted">in workflow {{visible .Workflow}}:</span> {{end}}{{visible .Label}} <code>{{visible .Tool}}</code>{{range .Arguments}}<br><span class="muted">{{visible .Label}}: {{visible .Value}}</span>{{end}}</li>{{end}}</ol>{{end}}
 {{end}}
-{{if .Request}}<p class="muted">Asks because: {{.Request.Display.Source}} setting · {{if $.Installation}}Installation {{$.Installation}} · {{end}}{{.Request.CallerKind}}{{if .Request.Agent}} · Agent {{visible .Request.Agent}}{{end}} · Session {{.Session}}{{if .Client}} · Client {{visible .Client}}{{end}} · Expires in {{.ExpiresIn}} min</p>
+{{if .Request}}<p class="muted">Asks because: {{.Request.Display.Source}} setting · {{if $.Installation}}Installation {{$.Installation}} · {{end}}{{.Request.CallerKind}}{{if .Request.Agent}} · Agent {{if .Request.AgentDisplayName}}{{visible .Request.AgentDisplayName}} <code>{{visible .Request.Agent}}</code>{{else}}{{visible .Request.Agent}}{{end}}{{end}} · Session {{.Session}}{{if .Client}} · Client {{visible .Client}}{{end}} · Expires in {{.ExpiresIn}} min</p>
 <details><summary>Show details</summary><pre>{{visible .Request.Arguments}}</pre><p class="muted">SHA-256 {{.Request.ArgumentsHash}}</p></details>
 {{if .Token}}
 <form id="decide" method="post" action="{{.Action}}">

@@ -62,10 +62,14 @@ type AgentApprovalGrant struct {
 // AgentApproval is an agent's approval settings as one request sees them.
 type AgentApproval struct {
 	// Agent is the agent, <namespace>/<name>, where known.
-	Agent   string               `json:"agent,omitempty"`
-	Entries []AgentApprovalEntry `json:"entries,omitempty"`
-	Default string               `json:"default,omitempty"`
-	Grants  []AgentApprovalGrant `json:"grants,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	// AgentDisplayName is the name people know the agent by, where its
+	// sender bound one (at most MaxAgentDisplayName runes); "" falls back to
+	// Agent. Never taken from the agent's own requests.
+	AgentDisplayName string               `json:"agentDisplayName,omitempty"`
+	Entries          []AgentApprovalEntry `json:"entries,omitempty"`
+	Default          string               `json:"default,omitempty"`
+	Grants           []AgentApprovalGrant `json:"grants,omitempty"`
 	// Reporting marks settings passed to a listing to report what an
 	// agent would see; they never decide a call.
 	Reporting bool `json:"-"`
@@ -358,6 +362,30 @@ func AgentOfContext(ctx context.Context) string {
 		return ""
 	}
 	return a.Agent
+}
+
+// MaxAgentDisplayName is the most runes of an agent's display name muster
+// keeps; a longer one is cut.
+const MaxAgentDisplayName = 80
+
+// CapAgentDisplayName trims a display name and cuts it to MaxAgentDisplayName
+// runes.
+func CapAgentDisplayName(name string) string {
+	name = strings.TrimSpace(name)
+	if r := []rune(name); len(r) > MaxAgentDisplayName {
+		name = strings.TrimSpace(string(r[:MaxAgentDisplayName]))
+	}
+	return name
+}
+
+// AgentDisplayNameOfContext returns the bound agent's display name of a
+// request, "" when it has none (or the agent itself is unknown).
+func AgentDisplayNameOfContext(ctx context.Context) string {
+	a := AgentApprovalFromContext(ctx)
+	if a == nil || a.Reporting || a.Agent == "" {
+		return ""
+	}
+	return a.AgentDisplayName
 }
 
 // PresetSelector reports whether a toolset preset selects a target.

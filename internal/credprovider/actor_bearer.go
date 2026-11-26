@@ -196,7 +196,7 @@ func bindingApproval(b *Binding) *api.AgentApproval {
 	if !b.ApprovalSender || (b.Agent == "" && b.Approval == nil) {
 		return nil
 	}
-	out := &api.AgentApproval{Agent: b.Agent}
+	out := &api.AgentApproval{Agent: b.Agent, AgentDisplayName: b.AgentDisplayName}
 	if b.Approval != nil {
 		out.Entries, out.Default, out.Grants = b.Approval.Entries, b.Approval.Default, b.Approval.Grants
 	}

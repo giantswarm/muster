@@ -57,6 +57,9 @@ type BindRequest struct {
 	// Agent is the Session's agent, <namespace>/<name>. Taken only from an
 	// approval sender.
 	Agent string `json:"agent,omitempty"`
+	// AgentDisplayName is the agent's display name. Taken only from an
+	// approval sender, with Agent; cut to api.MaxAgentDisplayName runes.
+	AgentDisplayName string `json:"agentDisplayName,omitempty"`
 	// Approval is the agent's approval settings: entries with a setting
 	// (each also in Toolset), the default and the grant marks. Taken only
 	// from an approval sender.
@@ -155,7 +158,7 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		logging.WarnWithAttrs(logSubsystem, "approval_settings_ignored",
 			slog.String("reason", "the bind carries an agent or approval settings but no approval sender"),
 			slog.String("sub", sub), slog.String("actor", req.Actor), slog.String("session", req.Session))
-		req.Agent, req.Approval = "", nil
+		req.Agent, req.AgentDisplayName, req.Approval = "", "", nil
 		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsIgnored)
 	} else if req.Agent != "" || req.Approval != nil {
 		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsBound)
@@ -163,9 +166,13 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsNone)
 	}
 
+	displayName := ""
+	if req.Agent != "" {
+		displayName = api.CapAgentDisplayName(req.AgentDisplayName)
+	}
 	signIn := api.SignInIdentityFromContext(r.Context())
 	b := Binding{
-		Agent: req.Agent, Approval: req.Approval,
+		Agent: req.Agent, AgentDisplayName: displayName, Approval: req.Approval,
 		ApprovalSender: approvalSender, Sender: sender,
 		Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
 		SignInIssuer: signIn.Issuer, SignInSubject: signIn.Subject, BoundAt: time.Now().UTC(),

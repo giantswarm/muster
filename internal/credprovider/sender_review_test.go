@@ -15,6 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // fakeCluster answers TokenReviews and LocalSubjectAccessReviews: the token
@@ -117,4 +119,58 @@ func TestBindReviewsTheApprovalSender(t *testing.T) {
 
 	p.senders = nil
 	assert.Equal(t, http.StatusForbidden, bindWithSender(t, p, "agent-manager").Code, "muster that cannot review refuses")
+}
+
+// The agent's display name is taken only from a reviewed sender, only with an
+// agent, and cut to the cap; the actor's requests then carry it.
+func TestBindTakesTheAgentDisplayNameOnlyFromTheSender(t *testing.T) {
+	client, _ := fakeCluster(t, nil)
+	p, store := newTestProvider(t, fakeGrants{})
+	p.senders = KubernetesSenderReviewer{Client: client, Namespace: "muster"}
+	ctx := context.Background()
+	put := func(token, body string) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPut, BindingsPath, strings.NewReader(body))
+		if token != "" {
+			req.Header.Set(ApprovalSenderHeader, token)
+		}
+		asPerson("alice", p.HandleBind).ServeHTTP(rec, req)
+		require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	}
+	body := func(name string) string {
+		return `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"],"agent":"kagent/alert-review","agentDisplayName":"` + name + `"}`
+	}
+
+	put("agent-manager", body("  Alert Review "))
+	b, err := store.Get(ctx, testActor)
+	require.NoError(t, err)
+	assert.Equal(t, "kagent/alert-review", b.Agent)
+	assert.Equal(t, "Alert Review", b.AgentDisplayName)
+	assert.Equal(t, "Alert Review", bindingApproval(b).AgentDisplayName)
+
+	put("agent-manager", body(strings.Repeat("ä", 200)))
+	b, err = store.Get(ctx, testActor)
+	require.NoError(t, err)
+	assert.Equal(t, strings.Repeat("ä", api.MaxAgentDisplayName), b.AgentDisplayName)
+
+	put("agent-manager", `{"actor":"`+testActor+`","session":"kagent/s1","providers":["github"],"agentDisplayName":"Orphan"}`)
+	b, err = store.Get(ctx, testActor)
+	require.NoError(t, err)
+	assert.Empty(t, b.AgentDisplayName, "a name without an agent is not kept")
+}
+
+func TestBindWithoutTheSenderDropsTheAgentDisplayName(t *testing.T) {
+	client, _ := fakeCluster(t, nil)
+	p, store := newTestProvider(t, fakeGrants{})
+	p.senders = KubernetesSenderReviewer{Client: client, Namespace: "muster"}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, BindingsPath, strings.NewReader(
+		`{"actor":"`+testActor+`","session":"kagent/s1","providers":["github"],"agent":"kagent/alert-review","agentDisplayName":"Alert Review"}`))
+	asPerson("alice", p.HandleBind).ServeHTTP(rec, req)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	b, err := store.Get(context.Background(), testActor)
+	require.NoError(t, err)
+	assert.Empty(t, b.Agent)
+	assert.Empty(t, b.AgentDisplayName)
 }

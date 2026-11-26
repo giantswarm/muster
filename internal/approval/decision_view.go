@@ -72,6 +72,10 @@ type ViewConnector struct {
 type ViewAgent struct {
 	Namespace string `json:"namespace,omitempty"`
 	Name      string `json:"name"`
+	// DisplayName is the name people know the agent by, marked like other
+	// agent-controlled text; absent when the binding carries none, then
+	// Namespace/Name is the agent's name.
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 // ViewWhy says why the call asks: the setting and where it came from
@@ -147,7 +151,7 @@ func buildView(request *api.ApprovalRequest, installation string) RequestView {
 		if !ok {
 			namespace, name = "", request.Agent
 		}
-		v.Agent = &ViewAgent{Namespace: Visible(namespace), Name: Visible(name)}
+		v.Agent = &ViewAgent{Namespace: Visible(namespace), Name: Visible(name), DisplayName: Visible(api.CapAgentDisplayName(request.AgentDisplayName))}
 	}
 	v.Digest = viewDigest(v)
 	return v

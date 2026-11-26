@@ -173,6 +173,12 @@ func approvalMessage(ctx context.Context, title, connector string) string {
 	}
 	if api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
 		if agent := api.AgentOfContext(ctx); agent != "" {
+			// The display name is the person-facing name; Visible marks
+			// bidi, zero-width and look-alike characters in it. Without one
+			// the technical namespace/name stands in.
+			if name := api.AgentDisplayNameOfContext(ctx); name != "" {
+				return fmt.Sprintf("%s wants to run %s%s.", approval.Visible(api.CapAgentDisplayName(name)), title, where)
+			}
 			return fmt.Sprintf("Agent %s wants to run %s%s.", agent, title, where)
 		}
 		return fmt.Sprintf("An agent wants to run %s%s.", title, where)

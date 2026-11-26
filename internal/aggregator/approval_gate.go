@@ -353,19 +353,20 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 	}
 	now := clock.Now()
 	request, err = store.Create(ctx, &api.ApprovalRequest{
-		ID:            rand.Text(),
-		ElicitationID: rand.Text(),
-		Identity:      identity,
-		SessionID:     sessionID,
-		CallerKind:    api.CallerKind(ctx, getSessionIDFromContext(ctx)),
-		RequesterName: requesterName(ctx),
-		Agent:         agent,
-		Target:        target,
-		Arguments:     canonical,
-		ArgumentsHash: hash,
-		Display:       shown,
-		CreatedAt:     now,
-		ExpiresAt:     now.Add(a.approval.ttl),
+		ID:               rand.Text(),
+		ElicitationID:    rand.Text(),
+		Identity:         identity,
+		SessionID:        sessionID,
+		CallerKind:       api.CallerKind(ctx, getSessionIDFromContext(ctx)),
+		RequesterName:    requesterName(ctx),
+		Agent:            agent,
+		AgentDisplayName: api.AgentDisplayNameOfContext(ctx),
+		Target:           target,
+		Arguments:        canonical,
+		ArgumentsHash:    hash,
+		Display:          shown,
+		CreatedAt:        now,
+		ExpiresAt:        now.Add(a.approval.ttl),
 	})
 	switch {
 	case errors.Is(err, api.ErrApprovalLimit):

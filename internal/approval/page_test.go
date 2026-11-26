@@ -441,6 +441,24 @@ func TestPage_AgentSaysAndBoundClient(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "Client ")
 }
 
+// The page names the agent by its display name, with the technical name as
+// a code detail, and marks hidden characters in the display name.
+func TestPage_AgentDisplayName(t *testing.T) {
+	p := &Page{PublicURL: "https://muster.example.com"}
+	request := &api.ApprovalRequest{ID: "x", Identity: alice, Status: api.ApprovalStatusPending, ExpiresAt: time.Now().Add(time.Minute),
+		Agent: "kagent/alert-review", AgentDisplayName: "Alert\u202e Review",
+		Display: api.ApprovalDisplay{Title: "Merge pull request", Message: "Alert Review wants to run Merge pull request."}}
+	w := httptest.NewRecorder()
+	p.renderRequest(w, request, &api.ApprovalPageFlow{Identity: alice, Token: "t"})
+	assert.Contains(t, w.Body.String(), "Agent Alert⟨U&#43;202E⟩ Review <code>kagent/alert-review</code>")
+
+	request.AgentDisplayName = ""
+	w = httptest.NewRecorder()
+	p.renderRequest(w, request, &api.ApprovalPageFlow{Identity: alice, Token: "t"})
+	assert.Contains(t, w.Body.String(), "Agent kagent/alert-review")
+	assert.NotContains(t, w.Body.String(), "<code>kagent/alert-review</code>")
+}
+
 // More than two combining marks on one character are marked, so a stack of
 // them cannot draw over the lines around it; text with accents keeps them.
 func TestVisible_StackedCombiningMarks(t *testing.T) {

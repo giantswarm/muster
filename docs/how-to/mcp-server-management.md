@@ -668,9 +668,11 @@ that exact call:
    person saw, a declined one answers `declined`, and an identical call made
    before a decision gets the same link.
 
-For an agent's call the page names the agent its Session is bound to
-(`Agent kagent/alert-review wants to run ...`), and the approval is bound to that
-agent too; the reason the agent gave with `call_tool` (`reason`) is shown in a
+For an agent's call the page names the agent its Session is bound to by its
+display name (`Alert Review wants to run ...`, the technical
+`kagent/alert-review` as a small detail beside it, and `Agent kagent/alert-review
+wants to run ...` when the binding carries no display name), and the approval is
+bound to that agent too (by its technical name); the reason the agent gave with `call_tool` (`reason`) is shown in a
 box *Agent says*, never used to decide. A person's own client is named by its
 OAuth client (*Client*). An agent's own settings can make a tool ask or hide it,
 and a connector admin can let one agent run a tool the connector asks for
