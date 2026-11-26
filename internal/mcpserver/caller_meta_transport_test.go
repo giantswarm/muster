@@ -45,7 +45,8 @@ func TestCallerMeta_LegacyTransports(t *testing.T) {
 			require.NoError(t, client.Initialize(t.Context()))
 			require.Equal(t, mcp.LATEST_LEGACY_PROTOCOL_VERSION, client.NegotiatedProtocolVersion())
 			declarations := map[string]any{testExtensionID: map[string]any{}}
-			ctx := api.WithCallerMeta(t.Context(), map[string]any{testExtensionID: "opaque"}, declarations)
+			ctx, err := api.WithCallerMeta(t.Context(), map[string]any{testExtensionID: "opaque"})
+			require.NoError(t, err)
 			result, err := client.CallTool(ctx, "probe", nil)
 			require.NoError(t, err)
 			require.False(t, result.IsError)

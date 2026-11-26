@@ -38,19 +38,18 @@ func TestCallerMeta_Protocol(t *testing.T) {
 				capabilities := mcp.ClientCapabilities{Extensions: map[string]any{testExtensionID: map[string]any{"format": "client-opaque"}}}
 				payload := map[string]any{"any-shape": []any{"a1", float64(7)}}
 				ctx := WithCallerCapabilities(t.Context(), capabilities)
-				ctx = api.WithCallerMeta(ctx, map[string]any{testExtensionID: payload}, capabilities.Extensions)
-				_, err := client.CallTool(ctx, "probe", nil)
+				ctx, err := api.WithCallerMeta(ctx, map[string]any{testExtensionID: payload})
 				require.NoError(t, err)
+				_, err = client.CallTool(ctx, "probe", nil)
+				require.NoError(t, err)
+				require.NotNil(t, received.Load())
+				require.Equal(t, payload, received.Load().AdditionalFields[testExtensionID])
 				if name == "declared" {
-					require.NotNil(t, received.Load())
-					require.Equal(t, payload, received.Load().AdditionalFields[testExtensionID])
 					if mcp.IsModernProtocol(revision) {
 						require.Equal(t, capabilities.Extensions, declared.Load().Extensions)
 					} else {
 						require.Equal(t, map[string]any{testExtensionID: map[string]any{}}, declared.Load().Extensions)
 					}
-				} else if received.Load() != nil {
-					require.NotContains(t, received.Load().AdditionalFields, testExtensionID)
 				}
 				_, err = client.CallTool(t.Context(), "probe", nil)
 				require.NoError(t, err)
@@ -63,15 +62,15 @@ func TestCallerMeta_Protocol(t *testing.T) {
 }
 
 func TestCallerMeta_PreservesExistingMetadata(t *testing.T) {
-	declarations := map[string]any{testExtensionID: map[string]any{}}
-	ctx := api.WithCallerMeta(t.Context(), map[string]any{testExtensionID: "caller"}, declarations)
+	ctx, err := api.WithCallerMeta(t.Context(), map[string]any{testExtensionID: "caller"})
+	require.NoError(t, err)
 	for name, meta := range map[string]*mcp.Meta{
 		"empty":          nil,
 		"progress":       {ProgressToken: "hop-owned"},
 		"existing entry": {AdditionalFields: map[string]any{testExtensionID: "existing"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			result := withCallerMeta(ctx, meta, declarations)
+			result := withCallerMeta(ctx, meta)
 			require.NotNil(t, result)
 			if name == "existing entry" {
 				require.Equal(t, "existing", result.AdditionalFields[testExtensionID])
@@ -85,7 +84,7 @@ func TestCallerMeta_PreservesExistingMetadata(t *testing.T) {
 	}
 }
 
-func TestCallerMeta_LegacyDeclarationsCannotExpandAfterProbe(t *testing.T) {
+func TestCallerMeta_LegacyMetadataDoesNotDependOnDeclarations(t *testing.T) {
 	const newExtensionID = "com.example/new-context"
 	hooks := &server.Hooks{}
 	var initialized atomic.Int32
@@ -107,11 +106,23 @@ func TestCallerMeta_LegacyDeclarationsCannotExpandAfterProbe(t *testing.T) {
 	client := connect(t, t.Context(), transport.URL)
 	require.Equal(t, int32(2), initialized.Load())
 	require.Empty(t, client.ServerCapabilities().Extensions)
-	declarations := map[string]any{newExtensionID: map[string]any{}}
-	ctx := api.WithCallerMeta(t.Context(), map[string]any{newExtensionID: "opaque"}, declarations)
-	_, err := client.CallTool(ctx, "probe", nil)
+	ctx, err := api.WithCallerMeta(t.Context(), map[string]any{newExtensionID: "opaque"})
 	require.NoError(t, err)
-	if received.Load() != nil {
-		require.NotContains(t, received.Load().AdditionalFields, newExtensionID)
-	}
+	_, err = client.CallTool(ctx, "probe", nil)
+	require.NoError(t, err)
+	require.NotNil(t, received.Load())
+	require.Equal(t, "opaque", received.Load().AdditionalFields[newExtensionID])
+}
+
+func TestCallerMetaDoesNotMutateSharedOutboundMetadata(t *testing.T) {
+	metadata := &mcp.Meta{AdditionalFields: map[string]any{"server/setting": true}}
+	firstContext, err := api.WithCallerMeta(t.Context(), map[string]any{testExtensionID: "first"})
+	require.NoError(t, err)
+	secondContext, err := api.WithCallerMeta(t.Context(), map[string]any{testExtensionID: "second"})
+	require.NoError(t, err)
+	first := withCallerMeta(firstContext, metadata)
+	second := withCallerMeta(secondContext, metadata)
+	require.Equal(t, "first", first.AdditionalFields[testExtensionID])
+	require.Equal(t, "second", second.AdditionalFields[testExtensionID])
+	require.Equal(t, map[string]any{"server/setting": true}, metadata.AdditionalFields)
 }

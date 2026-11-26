@@ -2,20 +2,25 @@ package mcpserver
 
 import (
 	"context"
+	"maps"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// withCallerMeta relays opaque extension entries accepted by this backend.
+// withCallerMeta relays opaque application entries on the current tool call.
 // Request metadata already set by muster takes precedence.
-func withCallerMeta(ctx context.Context, meta *mcp.Meta, extensions map[string]any) *mcp.Meta {
-	for identifier := range api.RelayedExtensions(extensions) {
-		value, present := api.CallerMeta(ctx)[identifier]
-		if !present {
-			continue
-		}
+func withCallerMeta(ctx context.Context, meta *mcp.Meta) *mcp.Meta {
+	if len(api.CallerMeta(ctx)) == 0 {
+		return meta
+	}
+	if meta != nil {
+		copy := *meta
+		copy.AdditionalFields = maps.Clone(meta.AdditionalFields)
+		meta = &copy
+	}
+	for identifier, value := range api.CallerMeta(ctx) {
 		if meta == nil {
 			meta = &mcp.Meta{}
 		}

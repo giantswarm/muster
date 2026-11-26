@@ -11,18 +11,28 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// ExtensionMetaRelay keeps negotiated extension metadata on the current
+// ToolCallMetaRelay keeps application metadata on the current
 // tool call's context, including calls made by its workflow steps.
-func ExtensionMetaRelay() server.ToolHandlerMiddleware {
+func ToolCallMetaRelay() server.ToolHandlerMiddleware {
 	return func(next server.ToolHandlerFunc) server.ToolHandlerFunc {
 		return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var entries map[string]any
 			if request.Params.Meta != nil {
 				entries = request.Params.Meta.AdditionalFields
 			}
-			return next(api.WithCallerMeta(ctx, entries, callerCapabilities(ctx).Extensions), request)
+			ctx, err := api.WithCallerMeta(ctx, entries)
+			if err != nil {
+				return nil, server.NewHandlerError(invalidCallerMetadata{err})
+			}
+			return next(ctx, request)
 		}
 	}
+}
+
+type invalidCallerMetadata struct{ error }
+
+func (e invalidCallerMetadata) JSONRPCError() mcp.JSONRPCError {
+	return mcp.JSONRPCError{Error: mcp.JSONRPCErrorDetails{Code: mcp.INVALID_PARAMS, Message: e.Error()}}
 }
 
 func (a *AggregatorServer) addExtensionHooks(hooks *server.Hooks) {
