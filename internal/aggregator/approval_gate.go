@@ -532,6 +532,7 @@ func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL stri
 		Identity:        api.GetBrowserIdentity,
 		RedirectAllowed: api.PostLoginRedirectAllowed,
 		Handoffs:        handoffs,
+		OnDecided:       a.completeApprovalElicitations,
 	}
 	page.Register(mux)
 	a.approval.page = page

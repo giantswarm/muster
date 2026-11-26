@@ -163,6 +163,8 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 				return result, err
 			}
 			if challenge := recorder.approval.Load(); challenge != nil && approvalLink(result) == challenge.link {
+				a.approvalElicitations.add(challenge.request.ID, getTransportSessionID(callCtx),
+					challenge.request.ElicitationID, challenge.request.ExpiresAt)
 				return elicitApproval(callCtx, *challenge)
 			}
 			if challenge := recorder.challenge.Load(); challenge != nil && signInLink(result) == challenge.authURL {

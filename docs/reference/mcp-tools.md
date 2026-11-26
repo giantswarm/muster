@@ -149,7 +149,10 @@ caller as `approval`, from its server's `spec.approval`
 
 `allow` runs, `block` is refused as not found, and `ask` asks the person through muster's
 approval page ([When a call asks](../how-to/mcp-server-management.md#when-a-call-asks)).
-A workflow reports its strictest step (the steps of the workflows it calls included); a
+A client that declared `elicitation.url` at `initialize` (2025-11-25) and received the approval
+page as a `-32042` URL elicitation is sent `notifications/elicitation/complete` with its
+`elicitationId` when the request is decided, approved or declined (the notification carries
+no decision); retry the call then. A workflow reports its strictest step (the steps of the workflows it calls included); a
 workflow run asks once, up front, when one of its steps asks. The report is evaluated for the
 caller: an agent sees the floors and, on a governed platform, the governed default.
 `filter_tools` also returns `governance: trusted|governed`, the platform's mode (never the

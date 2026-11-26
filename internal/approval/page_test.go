@@ -457,3 +457,36 @@ func TestPage_RequesterNameIsMadeVisible(t *testing.T) {
 	request := &api.ApprovalRequest{Identity: alice, RequesterName: "alice\u202Eevil"}
 	assert.Equal(t, "alice⟨U+202E⟩evil", requester(request))
 }
+
+// OnDecided is called once per decision, with the request, and not for a
+// refused or repeated submit.
+func TestPage_OnDecidedOncePerDecision(t *testing.T) {
+	rig := newPageRig(t)
+	var decided []string
+	rig.page.OnDecided = func(request *api.ApprovalRequest) { decided = append(decided, request.ID) }
+	request := rig.create(t, map[string]any{"pr": 1.0})
+	client := browser(t)
+	_, body := rig.open(t, client, rig.page.URL(request.ID))
+	token := tokenPattern.FindStringSubmatch(body)[1]
+
+	for _, decision := range []string{"approve", "decline"} {
+		resp, err := client.PostForm(rig.page.URL(request.ID), url.Values{"token": {token}, "decision": {decision}})
+		require.NoError(t, err)
+		_ = resp.Body.Close()
+	}
+
+	assert.Equal(t, []string{request.ID}, decided)
+}
+
+func TestPage_OnDecidedNotCalledWithoutToken(t *testing.T) {
+	rig := newPageRig(t)
+	called := false
+	rig.page.OnDecided = func(*api.ApprovalRequest) { called = true }
+	request := rig.create(t, map[string]any{"pr": 1.0})
+	client := browser(t)
+	_, _ = rig.open(t, client, rig.page.URL(request.ID))
+	resp, err := client.PostForm(rig.page.URL(request.ID), url.Values{"token": {"wrong"}, "decision": {"approve"}})
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+	assert.False(t, called)
+}

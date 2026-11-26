@@ -649,7 +649,14 @@ that exact call:
 2. The person opens the link. muster signs the browser in through its own
    identity provider; only the person the call was made for sees the call and
    the buttons. The page shows the tool by its title, the connector, whether
-   it changes data and each argument in full.
+   it changes data and each argument in full. When the person decides
+   (approve or decline), the transport session that received the URL
+   elicitation on `-32042` (protocol 2025-11-25) is sent
+   `notifications/elicitation/complete` with that elicitation's
+   `elicitationId` and nothing else (never the decision or the approval id),
+   so a client can retry at once. Only that session is told, and only when
+   the decision is made on the replica that answered the call; otherwise the
+   client retries on its own, as the protocol allows.
 3. The client calls again with the same arguments (a new MCP connection of
    the same client is fine). muster finds the decision itself (the client's own "accept"
    counts for nothing): an approved call runs once with the arguments the

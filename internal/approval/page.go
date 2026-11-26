@@ -57,6 +57,11 @@ type Page struct {
 	// Handoffs redeems sign-in handoffs; nil: a link's ticket is dropped and
 	// the browser signs in itself.
 	Handoffs *Handoffs
+	// OnDecided is called once for the request a POST decided (approved or
+	// declined), after the decision is recorded and before the browser is
+	// answered; nil: nothing. The aggregator uses it to send the asked
+	// client session notifications/elicitation/complete.
+	OnDecided func(*api.ApprovalRequest)
 }
 
 // Register mounts the page on mux.
@@ -373,6 +378,9 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	// double click) reaches Decide, which answers with what stands.
 	auditDecision(r.Context(), request, approve, flow.Identity)
 	recordDecision(r.Context(), request, approve, p.now())
+	if p.OnDecided != nil {
+		p.OnDecided(request)
+	}
 
 	if flow.Redirect != "" {
 		if target, err := url.Parse(flow.Redirect); err == nil {

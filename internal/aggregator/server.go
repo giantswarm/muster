@@ -150,6 +150,11 @@ type AggregatorServer struct {
 	// awaiting notifications/elicitation/complete (url_elicitation.go).
 	signInElicitations signInElicitations
 
+	// approvalElicitations are the approval-page URL elicitations sent per
+	// transport session, completed when the request is decided
+	// (approval_elicitation.go).
+	approvalElicitations approvalElicitations
+
 	// Per-backend tool dispatch metrics. May be nil when instrument
 	// creation failed; record() is nil-safe.
 	downstreamMetrics *downstreamMetrics
