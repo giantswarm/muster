@@ -160,6 +160,7 @@ are a small fixed set or the name of an MCPServer.
 | `muster.approval.refusals`         | `Int64Counter`         | `reason`, `caller_kind`                     | `muster_approval_refusals_total`               |
 | `muster.approval.cap_hits`         | `Int64Counter`         | `scope`, `caller_kind`                      | `muster_approval_cap_hits_total`               |
 | `muster.approval.time_to_decision` | `Float64Histogram`/s   | `outcome`                                   | `muster_approval_time_to_decision_seconds`     |
+| `muster.approval.handoffs`         | `Int64Counter`         | `outcome`, `page`, `reason`                 | `muster_approval_handoffs_total`               |
 | `muster.approval.pending`          | `Int64ObservableGauge` |                                             | `muster_approval_pending`                      |
 | `muster.approval.store_up`         | `Int64ObservableGauge` |                                             | `muster_approval_store_up`                     |
 | `muster.approval.last_observed_fallbacks` | `Int64Counter`  | `mcpserver.name`, `reason`                  | `muster_approval_last_observed_fallbacks_total` |
@@ -186,6 +187,14 @@ are a small fixed set or the name of an MCPServer.
   anti-forgery token or expired flow). Every refusal fails closed.
 - **Cap hits**: `scope` is `person` (10 pending per person, across clients) or
   `session` (3 pending per client). A cap hit is also a `cap_reached` refusal.
+- **Handoffs**: sign-in handoff tickets `issued` to a client on
+  `approval.handoffClients`, `redeemed` on muster's page, or `refused`;
+  `page` is `approval` or `sign_in` (`other` when the link named no page),
+  `reason` is `none` (issued, redeemed), `client` (a client not on the list),
+  `target` (a link to no page muster hands off to, or a ticket shown to
+  another page), `foreign` (another person, or an unknown approval),
+  `invalid` (an unknown, expired or used ticket) or `unavailable` (the store).
+  A refused redemption falls back to muster's own sign-in.
 - **Time to decision**: seconds from the request to the decision on the page.
 - **Pending** and **expired** are per replica: each replica tracks the requests
   it made and reconciles them with the store every 15 seconds, so the gauge

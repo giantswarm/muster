@@ -424,7 +424,10 @@ muster:
   # lastObservedMaxAge (how old a server's last observed approval settings may
   # be and still decide a call while the API server cannot be reached, default
   # "30m", at most "1h"; older, the call is refused as "approval settings
-  # unavailable") and installation (the name the approval page shows). Asking also needs
+  # unavailable"), installation (the name the approval page shows) and
+  # handoffClients (OAuth client ids whose bearers may ask for one-time sign-in
+  # handoff tickets: the portal's own client only, never one an agent or CLI
+  # signs in through; default none). Asking also needs
   # oauth.server with storage.type valkey and oauth.mcpClient.publicUrl.
   approval: {}  # @schema additionalProperties: true
 

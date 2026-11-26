@@ -299,6 +299,13 @@ type ApprovalStore interface {
 	PutFlow(ctx context.Context, key string, flow ApprovalPageFlow, ttl time.Duration) error
 	GetFlow(ctx context.Context, key string) (*ApprovalPageFlow, error)
 	DeleteFlow(ctx context.Context, key string) error
+
+	// PutHandoff keeps a sign-in handoff by the digest of its ticket, never
+	// the ticket itself. TakeHandoff returns it and removes it in one step,
+	// so of concurrent redemptions exactly one gets it; ErrApprovalNotFound
+	// when there is none (unknown, expired or used).
+	PutHandoff(ctx context.Context, key string, handoff SignInHandoff, ttl time.Duration) error
+	TakeHandoff(ctx context.Context, key string) (*SignInHandoff, error)
 }
 
 var (

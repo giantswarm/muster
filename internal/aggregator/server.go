@@ -1840,7 +1840,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	if err := a.registerSubjectRoutes(outerMux, oauthHTTPServer); err != nil {
 		return nil, err
 	}
-	a.registerApprovalPage(outerMux, cfg.BaseURL)
+	a.registerApprovalPage(outerMux, cfg.BaseURL, oauthHTTPServer.ValidateTokenWithSubject)
 	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated); err != nil {
 		return nil, err
 	}

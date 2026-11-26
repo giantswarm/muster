@@ -17,6 +17,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/approval"
 	"github.com/giantswarm/muster/v5/internal/clock"
+	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -506,8 +507,9 @@ func newApprovalSettings(cfg AggregatorConfig, stores storeBundle) approvalSetti
 
 // registerApprovalPage mounts the approval page on muster's public URL (the
 // OAuth proxy's publicUrl, else the OAuth server's baseUrl, which must share
-// its origin: the page's sign-in returns to it).
-func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL string) {
+// its origin: the page's sign-in returns to it), and the sign-in handoff
+// endpoint behind authenticate (the OAuth server's subject check).
+func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL string, authenticate func(http.Handler) http.Handler) {
 	publicURL := a.config.OAuth.PublicURL
 	if publicURL == "" {
 		publicURL = baseURL
@@ -516,14 +518,34 @@ func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL stri
 		logging.Warn("Aggregator", "No public URL: the approval page is not served and calls that ask are refused")
 		return
 	}
+	handoffs := &approval.Handoffs{
+		PublicURL: publicURL,
+		StartPath: config.DefaultOAuthProxyStartPath,
+		Clients:   a.config.ApprovalHandoffClients,
+		Store:     api.GetApprovalStore,
+		ClientOf:  bearerClient,
+	}
 	page := &approval.Page{
 		PublicURL:       publicURL,
 		Installation:    a.config.ApprovalInstallation,
 		Store:           api.GetApprovalStore,
 		Identity:        api.GetBrowserIdentity,
 		RedirectAllowed: api.PostLoginRedirectAllowed,
+		Handoffs:        handoffs,
 	}
 	page.Register(mux)
 	a.approval.page = page
-	logging.InfoWithAttrs("Aggregator", "Mounted the approval page", slog.String("path", approval.PathPrefix+"{id}"))
+	api.RegisterHandoffRedeemer(handoffs.Redeem)
+	mux.Handle("POST "+approval.HandoffPath, authenticate(handoffs))
+	logging.InfoWithAttrs("Aggregator", "Mounted the approval page", slog.String("path", approval.PathPrefix+"{id}"),
+		slog.Int("handoffClients", len(a.config.ApprovalHandoffClients)))
+}
+
+// bearerClient names the OAuth client the request's validated bearer was
+// issued to (azp, else its single audience); empty when it names none.
+func bearerClient(ctx context.Context) string {
+	if info, ok := oauthhandler.UserInfoFromContext(ctx); ok && info != nil {
+		return info.ClientID
+	}
+	return ""
 }

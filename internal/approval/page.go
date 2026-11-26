@@ -54,6 +54,9 @@ type Page struct {
 	RedirectAllowed func(string) bool
 	// Now is the page's clock.
 	Now func() time.Time
+	// Handoffs redeems sign-in handoffs; nil: a link's ticket is dropped and
+	// the browser signs in itself.
+	Handoffs *Handoffs
 }
 
 // Register mounts the page on mux.
@@ -156,6 +159,10 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing can be decided here", "Nothing was approved or declined: muster cannot take decisions here, because its shared store or its browser sign-in is not set up. Tell the platform's operators; the tool that asked cannot run until then.")
 		return
 	}
+	if r.URL.Query().Has(HandoffParam) && !r.URL.Query().Has("code") {
+		p.redeemHandoff(w, r, store, id)
+		return
+	}
 	request, err := store.Get(r.Context(), id)
 	if errors.Is(err, api.ErrApprovalNotFound) && !r.URL.Query().Has("code") {
 		// An unknown, expired or used id answers like a live one before
@@ -184,15 +191,7 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 		p.renderStoreError(w, err)
 		return
 	}
-	// The first allowed return of this browser's flow is kept; a later link
-	// cannot replace it.
-	if redirect := r.URL.Query().Get("redirect"); redirect != "" && flow.Redirect == "" {
-		if p.RedirectAllowed != nil && p.RedirectAllowed(redirect) {
-			flow.Redirect = redirect
-		} else {
-			logging.Warn("Approval", "Ignoring a return not in oauth.mcpClient.postLoginRedirectAllowlist for approval %s", logging.TruncateIdentifier(id))
-		}
-	}
+	p.keepRedirect(r, flow, id)
 
 	if flow.Identity == (api.SignInIdentity{}) {
 		p.sendToSignIn(w, r, store, identity, request, cookie, key, flow)

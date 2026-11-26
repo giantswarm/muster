@@ -695,6 +695,44 @@ report it as `approval.unavailable`. The page returns the browser to the
 Approval pages are only ever served on muster's own host. An agent that drives
 the person's signed-in browser acts as the person and can approve.
 
+#### Sign-in handoff from a trusted client
+
+A client the operator trusts with it (the portal) can spare a person who is
+signed in there muster's browser sign-in on one page. List its OAuth client
+id in `approval.handoffClients` (the token's `azp`, else its single audience).
+The client asks muster with the person's own bearer:
+
+```
+POST /handoff-tickets
+Authorization: Bearer <the person's token>
+{"url": "https://<publicUrl>/approvals/<id>"}
+-> 201 {"ticket": "<one-time ticket>", "expiresIn": 60}
+```
+
+and opens the link with `&handoff=<ticket>`. The page redeems the ticket,
+treats the browser as signed in as that person for that one request and
+sends it (303) to the same address without the ticket. A connector sign-in
+start (`/oauth/proxy/start?state=...`) takes a ticket the same way and skips
+the sign-in check of that flow.
+
+- A ticket is issued only for a bearer of a listed client that names no acting
+  party, only for the person the approval is bound to (another person's or an
+  unknown approval: 403 alike), and only for muster's own approval page or
+  sign-in start on its public URL (anything else: 400). A sign-in start
+  checks the person when the ticket is redeemed.
+- It is random (130 bits), used once (taken from the shared store in one
+  step), expires after 60 seconds and is bound to that page and that person.
+  muster stores only its SHA-256 and never logs it.
+- An unknown, expired, used or mismatched ticket changes nothing: the page
+  signs the browser in itself, and says nothing about the ticket.
+- The decision keeps every other check: the anti-forgery token, `Origin`, the
+  person the request is bound to.
+- Never list a client an agent or a CLI signs in through: holding the person's
+  bearer of a listed client is enough to obtain a ticket, and so to decide.
+  The portal asks only when the person clicks *Open* in its chat.
+
+Counted in `muster_approval_handoffs_total{outcome, page, reason}`.
+
 Every request, decision, use and refusal (a `Block`, governance, a missing
 prerequisite) is an `[AUDIT]` log line with the issuer and full subject, the
 caller kind and the approval id; settings changes and connector writes are

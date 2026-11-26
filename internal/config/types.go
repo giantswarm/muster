@@ -58,6 +58,14 @@ type ApprovalConfig struct {
 	LastObservedMaxAge string `yaml:"lastObservedMaxAge,omitempty"`
 	// Installation names the installation on the approval page.
 	Installation string `yaml:"installation,omitempty"`
+	// HandoffClients are the OAuth client ids (a token's azp, else its single
+	// audience) whose bearers may ask muster for sign-in handoff tickets
+	// (POST /handoff-tickets): the portal's own client. A ticket spares the
+	// person muster's browser sign-in on one approval page or connector
+	// sign-in start. Empty (the default): muster issues none. Never list a
+	// client an agent or a CLI signs in through: holding the person's bearer
+	// would then be enough to decide on the approval page.
+	HandoffClients []string `yaml:"handoffClients,omitempty"`
 }
 
 // GovernanceConfig is muster's governance configuration, rendered by the

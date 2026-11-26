@@ -113,6 +113,10 @@ func (h *Handler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		h.renderErrorPage(w, summaryInvalidSession, "")
 		return
 	}
+	if identity != nil && r.URL.Query().Has(handoffParam) {
+		h.redeemHandoff(w, r, stateParam, state)
+		return
+	}
 	if identity != nil && !h.boundToBrowser(r, state) {
 		h.sendToIdentityCheck(w, r, identity, state)
 		return

@@ -24,6 +24,37 @@ const (
 	attrOutcome    = "outcome"
 	attrReason     = "reason"
 	attrScope      = "scope"
+	attrPage       = "page"
+)
+
+// Outcomes of a sign-in handoff, the values of the outcome attribute of
+// muster_approval_handoffs_total.
+const (
+	HandoffIssued   = "issued"
+	HandoffRedeemed = "redeemed"
+	HandoffRefused  = "refused"
+)
+
+// Reasons a handoff is refused, the values of the reason attribute of
+// muster_approval_handoffs_total (none when issued or redeemed).
+const (
+	// HandoffReasonNone is an issued or redeemed handoff.
+	HandoffReasonNone = "none"
+	// HandoffReasonClient is a request from an OAuth client that is not on
+	// approval.handoffClients (or a bearer naming no client).
+	HandoffReasonClient = "client"
+	// HandoffReasonTarget is a link that is no page muster hands off to, or
+	// a ticket redeemed on another page than it is bound to.
+	HandoffReasonTarget = "target"
+	// HandoffReasonForeign is a request or ticket for another person than the
+	// page is bound to (or an unknown request).
+	HandoffReasonForeign = "foreign"
+	// HandoffReasonInvalid is a ticket muster does not hold: unknown,
+	// expired or used.
+	HandoffReasonInvalid = "invalid"
+	// HandoffReasonUnavailable is a handoff while the store is missing or
+	// does not answer.
+	HandoffReasonUnavailable = "unavailable"
 )
 
 // Outcomes of an approval, the values of the outcome attribute of
@@ -67,6 +98,7 @@ const (
 //	muster_approval_refusals_total{reason,caller_kind}
 //	muster_approval_cap_hits_total{scope,caller_kind}
 //	muster_approval_time_to_decision_seconds{outcome}
+//	muster_approval_handoffs_total{outcome,page,reason}
 //	muster_approval_pending
 //	muster_approval_store_up
 type Metrics struct {
@@ -75,6 +107,7 @@ type Metrics struct {
 	refusals       metric.Int64Counter
 	capHits        metric.Int64Counter
 	timeToDecision metric.Float64Histogram
+	handoffs       metric.Int64Counter
 	pending        *Pending
 }
 
@@ -96,6 +129,7 @@ func NewMetrics(mp metric.MeterProvider, storeUp func(context.Context) (up, regi
 	m.decisions = counter("muster.approval.decisions", "Approval outcomes: approved or declined on the approval page, used (an approved call ran once), expired (a request nobody decided or used in time).", "{decision}")
 	m.refusals = counter("muster.approval.refusals", "Calls and decisions refused by the approval gate, by reason (blocked, settings_unavailable, unavailable, store_unavailable, cap_reached, foreign, page_check).", "{refusal}")
 	m.capHits = counter("muster.approval.cap_hits", "Calls refused by a cap on pending approvals: scope person (per person, across clients) or session (per client).", "{refusal}")
+	m.handoffs = counter("muster.approval.handoffs", "Sign-in handoffs: tickets issued to a trusted client, redeemed on muster's page, or refused (by reason: client, target, foreign, invalid, unavailable), by page (approval, sign_in).", "{handoff}")
 	var herr error
 	if m.timeToDecision, herr = meter.Float64Histogram("muster.approval.time_to_decision",
 		metric.WithDescription("Seconds from a request being made to its decision on the approval page."), metric.WithUnit("s")); herr != nil {
@@ -192,6 +226,23 @@ func (m *Metrics) Refused(ctx context.Context, reason, callerKind string) {
 	m.refusals.Add(ctx, 1, metric.WithAttributes(
 		attribute.String(attrReason, reason),
 		attribute.String(attrCallerKind, CallerKindLabel(callerKind))))
+}
+
+// Handoff counts a sign-in handoff by outcome (HandoffIssued,
+// HandoffRedeemed, HandoffRefused), page (api.HandoffKindApproval,
+// api.HandoffKindSignIn, else other) and reason (the HandoffReason
+// constants).
+func (m *Metrics) Handoff(ctx context.Context, outcome, page, reason string) {
+	if m.handoffs == nil {
+		return
+	}
+	if page != api.HandoffKindApproval && page != api.HandoffKindSignIn {
+		page = "other"
+	}
+	m.handoffs.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrOutcome, outcome),
+		attribute.String(attrPage, page),
+		attribute.String(attrReason, reason)))
 }
 
 // CapHit counts a call refused by a cap; scope is api.ApprovalLimitPerson or

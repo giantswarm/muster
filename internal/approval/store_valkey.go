@@ -62,6 +62,7 @@ func (s *ValkeyStore) requestKey(id string) string  { return s.prefix + "req:" +
 func (s *ValkeyStore) bindingKey(key string) string { return s.prefix + "bind:" + key }
 func (s *ValkeyStore) decisionKey(id string) string { return s.prefix + "decision:" + id }
 func (s *ValkeyStore) flowKey(key string) string    { return s.prefix + "flow:" + key }
+func (s *ValkeyStore) handoffKey(key string) string { return s.prefix + "handoff:" + key }
 func (s *ValkeyStore) personKey(i api.SignInIdentity) string {
 	return s.prefix + "person:" + digest(i.Issuer+"\x00"+i.Subject)
 }
@@ -342,6 +343,35 @@ func (s *ValkeyStore) DeleteFlow(ctx context.Context, key string) error {
 		return fmt.Errorf("approval store: %w", err)
 	}
 	return nil
+}
+
+// PutHandoff implements api.ApprovalStore.
+func (s *ValkeyStore) PutHandoff(ctx context.Context, key string, handoff api.SignInHandoff, ttl time.Duration) error {
+	sealed, err := s.seal(handoff)
+	if err != nil {
+		return err
+	}
+	if err := s.client.Do(ctx, s.client.B().Set().Key(s.handoffKey(key)).Value(sealed).PxMilliseconds(ttl.Milliseconds()).Build()).Error(); err != nil {
+		return fmt.Errorf("approval store: %w", err)
+	}
+	return nil
+}
+
+// TakeHandoff implements api.ApprovalStore: GETDEL, so of concurrent
+// redemptions on any replica exactly one gets the handoff.
+func (s *ValkeyStore) TakeHandoff(ctx context.Context, key string) (*api.SignInHandoff, error) {
+	sealed, err := s.client.Do(ctx, s.client.B().Getdel().Key(s.handoffKey(key)).Build()).ToString()
+	if valkey.IsValkeyNil(err) {
+		return nil, api.ErrApprovalNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("approval store: %w", err)
+	}
+	var handoff api.SignInHandoff
+	if err := s.open(sealed, &handoff); err != nil {
+		return nil, fmt.Errorf("approval store: read handoff: %w", err)
+	}
+	return &handoff, nil
 }
 
 // reserveScript drops expired members from the person's and the Session's

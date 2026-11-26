@@ -18,7 +18,13 @@ type MemoryStore struct {
 	bindings  map[string]string
 	decisions map[string]decision
 	flows     map[string]memoryFlow
+	handoffs  map[string]memoryHandoff
 	now       func() time.Time
+}
+
+type memoryHandoff struct {
+	handoff api.SignInHandoff
+	expires time.Time
 }
 
 type memoryFlow struct {
@@ -35,6 +41,7 @@ func NewMemoryStore() *MemoryStore {
 		bindings:  map[string]string{},
 		decisions: map[string]decision{},
 		flows:     map[string]memoryFlow{},
+		handoffs:  map[string]memoryHandoff{},
 		now:       time.Now,
 	}
 }
@@ -59,6 +66,11 @@ func (s *MemoryStore) expire() {
 	for key, f := range s.flows {
 		if !now.Before(f.expires) {
 			delete(s.flows, key)
+		}
+	}
+	for key, h := range s.handoffs {
+		if !now.Before(h.expires) {
+			delete(s.handoffs, key)
 		}
 	}
 }
@@ -214,4 +226,26 @@ func (s *MemoryStore) DeleteFlow(_ context.Context, key string) error {
 	defer s.mu.Unlock()
 	delete(s.flows, key)
 	return nil
+}
+
+// PutHandoff implements api.ApprovalStore.
+func (s *MemoryStore) PutHandoff(_ context.Context, key string, handoff api.SignInHandoff, ttl time.Duration) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.handoffs[key] = memoryHandoff{handoff: handoff, expires: s.now().Add(ttl)}
+	return nil
+}
+
+// TakeHandoff implements api.ApprovalStore.
+func (s *MemoryStore) TakeHandoff(_ context.Context, key string) (*api.SignInHandoff, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.expire()
+	h, ok := s.handoffs[key]
+	if !ok {
+		return nil, api.ErrApprovalNotFound
+	}
+	delete(s.handoffs, key)
+	handoff := h.handoff
+	return &handoff, nil
 }

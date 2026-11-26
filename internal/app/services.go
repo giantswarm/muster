@@ -295,6 +295,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			ApprovalTTL:                ttl,
 			ApprovalLastObservedMaxAge: maxAge,
 			ApprovalInstallation:       cfg.MusterConfig.Approval.Installation,
+			ApprovalHandoffClients:     cfg.MusterConfig.Approval.HandoffClients,
 			Port:                       cfg.MusterConfig.Aggregator.Port,
 			Host:                       cfg.MusterConfig.Aggregator.Host,
 			Transport:                  cfg.MusterConfig.Aggregator.Transport,
