@@ -56,8 +56,12 @@ const (
 // Workload), and any person but the request's. The person's bearer proves who
 // decides; the workload token proves the portal backend presents it, so a
 // person's portal token held elsewhere (the browser, a forwardToken server,
-// an agent runtime handed the caller's credential) decides nothing. A decision is taken once, on a pending, unexpired request
-// whose digest is the one the client showed; it is audited and counted like
+// an agent runtime handed the caller's credential) decides nothing by itself.
+// It does not prove whose token the backend presents: the backend presents
+// only its signed-in user's own (the portal checks the token's identity
+// against its user), or a user of it who holds another person's token
+// decides as that person. A decision is taken once, on a pending, unexpired
+// request whose digest is the one the client showed; it is audited and counted like
 // a page decision, with path=api and the client.
 //
 // Security: the trusted client's backend (holding both the person's bearer

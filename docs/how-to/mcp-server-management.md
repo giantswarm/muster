@@ -669,9 +669,11 @@ that exact call:
    before a decision gets the same link.
 
 For an agent's call the page names the agent its Session is bound to by its
-display name (`Alert Review wants to run ...`, the technical
-`kagent/alert-review` as a small detail beside it, and `Agent kagent/alert-review
-wants to run ...` when the binding carries no display name), and the approval is
+display name with its technical name beside it (`Alert Review
+(kagent/alert-review) wants to run ...`: a display name is whatever words the
+Agent's editor chose, so the message every client shows keeps the technical
+name; `Agent kagent/alert-review wants to run ...` when the binding carries no
+display name), and the approval is
 bound to that agent too (by its technical name); the reason the agent gave with `call_tool` (`reason`) is shown in a
 box *Agent says*, never used to decide. A person's own client is named by its
 OAuth client (*Client*). An agent's own settings can make a tool ask or hide it,
@@ -732,6 +734,15 @@ muster's namespace. The muster chart ships that permission as the Role
 default; the Agent Platform binds the portal's ServiceAccount). The person's
 token alone, or the workload token alone, decides nothing and mints no ticket.
 muster without a Kubernetes API takes neither.
+
+The workload token proves that the client's backend presents the token, not
+whose token it is. A trusted client's backend must therefore present only the
+token of the person signed in to it: the portal's muster backend refuses a
+forwarded token whose identity is not its signed-in user's before it calls
+muster. A backend that relayed any token it was handed would let its users
+decide for whoever's token they hold (from a `forwardToken` server they
+operate, say). The portal sends its workload token only to the muster of its
+own installation.
 
 #### Deciding inline from a trusted client
 
@@ -817,7 +828,10 @@ sends it (303) to the same address without the ticket. A connector sign-in
 start (`/oauth/proxy/start?state=...`) takes a ticket the same way and skips
 the sign-in check of that flow, but not muster's own confirmation: the clean
 start shows *Connect <connector> as <person>?* (the person the ticket was
-issued to, by email) with *Cancel* and *Continue*, armed after a second.
+issued to, by a verified identifier: the email when the identity provider
+verified it, else the subject at its issuer; never a name the account chose,
+and invisible or bidi characters shown as `⟨U+XXXX⟩`) with *Cancel* and
+*Continue*, armed after a second.
 Only *Continue*, posted from the same browser with the page's anti-forgery
 token (and muster's `Origin`), binds the flow to the browser and goes on to
 the connector's sign-in; *Cancel* drops the handoff and connects nothing. A

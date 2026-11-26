@@ -120,8 +120,9 @@ type OAuthState struct {
 	// server-side only.
 	HandoffToken string `json:"-"`
 
-	// HandoffName names the person the ticket was issued to (email, else
-	// name), shown on the confirmation. Stored server-side only.
+	// HandoffName names the person the ticket was issued to (verified email,
+	// else subject at issuer), shown on the confirmation. Stored server-side
+	// only.
 	HandoffName string `json:"-"`
 }
 

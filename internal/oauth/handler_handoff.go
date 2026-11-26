@@ -89,12 +89,14 @@ func (h *Handler) handedToBrowser(r *http.Request, state *OAuthState) bool {
 	return subtle.ConstantTimeCompare([]byte(browserBinding(value)), []byte(state.HandoffBinding)) == 1
 }
 
-// handoffPerson names the person a handed-over flow signs in for.
+// handoffPerson names the person a handed-over flow signs in for: the
+// ticket's label (approval.PersonLabel), else the flow's own subject at its
+// issuer.
 func handoffPerson(state *OAuthState) string {
 	if state.HandoffName != "" {
 		return state.HandoffName
 	}
-	return "the person this sign-in was started for (" + logging.TruncateIdentifier(state.SignIn.Subject) + ")"
+	return "the person this sign-in was started for (" + logging.TruncateIdentifier(state.SignIn.Subject) + " at " + state.SignIn.Issuer + ")"
 }
 
 // confirmData is what the confirmation shows.

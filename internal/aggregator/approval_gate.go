@@ -451,6 +451,18 @@ func requesterName(ctx context.Context) string {
 	return info.Name
 }
 
+// requesterVerifiedEmail is the email of the person's token when its issuer
+// verified it (email_verified), "" otherwise: what the sign-in confirmation
+// may name the person by. A name, or an unverified email, is whatever the
+// upstream account says and names nobody.
+func requesterVerifiedEmail(ctx context.Context) string {
+	info, ok := oauthhandler.UserInfoFromContext(ctx)
+	if !ok || info == nil || !info.EmailVerified {
+		return ""
+	}
+	return info.Email
+}
+
 // declinedResult answers a retry of a call the person declined.
 func declinedResult(name string) *mcp.CallToolResult {
 	return mcp.NewToolResultError(fmt.Sprintf("declined: the person declined %s. It did not run.", name))
@@ -536,7 +548,7 @@ func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL stri
 		ClientOf:        bearerClient,
 		AgentCredential: a.agentCredential,
 		Workload:        workload,
-		NameOf:          requesterName,
+		VerifiedEmailOf: requesterVerifiedEmail,
 	}
 	decisions := &approval.DecisionAPI{
 		Clients:         trusted,

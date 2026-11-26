@@ -16,7 +16,11 @@ import (
 // token, audience muster. The decision API and the handoff endpoint take a
 // person's bearer of a trusted client only together with it, so a person's
 // portal token that reached the browser, a forwardToken server or an agent
-// runtime decides nothing and mints no ticket on its own.
+// runtime decides nothing and mints no ticket on its own. It proves only that
+// the client's backend presents the bearer, not whose bearer that is: the
+// backend must present nothing but its signed-in user's own token (the
+// portal's muster backend checks the token's identity against its user), or
+// anyone signed in to it who holds another person's token decides as them.
 const ClientWorkloadHeader = "X-Muster-Approval-Client" //nolint:gosec // G101: a header name, not a credential
 
 // ErrWorkloadNotAllowed is a workload token that does not pass the review: not

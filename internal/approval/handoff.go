@@ -59,9 +59,11 @@ type Handoffs struct {
 	// Workload reviews the trusted client's own workload token
 	// (ClientWorkloadHeader); nil: muster issues no ticket.
 	Workload WorkloadReviewer
-	// NameOf names the bearer's person for people (email, else name); the
-	// connector sign-in's confirmation shows it.
-	NameOf func(context.Context) string
+	// VerifiedEmailOf is the bearer's email when its issuer verified it
+	// (email_verified), "" otherwise. The connector sign-in's confirmation
+	// names the ticket's person by it, else by subject and issuer
+	// (PersonLabel): never by a name the person chose.
+	VerifiedEmailOf func(context.Context) string
 }
 
 type handoffRequest struct {
@@ -181,10 +183,11 @@ func (h *Handoffs) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A connector sign-in's person is checked when the ticket is redeemed:
 	// the start compares it with the person its flow was started for.
 
-	name := ""
-	if h.NameOf != nil {
-		name = h.NameOf(ctx)
+	email := ""
+	if h.VerifiedEmailOf != nil {
+		email = h.VerifiedEmailOf(ctx)
 	}
+	name := PersonLabel(email, identity)
 	ticket := rand.Text()
 	if err := store.PutHandoff(ctx, digest(ticket), api.SignInHandoff{Kind: kind, Target: target, Identity: identity, Name: name}, HandoffTTL); err != nil {
 		logging.Warn("Approval", "Approval store unavailable for a handoff: %v", err)
@@ -241,4 +244,16 @@ func (h *Handoffs) RedeemHandoff(ctx context.Context, ticket, kind, target strin
 	logging.InfoWithAttrs("Approval", "sign-in handoff redeemed",
 		slog.String("page", kind), slog.String("subject", logging.TruncateIdentifier(want.Subject)))
 	return *handoff, true
+}
+
+// PersonLabel names a person on muster's pages by a verified identifier: the
+// email the issuer verified, else the subject qualified by its issuer
+// ("<subject> at <issuer>"). Either is marked by Visible like any other text
+// muster did not write: a bearer's claims are the identity provider's, and
+// an upstream account may carry bidi or invisible characters.
+func PersonLabel(verifiedEmail string, identity api.SignInIdentity) string {
+	if verifiedEmail != "" {
+		return Visible(verifiedEmail)
+	}
+	return Visible(identity.Subject) + " at " + Visible(identity.Issuer)
 }

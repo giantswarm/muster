@@ -68,3 +68,15 @@ func TestDeciderReview(t *testing.T) {
 	assert.Error(t, err)
 	assert.NotErrorIs(t, err, approval.ErrWorkloadNotAllowed)
 }
+
+// The sign-in confirmation's person is named by an email only when the
+// issuer verified it.
+func TestRequesterVerifiedEmail(t *testing.T) {
+	with := func(info *providers.UserInfo) context.Context {
+		return oauthhandler.ContextWithUserInfo(context.Background(), info)
+	}
+	assert.Equal(t, "alice@example.com", requesterVerifiedEmail(with(&providers.UserInfo{ID: "a", Email: "alice@example.com", EmailVerified: true, Name: "Alice"})))
+	assert.Empty(t, requesterVerifiedEmail(with(&providers.UserInfo{ID: "a", Email: "alice@example.com", Name: "Alice"})), "an unverified email")
+	assert.Empty(t, requesterVerifiedEmail(with(&providers.UserInfo{ID: "a", Name: "Alice Example"})), "a self-chosen name")
+	assert.Empty(t, requesterVerifiedEmail(context.Background()))
+}

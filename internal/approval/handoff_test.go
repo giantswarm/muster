@@ -49,11 +49,12 @@ type handoffRig struct {
 	client   string
 	workload string
 	agent    string
+	email    string
 }
 
 func newHandoffRig(t *testing.T) *handoffRig {
 	t.Helper()
-	rig := &handoffRig{pageRig: newPageRig(t), client: portalClient, workload: portalWorkload}
+	rig := &handoffRig{pageRig: newPageRig(t), client: portalClient, workload: portalWorkload, email: "alice@example.com"}
 	rig.handoffs = &Handoffs{
 		PublicURL:       rig.server.URL,
 		StartPath:       "/oauth/proxy/start",
@@ -62,7 +63,7 @@ func newHandoffRig(t *testing.T) *handoffRig {
 		ClientOf:        func(context.Context) string { return rig.client },
 		AgentCredential: func(context.Context) string { return rig.agent },
 		Workload:        fakeWorkloadReview,
-		NameOf:          func(context.Context) string { return "alice@example.com" },
+		VerifiedEmailOf: func(context.Context) string { return rig.email },
 	}
 	rig.page.Handoffs = rig.handoffs
 	return rig
@@ -177,6 +178,24 @@ func TestHandoff_IssuedForAConnectorSignInStart(t *testing.T) {
 	handoff, ok := rig.handoffs.RedeemHandoff(context.Background(), ticket, api.HandoffKindSignIn, "abc", alice)
 	assert.True(t, ok)
 	assert.Equal(t, "alice@example.com", handoff.Name, "the start's confirmation names the person the ticket was issued to")
+}
+
+// The sign-in confirmation names the ticket's person by a verified
+// identifier only: an unverified email or a self-chosen name names nobody,
+// and what the identity provider sent is marked like any untrusted text.
+func TestHandoff_NamesThePersonByAVerifiedIdentifier(t *testing.T) {
+	label := func(email string) string {
+		rig := newHandoffRig(t)
+		rig.email = email
+		_, ticket := rig.issue(t, alice, rig.server.URL+"/oauth/proxy/start?state=abc")
+		handoff, ok := rig.handoffs.RedeemHandoff(context.Background(), ticket, api.HandoffKindSignIn, "abc", alice)
+		require.True(t, ok)
+		return handoff.Name
+	}
+	assert.Equal(t, "alice@example.com", label("alice@example.com"))
+	assert.Equal(t, "alice at https://dex.example.com", label(""), "no verified email: the subject at its issuer")
+	assert.Equal(t, "alice⟨U+202E⟩moc.elpmaxe@x", label("alice\u202emoc.elpmaxe@x"), "bidi characters are marked")
+	assert.Equal(t, "a⟨U+200B⟩b at iss", PersonLabel("", api.SignInIdentity{Subject: "a\u200bb", Issuer: "iss"}))
 }
 
 func TestHandoff_RedeemedOnceForItsPageAndPersonWithinItsTTL(t *testing.T) {

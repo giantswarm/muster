@@ -110,16 +110,17 @@ func TestAgentSettings_TightenAndBlock(t *testing.T) {
 }
 
 // The prompt names the agent by the display name its sender bound, marked
-// like other agent-controlled text and capped; the technical name stays on
-// the request and stands in when no display name is bound.
+// like other agent-controlled text and capped, with the technical name beside
+// it (a display name is any words the Agent's editor chose); the technical
+// name stays on the request and stands in when no display name is bound.
 func TestAgentSettings_MessageUsesTheDisplayName(t *testing.T) {
 	cases := []struct {
 		name, display, message string
 	}{
-		{"display name", "Alert Review", "Alert Review wants to run Get issue in github."},
+		{"display name", "Alert Review", "Alert Review (kagent/alert-review) wants to run Get issue in github."},
 		{"fallback to the technical name", "", "Agent kagent/alert-review wants to run Get issue in github."},
-		{"marked", "Alert\u202e Review\u200b", "Alert⟨U+202E⟩ Review⟨U+200B⟩ wants to run Get issue in github."},
-		{"capped", strings.Repeat("x", api.MaxAgentDisplayName+20), strings.Repeat("x", api.MaxAgentDisplayName) + " wants to run Get issue in github."},
+		{"marked", "Alert\u202e Review\u200b", "Alert⟨U+202E⟩ Review⟨U+200B⟩ (kagent/alert-review) wants to run Get issue in github."},
+		{"capped", strings.Repeat("x", api.MaxAgentDisplayName+20), strings.Repeat("x", api.MaxAgentDisplayName) + " (kagent/alert-review) wants to run Get issue in github."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
