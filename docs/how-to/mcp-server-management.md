@@ -706,9 +706,13 @@ Built-in roles: `agentManager`, `connectorManager`, `sessionManager`,
 to tool names that are floors of it: a role it names that is not built in
 becomes a role a governed server may have, and for a built-in role its tools
 are added to the built-in floors. It only adds: no configuration removes or
-shrinks a built-in floor. muster refuses to start on a role neither built in
-nor declared in `roleFloors`, a server named twice, a floor of any role on any
-safe list, or the removed `servers` shape.
+shrinks a built-in floor, and an entry must list at least one tool. muster
+refuses to start on a role neither built in nor declared in `roleFloors`, an
+entry without tools, a server named twice, a floor of any role on any safe
+list, or the removed `servers` shape; the muster chart refuses the same at
+render, and any `governance` key other than `mode`, `roleFloors` and
+`governedServers`. A name that is a floor of several roles gets the strictest
+verdict on a server the configuration does not name.
 
 - **Floors, both modes** (agents are asked): muster's
   `core_mcpserver_create`, `_connect`, `_set_approval`,

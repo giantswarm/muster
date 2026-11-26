@@ -336,6 +336,48 @@ tests:
           path: data["config.yaml"]
           pattern: "\napproval:\n  installation: example\n  ttl: 5m\n"
 
+  - it: fails on a governance key muster does not read
+    set:
+      muster.governance:
+        mode: governed
+        rolefloors:
+          exampleManager: [approve_change]
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.rolefloors is not a governance key (mode, roleFloors, governedServers): muster would ignore it"
+
+  - it: fails on a role neither built in nor declared
+    set:
+      muster.governance:
+        mode: governed
+        governedServers:
+          - {server: example-manager, role: exampleManager}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.governance.governedServers[0] (example-manager) has unknown role "exampleManager": use a built-in role or declare it in muster.governance.roleFloors'
+
+  - it: fails on a floor of any role on a safe list
+    set:
+      muster.governance:
+        mode: governed
+        roleFloors:
+          exampleManager: [approve_change]
+        governedServers:
+          - {server: agent-manager, role: agentManager, safe: [list_agents, approve_change]}
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.governedServers[0] (agent-manager) lists approve_change as safe, but it is a floor of role exampleManager: a floor asks agents and cannot be on a safe list"
+
+  - it: fails on a declared role without floors
+    set:
+      muster.governance:
+        mode: governed
+        roleFloors:
+          exampleManager: []
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.roleFloors.exampleManager lists no tools: name the role's floors, or remove the entry"
+
   - it: fails on the removed governance servers shape
     set:
       muster.governance:

@@ -164,8 +164,8 @@ func toolTitle(tool mcp.Tool, name string) string {
 }
 
 // approvalMessage is the plain-words summary the elicitation and the page
-// lead with. muster does not know which agent calls (slice 3 binds it), so
-// an agent caller is "An agent".
+// lead with: an agent caller is named by the agent its Session is bound to,
+// else "An agent".
 func approvalMessage(ctx context.Context, title, connector string) string {
 	where := ""
 	if connector != "" {

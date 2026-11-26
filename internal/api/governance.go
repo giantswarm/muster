@@ -114,7 +114,7 @@ func MergeRoleFloors(configured map[string][]string) map[string][]string {
 // floors returns the effective floor table: the one set on g, else the
 // built-in floors.
 func (g Governance) floors() map[string][]string {
-	if g.RoleFloors == nil {
+	if len(g.RoleFloors) == 0 {
 		return builtinRoleFloors
 	}
 	return g.RoleFloors
@@ -280,19 +280,32 @@ func (g Governance) ServerEntry(server, tool string) (approval ToolApproval, app
 		}
 		return ToolApproval{}, false, false
 	}
-	for role, floors := range g.floors() {
-		if !slices.Contains(floors, tool) {
+	// A floor's name on a server the configuration does not name. The
+	// verdict looks at every role the name is a floor of, so a name that
+	// is a floor of two roles gets one answer, the strictest: on Governed
+	// it asks once any of its roles is held (another instance of a
+	// governed role under an unnamed key: asked, not allowed) and is
+	// refused while none is; on Trusted it is refused while any of its
+	// roles is unheld, since muster cannot tell that role's server from a
+	// look-alike.
+	var held, unheld bool
+	for _, role := range slices.Sorted(maps.Keys(g.floors())) {
+		if !slices.Contains(g.floors()[role], tool) {
 			continue
 		}
-		if !g.hasRole(role) {
-			return ToolApproval{}, false, true
+		if g.hasRole(role) {
+			held = true
+		} else {
+			unheld = true
 		}
-		if g.Governed() {
-			// Another instance of a governed role under a key the
-			// configuration does not name (a staging copy, another
-			// namespace): asked, not allowed.
-			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceGovernance}, true, false
-		}
+	}
+	switch {
+	case !held && !unheld:
+		return ToolApproval{}, false, false
+	case g.Governed() && held:
+		return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceGovernance}, true, false
+	case unheld:
+		return ToolApproval{}, false, true
 	}
 	return ToolApproval{}, false, false
 }

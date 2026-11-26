@@ -182,3 +182,42 @@ func TestGovernance_RoleFloorsAddOnly(t *testing.T) {
 	assert.ErrorContains(t, undeclared.Validate(), "unknown role")
 	assert.Len(t, GovernanceRoles(), 10, "only the built-in roles")
 }
+
+// A name that is a floor of two roles gets one verdict on an unnamed server,
+// the strictest, whatever order the roles are read in.
+func TestGovernance_FloorOfTwoRolesIsDeterministic(t *testing.T) {
+	floors := MergeRoleFloors(map[string][]string{"aManager": {"shared_floor"}, "zManager": {"shared_floor"}})
+	for _, tc := range []struct {
+		name, mode     string
+		holder         string
+		applies, refus bool
+	}{
+		{"governed, one role held: asks", GovernanceGoverned, "zManager", true, false},
+		{"governed, the other role held: asks", GovernanceGoverned, "aManager", true, false},
+		{"governed, none held: refused", GovernanceGoverned, "", false, true},
+		{"trusted, one role unheld: refused", GovernanceTrusted, "zManager", false, true},
+	} {
+		var servers []GovernedServer
+		if tc.holder != "" {
+			servers = []GovernedServer{{Server: "holder", Role: tc.holder}}
+		}
+		g := Governance{Mode: tc.mode, Readable: true, RoleFloors: floors, Servers: servers}
+		for range 50 {
+			got, applies, refused := g.ServerEntry("look-alike", "shared_floor")
+			if applies != tc.applies || refused != tc.refus || (applies && got != askGovernance) {
+				t.Fatalf("%s: got %+v applies=%v refused=%v", tc.name, got, applies, refused)
+			}
+		}
+	}
+	both := Governance{Mode: GovernanceTrusted, Readable: true, RoleFloors: floors, Servers: []GovernedServer{{Server: "a", Role: "aManager"}, {Server: "z", Role: "zManager"}}}
+	if _, applies, refused := both.ServerEntry("look-alike", "shared_floor"); applies || refused {
+		t.Fatal("trusted with every role held: the server's own settings decide")
+	}
+	empty := Governance{Mode: GovernanceGoverned, Readable: true, RoleFloors: map[string][]string{}}
+	if got, applies, _ := empty.ServerEntry("x", "set_agent_approval"); applies || got != (ToolApproval{}) {
+		t.Fatalf("an empty table keeps the built-in floors: got %+v", got)
+	}
+	if _, _, refused := empty.ServerEntry("x", "set_agent_approval"); !refused {
+		t.Fatal("an empty table keeps the built-in floors (refused while unheld)")
+	}
+}

@@ -40,14 +40,16 @@ func TestGovernanceFromConfig(t *testing.T) {
 	assert.Contains(t, g.RoleFloorsOf("agentManager"), "extra_grant")
 
 	for name, bad := range map[string]*config.GovernanceConfig{
-		"removed servers shape": {Mode: "governed", Servers: map[string]any{"agentManager": []any{"a"}}},
-		"undeclared role":       {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "exampleManager"}}},
-		"configured floor safe": {Mode: "governed", RoleFloors: map[string][]string{"exampleManager": {"do_thing"}}, GovernedServers: []config.GovernedServerConfig{{Server: "a", Safe: []string{"do_thing"}}}},
-		"floor without a name":  {Mode: "governed", RoleFloors: map[string][]string{"exampleManager": {""}}},
-		"unknown role":          {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "agentmanager"}}},
-		"server twice":          {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a"}, {Server: "a"}}},
-		"no server key":         {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Role: "agentManager"}}},
-		"a floor marked safe":   {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "agentManager", Safe: []string{"set_agent_approval"}}}},
+		"removed servers shape":  {Mode: "governed", Servers: map[string]any{"agentManager": []any{"a"}}},
+		"undeclared role":        {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "exampleManager"}}},
+		"configured floor safe":  {Mode: "governed", RoleFloors: map[string][]string{"exampleManager": {"do_thing"}}, GovernedServers: []config.GovernedServerConfig{{Server: "a", Safe: []string{"do_thing"}}}},
+		"floor without a name":   {Mode: "governed", RoleFloors: map[string][]string{"exampleManager": {""}}},
+		"declared without tools": {Mode: "governed", RoleFloors: map[string][]string{"exampleManager": {}}, GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "exampleManager"}}},
+		"built-in role emptied":  {Mode: "governed", RoleFloors: map[string][]string{"agentManager": nil}},
+		"unknown role":           {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "agentmanager"}}},
+		"server twice":           {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a"}, {Server: "a"}}},
+		"no server key":          {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Role: "agentManager"}}},
+		"a floor marked safe":    {Mode: "governed", GovernedServers: []config.GovernedServerConfig{{Server: "a", Role: "agentManager", Safe: []string{"set_agent_approval"}}}},
 	} {
 		_, err := governanceFromConfig(bad)
 		require.Error(t, err, name)

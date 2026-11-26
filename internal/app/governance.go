@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"time"
 
@@ -35,17 +36,20 @@ func governanceFromConfig(cfg *config.GovernanceConfig) (api.Governance, error) 
 	if cfg.Servers != nil {
 		return api.Governance{}, fmt.Errorf("governance.servers is no longer read: name each server in governance.governedServers ({server, role, safe}) and declare roles muster does not build in with governance.roleFloors")
 	}
+	for _, role := range slices.Sorted(maps.Keys(cfg.RoleFloors)) {
+		if len(cfg.RoleFloors[role]) == 0 {
+			// An empty entry adds nothing; written where floors were meant
+			// (a values layer replacing the list), it would leave a
+			// declared role without them.
+			return api.Governance{}, fmt.Errorf("governance.roleFloors.%s lists no tools: name the role's floors, or remove the entry", role)
+		}
+	}
 	g.RoleFloors = api.MergeRoleFloors(cfg.RoleFloors)
 	for _, s := range cfg.GovernedServers {
 		g.Servers = append(g.Servers, api.GovernedServer{Server: s.Server, Role: s.Role, Safe: s.Safe})
 	}
 	if err := g.Validate(); err != nil {
 		return api.Governance{}, err
-	}
-	for _, s := range g.Servers {
-		if s.Role != "" && len(g.RoleFloorsOf(s.Role)) == 0 && !slices.Contains(api.GovernanceRoles(), s.Role) {
-			logging.Warn("Governance", "governed server %s has role %s, which governance.roleFloors declares without floors: only the governed default applies to it", s.Server, s.Role)
-		}
 	}
 	return g, nil
 }
