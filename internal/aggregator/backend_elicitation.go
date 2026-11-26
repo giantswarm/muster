@@ -237,7 +237,7 @@ func withBackendRoundTrip(ctx context.Context, state backendInputState, response
 }
 
 // prepareBackendCall returns the context a call of the server's tool runs
-// under: the capabilities of the client the call is made for, and, on the
+// under: the capabilities of the client the call is made for and, on the
 // retry of the server's input request, its answer and the server's own
 // requestState. The answer goes to the first backend call, once. A retry
 // whose requestState names another server or tool than the one the call is

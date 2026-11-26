@@ -242,14 +242,14 @@ func TestBackendInput_ClientByBackendRevision(t *testing.T) {
 	})
 
 	for name, version := range map[string]string{"2026-07-28": mcp.ProtocolVersion20260728, "2025-11-25": mcp.LATEST_LEGACY_PROTOCOL_VERSION} {
-		t.Run(name+" client, 2025-11-25 backend: the backend is declared nothing and answers as to any client", func(t *testing.T) {
+		t.Run(name+" client, 2025-11-25 backend: the backend is declared no elicitation and answers as to any client", func(t *testing.T) {
 			c := connectToMuster(t, url, version, urlAndForm(), &formAnswerer{})
 
 			result, err := call(t, c, "legacy/create", mcp.MultiRoundTripParams{})
 
 			require.NoError(t, err)
 			require.Equal(t, "not asked", textOf(t, result))
-			require.Equal(t, mcp.ClientCapabilities{}, *legacyBackend.declared.Load())
+			require.Nil(t, legacyBackend.declared.Load().Elicitation)
 		})
 	}
 }
