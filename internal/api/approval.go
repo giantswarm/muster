@@ -273,6 +273,21 @@ type MCPServerLastObserved interface {
 	// key names and when it was read; ok is false for a server never read,
 	// or one read as deleted since.
 	LastObservedMCPServer(key string) (info *MCPServerInfo, observedAt time.Time, ok bool)
+
+	// LastObservedMCPServers returns the last definition of every server
+	// read and not since read as deleted, and when the oldest was read; ok
+	// is false when none was.
+	LastObservedMCPServers() (infos []MCPServerInfo, oldest time.Time, ok bool)
+}
+
+// LastObservedMCPServers returns the registered manager's last observed
+// definitions of all servers; ok is false without a manager offering them
+// or while it observed none.
+func LastObservedMCPServers() ([]MCPServerInfo, time.Time, bool) {
+	if observer, ok := GetMCPServerManager().(MCPServerLastObserved); ok {
+		return observer.LastObservedMCPServers()
+	}
+	return nil, time.Time{}, false
 }
 
 // LastObservedMCPServer returns the registered manager's last observed

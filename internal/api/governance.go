@@ -269,9 +269,9 @@ func (g Governance) ServerEntry(server, tool string) (approval ToolApproval, app
 		if slices.Contains(g.floors()[s.Role], tool) {
 			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceBuiltin}, true, false
 		}
-		if g.Governed() && g.floorRole(tool) != "" {
+		if g.floorRole(tool) != "" {
 			// A floor's name on a governed server of another role (a role
-			// override, a mis-set role) still asks on Governed: no role
+			// override, a mis-set role) still asks, in both modes: no role
 			// configuration removes a floor, built in or configured.
 			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceBuiltin}, true, false
 		}

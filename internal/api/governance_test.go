@@ -137,8 +137,14 @@ func TestGovernance_FloorNamesHoldWhateverTheRole(t *testing.T) {
 	}
 	trusted := misrole
 	trusted.Mode = GovernanceTrusted
-	if _, applies, _ := trusted.ServerEntry("example", "do_thing"); applies {
-		t.Fatal("on Trusted the role's own floors decide, as before")
+	for _, tool := range []string{"do_thing", "set_agent_approval"} {
+		got, applies, refused := trusted.ServerEntry("example", tool)
+		if !applies || refused || got.Setting != ApprovalSettingAsk || got.Source != ApprovalSourceBuiltin {
+			t.Fatalf("%s on a governed server of another role on Trusted: floors hold in both modes, got %+v applies=%v refused=%v", tool, got, applies, refused)
+		}
+	}
+	if _, applies, _ := trusted.ServerEntry("example", "list_things"); applies {
+		t.Fatal("on Trusted a name that is no floor follows the server's own settings")
 	}
 
 	safe := Governance{Mode: GovernanceGoverned, Readable: true, RoleFloors: floors, Servers: []GovernedServer{

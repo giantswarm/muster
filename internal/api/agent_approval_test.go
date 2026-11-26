@@ -203,3 +203,22 @@ func TestContextWithToolApprovalHeader(t *testing.T) {
 		t.Fatal("a binding's settings win over the header")
 	}
 }
+
+// A grant mark stays reported only while it is what lets the call run: when a
+// floor or the governed default decides, the mark is cleared but the deciding
+// entry and the connector's own setting are kept.
+func TestKeepExplanation_ClearsAGrantMarkWhenAFloorDecides(t *testing.T) {
+	admin := &ToolApproval{Setting: ApprovalSettingAsk}
+	decided := ToolApproval{Setting: ApprovalSettingAllow, Source: ApprovalSourceAgentException, Entry: "tool:x", Admin: admin, Grant: "tool:x@srv"}
+
+	floor := KeepExplanation(ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceBuiltin, Grant: "stale"}, decided)
+	if floor.Grant != "" {
+		t.Errorf("a floor decides: the grant no longer lets the call run, got %q", floor.Grant)
+	}
+	if floor.Entry != "tool:x" || floor.Admin != admin {
+		t.Errorf("the deciding entry and the connector's setting stay reported, got %+v", floor)
+	}
+	if kept := KeepExplanation(decided, decided); kept.Grant != "tool:x@srv" {
+		t.Errorf("the grant still decides, got %q", kept.Grant)
+	}
+}
