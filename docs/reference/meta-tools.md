@@ -256,7 +256,7 @@ A URI with a scheme carries no server prefix, so scope to one server with server
 ```text
 Find tools by name pattern, description, labels or a ranked natural-language query, as a small summarised page.
 
-A tool you cannot find may sit behind a sign-in: servers_requiring_auth names each server whose tools the pattern could match, and its auth_tool with that server's name starts the sign-in. describe_tool gives a chosen tool's full description and schema. The response's toolset names the toolset bounding you: the toolset argument, else X-Muster-Toolset.
+A tool you cannot find may sit behind a sign-in: servers_requiring_auth names each server whose tools the pattern could match, and its auth_tool with that server's name starts the sign-in: when needed, start it yourself, as the person's client prompts them. describe_tool gives a chosen tool's full description and schema. The response's toolset names the toolset bounding you: the toolset argument, else X-Muster-Toolset.
 ```
 
 ```json

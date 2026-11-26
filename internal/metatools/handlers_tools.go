@@ -63,6 +63,10 @@ type filterToolsOptions struct {
 	reportConnectors bool
 	// agentTools echoes the agentTools argument.
 	agentTools *AgentToolsEcho
+	// offerSignIn answers a search naming one server awaiting the person's
+	// sign-in with that sign-in, for a request marked api.SignInPrompt
+	// (signInForSearch). filter_tools sets it, except when reporting.
+	offerSignIn bool
 }
 
 // handleListTools handles the list_tools meta-tool.
@@ -235,6 +239,7 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]any) (
 	if v, ok := args["include_presets"].(bool); ok {
 		opts.includePresets = v
 	}
+	opts.offerSignIn = opts.agentTools == nil
 
 	return p.filterToolsWithOptions(ctx, opts)
 }
@@ -301,6 +306,13 @@ func (p *Provider) filterToolsWithOptions(ctx context.Context, opts filterToolsO
 	page, errResult := p.pageTools(ctx, handler, opts)
 	if errResult != nil {
 		return errResult, nil
+	}
+	if signIn, connected := signInForSearch(ctx, handler, page.ServersRequiringAuth, opts); signIn != nil {
+		return signIn, nil
+	} else if connected {
+		if page, errResult = p.pageTools(ctx, handler, opts); errResult != nil {
+			return errResult, nil
+		}
 	}
 
 	if page.TotalTools == 0 && len(page.ServersRequiringAuth) == 0 && !toolset.Scoped(ctx) && opts.toolsetArg == nil {

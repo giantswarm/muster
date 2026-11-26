@@ -139,6 +139,9 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 				return answer, nil
 			}
 			supportsURL := clientSupportsURLElicitation(ctx)
+			if supportsURL && api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
+				ctx = api.WithSignInPrompt(ctx)
+			}
 			if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); supportsURL && answer != nil {
 				state := decodeSignInRequestState(req.Params.RequestState)
 				if answer.Action != mcp.ElicitationResponseActionAccept {
