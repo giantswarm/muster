@@ -56,7 +56,11 @@ func newMetaBackend(t *testing.T, extensions map[string]any, versions ...string)
 			}
 		}
 		b.meta.Store(&meta)
-		return mcp.NewToolResultText("ok"), nil
+		encoded, err := json.Marshal(meta)
+		if err != nil {
+			return nil, err
+		}
+		return mcp.NewToolResultText(string(encoded)), nil
 	})
 	ts := httptest.NewServer(mcpserver.NewStreamableHTTPServer(srv, mcpserver.WithStreamableHTTPProtocolVersions(versions...)))
 	t.Cleanup(ts.Close)
@@ -89,7 +93,7 @@ func newMetaMuster(t *testing.T, backends map[string]*metaBackend, order []strin
 	srv := mcpserver.NewMCPServer("muster", "test",
 		mcpserver.WithHooks(hooks),
 		mcpserver.WithToolCapabilities(true),
-		mcpserver.WithToolHandlerMiddleware(ExtensionMetaRelay()))
+		mcpserver.WithToolHandlerMiddleware(ToolCallMetaRelay()))
 	steps := make([]api.WorkflowStep, 0, len(order))
 	for _, key := range order {
 		client := internalmcp.NewStreamableHTTPClientWithHeaders(backends[key].url, nil)
@@ -139,7 +143,7 @@ func TestExtensionMeta_ThroughMuster(t *testing.T) {
 	backends := map[string]*metaBackend{"modern": modern, "legacy": legacy, "silent": silent}
 	url := newMetaMuster(t, backends, []string{"modern", "legacy", "silent"})
 
-	want := map[string]any{testExtensionID: callerToolCallMeta()[testExtensionID]}
+	want := callerToolCallMeta()
 
 	for _, version := range []string{mcp.ProtocolVersion20260728, mcp.LATEST_LEGACY_PROTOCOL_VERSION} {
 		t.Run(version+" client", func(t *testing.T) {
@@ -149,7 +153,7 @@ func TestExtensionMeta_ThroughMuster(t *testing.T) {
 				require.Equal(t, extensionDeclarations(settings), c.GetServerCapabilities().Extensions)
 			})
 
-			t.Run("each declaring backend receives the opaque payload", func(t *testing.T) {
+			t.Run("each backend receives the opaque metadata without declaration checks", func(t *testing.T) {
 				for _, b := range backends {
 					b.meta.Store(nil)
 				}
@@ -159,7 +163,7 @@ func TestExtensionMeta_ThroughMuster(t *testing.T) {
 
 				require.Equal(t, want, modern.received())
 				require.Equal(t, want, legacy.received())
-				require.Empty(t, silent.received())
+				require.Equal(t, want, silent.received())
 			})
 
 			t.Run("a workflow's steps forward the same way", func(t *testing.T) {
@@ -171,7 +175,7 @@ func TestExtensionMeta_ThroughMuster(t *testing.T) {
 				require.Equal(t, want, modern.received())
 				require.Equal(t, want, legacy.received())
 				require.NotNil(t, silent.meta.Load(), "the silent backend was called")
-				require.Empty(t, silent.received())
+				require.Equal(t, want, silent.received())
 			})
 
 			t.Run("a call without values forwards nothing", func(t *testing.T) {
@@ -190,7 +194,7 @@ func TestExtensionMeta_NotDeclaredWithoutAnAcceptingBackend(t *testing.T) {
 	require.NotContains(t, c.GetServerCapabilities().Extensions, testExtensionID)
 }
 
-func TestExtensionMeta_RequiresClientDeclaration(t *testing.T) {
+func TestExtensionMeta_DoesNotRequireClientDeclaration(t *testing.T) {
 	for _, revision := range []string{mcp.ProtocolVersion20260728, mcp.LATEST_LEGACY_PROTOCOL_VERSION} {
 		for name, settings := range map[string]any{"missing": nil, "malformed": "not an object"} {
 			t.Run(revision+"/"+name, func(t *testing.T) {
@@ -202,9 +206,76 @@ func TestExtensionMeta_RequiresClientDeclaration(t *testing.T) {
 				}
 				caller := connectToMuster(t, url, revision, mcp.ClientCapabilities{Extensions: extensions}, nil)
 				callWithMeta(t, caller, "backend/probe", callerToolCallMeta())
-				require.Empty(t, backend.received())
+				require.Equal(t, callerToolCallMeta(), backend.received())
 			})
 		}
+	}
+}
+
+func TestApplicationMetaRejectsInvalidNamesBeforeDispatch(t *testing.T) {
+	for _, revision := range []string{mcp.ProtocolVersion20260728, mcp.LATEST_LEGACY_PROTOCOL_VERSION} {
+		t.Run(revision, func(t *testing.T) {
+			backend := newMetaBackend(t, nil)
+			url := newMetaMuster(t, map[string]*metaBackend{"backend": backend}, []string{"backend"})
+			caller := connectToMuster(t, url, revision, mcp.ClientCapabilities{}, nil)
+			callWithMeta(t, caller, "backend/probe", callerToolCallMeta())
+			require.Equal(t, callerToolCallMeta(), backend.received())
+			backend.meta.Store(nil)
+			_, err := caller.CallTool(t.Context(), mcp.CallToolRequest{Params: mcp.CallToolParams{
+				Name: "backend/probe", Meta: &mcp.Meta{AdditionalFields: map[string]any{"invalid metadata/key": "private-value"}},
+			}})
+			require.ErrorIs(t, err, mcp.ErrInvalidParams)
+			require.NotContains(t, err.Error(), "private-value")
+			require.Nil(t, backend.received())
+		})
+	}
+}
+
+func TestConcurrentApplicationMetaRemainsRequestScoped(t *testing.T) {
+	backend := newMetaBackend(t, nil)
+	url := newMetaMuster(t, map[string]*metaBackend{"backend": backend}, []string{"backend"})
+	for _, revision := range []string{mcp.ProtocolVersion20260728, mcp.LATEST_LEGACY_PROTOCOL_VERSION} {
+		t.Run(revision, func(t *testing.T) {
+			caller := connectToMuster(t, url, revision, mcp.ClientCapabilities{}, nil)
+			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancel()
+			const calls = 8
+			results := make(chan error, calls)
+			for index := range calls {
+				go func() {
+					value := fmt.Sprintf("request-%d", index)
+					result, err := caller.CallTool(ctx, mcp.CallToolRequest{Params: mcp.CallToolParams{
+						Name: "backend/probe", Meta: &mcp.Meta{AdditionalFields: map[string]any{testExtensionID: value}},
+					}})
+					if err != nil {
+						results <- err
+						return
+					}
+					if result.IsError || len(result.Content) != 1 {
+						results <- fmt.Errorf("unexpected tool result for %s", value)
+						return
+					}
+					text, ok := result.Content[0].(mcp.TextContent)
+					if !ok {
+						results <- fmt.Errorf("unexpected content for %s", value)
+						return
+					}
+					var observed map[string]any
+					if err := json.Unmarshal([]byte(text.Text), &observed); err != nil {
+						results <- err
+						return
+					}
+					if observed[testExtensionID] != value {
+						results <- fmt.Errorf("metadata of %s crossed request boundaries", value)
+						return
+					}
+					results <- nil
+				}()
+			}
+			for range calls {
+				require.NoError(t, <-results)
+			}
+		})
 	}
 }
 

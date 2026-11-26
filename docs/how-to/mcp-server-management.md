@@ -529,45 +529,36 @@ Rules:
 
 ## Extension metadata
 
-muster relays application extension data in a tool call's
-`params._meta[<extension-id>]` when the caller and the destination backend both
-declare that identifier in `capabilities.extensions`. For example, a caller
-and backend declaring `com.example/context` can exchange an opaque value at
-`_meta["com.example/context"]`. There is no forwarding configuration or policy
-allowlist.
+muster relays application entries in each tool call's `params._meta` to its
+destination backend without requiring extension declarations. Values keep their
+identifiers and JSON shapes. For example, `_meta["com.example/context"]` and
+`_meta["org.example/request-id"]` reach any backend called by that request,
+including one that declares no extensions. No policy allowlist, accepted-key
+settings or nested-field filtering applies.
 
-Payloads and settings remain opaque. muster does not interpret nested fields,
-merge payloads, filter nested keys, or implement extension-specific methods.
-The backend validates the data. A backend declaring an identifier can receive
-that identifier's complete value on calls routed to it. Declarations describe
-protocol support, not authorization to receive confidential information.
+The outgoing connection owns its protocol version, client information,
+capabilities, log level, server information, subscription IDs and progress token.
+These core fields are not copied from the caller.
+Tracing fields (`traceparent`, `tracestate`, `baggage`) are also owned by the
+outgoing hop. Other existing outbound metadata takes precedence without merging
+nested objects. Authentication continues to use each backend's credentials;
+metadata is never used as an inbound bearer token.
 
-- Extension identifiers follow MCP's qualified `_meta` naming rules. The
-  MCP-reserved namespaces and hop-owned progress/protocol fields are excluded.
-  Declarations must contain a settings object; `capabilities.experimental` is
-  not used.
-- On MCP 2026-07-28, client extension declarations travel with each tool call.
-  On MCP 2025-11-25, muster learns the backend's application extension IDs and
-  establishes a fresh connection declaring them with empty client settings.
-  A legacy stdio server declaring extensions is therefore started twice.
-  Extensions requiring particular client settings or custom RPC routing need
-  their own implementation.
-- The upstream capability view contains the extensions of visible, connected
-  backends. Identical settings are preserved. When two backends declare
-  different settings for the same identifier, muster advertises `{}` without
-  assigning a meaning to their fields. An extension requiring a setting may
-  consequently be unavailable through that combined view.
-- Initial discovery waits for an active session bootstrap when the client
-  declares application extensions. Other clients are answered without waiting
-  for the session's backends to connect. A backend added or
-  signed into later appears on the client's next `initialize` or
-  `server/discover`.
-- Workflow steps receive the initiating call's metadata, with the same
-  destination declaration check. A request without metadata inherits no values.
-  Prompts, resources, lists and discovery do not carry these request values.
-- Existing outbound metadata takes precedence. Values must not contain
-  credentials. HTTP authorization stays in each hop's `Authorization` header;
-  stdio credentials come from its environment.
+Workflow steps receive the initiating call's metadata. A request without
+metadata inherits no values. Prompts, resources, lists, discovery and
+initialization do not carry the request's application values. Every backend
+called by a workflow can receive the full object, so callers must not use a
+metadata field as a confidentiality boundary. Values are untrusted application
+data, not credentials. Backends validate and authorize operations independently.
+
+Relaying metadata does not implement an extension or infer its client
+capabilities. The separate capability view contains the application extensions
+of visible, connected backends. Identical settings are preserved; conflicting
+settings appear as `{}`. On MCP 2026-07-28, client declarations travel with tool
+calls. Legacy connections retain their existing capability handshake behavior;
+extensions requiring specific client behavior need their own implementation.
+Initial discovery waits for session bootstrap only when a client declares
+application extensions. Ordinary metadata forwarding adds no discovery wait.
 
 ## Display name
 
