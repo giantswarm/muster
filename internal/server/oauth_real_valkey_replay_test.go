@@ -24,7 +24,7 @@ func TestPrivateKeyJWTReplayAcrossRealValkeyReplicas(t *testing.T) {
 	newReplica := func() *OAuthHTTPServer {
 		server, err := NewOAuthHTTPServer(config.OAuthServerConfig{
 			Enabled: true, BaseURL: "https://muster.example.com", Provider: OAuthProviderGoogle,
-			Google: config.GoogleConfig{ClientID: "muster", ClientSecret: "fixture-secret"}, RegistrationToken: "fixture-registration",
+			Google: config.GoogleConfig{ClientID: "muster", ClientSecret: "fixture-secret"}, InitialAccessToken: "fixture-registration",
 			Storage: config.OAuthStorageConfig{Type: "valkey", Valkey: config.ValkeyConfig{URL: address, KeyPrefix: prefix}},
 		}, http.NotFoundHandler(), false)
 		require.NoError(t, err)

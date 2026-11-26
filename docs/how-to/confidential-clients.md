@@ -24,7 +24,7 @@ person and grant. Request shape, user agent and scope names do not authenticate
 an integration.
 
 Set `aggregator.oauth.server.allowPublicClientRegistration: false` and provide
-`registrationTokenFile`. Registration requires the provisioning bearer token
+`initialAccessTokenFile`. Registration requires the provisioning bearer token
 unless a configured trusted redirect URI or scheme authorizes the request.
 Use HTTPS redirects in production and PKCE S256 with authorization code grants.
 
@@ -87,3 +87,12 @@ alone does not guarantee that recent writes have been persisted.
 A complete Valkey wipe removes muster's opaque grants together with their
 storage records. After restoring a snapshot, close protected traffic until the
 restored registrations and grants have been checked against the intended state.
+
+The server-wide RFC 7591 secret is `oauth.server.initialAccessToken` or
+`initialAccessTokenFile` in config.yaml. `OAUTH_INITIAL_ACCESS_TOKEN` and
+`OAUTH_INITIAL_ACCESS_TOKEN_FILE` override those settings, with the file taking
+precedence. For one release, `registrationToken`, `registrationTokenFile` and
+`OAUTH_REGISTRATION_ACCESS_TOKEN` (including `_FILE`) remain deprecated fallbacks.
+Canonical names win over deprecated names; warnings name the replacement without
+logging the secret. The chart maps `muster.oauth.server.registrationToken` to
+`muster.oauth.server.initialAccessToken` and keeps the Secret key `registration-token`.

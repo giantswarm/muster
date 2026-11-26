@@ -136,12 +136,10 @@ cannot drift. The gates fail the render the way the Secret template did.
 {{- fail "muster.oauth.server.dex.clientSecret is required when Dex provider is used and existingSecret is not set" -}}
 {{- end -}}
 {{- end -}}
-{{- if not $s.allowPublicClientRegistration -}}
-{{- if $s.registrationToken -}}
-{{- $lines = append $lines (printf "registration-token: %s" ($s.registrationToken | b64enc | quote)) -}}
-{{- else if and (not $s.trustedPublicRegistrationSchemes) (not $s.trustedPublicRegistrationRedirectURIs) -}}
-{{- fail "OAuth client registration has no gate configured. Set one of: registrationToken | allowPublicClientRegistration=true | trustedPublicRegistrationSchemes | trustedPublicRegistrationRedirectURIs | existingSecret." -}}
-{{- end -}}
+{{- if or $s.initialAccessToken $s.registrationToken -}}
+{{- $lines = append $lines (printf "registration-token: %s" ($s.initialAccessToken | default $s.registrationToken | b64enc | quote)) -}}
+{{- else if and (not $s.allowPublicClientRegistration) (not $s.trustedPublicRegistrationSchemes) (not $s.trustedPublicRegistrationRedirectURIs) -}}
+{{- fail "OAuth client registration has no gate configured. Set one of: initialAccessToken | allowPublicClientRegistration=true | trustedPublicRegistrationSchemes | trustedPublicRegistrationRedirectURIs | existingSecret." -}}
 {{- end -}}
 {{- if $s.encryptionKey -}}
 {{- if $s.encryptionKeyValue -}}

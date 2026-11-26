@@ -547,6 +547,10 @@
                                         }
                                     }
                                 },
+                                "initialAccessToken": {
+                                    "type": "string",
+                                    "description": "Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production so the value never appears in Helm release history."
+                                },
                                 "preRegisterPublicClients": {
                                     "type": "boolean",
                                     "description": "Also pin the public clients in publicClientMetadata (claude.ai, Claude Code, VS Code), so muster never fetches their documents. Needed where egress goes through a proxy that allows by domain."
@@ -696,7 +700,9 @@
                                     }
                                 },
                                 "registrationToken": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "Deprecated: use initialAccessToken. The new key wins when both are set.",
+                                    "deprecated": true
                                 },
                                 "resourceIdentifier": {
                                     "type": "string"

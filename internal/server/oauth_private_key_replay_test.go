@@ -27,7 +27,7 @@ func newPrivateKeyJWTReplica(t *testing.T, backend *miniredis.Miniredis, prefix 
 	t.Helper()
 	server, err := NewOAuthHTTPServer(config.OAuthServerConfig{
 		Enabled: true, BaseURL: "https://muster.example.com", Provider: OAuthProviderGoogle,
-		Google: config.GoogleConfig{ClientID: "muster", ClientSecret: "fixture-secret"}, RegistrationToken: "fixture-registration",
+		Google: config.GoogleConfig{ClientID: "muster", ClientSecret: "fixture-secret"}, InitialAccessToken: "fixture-registration",
 		Storage: config.OAuthStorageConfig{Type: "valkey", Valkey: config.ValkeyConfig{URL: backend.Addr(), KeyPrefix: prefix}},
 	}, http.NotFoundHandler(), false)
 	require.NoError(t, err)

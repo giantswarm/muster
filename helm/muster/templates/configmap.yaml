@@ -94,10 +94,6 @@ data:
           baseUrl: {{ .Values.muster.oauth.server.baseUrl | quote }}
           provider: {{ .Values.muster.oauth.server.provider | default "dex" | quote }}
           {{- /* Secret file paths - secrets are mounted from Kubernetes Secret */}}
-          {{- /* Only reference registration token file if it will exist in the secret */}}
-          {{- if or .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.registrationToken }}
-          registrationTokenFile: {{ printf "%s/registration-token" $secretsPath | quote }}
-          {{- end }}
           {{- if .Values.muster.oauth.server.encryptionKey }}
           encryptionKeyFile: {{ printf "%s/oauth-encryption-key" $secretsPath | quote }}
           {{- end }}
