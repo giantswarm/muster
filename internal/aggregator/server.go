@@ -942,7 +942,7 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 			slog.String("serverVersion", result.ServerInfo.Version))
 	})
 
-	a.addToolCallMetadataHooks(hooks)
+	a.addExtensionHooks(hooks)
 
 	hooks.AddAfterListTools(func(ctx context.Context, _ any, _ *mcp.ListToolsRequest, result *mcp.ListToolsResult) {
 		toolNames := make([]string, 0, len(result.Tools))

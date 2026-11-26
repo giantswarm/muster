@@ -513,11 +513,11 @@ Rules:
   (OpenTelemetry).
 - Everyone who can read the MCPServer can read these values, so they hold no
   secret.
-- muster passes on no other caller `_meta` than tool-call metadata (see
-  [Tool-call metadata](#tool-call-metadata)), so an entry here applies to every
+- muster relays negotiated application extension metadata (see
+  [Extension metadata](#extension-metadata)), so an entry here applies to every
   call. It never replaces a key already set on the request (`progressToken`,
-  the protocol's own `io.modelcontextprotocol/` keys,
-  `dev.kagent/tool-call-metadata`).
+  the protocol's own `io.modelcontextprotocol/` keys, and relayed extension
+  entries).
 - A request without `params` is left untouched. `initialize` does carry
   `params`, so the handshake gets the entries as well.
 - `type: stdio` rejects the field. A stdio server speaks over a pipe, so no HTTP
@@ -527,42 +527,45 @@ Rules:
   it as `requestMeta` when it creates or updates a server, and refuses a
   definition that sets both. It will be removed in a later release.
 
-## Tool-call metadata
+## Extension metadata
 
-muster relays kagent's MCP extension for request-scoped tool-call metadata,
-`dev.kagent/tool-call-metadata` (contract in kagent's
-`docs/architecture/mcp-tool-call-metadata-extension.md`). A caller sends
-values for one tool call in `params._meta["dev.kagent/tool-call-metadata"]`,
-an object keyed by metadata key (`com.example/session`); a backend declares
-the keys it accepts. There is nothing to configure on the MCPServer: the
-backend's own declaration decides.
+muster relays application extension data in a tool call's
+`params._meta[<extension-id>]` when the caller and the destination backend both
+declare that identifier in `capabilities.extensions`. For example, a caller
+and backend declaring `com.example/context` can exchange an opaque value at
+`_meta["com.example/context"]`. There is no forwarding configuration or policy
+allowlist.
 
-- muster declares the extension with no settings in its client
-  `capabilities.extensions` to every backend: in the `initialize` of a backend
-  on MCP 2025-11-25, on every tool call to one on 2026-07-28.
-- A backend accepts keys by declaring
-  `"dev.kagent/tool-call-metadata": {"keys": ["com.example/session"]}` in its
-  `capabilities.extensions`: in its `initialize` result on 2025-11-25, in its
-  `server/discover` result on 2026-07-28. Settings without a `keys` array
-  accept nothing. `capabilities.experimental` is not read.
-- On a tool call, muster sends a backend
-  `_meta["dev.kagent/tool-call-metadata"]` holding only the caller's values of
-  the keys that backend accepts, and nothing when none is left. Keys that do
-  not follow MCP's `_meta` key grammar with a prefix MCP does not reserve are
-  dropped. The values are passed on unchanged; the backend validates them.
-  Every other entry of the caller's `_meta` stays at muster.
-- A workflow's steps pass on the values of the call that started the workflow
-  the same way, to each step's backend.
-- muster declares the extension to its own clients, in its `initialize` and
-  `server/discover` results, with the union of the keys accepted by the
-  backends the caller can see and muster is connected to, and not at all when
-  none accepts a key. A backend the session signs in to later is counted at
-  the client's next `initialize` or `server/discover`.
-- The values are not credentials. Authorization stays in the `Authorization`
-  header of each hop; muster never passes a caller's token on.
+Payloads and settings remain opaque. muster does not interpret nested fields,
+merge payloads, filter nested keys, or implement extension-specific methods.
+The backend validates the data. A backend declaring an identifier can receive
+that identifier's complete value on calls routed to it. Declarations describe
+protocol support, not authorization to receive confidential information.
 
-Only tool calls carry the values: prompts, resources, lists and discovery
-never do.
+- Extension identifiers follow MCP's qualified `_meta` naming rules. The
+  MCP-reserved namespaces and hop-owned progress/protocol fields are excluded.
+  Declarations must contain a settings object; `capabilities.experimental` is
+  not used.
+- On MCP 2026-07-28, client extension declarations travel with each tool call.
+  On MCP 2025-11-25, muster learns the backend's application extension IDs and
+  establishes a fresh connection declaring them with empty client settings.
+  A legacy stdio server declaring extensions is therefore started twice.
+  Extensions requiring particular client settings or custom RPC routing need
+  their own implementation.
+- The upstream capability view contains the extensions of visible, connected
+  backends. Identical settings are preserved. When two backends declare
+  different settings for the same identifier, muster advertises `{}` without
+  assigning a meaning to their fields. An extension requiring a setting may
+  consequently be unavailable through that combined view.
+- Initial discovery waits for an active session bootstrap. A backend added or
+  signed into later appears on the client's next `initialize` or
+  `server/discover`.
+- Workflow steps receive the initiating call's metadata, with the same
+  destination declaration check. A request without metadata inherits no values.
+  Prompts, resources, lists and discovery do not carry these request values.
+- Existing outbound metadata takes precedence. Values must not contain
+  credentials. HTTP authorization stays in each hop's `Authorization` header;
+  stdio credentials come from its environment.
 
 ## Display name
 

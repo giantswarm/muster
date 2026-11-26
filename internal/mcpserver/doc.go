@@ -43,9 +43,8 @@
 // transport, because the body has to be rewritten before it is signed. See
 // meta_transport.go.
 //
-// A tool call sends a backend the caller's tool-call metadata values of the
-// keys that backend accepts (kagent's dev.kagent/tool-call-metadata MCP
-// extension). See tool_call_metadata.go.
+// A tool call relays negotiated application extension metadata to its
+// backend without interpreting the payload or settings. See caller_meta.go.
 //
 // # Configuration Structure
 //

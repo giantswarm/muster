@@ -117,15 +117,15 @@ func TestBackendProtocol_ModernBackend(t *testing.T) {
 		_, err := c.CallTool(WithCallerCapabilities(ctx, everything), "create", nil)
 
 		require.NoError(t, err)
-		require.Equal(t, mcp.ClientCapabilities{Elicitation: urlCapabilities().Elicitation, Extensions: toolCallMetadataClientExtensions()}, *backend.declared.Load())
+		require.Equal(t, mcp.ClientCapabilities{Elicitation: urlCapabilities().Elicitation}, *backend.declared.Load())
 	})
 
-	t.Run("a call without a caller declares no elicitation", func(t *testing.T) {
+	t.Run("a call without a caller declares nothing", func(t *testing.T) {
 		result, err := c.CallTool(ctx, "create", nil)
 
 		require.NoError(t, err)
 		require.False(t, result.NeedsInput())
-		require.Equal(t, mcp.ClientCapabilities{Extensions: toolCallMetadataClientExtensions()}, *backend.declared.Load())
+		require.Equal(t, mcp.ClientCapabilities{}, *backend.declared.Load())
 	})
 
 	t.Run("a retry carries the inputResponses and the requestState", func(t *testing.T) {
@@ -155,7 +155,7 @@ func TestBackendProtocol_LegacyBackend(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "A model key is missing: add one in the Dev Portal.", result.Content[0].(mcp.TextContent).Text)
-	require.Equal(t, mcp.ClientCapabilities{Extensions: toolCallMetadataClientExtensions()}, *backend.declared.Load(), "its handshake declared no elicitation, whoever calls")
+	require.Equal(t, mcp.ClientCapabilities{}, *backend.declared.Load(), "its handshake declared nothing, whoever calls")
 }
 
 // A backend spoken to on 2025-11-25 that a new process speaking 2026-07-28
