@@ -14,7 +14,7 @@ import (
 // and the governance mode; callers add the approval id, the target, the
 // arguments' hash and, for a change, the settings old and new as structured
 // values, so no free-form name can forge another field. The one helper
-// keeps every approval event in the same shape (M1-MU-S-10, M1-MU-C-16).
+// keeps every approval event in the same shape.
 func AuditApproval(ctx context.Context, action string, attrs ...slog.Attr) {
 	identity := SignInIdentityFromContext(ctx)
 	subject := identity.Subject

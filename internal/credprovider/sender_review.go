@@ -77,7 +77,7 @@ func (k KubernetesSenderReviewer) Review(ctx context.Context, token string) (str
 	}
 	// A LocalSubjectAccessReview in muster's own namespace: the review is
 	// namespaced, so muster needs no cluster-wide right to ask what any
-	// identity may do anywhere (M1-MU-S-14).
+	// identity may do anywhere.
 	access, err := k.Client.AuthorizationV1().LocalSubjectAccessReviews(k.Namespace).Create(ctx, &authorizationv1.LocalSubjectAccessReview{
 		ObjectMeta: metav1.ObjectMeta{Namespace: k.Namespace},
 		Spec: authorizationv1.SubjectAccessReviewSpec{

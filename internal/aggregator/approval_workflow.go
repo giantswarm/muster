@@ -79,7 +79,7 @@ type workflowPlan struct {
 	asks    []api.ToolApproval
 	blocked string
 	// nested records the definition hash of every workflow a run calls, by
-	// name: the approval binds them with the workflow's own (M1-MU-S-08).
+	// name: the approval binds them with the workflow's own.
 	nested map[string]string
 	// unknown counts the steps muster could not resolve up front (a tool
 	// no session server lists yet, a missing tool).

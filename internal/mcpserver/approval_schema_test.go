@@ -34,7 +34,7 @@ func (p *pruningClient) UpdateMCPServer(ctx context.Context, obj *musterv1alpha1
 }
 
 // A CRD without spec.approval is detected: the write tools refuse to store
-// settings instead of reporting success (M1-MU-C-02, M1-MU-S-04).
+// settings instead of reporting success.
 func TestApprovalSchema_StaleCRDRefusesWrites(t *testing.T) {
 	c := &pruningClient{}
 	c.existing = &musterv1alpha1.MCPServer{}

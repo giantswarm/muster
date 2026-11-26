@@ -160,7 +160,7 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, api.ErrApprovalNotFound) && !r.URL.Query().Has("code") {
 		// An unknown, expired or used id answers like a live one before
 		// sign-in: the browser is sent to sign in, and only a signed-in
-		// browser learns that nothing is there (lab M1-5). Nothing is
+		// browser learns that nothing is there. Nothing is
 		// stored for it.
 		p.sendUnknownToSignIn(w, r, identity, id)
 		return
@@ -185,7 +185,7 @@ func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The first allowed return of this browser's flow is kept; a later link
-	// cannot replace it (M1-MU-S-12).
+	// cannot replace it.
 	if redirect := r.URL.Query().Get("redirect"); redirect != "" && flow.Redirect == "" {
 		if p.RedirectAllowed != nil && p.RedirectAllowed(redirect) {
 			flow.Redirect = redirect

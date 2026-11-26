@@ -15,9 +15,9 @@ import (
 // fillers -- is replaced by a visible marker such
 // as ⟨U+202E⟩. So is every combining or enclosing mark (Mn, Me) after the
 // first maxMarksPerBase on one base character: a stack of them draws over
-// the lines around it (M2-S3-S-08), while text that needs accents keeps
+// the lines around it, while text that needs accents keeps
 // them. An agent chooses its arguments and its reason; it must not be able
-// to make a value read differently from what runs (M1-MU-S-06).
+// to make a value read differently from what runs.
 func Visible(s string) string {
 	if !strings.ContainsFunc(s, hidden) && !strings.ContainsFunc(s, combining) {
 		return s
@@ -52,7 +52,7 @@ func hidden(r rune) bool {
 	case unicode.Is(unicode.Cf, r), unicode.IsControl(r), r == '\u2028', r == '\u2029', r == unicode.ReplacementChar:
 		return true
 	case unicode.Is(unicode.Zs, r) && r != ' ':
-		// No-break and other spaces read as the ASCII space (re-check R-S-03).
+		// No-break and other spaces read as the ASCII space.
 		return true
 	case unicode.Is(unicode.Variation_Selector, r), unicode.Is(unicode.Other_Default_Ignorable_Code_Point, r):
 		// Variation selectors, U+034F, the Hangul fillers (U+115F, U+1160,

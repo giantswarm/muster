@@ -64,7 +64,9 @@ Pick the bindings' subjects to match how the instance is used:
 
 Whoever holds `mcpserver-editor` is a **connector admin**: they set a
 connector's tool approval (`spec.approval`) and may let an agent skip a tool's
-`Ask` (see [Governing tool calls](https://docs.giantswarm.io/overview/agent-platform/governing-tool-calls/)).
+`Ask` (see [tool approval](../../docs/how-to/mcp-server-management.md#tool-approval); a platform
+built on muster may describe it further, for example the Giant Swarm Agent Platform's
+[Governing tool calls](https://docs.giantswarm.io/overview/agent-platform/governing-tool-calls/)).
 So `rbac.mcpServerEditor.subjects` binds **nobody by default**: the Role ships,
 its RoleBinding renders only for a non-empty list. Name the connector admins
 there (an admin group, or `system:authenticated` to keep the chart's earlier

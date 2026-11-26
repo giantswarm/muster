@@ -128,7 +128,7 @@ func TestAgentSettings_DefaultAndSpecificity(t *testing.T) {
 	approvalIDOf(t, result)
 }
 
-// A grant never lifts a floor or the governed default (decision #79): the
+// A grant never lifts a floor or the governed default: the
 // agent-manager tools stay governed for an agent with a granted Allow.
 func TestAgentSettings_GrantNeverLiftsGovernance(t *testing.T) {
 	rig, platform := governedRig(t, api.GovernanceGoverned)

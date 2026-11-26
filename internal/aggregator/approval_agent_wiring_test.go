@@ -21,8 +21,7 @@ import (
 // The Session binding's settings reach every request of the actor through
 // the actor bearer handler: a binding an approval sender wrote carries the
 // agent, its entries and grants into the request's context, and a blocked
-// tool is refused; a binding without the sender carries none
-// (M2-S3-C-01).
+// tool is refused; a binding without the sender carries none.
 func TestActorBearerHandlerCarriesTheAgentsSettings(t *testing.T) {
 	rig := agentRig(t)
 	store := credprovider.NewMemoryStore()
@@ -61,7 +60,7 @@ func TestActorBearerHandlerCarriesTheAgentsSettings(t *testing.T) {
 	assert.Equal(t, settings.Entries, seen.Entries, "a binding's settings win over the header")
 
 	// A fresh store: the actor's seal keeps a bind without the sender
-	// out of the first one (M2-S3-R-01).
+	// out of the first one.
 	store = credprovider.NewMemoryStore()
 	h = actorBearerHandler(testActorBearer(t, store), mcpHandler, http.NotFoundHandler(), nil, nil)
 	require.NoError(t, store.Put(context.Background(), actor, credprovider.Binding{Subject: "alice", Session: "kagent/s1",
@@ -103,7 +102,7 @@ func TestToolApprovalHeader(t *testing.T) {
 	assert.False(t, result.IsError)
 }
 
-// Regressions for the mutants that survived (M2-S3-C-11).
+// Regressions for the mutants that survived.
 func TestAgentSettings_MutantsKilled(t *testing.T) {
 	t.Run("equally specific entries: the stricter wins in either order", func(t *testing.T) {
 		rig := agentRig(t)
@@ -159,8 +158,7 @@ func TestAgentSettings_MutantsKilled(t *testing.T) {
 }
 
 // A tool: entry names the tool whatever name the call used: a family
-// member's per-server name and the grouped name select the same tool
-// (M2-S3-C-12).
+// member's per-server name and the grouped name select the same tool.
 func TestAgentSettings_EntriesMatchCanonicalNames(t *testing.T) {
 	rig := agentRig(t)
 	names := rig.server.registry.ToolNames("github", "get_issue")
@@ -176,7 +174,7 @@ func TestAgentSettings_EntriesMatchCanonicalNames(t *testing.T) {
 }
 
 // A call a grant lets run is audited with the grant mark that lifted the
-// connector's Ask (M2-S3-S-10).
+// connector's Ask.
 func TestAgentSettings_GrantedCallIsAudited(t *testing.T) {
 	var buf bytes.Buffer
 	logging.InitForCLI(logging.LevelInfo, &buf)
@@ -194,7 +192,7 @@ func TestAgentSettings_GrantedCallIsAudited(t *testing.T) {
 
 // Where a floor or the governed default decides, the report for an agent
 // still names the deciding entry and the connector's own setting, for core
-// tools and server tools alike (M2I-6).
+// tools and server tools alike.
 func TestAgentSettings_FloorDecidedToolsKeepTheirExplanation(t *testing.T) {
 	rig, _ := governedRig(t, api.GovernanceGoverned)
 	report := api.WithAgentApproval(rig.ctx, &api.AgentApproval{Reporting: true, Entries: []api.AgentApprovalEntry{

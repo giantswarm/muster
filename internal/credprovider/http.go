@@ -271,7 +271,7 @@ func loginKind(loginSession string) string {
 // HandleUnbind is DELETE /session-bindings?actor=<id>: removes the calling
 // person's binding of the actor. A binding an approval sender wrote is
 // removed only with that sender (X-Muster-Approval-Sender): 409 without it,
-// 403 with another (M2-S3-R-01). Unbinding an unbound actor succeeds.
+// 403 with another. Unbinding an unbound actor succeeds.
 func (p *Provider) HandleUnbind(w http.ResponseWriter, r *http.Request) {
 	sub := api.GetSubjectFromContext(r.Context())
 	if sub == "" {

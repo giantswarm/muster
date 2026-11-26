@@ -153,7 +153,7 @@ func TestSetApproval_ExpectedGeneration(t *testing.T) {
 }
 
 // Block hides a tool, its name included: a caller who is not the connector's
-// admin reads its settings without the Block entries (M1-MU-S-11).
+// admin reads its settings without the Block entries.
 func TestGetAndList_HideBlockedNamesFromNonAdmins(t *testing.T) {
 	server := api.MCPServerInfo{Name: "github", Approval: &api.MCPServerApproval{Rule: "Ask", Tools: map[string]string{"get": "Allow", "secret_tool": "Block"}}}
 	shown := withoutBlockedNames(server, false)
@@ -165,7 +165,7 @@ func TestGetAndList_HideBlockedNamesFromNonAdmins(t *testing.T) {
 
 // A preset that finds no tools says that only its rule was written, and an
 // empty approval object is refused: it would read as reviewed while it
-// allows everything (M1-MU-C-17).
+// allows everything.
 func TestPresetWithoutToolsAndEmptyApproval(t *testing.T) {
 	c := &recordingClient{}
 	adapter := NewAdapterWithClient(c, "test-ns")
@@ -190,8 +190,7 @@ func TestList_ReportsTheGovernanceMode(t *testing.T) {
 }
 
 // The connector-write audit line never records credentials a URL carries:
-// userinfo, query, fragment, matrix parameters, token-like path segments
-// (re-check R-S-04, R2-S-04).
+// userinfo, query, fragment, matrix parameters, token-like path segments.
 func TestAuditURL(t *testing.T) {
 	for raw, want := range map[string]string{
 		"https://user:secret@mcp.example.com/sse?api_key=k#frag": "https://mcp.example.com/sse",
@@ -205,7 +204,7 @@ func TestAuditURL(t *testing.T) {
 }
 
 // The audit line of a connector write records the redacted URL, never the
-// raw one (re-check R2-S-02).
+// raw one.
 func TestConnectorWriteAuditRedactsTheURL(t *testing.T) {
 	var buf bytes.Buffer
 	logging.InitForCLI(logging.LevelInfo, &buf)

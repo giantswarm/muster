@@ -297,7 +297,7 @@ func (c *scopedCatalogue) refuse(ctx context.Context, name string, args map[stri
 		// hold it: its approval settings block it (a connector's or the
 		// agent's own Block, which hide the tool). Refused the way the call
 		// itself refuses a blocked tool, not as outside a toolset that
-		// visibly names it (M3I-4).
+		// visibly names it.
 		logging.InfoWithAttrs("metatools", fmt.Sprintf("call_tool refused: tool %q is not in the session's catalogue", name),
 			append([]slog.Attr{slog.String("tool", name), slog.String("toolset", outside.ts.String())}, sessionAttrs(ctx)...)...)
 		return errorResult("tool not found: " + name)

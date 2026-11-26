@@ -265,7 +265,7 @@ func TestGate_StoreOutageRefuses(t *testing.T) {
 	api.RegisterApprovalStore(&failingStore{})
 	_, err := rig.server.CallToolInternal(rig.ctx, "x_github_merge_pull_request", map[string]any{"pr": 1.0})
 	require.ErrorContains(t, err, "approval store cannot be reached")
-	assert.NotContains(t, err.Error(), "valkey unavailable", "the store's own error stays in the log (M1-MU-S-16)")
+	assert.NotContains(t, err.Error(), "valkey unavailable", "the store's own error stays in the log")
 	assert.Zero(t, rig.client.count("merge_pull_request"))
 }
 
@@ -291,7 +291,7 @@ func TestGate_OnByDefault(t *testing.T) {
 
 // A registered server whose MCPServer object the manager no longer finds
 // (deleted, deselected) is refused, Allow and Block tools alike, and listed
-// as unavailable: its settings cannot be known (security M1-MU-S-01).
+// as unavailable: its settings cannot be known (security).
 func TestGate_ServerObjectMissingFailsClosed(t *testing.T) {
 	rig := newGateRig(t)
 	manager := api.GetMCPServerManager().(*stubMCPServerManager)
@@ -319,7 +319,7 @@ type approvalSchemaManager struct {
 func (m approvalSchemaManager) ApprovalSchemaProblem(context.Context) string { return m.problem }
 
 // A CRD that does not know spec.approval makes every server tool refused
-// with the reason and reported unavailable, never Allow (M1-MU-C-02, S-04).
+// with the reason and reported unavailable, never Allow (S-04).
 func TestGate_StaleCRDRefuses(t *testing.T) {
 	rig := newGateRig(t)
 	stub := api.GetMCPServerManager().(*stubMCPServerManager)
@@ -440,7 +440,7 @@ func TestApplyApprovals_ReportsWhyAskingIsUnavailable(t *testing.T) {
 // A preset is expanded once, when the call asks; the person approves that
 // expansion and it is what runs. A server that marks a tool read-only
 // between the page and the retry makes the retry another call, which asks
-// again (M1-MU-S-07).
+// again.
 func TestGate_PresetIsBoundToItsExpansion(t *testing.T) {
 	rig := newGateRig(t)
 	agent := api.WithSessionID(rig.ctx, api.ActorSessionPrefix+"session-1")
@@ -468,8 +468,7 @@ func TestGate_PresetIsBoundToItsExpansion(t *testing.T) {
 	assert.NotEqual(t, id, approvalIDOf(t, again), "another expansion is another call")
 }
 
-// On Governed, every way an agent pauses or removes a connector asks
-// (M1-MU-S-03).
+// On Governed, every way an agent pauses or removes a connector asks.
 func TestGate_GovernedAsksBeforePausingOrRemoving(t *testing.T) {
 	api.RegisterGovernance(api.Governance{Mode: api.GovernanceGoverned, Readable: true})
 	t.Cleanup(func() { api.RegisterGovernance(api.Governance{}) })
@@ -495,7 +494,7 @@ func TestGate_GovernedAsksBeforePausingOrRemoving(t *testing.T) {
 
 // Every approval event carries who in full, the caller kind and the approval
 // id, so a request, its decision and its use join on one id; Block
-// refusals are audit events too (M1-MU-S-10, M1-MU-C-16).
+// refusals are audit events too.
 func TestGate_AuditCarriesTheApprovalID(t *testing.T) {
 	var buf bytes.Buffer
 	logging.InitForCLI(logging.LevelInfo, &buf)
@@ -532,7 +531,7 @@ func lineWith(logs, needle string) string {
 
 // A connector whose rule is Block hides and refuses every tool without its
 // own entry -- new tools included -- like a tool's own Block, in listings,
-// calls and workflows; a Block beats any floor (decision #74).
+// calls and workflows; a Block beats any floor.
 func TestGate_BlockRule(t *testing.T) {
 	rig := newGateRig(t)
 	rig.setSettings(t, &api.MCPServerApproval{Rule: api.ApprovalBlock, Tools: map[string]string{"get_issue": api.ApprovalAllow}})
@@ -558,7 +557,7 @@ func (rig *gateRig) setSettings(t *testing.T, settings *api.MCPServerApproval) {
 
 // A call that asks on a server the session must first sign in to is
 // answered with the sign-in, before an approval is asked for or used: the
-// person is not asked twice for one call (M1-MU-C-09). Driven through the
+// person is not asked twice for one call. Driven through the
 // dispatch path, so removing the check from the gate fails it (re-check
 // R-C-04).
 func TestGate_SignInBeforeApproval(t *testing.T) {
@@ -600,8 +599,7 @@ func TestGate_SignInBeforeApproval(t *testing.T) {
 // the transport session: the same client reconnecting between ask and retry
 // (a new Mcp-Session-Id) runs it, another client (another azp, so another
 // muster session, as the middleware produces) asks anew, and a new transport
-// session does not reset a client's cap (lab M1-2, re-check R-C-01, R-S-01,
-// R2-S-01).
+// session does not reset a client's cap.
 func TestGate_ApprovalBoundToTheClient(t *testing.T) {
 	rig := newGateRig(t)
 	server := mcpserver.NewMCPServer("muster", "test")
@@ -669,7 +667,7 @@ type unreachableStore struct{ approval.MemoryStore }
 func (*unreachableStore) Ping(context.Context) error { return errors.New("valkey unavailable") }
 
 // During a store outage the listing reports why asking tools are refused,
-// as it does for a missing prerequisite (lab M1-3).
+// as it does for a missing prerequisite.
 func TestApplyApprovals_ReportsAStoreOutage(t *testing.T) {
 	rig := newGateRig(t)
 	api.RegisterApprovalStore(&unreachableStore{})

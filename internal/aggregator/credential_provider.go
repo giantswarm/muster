@@ -119,7 +119,7 @@ func registerSessionBindingsOn(mux *http.ServeMux, provider *credprovider.Provid
 	mux.Handle("PUT "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleBind)))
 	mux.Handle("DELETE "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleUnbind)))
 	// Authorized by the approval sender's token alone (no person's bearer):
-	// it only removes grant marks (M2-S3-C-04).
+	// it only removes grant marks.
 	mux.Handle("PATCH "+credprovider.GrantsPath, http.HandlerFunc(provider.HandleDropGrants))
 }
 

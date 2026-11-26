@@ -17,7 +17,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// A connector's client (giantswarm/giantswarm#38849): core_mcpserver_create
+// A connector's client: core_mcpserver_create
 // and core_mcpserver_connect take clientCredentials and write them, as the
 // caller, to a Secret with a generated name owned by the MCPServer. The
 // chart's admission policy (mcpserver-secret-references.yaml) does not ask

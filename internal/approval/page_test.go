@@ -63,7 +63,7 @@ func newPageRig(t *testing.T) *pageRig {
 	t.Cleanup(rig.server.Close)
 	rig.page = &Page{
 		PublicURL:       rig.server.URL,
-		Installation:    "gazelle",
+		Installation:    "example",
 		Store:           func() api.ApprovalStore { return rig.store },
 		Identity:        func() api.BrowserIdentity { return rig.identity },
 		RedirectAllowed: func(raw string) bool { return strings.HasPrefix(raw, "https://portal.example.com/") },
@@ -119,15 +119,14 @@ func TestPage_ApproveAndReturn(t *testing.T) {
 	assert.Equal(t, "no-referrer", resp.Header.Get("Referrer-Policy"))
 	assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "frame-ancestors 'none'")
 	// Chromium applies form-action to the decision's redirect, under this
-	// page's policy: the return's origin, and only it, is admitted
-	// (M1-MU-C-07).
+	// page's policy: the return's origin, and only it, is admitted.
 	assert.Contains(t, resp.Header.Get("Content-Security-Policy"), "form-action 'self' https://portal.example.com;")
 	assert.Contains(t, body, "Approve this action?")
 	assert.Contains(t, body, "Changes data")
 	assert.Contains(t, body, "&lt;script&gt;alert(1)&lt;/script&gt;", "argument values are escaped")
 	assert.NotContains(t, body, "<script>alert(1)</script>")
 	assert.Contains(t, body, " disabled>Approve", "buttons start inert")
-	assert.Contains(t, body, "getElementById('decide').addEventListener('submit'", "the buttons disable on submit (re-check R2-C-03)")
+	assert.Contains(t, body, "getElementById('decide').addEventListener('submit'", "the buttons disable on submit")
 
 	// Viewing changed nothing.
 	got, err := rig.store.Get(context.Background(), request.ID)
@@ -152,7 +151,7 @@ func TestPage_ApproveAndReturn(t *testing.T) {
 	assert.Equal(t, alice, got.DecidedBy)
 
 	// The same form again (a double click) changes nothing and says what
-	// stands (re-check R-C-02).
+	// stands.
 	resp, err = client.PostForm(rig.page.URL(request.ID), url.Values{"token": {token}, "decision": {"decline"}})
 	require.NoError(t, err)
 	again, _ := io.ReadAll(resp.Body)
@@ -166,7 +165,7 @@ func TestPage_ApproveAndReturn(t *testing.T) {
 }
 
 // The first allowed return of a browser's flow is kept: a later link with
-// another return does not replace it (M1-MU-S-12).
+// another return does not replace it.
 func TestPage_ReturnIsSetOnce(t *testing.T) {
 	rig := newPageRig(t)
 	request := rig.create(t, map[string]any{"pr": 1})
@@ -256,7 +255,7 @@ func TestPage_DecisionNeedsBrowserAndToken(t *testing.T) {
 func TestPage_ExpiredAndUnavailable(t *testing.T) {
 	rig := newPageRig(t)
 	// Before sign-in an unknown id answers like someone else's live request:
-	// a redirect to sign in (lab M1-5).
+	// a redirect to sign in.
 	foreign := rig.create(t, map[string]any{"pr": 1})
 	for _, id := range []string{"unknown", foreign.ID} {
 		resp, err := browser(t).Get(rig.page.URL(id))
@@ -292,7 +291,7 @@ func TestPage_SignInBoundToBrowser(t *testing.T) {
 	assert.NotEqual(t, http.StatusSeeOther, resp.StatusCode)
 }
 
-// Regression of the PoC for M1-MU-S-06: bidi overrides and zero-width
+// Regression: bidi overrides and zero-width
 // characters in an argument reach the page only as visible markers, in the
 // labelled value and in "Show details"; the connector is shown with its
 // server key, not only its display name.
@@ -315,7 +314,7 @@ func TestPage_MarksInvisibleCharacters(t *testing.T) {
 	assert.Contains(t, body, "<code>team-a/github</code>", "the connector's server key is shown")
 }
 
-// Blank look-alikes are marked too (re-check R-S-03).
+// Blank look-alikes are marked too.
 func TestVisible_BlankLookAlikes(t *testing.T) {
 	for _, r := range []rune{'\u00a0', '\u2003', '\u3000', '\u3164', '\u115f', '\uffa0', '\u2800', '\ufe0f', '\u034f'} {
 		assert.NotEqual(t, "a"+string(r)+"b", Visible("a"+string(r)+"b"), "U+%04X", r)
@@ -367,7 +366,7 @@ func TestPage_DecisionAfterSignInWithOriginNull(t *testing.T) {
 }
 
 // Every outcome says whether the request was approved, declined or nothing
-// was decided, and what to do next (decision #77).
+// was decided, and what to do next.
 func TestPage_OutcomesSayWhatHappened(t *testing.T) {
 	decide := func(t *testing.T, rig *pageRig, request *api.ApprovalRequest, client *http.Client, decision string) string {
 		_, body := rig.open(t, client, rig.page.URL(request.ID))
@@ -421,7 +420,7 @@ func TestPage_RequesterAndWorkflowName(t *testing.T) {
 
 // The agent's reason is shown in its own box, escaped and with invisible
 // characters marked, and the page names the agent and the client the
-// approval is bound to (M1-MU-C-23, R2-S-03).
+// approval is bound to.
 func TestPage_AgentSaysAndBoundClient(t *testing.T) {
 	p := &Page{PublicURL: "https://muster.example.com"}
 	request := &api.ApprovalRequest{ID: "x", Identity: alice, Status: api.ApprovalStatusPending, ExpiresAt: time.Now().Add(time.Minute),
@@ -443,8 +442,7 @@ func TestPage_AgentSaysAndBoundClient(t *testing.T) {
 }
 
 // More than two combining marks on one character are marked, so a stack of
-// them cannot draw over the lines around it; text with accents keeps them
-// (M2-S3-S-08).
+// them cannot draw over the lines around it; text with accents keeps them.
 func TestVisible_StackedCombiningMarks(t *testing.T) {
 	assert.Equal(t, "e\u0301\u0302", Visible("e\u0301\u0302"), "two marks stay")
 	assert.Equal(t, "e\u0301\u0302⟨U+0303⟩⟨U+0304⟩", Visible("e\u0301\u0302\u0303\u0304"))

@@ -86,7 +86,7 @@ func TestFilterTools_AgentTools(t *testing.T) {
 	assert.True(t, recorder.seen.Reporting)
 	assert.Equal(t, "Ask", recorder.seen.Default)
 
-	assert.Equal(t, map[string]any{"entries": 2.0, "settings": 1.0}, resp["agentTools"], "the answer says it evaluated the list (M2-S3-C-07)")
+	assert.Equal(t, map[string]any{"entries": 2.0, "settings": 1.0}, resp["agentTools"], "the answer says it evaluated the list")
 	tools := resp["tools"].([]any)
 	first := tools[0].(map[string]any)
 	assert.Equal(t, []any{map[string]any{"server": "k8s", "namespace": "muster", "name": "k8s", "uid": "u-k8s"}}, first["connectors"])
@@ -126,7 +126,7 @@ func TestPresetSelects(t *testing.T) {
 }
 
 // The connectors carry the server's own name of the tool, what a grant
-// names (M2-S3-S-06).
+// names.
 func TestConnectorLookupNamesTheServersTool(t *testing.T) {
 	api.RegisterMCPServerManager(connectorsManager{servers: []api.MCPServerInfo{{Name: "k8s", Namespace: "muster", UID: "u-k8s"}}})
 	t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
@@ -134,8 +134,7 @@ func TestConnectorLookupNamesTheServersTool(t *testing.T) {
 	assert.Equal(t, []ConnectorRef{{Server: "k8s", Namespace: "muster", Name: "k8s", UID: "u-k8s", Tool: "get"}}, connectorLookup(context.Background())(tool))
 }
 
-// An agent caller cannot list what its own binding hides with agentTools
-// (M2-S3-S-07).
+// An agent caller cannot list what its own binding hides with agentTools.
 func TestAgentToolsRefusedToAgents(t *testing.T) {
 	defer registerMockHandler(toolsetFixture())()
 	p := NewProvider()
@@ -149,7 +148,7 @@ func TestAgentToolsRefusedToAgents(t *testing.T) {
 
 // A tool the toolset names but approval settings hide (a Block) is refused
 // as not found, like the call itself refuses it, not as outside a toolset
-// that visibly names it (M3I-4); a tool the toolset does not name stays
+// that visibly names it; a tool the toolset does not name stays
 // outside it.
 func TestCallToolRefusesABlockedToolAsNotFound(t *testing.T) {
 	defer registerMockHandler(toolsetFixture())()

@@ -72,7 +72,7 @@ func (a *AggregatorServer) applyApprovals(ctx context.Context, tools []mcp.Tool)
 	reason := a.approvalUnavailable(ctx)
 	if reason == "" && anyAsks(out) {
 		// A store that is registered but cannot be reached refuses every
-		// call that asks; the listing says so too (lab M1-3).
+		// call that asks; the listing says so too.
 		if !a.approvalStoreReachable(ctx) {
 			reason = "muster's approval store cannot be reached"
 		}
@@ -136,7 +136,7 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 		l.listed = true
 	}
 	// What a call would do for this caller: an agent caller gets the floors
-	// and, on Governed, the governed default reported too (M1-MU-C-08).
+	// and, on Governed, the governed default reported too.
 	// A listing reporting for an agent's settings (filter_tools agentTools)
 	// reports them the same way.
 	l.agent = isAgentCallerOrReport(ctx)

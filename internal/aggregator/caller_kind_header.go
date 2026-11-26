@@ -8,7 +8,7 @@ import (
 )
 
 // HeaderCallerKind tells a server muster's governance configuration names
-// (agent-manager, the Platform Manager, the connector manager) that the call
+// (for example an agent manager or a connector manager) that the call
 // comes from an agent: muster forwards the person's identity for agents and
 // people alike, so the server cannot tell them apart. agent-manager keeps no
 // exception on a save made by an agent. muster sends it only for agent

@@ -25,8 +25,7 @@ func (p *headerProbe) CallTool(ctx context.Context, name string, args map[string
 }
 
 // X-Muster-Caller-Kind reaches a server the governance configuration names
-// for agent callers only, on the dispatch path every connection type shares
-// (M1-MU-S-05, M1-MU-C-20).
+// for agent callers only, on the dispatch path every connection type shares.
 func TestCallerKindHeader(t *testing.T) {
 	api.RegisterGovernance(api.Governance{Mode: api.GovernanceTrusted, Readable: true,
 		Servers: []api.GovernedServer{{Server: "agent-manager", Role: api.GovernanceRoleAgentManager}}})

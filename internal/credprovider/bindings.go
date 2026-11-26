@@ -17,18 +17,18 @@ var ErrBoundToAnother = errors.New("the actor is bound to another person")
 
 // ErrSenderBound is returned when a bind would replace a binding an approval
 // sender wrote without that same sender: the person could otherwise strip
-// the agent's own Ask and Block from their Session (M2-S3-S-01).
+// the agent's own Ask and Block from their Session.
 var ErrSenderBound = errors.New("the binding carries an agent's approval settings: only the approval sender that wrote it (agent-manager) can replace it")
 
 // ErrSenderSealed is ErrSenderBound for an actor whose sender-written
 // binding has ended: the bind is refused for the same reason, said for
-// what the caller sees (M2I-7).
+// what the caller sees.
 var ErrSenderSealed = fmt.Errorf("%w (this actor's binding by an approval sender has ended; start a new Session through agent-manager instead of binding this one again)", ErrSenderBound)
 
 // sealFactor is how many binding TTLs an actor's sender seal outlives its
 // last bind or Touch: after a sender-written binding is deleted or expires,
-// a bind of that actor without the sender stays refused for that long
-// (M2-S3-R-01). An actor is one Session's sandbox, so by then it is gone.
+// a bind of that actor without the sender stays refused for that long.
+// An actor is one Session's sandbox, so by then it is gone.
 const sealFactor = 2
 
 // checkReplace refuses a write of b over the live binding existing, or,
@@ -54,7 +54,7 @@ func checkReplace(existing *Binding, seal string, sealed bool, b Binding) error 
 
 // checkDelete refuses removing a sender-written binding without its sender:
 // the person could otherwise unbind and bind again without the agent's
-// settings (M2-S3-R-01).
+// settings.
 func checkDelete(existing *Binding, subject, sender string) error {
 	if existing.Subject != subject {
 		return ErrBoundToAnother

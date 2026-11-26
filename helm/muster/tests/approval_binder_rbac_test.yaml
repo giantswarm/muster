@@ -55,7 +55,7 @@ tests:
           value: mcp-servers
         documentIndex: 5
 
-  - it: grants muster's ServiceAccount token reviews cluster-wide and access reviews only in its namespace (M1-MU-S-14)
+  - it: grants muster's ServiceAccount token reviews cluster-wide and access reviews only in its namespace
     release:
       name: muster
       namespace: muster-system

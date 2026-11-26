@@ -217,7 +217,7 @@ func TestValkeyStore_ReplicasConsumeOnce(t *testing.T) {
 }
 
 // Of concurrent retries, every loser finds the approval gone, never a
-// pending request whose link the winner just used up (M1-MU-C-11).
+// pending request whose link the winner just used up.
 func TestStore_ConsumeLosersFindNothing(t *testing.T) {
 	stores(t, func(t *testing.T, store api.ApprovalStore) {
 		ctx := context.Background()
@@ -249,8 +249,8 @@ func TestStore_ConsumeLosersFindNothing(t *testing.T) {
 }
 
 // The caps are checked and taken in one step: concurrent asks of one
-// Session never exceed its cap (M1-MU-C-12). A decided request stops
-// counting, and the refusal names the cap that was reached (M1-MU-S-13).
+// Session never exceed its cap. A decided request stops
+// counting, and the refusal names the cap that was reached.
 func TestStore_LimitsAtomicFairAndNamed(t *testing.T) {
 	stores(t, func(t *testing.T, store api.ApprovalStore) {
 		ctx := context.Background()
@@ -295,7 +295,7 @@ func TestStore_LimitsAtomicFairAndNamed(t *testing.T) {
 
 // A decision written into Valkey by anyone but muster is no approval: it
 // must name the request and its binding, and with an encryptor it must be
-// sealed with muster's key (M1-MU-S-09).
+// sealed with muster's key.
 func TestValkeyStore_ForgedDecisionIsNoApproval(t *testing.T) {
 	store, srv, _ := newValkeyStoreForTest(t)
 	ctx := context.Background()

@@ -16,7 +16,7 @@ import (
 // set scored by each binding's expiry: Put and Touch, which restart a
 // binding's TTL, rescore its actor and drop the members already expired, and
 // the set expires with its latest member, so an agent's index never outlives
-// its bindings and never grows past its live Sessions (M2-S3-C-03).
+// its bindings and never grows past its live Sessions.
 
 func (s *ValkeyStore) agentKey(agent string) string {
 	sum := sha256.Sum256([]byte(agent))

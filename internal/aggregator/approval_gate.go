@@ -200,7 +200,7 @@ func (a *AggregatorServer) gateServerTool(ctx context.Context, toolName, server,
 // signInFirst answers a call that asks with the server's sign-in when the
 // session must sign in to the server before the call could run: asking
 // first would use the approval up on a call that then cannot run, and the
-// person would be asked twice for one call (M1-MU-C-09). needed is false
+// person would be asked twice for one call. needed is false
 // when the session can call the server.
 func (a *AggregatorServer) signInFirst(ctx context.Context, server, original string, args map[string]any) (*mcp.CallToolResult, error, bool) {
 	serverInfo, exists := a.registry.GetServerInfo(server)
@@ -251,7 +251,7 @@ func (a *AggregatorServer) gateCoreTool(ctx context.Context, toolName string, ar
 // lists. The person approves those settings, and those are what runs: a
 // server that changes its tools' annotations between the page and the retry
 // makes the retry another call, which asks again, instead of writing an
-// expansion nobody saw (M1-MU-S-07). An unknown preset is left for the tool
+// expansion nobody saw. An unknown preset is left for the tool
 // to refuse.
 func (a *AggregatorServer) bindPreset(ctx context.Context, args map[string]any) map[string]any {
 	preset, ok := args["preset"].(string)
@@ -363,7 +363,7 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 
 // storeUnreachable refuses a call that asks while the approval store does
 // not answer. The store's own error, which can name internal hosts, is
-// logged, not returned to the caller (M1-MU-S-16).
+// logged, not returned to the caller.
 func storeUnreachable(name string, err error) error {
 	logging.Warn("Approval", "approval store unavailable for %s: %v", name, err)
 	return fmt.Errorf("approval_unavailable: %s asks before it runs, and muster's approval store cannot be reached, so it cannot run; try again later", name)
@@ -385,11 +385,10 @@ func limitReason(err error) string {
 // bound to: muster's session and the calling client. A forwarded person's
 // bearer gives every client of that person one muster session, so without
 // the client an approval asked in one client could be used by another, and
-// one client's pending asks would fill the others' cap (lab M1-2). The
+// one client's pending asks would fill the others' cap. The
 // client is not the transport session (Mcp-Session-Id): clients reconnect
 // between ask and retry (token refresh, idle eviction, a restart, another
-// replica), and the id is the client's to choose (re-check R-C-01,
-// R-S-01). It is what the request's credential says: the agent's Session for
+// replica), and the id is the client's to choose. It is what the request's credential says: the agent's Session for
 // an actor JWT (muster's session is that Session's), the acting party of a
 // delegated token, or the OAuth client a person's token was issued to (azp).
 // A request without either keeps muster's session; a 2026-07-28 request,

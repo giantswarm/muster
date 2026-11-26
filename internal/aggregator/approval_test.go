@@ -97,7 +97,7 @@ func TestApplyApprovals(t *testing.T) {
 		{"x_github_odd", api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceTool}},
 		{"x_pagerduty_ack", api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}},
 		// A registered server whose MCPServer the manager does not know is
-		// not Allow: its settings cannot be known (M1-MU-S-01).
+		// not Allow: its settings cannot be known.
 		{"x_unknown_anything", api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}},
 		{"x_kubernetes_list_pods", api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceConnector, New: true}},
 		{"x_kubernetes_delete_pod", api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceTool}},
@@ -259,7 +259,7 @@ func TestListToolsForContext_HidesBlockedTools(t *testing.T) {
 	assert.False(t, found)
 }
 
-// Regression of the PoC for M1-MU-S-06: a string and the boolean, number or
+// Regression: a string and the boolean, number or
 // object it spells are shown differently, with their JSON type.
 func TestLabelledArguments_DistinguishTypes(t *testing.T) {
 	strs := labelledArguments(mcp.ToolInputSchema{}, map[string]any{"force": "false", "n": "1", "o": `{"a":1}`})
@@ -277,7 +277,7 @@ func TestLabelledArguments_DistinguishTypes(t *testing.T) {
 	}, typed)
 }
 
-// Labels made from keys read as words (lab M1-8).
+// Labels made from keys read as words.
 func TestReadable(t *testing.T) {
 	for in, want := range map[string]string{
 		"merge_pull_request": "Merge pull request",

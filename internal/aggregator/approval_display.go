@@ -198,7 +198,7 @@ func labelledArguments(schema mcp.ToolInputSchema, args map[string]any) []api.Ap
 
 // displayValue writes a value as the page shows it: in canonical JSON, a
 // string quoted, so the string "false" and the boolean false, or "1" and 1,
-// never look alike (M1-MU-S-06). The page marks invisible characters
+// never look alike. The page marks invisible characters
 // (approval.Visible).
 func displayValue(value any) string {
 	canonical, _, err := approval.Canonical(map[string]any{"v": value})

@@ -129,7 +129,7 @@ func TestSubjectRoutesAreAuthenticated(t *testing.T) {
 
 // The session bindings API has a listener of its own, so a network policy
 // can admit agent-manager alone; with onMainPort off (what the platform
-// sets) the aggregator's port no longer serves it (decision #88).
+// sets) the aggregator's port no longer serves it.
 func TestSessionBindingsOnTheirOwnListener(t *testing.T) {
 	off := false
 	a := &AggregatorServer{}

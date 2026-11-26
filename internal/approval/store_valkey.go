@@ -293,7 +293,7 @@ func (s *ValkeyStore) Decide(ctx context.Context, id string, approve bool, by ap
 		return fmt.Errorf("approval store: %w", err)
 	}
 	// A decided request no longer waits for the person: it stops counting
-	// against the caps (M1-MU-S-13).
+	// against the caps.
 	_ = s.client.DoMulti(ctx,
 		s.client.B().Zrem().Key(s.personKey(request.Identity)).Member(id).Build(),
 		s.client.B().Zrem().Key(s.sessionKey(request.Identity, request.SessionID)).Member(id).Build())
@@ -346,7 +346,7 @@ func (s *ValkeyStore) DeleteFlow(ctx context.Context, key string) error {
 
 // reserveScript drops expired members from the person's and the Session's
 // sets of pending requests and, when both are under their caps, adds the
-// request to both, in one step (M1-MU-C-12). It returns 0 when added, 1 when
+// request to both, in one step. It returns 0 when added, 1 when
 // the person's cap is reached, 2 when the Session's.
 // KEYS: person, session. ARGV: now ms, expiry ms, id, ttl ms, person cap,
 // session cap.

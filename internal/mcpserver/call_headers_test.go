@@ -52,7 +52,7 @@ func echoServer() *mcpsrv.MCPServer {
 }
 
 // Per-call headers reach the server on every HTTP-based connection type,
-// and only on the call whose context carries them (M1-MU-S-05).
+// and only on the call whose context carries them.
 func TestCallHeadersReachTheServer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

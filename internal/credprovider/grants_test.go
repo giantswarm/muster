@@ -82,7 +82,7 @@ func TestBindTakesAgentSettingsFromTheSenderOnly(t *testing.T) {
 }
 
 // The person whose Session it is cannot strip the agent's settings by
-// binding the actor again without the sender (M2-S3-S-01): 409, the binding
+// binding the actor again without the sender: 409, the binding
 // stays as agent-manager wrote it.
 func TestBindWithoutTheSenderCannotReplaceTheSendersBinding(t *testing.T) {
 	ctx := context.Background()
@@ -257,7 +257,7 @@ func TestBindingApprovalNeedsTheSender(t *testing.T) {
 }
 
 // A drop needs no person's bearer, only the sender: agent-manager re-sends a
-// drop that did not reach muster when it starts (M2-S3-C-04).
+// drop that did not reach muster when it starts.
 func TestDropGrantsWithTheSenderAlone(t *testing.T) {
 	p, store := reviewingProvider(t)
 	require.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
@@ -294,7 +294,7 @@ func TestDropGrantsComparesTheTools(t *testing.T) {
 
 // The Valkey index lives as long as the agent's bindings: an unread index
 // of expired bindings disappears, while a Session that Touch keeps alive
-// stays in it past the first TTL (M2-S3-C-03).
+// stays in it past the first TTL.
 func TestValkeyAgentIndexExpiresWithItsBindings(t *testing.T) {
 	ctx := context.Background()
 	srv := miniredis.RunT(t)
@@ -320,7 +320,7 @@ func TestValkeyAgentIndexExpiresWithItsBindings(t *testing.T) {
 }
 
 // session_bound records the agent, its settings and the grant marks a
-// Session was bound with (M2-S3-C-13, S-10).
+// Session was bound with (S-10).
 func TestSessionBoundLogsTheAgentsSettings(t *testing.T) {
 	var buf bytes.Buffer
 	logging.InitForCLI(logging.LevelInfo, &buf)
@@ -353,7 +353,7 @@ func unbindWithSender(t *testing.T, p *Provider, sender string) *httptest.Respon
 // The person cannot strip the agent's settings by unbinding and binding
 // again: a sender-written binding is unbound only by its sender, and after
 // it ends (unbound or expired) the actor's seal still refuses a bind without
-// the sender (M2-S3-R-01).
+// the sender.
 func TestUnbindThenRebindCannotStripTheSettings(t *testing.T) {
 	ctx := context.Background()
 	p, store := newTestProvider(t, fakeGrants{})
@@ -381,7 +381,7 @@ func TestUnbindThenRebindCannotStripTheSettings(t *testing.T) {
 }
 
 // Both stores enforce the sender on replace and delete, and keep the seal
-// (the Valkey store is production's, M2-S3-R-07).
+// (the Valkey store is production's).
 func TestStoresKeepTheSendersBinding(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range storeCases(t) {
@@ -404,8 +404,8 @@ func TestStoresKeepTheSendersBinding(t *testing.T) {
 	}
 }
 
-// An unread agent index is pruned of expired members on the next write
-// (M2-S3-R-07): an agent that always has a live Session does not grow its
+// An unread agent index is pruned of expired members on the next write:
+// an agent that always has a live Session does not grow its
 // index with every Session it ever had.
 func TestValkeyAgentIndexPrunesExpiredMembers(t *testing.T) {
 	ctx := context.Background()
@@ -425,7 +425,7 @@ func TestValkeyAgentIndexPrunesExpiredMembers(t *testing.T) {
 }
 
 // The body limits fit the settings: a bind of 40 KiB and a drop of 200 KiB
-// are read, larger ones refused (M2-S3-C-10, R-07).
+// are read, larger ones refused (R-07).
 func TestBodyLimits(t *testing.T) {
 	p, _ := reviewingProvider(t)
 	pad := strings.Repeat("x", 40<<10)
@@ -440,7 +440,7 @@ func TestBodyLimits(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
 
-// An unauthenticated drop is refused before its body is read (M2-S3-R-04).
+// An unauthenticated drop is refused before its body is read.
 func TestDropGrantsChecksTheSenderBeforeTheBody(t *testing.T) {
 	p, _ := newTestProvider(t, fakeGrants{})
 	reviews := 0
@@ -481,7 +481,7 @@ func (c *readCounter) Read(b []byte) (int, error) {
 }
 
 // A refused bind says so in X-Muster-Approval-Settings, and a bind of an
-// actor whose sender-written binding ended says why it is refused (M2I-7).
+// actor whose sender-written binding ended says why it is refused.
 func TestRefusedBindsSayWhy(t *testing.T) {
 	p, _ := newTestProvider(t, fakeGrants{})
 	p.senders = namingReviewer{}

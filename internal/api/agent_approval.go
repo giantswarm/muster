@@ -51,7 +51,7 @@ type AgentApprovalEntry struct {
 // MCPServer's server key and its UID (a recreated server has another), for
 // the tools (the server's own names) it covered when the connector admin
 // granted it. A tool that starts asking later is not covered: its admin
-// never saw it lifted (M2-S3-S-06).
+// never saw it lifted.
 type AgentApprovalGrant struct {
 	Entry  string   `json:"entry"`
 	Server string   `json:"server"`
@@ -273,7 +273,7 @@ func WorkflowNameOf(name string) string {
 func ApplyAgentSetting(admin ToolApproval, setting, entry string, granted bool) ToolApproval {
 	if setting == "" {
 		// Where an agent's settings apply, the connector's own setting is
-		// reported even when no entry decides (M2I-6).
+		// reported even when no entry decides.
 		explained := admin
 		explained.Admin = &ToolApproval{Setting: admin.Setting, Source: admin.Source}
 		return explained
@@ -304,7 +304,7 @@ func ApplyAgentSetting(admin ToolApproval, setting, entry string, granted bool) 
 // KeepExplanation returns final, the approval after floors and governance,
 // with the agent explanation of decided (the approval before them): the
 // deciding entry and the connector's own setting stay reported when a floor
-// or the governed default is what decides (M2I-6). A grant mark is kept only
+// or the governed default is what decides. A grant mark is kept only
 // when it is still what lets the call run.
 func KeepExplanation(final, decided ToolApproval) ToolApproval {
 	final.Entry, final.Admin = decided.Entry, decided.Admin

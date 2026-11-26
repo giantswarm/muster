@@ -52,8 +52,8 @@ func toolTaking(field string) string {
 }
 
 // refuseOtherFields refuses arguments a write tool does not take, naming for
-// each the tool that does (M1-MU-C-04: callers written before the tools were
-// split learn exactly where each argument went).
+// each the tool that does (callers written before the tools were split learn
+// exactly where each argument went).
 func refuseOtherFields(tool string, args map[string]any, allowed []string, elsewhere string) *api.CallToolResult {
 	var other []string
 	for key := range args {
@@ -180,7 +180,7 @@ func approvalFromArgs(args map[string]any, required bool, tools func() []mcp.Too
 		}
 		if len(object) == 0 {
 			// An empty object would mark the connector reviewed while it
-			// allows everything (M1-MU-C-17).
+			// allows everything.
 			return refuse("approval needs a rule (Allow, Ask or Block) or tool entries; to allow everything say so with rule Allow or preset allow-all")
 		}
 		approval := &musterv1alpha1.MCPServerApproval{}
@@ -357,8 +357,8 @@ func audited(ctx context.Context, tool string, args map[string]any, run func() (
 }
 
 // auditURL keeps a URL's scheme, host and path for the audit: userinfo, the
-// query and the fragment can carry credentials (re-check R-S-04), and so can
-// the path (re-check R2-S-04): matrix parameters (";token=...") are dropped
+// query and the fragment can carry credentials, and so can
+// the path: matrix parameters (";token=...") are dropped
 // and every segment that looks like an opaque token -- 20 characters or
 // more of letters, digits and -._~+= with at least one digit -- is replaced
 // by "<redacted>".
@@ -405,8 +405,7 @@ func approvalValue(approval *musterv1alpha1.MCPServerApproval) any {
 }
 
 // presetNote tells the caller when a preset found no tools to expand to: only
-// its rule was written, so every tool follows the rule and reports new
-// (M1-MU-C-17).
+// its rule was written, so every tool follows the rule and reports new.
 func presetNote(hasPreset bool, approval *musterv1alpha1.MCPServerApproval) string {
 	if !hasPreset || approval == nil || len(approval.Tools) > 0 {
 		return ""

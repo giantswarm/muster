@@ -147,7 +147,7 @@ func parseAgentTools(raw any) (*api.AgentApproval, []string, error) {
 }
 
 // refuseAgentCaller refuses agentTools to an agent caller: it would list
-// what the agent's own binding hides from it (M2-S3-S-07).
+// what the agent's own binding hides from it.
 func refuseAgentCaller(ctx context.Context) error {
 	if api.IsAgentCaller(api.CallerKind(ctx, api.GetSessionIDFromContext(ctx))) {
 		return fmt.Errorf("%s is for people and services that review an agent's tool list; an agent's own listing is evaluated with the settings bound to its Session", ArgAgentTools)

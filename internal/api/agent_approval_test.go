@@ -130,7 +130,7 @@ func TestAgentApproval_Granted(t *testing.T) {
 			t.Fatalf("grant matched %v", c)
 		}
 	}
-	// A grant without tools covers nothing (M2-S3-S-06).
+	// A grant without tools covers nothing.
 	bare := &AgentApproval{Grants: []AgentApprovalGrant{{Entry: "server:github", Server: "github", UID: "u1"}}}
 	if _, ok := bare.Granted("server:github", "github", "u1", "merge"); ok {
 		t.Fatal("a grant without tools lifted a tool")

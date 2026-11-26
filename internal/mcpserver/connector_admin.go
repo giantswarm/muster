@@ -16,7 +16,7 @@ import (
 var _ api.MCPServerConnectorAdmin = (*Adapter)(nil)
 
 // connectorAdminTimeout bounds one review: a slow API server must not hold a
-// listing (M1-MU-C-19). A review that times out counts as not an admin.
+// listing. A review that times out counts as not an admin.
 const connectorAdminTimeout = 5 * time.Second
 
 // connectorAdmins returns a lookup of whether the caller is a connector admin
@@ -37,7 +37,7 @@ func (a *Adapter) connectorAdmins(ctx context.Context) func(serverKey string) bo
 
 // withoutBlockedNames returns the server as a caller who is not its
 // connector admin may see it: its Block entries left out, since Block hides
-// a tool, its name included (M1-MU-S-11). A connector admin sees them all.
+// a tool, its name included. A connector admin sees them all.
 func withoutBlockedNames(server api.MCPServerInfo, admin bool) api.MCPServerInfo {
 	if admin || server.Approval == nil {
 		return server

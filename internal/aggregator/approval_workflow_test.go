@@ -225,7 +225,7 @@ func TestWorkflowGate_DispatchTimeChecks(t *testing.T) {
 
 // A workflow calling another is planned with it: the nested steps are shown
 // with their workflow, ask up front, and the approval binds the nested
-// definition, so changing it asks again (M1-MU-S-08).
+// definition, so changing it asks again.
 func TestWorkflowGate_NestedWorkflowsShownAndBound(t *testing.T) {
 	rig := newWorkflowRig(t)
 	result, err := rig.run(t, "workflow_outer", map[string]any{})

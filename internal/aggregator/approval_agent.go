@@ -14,7 +14,7 @@ import (
 // with filter_tools' agentTools argument. They are applied right after the
 // connector's own setting and before the floors and governance entries, so a
 // granted Allow can lift a connector's Ask but never a floor's, a governed
-// one's or an unreadable setting's (decision #79).
+// one's or an unreadable setting's.
 
 // serverAgentTarget describes a server's tool, as one member serves it, for
 // matching agent entries: exposed is the name the listing shows or the call
@@ -27,7 +27,7 @@ func (a *AggregatorServer) serverAgentTarget(server, original, exposed string, t
 	}
 	// The canonical names, recorded nowhere: a tool: or preset: entry is
 	// matched against the name the catalogue lists, whatever alias the call
-	// used (M2-S3-C-12).
+	// used.
 	names := a.registry.ToolNames(server, original)
 	if tool == nil && len(names) > 0 {
 		target.Exposed = names[0]

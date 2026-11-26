@@ -42,14 +42,14 @@ type DropGrantsResponse struct {
 // sender alone (agent-manager's ServiceAccount token, reviewed like a
 // bind's): without one, or when the review refuses, it answers 403; when the
 // review fails, 503. No person's bearer is needed, so agent-manager can
-// re-send a drop that did not reach muster at its start (M2-S3-C-04); the
+// re-send a drop that did not reach muster at its start; the
 // route takes no bearer, and the sender's identity is what is logged. It only
 // ever removes marks, so a Session loses an exception at its next call and
 // gains nothing.
 func (p *Provider) HandleDropGrants(w http.ResponseWriter, r *http.Request) {
 	// The sender is checked before the body is read: an unauthenticated
 	// caller costs one header check, and the 256 KiB body is read only for
-	// a sender that passed the review (M2-S3-R-04).
+	// a sender that passed the review.
 	if strings.TrimSpace(r.Header.Get(ApprovalSenderHeader)) == "" {
 		http.Error(w, "forbidden: removing grant marks needs the sender of approval settings ("+ApprovalSenderHeader+")", http.StatusForbidden)
 		return

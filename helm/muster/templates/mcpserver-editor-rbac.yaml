@@ -12,7 +12,7 @@ register MCP servers).
 */}}
 {{- if and .Values.rbac.create .Values.rbac.mcpServerEditor.create -}}
 {{- /*
-Upgrade guard (M1-MU-C-05): charts before tool approval bound the Role to
+Upgrade guard: charts before tool approval bound the Role to
 system:authenticated by default. An upgrade with no subjects would delete
 that RoleBinding and lock every person out of registering MCP servers, with
 no other sign. When the cluster still holds the binding, the render fails
@@ -36,7 +36,7 @@ rules:
     resources: ["mcpservers"]
     verbs: ["create", "update", "patch", "delete"]
   # A connector's client entered in the portal is written as the editor to a
-  # Secret owned by the MCPServer (giantswarm/giantswarm#38849). create only:
+  # Secret owned by the MCPServer. create only:
   # get, update or delete would reach every Secret of the namespace, muster's
   # own included; mcpserver-client-secrets.yaml holds the create to such
   # client Secrets.

@@ -43,7 +43,7 @@ func agentContext(rig *gateRig, session string) context.Context {
 	return api.WithSessionID(rig.ctx, api.ActorSessionPrefix+session)
 }
 
-// Regression of the PoC for M1-MU-S-02: on Governed an agent is asked before
+// Regression: on Governed an agent is asked before
 // every tool of a governed server that is not on its safe list -- today's
 // update_agent (the PRD's update_agent_access does not exist), kagent's
 // invoke_session and fork_session, a tool the server adds later -- and
@@ -110,8 +110,7 @@ func TestGovernance_WorkflowStepsOnGovernedServersAsk(t *testing.T) {
 
 // Listings say truthfully what a call will do for the caller: an agent sees
 // the governed default and the floors (source governance or builtin), a
-// person the connector's own setting; a workflow reports its strictest step
-// (M1-MU-C-08).
+// person the connector's own setting; a workflow reports its strictest step.
 func TestGovernance_ListingsReportForTheCaller(t *testing.T) {
 	rig, _ := governedRig(t, api.GovernanceGoverned)
 	workflows := &fakeWorkflows{server: rig.server, defs: map[string]*api.Workflow{
