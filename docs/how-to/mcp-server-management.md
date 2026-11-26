@@ -633,6 +633,14 @@ that exact call:
    person saw, a declined one answers `declined`, and an identical call made
    before a decision gets the same link.
 
+For an agent's call the page names the agent its Session is bound to
+(`Agent kagent/alert-review wants to run ...`), and the approval is bound to that
+agent too; the reason the agent gave with `call_tool` (`reason`) is shown in a
+box *Agent says*, never used to decide. A person's own client is named by its
+OAuth client (*Client*). An agent's own settings can make a tool ask or hide it,
+and a connector admin can let one agent run a tool the connector asks for
+([an agent's approval settings](../reference/mcp-tools.md#an-agents-approval-settings)).
+
 Every page outcome says whether the request was approved, declined or nothing
 was decided, and what to do next; a refused decision is logged with its
 reason. When the server needs the session's sign-in first, the call answers

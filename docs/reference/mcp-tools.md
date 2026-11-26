@@ -162,11 +162,51 @@ the caller; in filesystem mode every caller is one.
  "approval": {"setting": "ask", "source": "connector", "new": true}, "connectorAdmin": true}
 ```
 
+#### An agent's approval settings
+
+An agent's tool list can carry `Allow`, `Ask` or `Block` per entry and a `default`
+(agent chart `tools` and `default`, written by agent-manager). agent-manager binds them to each
+Session it starts (`PUT /session-bindings` with `agent` and `approval`, taken only from an
+approval sender, [API](api.md)); every request of the Session resolves with them:
+
+1. the connector's setting (the tool's entry, else the rule, else Allow, not reviewed);
+2. the agent's setting: the most specific entry selecting the tool, `tool:` before `workflow:`
+   before `server:` before `preset:`, the strictest of equally specific ones, else `default`.
+   `tool:` names the dispatch target, so any alias of the tool matches; for a family tool the
+   setting is resolved per member;
+3. the stricter of the two, except that an agent `Allow` over the connector's `Ask` (its tool
+   entry or rule) runs when the binding carries a **grant** for that entry, server and
+   MCPServer UID: a connector admin allowed it through agent-manager's `set_agent_approval`.
+   An `Allow` without a grant changes nothing; a connector's `Block` always holds;
+4. floors and the governed default on top: a grant never lifts them.
+
+An agent's `Block` hides the tool from that Session and `call_tool` refuses it as `tool not
+found`. `approval` then also carries `entry` (the deciding entry, `default` for the default) and
+`admin` (the connector's own setting), and `source` can be `agent` (the agent's entry is
+stricter) or `agent-exception` (a granted `Allow`).
+
+`filter_tools` and `describe_tool` take `agentTools`, `{"tools": [<selector> | {<selector>:
+"Allow"|"Ask"|"Block"}], "default", "grants": [{"entry", "server", "uid"}]}`, to report what that
+agent would see. It never changes what runs. Its selectors narrow the listing like `toolset`
+(passing both is refused); floors and governance are reported as for an agent caller; tools the
+agent's own entries block are listed with `{"setting": "block", "source": "agent"}` (a
+connector's `Block` stays hidden); and each server tool carries `connectors`, the MCPServers
+behind it (`{"server", "namespace", "name", "uid"}`), which agent-manager uses for its
+connector-admin check and grant records.
+
+```json
+{"name": "x_github_merge_pull_request", "server": "github", "kind": "tool",
+ "approval": {"setting": "allow", "source": "agent-exception", "entry": "tool:x_github_merge_pull_request",
+              "admin": {"setting": "ask", "source": "tool"}},
+ "connectorAdmin": false,
+ "connectors": [{"server": "github", "namespace": "muster", "name": "github", "uid": "…"}]}
+```
+
 ### Tool Execution
 
 | Meta-Tool | Description | Arguments |
 |-----------|-------------|-----------|
-| `call_tool` | Execute any tool by name. With `X-muster-Toolset` on the request, only tools inside the toolset can be called; others are refused naming the toolset (see [Toolsets](toolsets.md)) | `{"name": "tool_name", "arguments": {...}}` |
+| `call_tool` | Execute any tool by name. With `X-muster-Toolset` on the request, only tools inside the toolset can be called; others are refused naming the toolset (see [Toolsets](toolsets.md)). `reason` (at most 500 characters) is shown to the person as *Agent says* when an agent's call asks for approval; it is never bound into the approval or used to decide | `{"name": "tool_name", "arguments": {...}, "reason": "..."}` |
 
 Through `muster agent --mcp-server`, `call_tool` additionally takes `timeout` (seconds): how long the agent waits for this one call instead of its `--timeout` (default 5 minutes). The agent consumes the argument; the aggregator never sees it.
 
