@@ -683,28 +683,32 @@ Agent callers -- a Session's actor JWT, a delegated token -- are asked before
 some calls whatever the connector's settings say. A person acting directly is
 not: the person is the approval.
 
-`governance` in muster's configuration (Helm `muster.governance`, rendered by
-the agent-platform chart) sets the mode and names the governed servers:
+`governance` in muster's configuration (Helm `muster.governance`) sets the
+mode, names the governed servers and can add floors:
 
 ```yaml
 governance:
   mode: governed                  # or trusted
+  roleFloors:                     # optional: floors added to the built-in ones
+    exampleManager: [approve_change, publish_change]
   governedServers:
     - server: agent-manager       # server key
       role: agentManager          # which floors hold on it
       safe: [get_info, list_agents, get_agent]   # tools agents call unasked
-    - server: kagent
-      role: sessionManager
-      safe: [list_sessions]
+    - server: example-manager
+      role: exampleManager        # a role roleFloors declares
+      safe: [list_changes]
 ```
 
-Roles: `agentManager`, `platformManager`, `connectorManager`,
-`sessionManager`, `modelManager`, `clusterManager`, `vmManager`,
-`workspaceManager`, `toolchainManager`, `skillManager`, `infrastructure`.
-muster refuses to start on an unknown role, a server named twice, a floor of
-any role on any safe list, or both shapes at once. The earlier shape `servers: {agentManager:
-[..], platformManager: [..], connectorManager: [..]}` is still read: its
-servers are governed with empty safe lists.
+Built-in roles: `agentManager`, `connectorManager`, `sessionManager`,
+`modelManager`, `clusterManager`, `vmManager`, `workspaceManager`,
+`toolchainManager`, `skillManager`, `infrastructure`. `roleFloors` maps a role
+to tool names that are floors of it: a role it names that is not built in
+becomes a role a governed server may have, and for a built-in role its tools
+are added to the built-in floors. It only adds: no configuration removes or
+shrinks a built-in floor. muster refuses to start on a role neither built in
+nor declared in `roleFloors`, a server named twice, a floor of any role on any
+safe list, or the removed `servers` shape.
 
 - **Floors, both modes** (agents are asked): muster's
   `core_mcpserver_create`, `_connect`, `_set_approval`,
@@ -712,11 +716,12 @@ servers are governed with empty safe lists.
   `set_agent_approval`, `set_organization_connector`,
   `add_organization_member`, `set_organization_model`,
   `set_organization_egress_policy`, `replace_organization_credential`;
-  platformManager `approve_action`, `merge_action`; connectorManager
+  connectorManager
   `mcpserver_create`, `_connect`, `_set_approval`; toolchainManager
-  `approve_source`; modelManager `add_backend`. On governed, every one of
-  these names also asks agents on every governed server whatever role it is
-  configured with, so a role override or a mis-set role never removes a floor.
+  `approve_source`; modelManager `add_backend`; plus every floor
+  `roleFloors` adds. On governed, every one of these names also asks agents
+  on every governed server whatever role it is configured with, so a role
+  override or a mis-set role never removes a floor.
 - **Governed** (`mode: governed`, or no readable configuration): an agent is
   asked before every tool of a governed server that is not on its safe list --
   a tool the server adds or renames later included, until someone lists it --

@@ -320,19 +320,31 @@ tests:
     set:
       muster.governance:
         mode: trusted
-        servers:
-          agentManager: [agent-manager]
-          platformManager: [giantswarm-platform-manager]
+        roleFloors:
+          exampleManager: [approve_change]
+        governedServers:
+          - server: example-manager
+            role: exampleManager
       muster.approval:
         ttl: 5m
-        installation: gazelle
+        installation: example
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "\ngovernance:\n  mode: trusted\n  servers:\n    agentManager:\n    - agent-manager\n    platformManager:\n    - giantswarm-platform-manager\n"
+          pattern: "\ngovernance:\n  governedServers:\n  - role: exampleManager\n    server: example-manager\n  mode: trusted\n  roleFloors:\n    exampleManager:\n    - approve_change\n"
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "\napproval:\n  installation: gazelle\n  ttl: 5m\n"
+          pattern: "\napproval:\n  installation: example\n  ttl: 5m\n"
+
+  - it: fails on the removed governance servers shape
+    set:
+      muster.governance:
+        mode: governed
+        servers:
+          agentManager: [agent-manager]
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.servers is no longer read: name each server in muster.governance.governedServers ({server, role, safe}) and declare roles muster does not build in with muster.governance.roleFloors"
 
   - it: omits toolsetPresets by default (only the built-in presets exist)
     asserts:

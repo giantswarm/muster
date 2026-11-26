@@ -250,8 +250,13 @@ data:
     {{- if and .mode (not (has .mode (list "trusted" "governed"))) }}
     {{- fail (printf "muster.governance.mode must be trusted or governed, not %q (muster would apply the governed default)" .mode) }}
     {{- end }}
-    {{- if and .servers .governedServers }}
-    {{- fail "muster.governance: set governedServers or the earlier servers.<role> lists, not both" }}
+    {{- if hasKey . "servers" }}
+    {{- fail "muster.governance.servers is no longer read: name each server in muster.governance.governedServers ({server, role, safe}) and declare roles muster does not build in with muster.governance.roleFloors" }}
+    {{- end }}
+    {{- range $role, $tools := .roleFloors }}
+    {{- if not (kindIs "slice" $tools) }}
+    {{- fail (printf "muster.governance.roleFloors.%s must be a list of tool names" $role) }}
+    {{- end }}
     {{- end }}
     governance:
       {{- toYaml . | nindent 6 }}

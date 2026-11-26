@@ -25,7 +25,7 @@ var (
 
 // On Governed a governed server asks agents before every tool that is not on
 // its safe list -- a renamed or new tool included -- and its role's floors
-// ask in both modes (M1-MU-S-02).
+// ask in both modes.
 func TestGovernance_ServerEntry(t *testing.T) {
 	governed, trusted := platform(GovernanceGoverned), platform(GovernanceTrusted)
 	for _, tc := range []struct {
@@ -42,9 +42,9 @@ func TestGovernance_ServerEntry(t *testing.T) {
 		{name: "floor, both modes", server: "agent-manager", tool: "add_organization_member", governed: askFloor, trusted: askFloor, applyG: true, applyT: true},
 		{name: "model floor", server: "model-manager", tool: "add_backend", governed: askFloor, trusted: askFloor, applyG: true, applyT: true},
 		{name: "unknown server", server: "github", tool: "merge_pull_request"},
-		{name: "floor name on an unnamed server of a held role: asked on governed", server: "customer-models", tool: "add_backend", governed: askGovernance, applyG: true},
-		{name: "look-alike of a floor of a role nobody holds", server: "customer-vms", tool: "approve_action", ref: true},
-		{name: "generic name on a customer server", server: "customer-vms", tool: "create_vm"},
+		{name: "floor name on an unnamed server of a held role: asked on governed", server: "other-models", tool: "add_backend", governed: askGovernance, applyG: true},
+		{name: "look-alike of a floor of a role nobody holds", server: "other-vms", tool: "mcpserver_create", ref: true},
+		{name: "generic name on another server", server: "other-vms", tool: "create_vm"},
 	} {
 		got, applies, refused := governed.ServerEntry(tc.server, tc.tool)
 		assert.Equal(t, tc.governed, got, "governed: "+tc.name)
@@ -74,7 +74,7 @@ func TestGovernance_Unreadable(t *testing.T) {
 
 // muster's own tools: floors in both modes; on Governed every core tool but
 // muster's reads asks, so every way to pause, resume or remove a connector
-// does (M1-MU-S-03), and a core tool added later too.
+// does, and a core tool added later too.
 func TestGovernance_CoreEntry(t *testing.T) {
 	governed, trusted := platform(GovernanceGoverned), platform(GovernanceTrusted)
 	for _, tool := range CoreFloorTools() {
@@ -120,29 +120,65 @@ func TestGovernance_RegisteredCopyIsImmutable(t *testing.T) {
 	assert.Equal(t, []string{"list_agents"}, again.Servers[0].Safe)
 }
 
-// On Governed a floor's name asks agents on every governed server, whatever
-// role it is configured with, so a role override cannot remove a floor; a
-// safe list naming any role's floor is refused at load (decision #90).
+// On Governed a floor's name, built in or configured, asks agents on every
+// governed server whatever role it is configured with, so a role override
+// cannot remove a floor; a safe list naming any role's floor is refused at
+// load.
 func TestGovernance_FloorNamesHoldWhateverTheRole(t *testing.T) {
-	misrole := Governance{Mode: GovernanceGoverned, Readable: true, Servers: []GovernedServer{
-		{Server: "platform-manager", Role: GovernanceRoleAgentManager},
+	floors := MergeRoleFloors(map[string][]string{"exampleManager": {"do_thing"}})
+	misrole := Governance{Mode: GovernanceGoverned, Readable: true, RoleFloors: floors, Servers: []GovernedServer{
+		{Server: "example", Role: GovernanceRoleSessionManager},
 	}}
-	for _, tool := range []string{"approve_action", "merge_action", "set_agent_approval"} {
-		got, applies, refused := misrole.ServerEntry("platform-manager", tool)
+	for _, tool := range []string{"do_thing", "set_agent_approval"} {
+		got, applies, refused := misrole.ServerEntry("example", tool)
 		if !applies || refused || got.Setting != ApprovalSettingAsk || got.Source != ApprovalSourceBuiltin {
 			t.Fatalf("%s on a governed server of another role: got %+v applies=%v refused=%v", tool, got, applies, refused)
 		}
 	}
 	trusted := misrole
 	trusted.Mode = GovernanceTrusted
-	if _, applies, _ := trusted.ServerEntry("platform-manager", "approve_action"); applies {
+	if _, applies, _ := trusted.ServerEntry("example", "do_thing"); applies {
 		t.Fatal("on Trusted the role's own floors decide, as before")
 	}
 
-	safe := Governance{Mode: GovernanceGoverned, Readable: true, Servers: []GovernedServer{
-		{Server: "agent-manager", Role: GovernanceRoleAgentManager, Safe: []string{"list_agents", "approve_action"}},
+	safe := Governance{Mode: GovernanceGoverned, Readable: true, RoleFloors: floors, Servers: []GovernedServer{
+		{Server: "agent-manager", Role: GovernanceRoleAgentManager, Safe: []string{"list_agents", "do_thing"}},
 	}}
-	if err := safe.Validate(); err == nil || !strings.Contains(err.Error(), "approve_action") {
+	if err := safe.Validate(); err == nil || !strings.Contains(err.Error(), "do_thing") {
 		t.Fatalf("a safe list naming another role's floor must be refused, got %v", err)
 	}
+}
+
+// Configured floors are a union with the built-in ones: a configured role
+// becomes valid, a built-in role keeps its floors whatever the configuration
+// says, and a role neither built in nor configured is refused.
+func TestGovernance_RoleFloorsAddOnly(t *testing.T) {
+	floors := MergeRoleFloors(map[string][]string{
+		GovernanceRoleAgentManager: {},
+		GovernanceRoleModelManager: {"add_backend", "add_model_source"},
+		"exampleManager":           {"do_thing"},
+		"emptyRole":                nil,
+	})
+	assert.Equal(t, builtinRoleFloors[GovernanceRoleAgentManager], floors[GovernanceRoleAgentManager], "an empty list removes nothing")
+	assert.Equal(t, []string{"add_backend", "add_model_source"}, floors[GovernanceRoleModelManager])
+	assert.Equal(t, []string{"do_thing"}, floors["exampleManager"])
+	assert.Equal(t, []string{}, floors["emptyRole"])
+
+	g := Governance{Mode: GovernanceGoverned, Readable: true, RoleFloors: floors, Servers: []GovernedServer{{Server: "example", Role: "exampleManager"}}}
+	require.NoError(t, g.Validate())
+	got, applies, _ := g.ServerEntry("example", "do_thing")
+	assert.True(t, applies)
+	assert.Equal(t, askFloor, got)
+	got, applies, refused := g.ServerEntry("look-alike", "do_thing")
+	assert.True(t, applies, "a configured floor's name on an unnamed server asks on governed once its role is held")
+	assert.False(t, refused)
+	assert.Equal(t, askGovernance, got)
+
+	unheld := Governance{Mode: GovernanceTrusted, Readable: true, RoleFloors: floors}
+	_, _, refused = unheld.ServerEntry("look-alike", "do_thing")
+	assert.True(t, refused, "while no server holds the role, its floor names are refused to agents")
+
+	undeclared := Governance{Mode: GovernanceGoverned, Readable: true, Servers: []GovernedServer{{Server: "example", Role: "exampleManager"}}}
+	assert.ErrorContains(t, undeclared.Validate(), "unknown role")
+	assert.Len(t, GovernanceRoles(), 10, "only the built-in roles")
 }

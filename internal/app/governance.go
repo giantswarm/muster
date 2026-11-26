@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/aggregator"
@@ -17,9 +18,9 @@ const maxApprovalTTL = 30 * time.Minute
 
 // governanceFromConfig turns the governance configuration into the immutable
 // copy muster enforces. A missing section, or a mode muster does not know,
-// is an unreadable configuration: the governed default applies. The earlier
-// shape (servers per role) is read as governed servers of those roles with
-// empty safe lists; it cannot be combined with governedServers.
+// is an unreadable configuration: the governed default applies. The floor
+// table is the built-in floors with roleFloors added; the removed servers
+// shape stops the start.
 func governanceFromConfig(cfg *config.GovernanceConfig) (api.Governance, error) {
 	if cfg == nil {
 		return api.Governance{Mode: api.GovernanceGoverned}, nil
@@ -31,28 +32,20 @@ func governanceFromConfig(cfg *config.GovernanceConfig) (api.Governance, error) 
 	if !g.Readable {
 		g.Mode = api.GovernanceGoverned
 	}
-	legacy := map[string][]string{
-		api.GovernanceRoleAgentManager:     cfg.Servers.AgentManager,
-		api.GovernanceRolePlatformManager:  cfg.Servers.PlatformManager,
-		api.GovernanceRoleConnectorManager: cfg.Servers.ConnectorManager,
+	if cfg.Servers != nil {
+		return api.Governance{}, fmt.Errorf("governance.servers is no longer read: name each server in governance.governedServers ({server, role, safe}) and declare roles muster does not build in with governance.roleFloors")
 	}
-	hasLegacy := len(cfg.Servers.AgentManager)+len(cfg.Servers.PlatformManager)+len(cfg.Servers.ConnectorManager) > 0
-	if hasLegacy && len(cfg.GovernedServers) > 0 {
-		return api.Governance{}, fmt.Errorf("governance: set governedServers or the earlier servers.<role> lists, not both")
-	}
-	for _, role := range []string{api.GovernanceRoleAgentManager, api.GovernanceRolePlatformManager, api.GovernanceRoleConnectorManager} {
-		for _, server := range legacy[role] {
-			g.Servers = append(g.Servers, api.GovernedServer{Server: server, Role: role})
-		}
-	}
+	g.RoleFloors = api.MergeRoleFloors(cfg.RoleFloors)
 	for _, s := range cfg.GovernedServers {
 		g.Servers = append(g.Servers, api.GovernedServer{Server: s.Server, Role: s.Role, Safe: s.Safe})
 	}
 	if err := g.Validate(); err != nil {
 		return api.Governance{}, err
 	}
-	if hasLegacy {
-		logging.Warn("Governance", "governance.servers is the earlier shape: its servers are governed with empty safe lists, so on governed every one of their tools asks agents. Use governance.governedServers with safe lists")
+	for _, s := range g.Servers {
+		if s.Role != "" && len(g.RoleFloorsOf(s.Role)) == 0 && !slices.Contains(api.GovernanceRoles(), s.Role) {
+			logging.Warn("Governance", "governed server %s has role %s, which governance.roleFloors declares without floors: only the governed default applies to it", s.Server, s.Role)
+		}
 	}
 	return g, nil
 }

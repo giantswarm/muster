@@ -56,8 +56,8 @@ rbac:
   #
   # Whoever holds the Role is a connector admin: they edit every connector of
   # this namespace, set its tool approval (spec.approval) and may let an agent
-  # skip a tool's Ask (Governing tool calls,
-  # https://docs.giantswarm.io/overview/agent-platform/governing-tool-calls/).
+  # skip a tool's Ask (see muster's docs/how-to/mcp-server-management.md,
+  # "Tool approval").
   # Everyone bound here also registers servers into a SHARED aggregator:
   # other users see those servers and are routed through them.
   #
@@ -401,21 +401,22 @@ muster:
   # muster's config.yaml as `governance` and read once at start:
   #   governance:
   #     mode: governed           # or trusted; any other value fails the render
+  #     roleFloors:              # optional: floors added to the built-in ones
+  #       exampleManager: [approve_change]
   #     governedServers:
   #       - server: agent-manager            # server key
   #         role: agentManager               # which floors hold on it
   #         safe: [get_info, list_agents]    # tools agents call unasked
-  #       - server: kagent
-  #         role: sessionManager
-  #         safe: [list_sessions]
+  #       - server: example-manager
+  #         role: exampleManager             # declared in roleFloors
+  #         safe: [list_changes]
   # On governed, an agent is asked before every tool of a governed server
   # that is not on its safe list (a new or renamed tool too), and before
   # every core tool but muster's reads; a role's floors ask agents in both
-  # modes. The earlier shape, servers: {agentManager: [..], platformManager:
-  # [..], connectorManager: [..]}, is still read (empty safe lists); not
-  # both. Without governance muster applies the governed default and refuses
-  # to agents the floor names of a role no governed server holds. The
-  # agent-platform chart renders it from its governance value.
+  # modes. roleFloors (role -> tool names, default none) only adds floors and
+  # roles to muster's built-in ones. Without governance muster applies the
+  # governed default and refuses to agents the floor names of a role no
+  # governed server holds.
   governance: {}  # @schema additionalProperties: true
 
   # The approval round trip, rendered verbatim into config.yaml as `approval`:

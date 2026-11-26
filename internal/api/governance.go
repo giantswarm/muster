@@ -16,12 +16,12 @@ const (
 	GovernanceGoverned = "governed"
 )
 
-// The roles a governed server may have. A role names the floors that hold
-// on that server in both modes; a governed server without a role has no
-// floors, only the governed default.
+// The built-in roles a governed server may have. A role names the floors
+// that hold on that server in both modes; a governed server without a role
+// has no floors, only the governed default. The configuration can declare
+// more roles, and add floors to any role, with governance.roleFloors.
 const (
 	GovernanceRoleAgentManager     = "agentManager"
-	GovernanceRolePlatformManager  = "platformManager"
 	GovernanceRoleConnectorManager = "connectorManager"
 	GovernanceRoleSessionManager   = "sessionManager"
 	GovernanceRoleModelManager     = "modelManager"
@@ -33,9 +33,9 @@ const (
 	GovernanceRoleInfrastructure   = "infrastructure"
 )
 
-// GovernanceRoles lists the roles a governed server may have.
+// GovernanceRoles lists the built-in roles.
 func GovernanceRoles() []string {
-	return []string{GovernanceRoleAgentManager, GovernanceRolePlatformManager, GovernanceRoleConnectorManager,
+	return []string{GovernanceRoleAgentManager, GovernanceRoleConnectorManager,
 		GovernanceRoleSessionManager, GovernanceRoleModelManager, GovernanceRoleClusterManager, GovernanceRoleVMManager,
 		GovernanceRoleWorkspaceManager, GovernanceRoleToolchainManager, GovernanceRoleSkillManager, GovernanceRoleInfrastructure}
 }
@@ -61,7 +61,7 @@ var coreFloorTools = []string{
 // person's own sign-in): the only core tools an agent calls unasked on
 // Governed. Every other core tool -- stopping or starting a service,
 // deleting or pausing a connector, a core tool added later -- asks agents
-// there, the same default as on a governed server (M1-MU-S-02, M1-MU-S-03).
+// there, the same default as on a governed server.
 var coreSafeTools = []string{
 	"core_config_get", "core_config_get_aggregator",
 	"core_mcpserver_list", "core_mcpserver_get", "core_mcpserver_validate", "core_mcpserver_detect",
@@ -71,34 +71,81 @@ var coreSafeTools = []string{
 	"core_events", "core_auth_login", "core_auth_logout", "core_auth_status",
 }
 
-// roleFloors are the floors on a server of a role, in both modes: tools that
-// grant an agent an exception, grant a person access, or send the person's
-// token, prompts or a credential somewhere new (adding or repointing a
-// connector, a model, an egress origin or a credential; approving an action
-// or a toolchain source). They are matched by name because they apply in
-// both modes; everything else on a governed server is covered by the
-// governed default.
-var roleFloors = map[string][]string{
+// builtinRoleFloors are the floors of the built-in roles, in both modes:
+// tools that grant an agent an exception, grant a person access, or send
+// the person's token, prompts or a credential somewhere new (adding or
+// repointing a connector, a model, an egress origin or a credential;
+// approving a toolchain source). They are matched by name because they
+// apply in both modes; everything else on a governed server is covered by
+// the governed default. The configuration can only add to them
+// (MergeRoleFloors).
+var builtinRoleFloors = map[string][]string{
 	GovernanceRoleAgentManager: {"set_agent_approval", "set_organization_connector", "add_organization_member",
 		"set_organization_model", "set_organization_egress_policy", "replace_organization_credential"},
-	GovernanceRolePlatformManager:  {"approve_action", "merge_action"},
 	GovernanceRoleConnectorManager: {"mcpserver_create", "mcpserver_connect", "mcpserver_set_approval"},
 	GovernanceRoleToolchainManager: {"approve_source"},
 	GovernanceRoleModelManager:     {"add_backend"},
 }
 
+// MergeRoleFloors returns the effective floor table: the built-in floors
+// with the configured ones added, role by role. It is a union: nothing in
+// the configuration removes or shrinks a built-in floor. A configured role
+// that is not built in becomes a role a governed server may have.
+func MergeRoleFloors(configured map[string][]string) map[string][]string {
+	merged := make(map[string][]string, len(builtinRoleFloors)+len(configured))
+	for role, tools := range builtinRoleFloors {
+		merged[role] = slices.Clone(tools)
+	}
+	for role, tools := range configured {
+		list := merged[role]
+		for _, tool := range tools {
+			if !slices.Contains(list, tool) {
+				list = append(list, tool)
+			}
+		}
+		if list == nil {
+			list = []string{}
+		}
+		merged[role] = list
+	}
+	return merged
+}
+
+// floors returns the effective floor table: the one set on g, else the
+// built-in floors.
+func (g Governance) floors() map[string][]string {
+	if g.RoleFloors == nil {
+		return builtinRoleFloors
+	}
+	return g.RoleFloors
+}
+
 // floorRole returns a role the tool name is a floor of, "" for none.
-func floorRole(tool string) string {
-	for _, role := range slices.Sorted(maps.Keys(roleFloors)) {
-		if slices.Contains(roleFloors[role], tool) {
+func (g Governance) floorRole(tool string) string {
+	floors := g.floors()
+	for _, role := range slices.Sorted(maps.Keys(floors)) {
+		if slices.Contains(floors[role], tool) {
 			return role
 		}
 	}
 	return ""
 }
 
-// RoleFloors returns the floor tool names of a role.
-func RoleFloors(role string) []string { return slices.Clone(roleFloors[role]) }
+// RoleFloorsOf returns the floor tool names of a role.
+func (g Governance) RoleFloorsOf(role string) []string { return slices.Clone(g.floors()[role]) }
+
+// Roles returns the roles a governed server may have: the built-in ones and
+// those the floor table declares.
+func (g Governance) Roles() []string {
+	roles := GovernanceRoles()
+	for role := range g.floors() {
+		if !slices.Contains(roles, role) {
+			roles = append(roles, role)
+		}
+	}
+	slices.Sort(roles)
+	return roles
+}
 
 // CoreFloorTools returns muster's own floor tools.
 func CoreFloorTools() []string { return slices.Clone(coreFloorTools) }
@@ -126,13 +173,25 @@ type Governance struct {
 	// Readable is false when muster started without a readable
 	// configuration: the governed default applies then.
 	Readable bool
+	// RoleFloors is the effective floor table (MergeRoleFloors); nil means
+	// the built-in floors.
+	RoleFloors map[string][]string
 }
 
 // Validate refuses a configuration muster cannot enforce as written: a
-// server named twice or without a key, an unknown role, or a floor on a safe
-// list (a floor asks in both modes; listing it as safe would read as if it
-// did not).
+// server named twice or without a key, a role neither built in nor declared
+// in the floor table, a declared role or floor without a name, or a floor of
+// any role on a safe list (a floor asks; listing it as safe would read as if
+// it did not).
 func (g Governance) Validate() error {
+	for role, tools := range g.floors() {
+		if role == "" {
+			return fmt.Errorf("governance: roleFloors declares a role without a name")
+		}
+		if slices.Contains(tools, "") {
+			return fmt.Errorf("governance: roleFloors.%s names a floor without a tool name", role)
+		}
+	}
 	seen := map[string]bool{}
 	for _, s := range g.Servers {
 		if s.Server == "" {
@@ -142,14 +201,14 @@ func (g Governance) Validate() error {
 			return fmt.Errorf("governance: server %s is named twice", s.Server)
 		}
 		seen[s.Server] = true
-		if s.Role != "" && !slices.Contains(GovernanceRoles(), s.Role) {
-			return fmt.Errorf("governance: server %s has unknown role %q (one of %v)", s.Server, s.Role, GovernanceRoles())
+		if s.Role != "" && !slices.Contains(g.Roles(), s.Role) {
+			return fmt.Errorf("governance: server %s has unknown role %q (one of %v, or declare it in governance.roleFloors)", s.Server, s.Role, g.Roles())
 		}
 		for _, tool := range s.Safe {
-			if slices.Contains(roleFloors[s.Role], tool) {
+			if slices.Contains(g.floors()[s.Role], tool) {
 				return fmt.Errorf("governance: %s on server %s is a floor of role %s and cannot be on its safe list", tool, s.Server, s.Role)
 			}
-			if role := floorRole(tool); role != "" {
+			if role := g.floorRole(tool); role != "" {
 				return fmt.Errorf("governance: %s on server %s is a floor of role %s and cannot be on any safe list: on a governed platform it asks agents on every governed server", tool, s.Server, role)
 			}
 		}
@@ -207,14 +266,13 @@ func (g Governance) hasRole(role string) bool {
 //     Trusted. Generic names that are no floor are never touched.
 func (g Governance) ServerEntry(server, tool string) (approval ToolApproval, applies, refused bool) {
 	if s, ok := g.governed(server); ok {
-		if slices.Contains(roleFloors[s.Role], tool) {
+		if slices.Contains(g.floors()[s.Role], tool) {
 			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceBuiltin}, true, false
 		}
-		if g.Governed() && floorRole(tool) != "" {
+		if g.Governed() && g.floorRole(tool) != "" {
 			// A floor's name on a governed server of another role (a role
 			// override, a mis-set role) still asks on Governed: no role
-			// configuration removes approve_action, merge_action or the
-			// grant tools from the floors (decision #90).
+			// configuration removes a floor, built in or configured.
 			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceBuiltin}, true, false
 		}
 		if g.Governed() && !slices.Contains(s.Safe, tool) {
@@ -222,7 +280,7 @@ func (g Governance) ServerEntry(server, tool string) (approval ToolApproval, app
 		}
 		return ToolApproval{}, false, false
 	}
-	for role, floors := range roleFloors {
+	for role, floors := range g.floors() {
 		if !slices.Contains(floors, tool) {
 			continue
 		}
@@ -232,7 +290,7 @@ func (g Governance) ServerEntry(server, tool string) (approval ToolApproval, app
 		if g.Governed() {
 			// Another instance of a governed role under a key the
 			// configuration does not name (a staging copy, another
-			// namespace): asked, not allowed (re-check R-S-02).
+			// namespace): asked, not allowed.
 			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceGovernance}, true, false
 		}
 	}
@@ -282,6 +340,13 @@ func cloneGovernance(g Governance) Governance {
 		servers[i] = GovernedServer{Server: s.Server, Role: s.Role, Safe: slices.Clone(s.Safe)}
 	}
 	g.Servers = servers
+	if g.RoleFloors != nil {
+		floors := make(map[string][]string, len(g.RoleFloors))
+		for role, tools := range g.RoleFloors {
+			floors[role] = slices.Clone(tools)
+		}
+		g.RoleFloors = floors
+	}
 	return g
 }
 
