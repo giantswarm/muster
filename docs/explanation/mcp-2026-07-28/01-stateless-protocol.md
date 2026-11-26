@@ -286,6 +286,25 @@ Concretely:
 - The 30-day capability-store TTL becomes the right TTL to compare
   against the per-result `ttlMs` from SEP-2549 — see §3.4.
 
+#### A muster without inbound OAuth is one person
+
+Only muster's inbound OAuth tells people apart: a server verifies every
+request and does not take a session or a state handle for authentication.
+A muster without inbound OAuth (`muster serve` with
+`aggregator.oauth.server.enabled: false`, or stdio) therefore serves one
+person:
+
+| Transport and revision | Whose state a request uses |
+|---|---|
+| stdio, any revision | the one person (stdio reports one constant session) |
+| HTTP, 2025-11-25 or earlier | the one person, kept per transport session, so two connections do not see each other's sign-ins (ADR 006, section 4.1) |
+| HTTP, 2026-07-28 | the one person, shared by every request: the revision has no transport session |
+
+Two people who use one muster need its inbound OAuth; on 2026-07-28 each
+token is its own session (scenario
+`session-multi-user-progressive-auth-2026-07-28`). muster warns at start
+when it listens beyond loopback without inbound OAuth.
+
 ### 3.2 Server transport
 
 muster's inbound Streamable HTTP server lives in
