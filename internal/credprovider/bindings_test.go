@@ -81,7 +81,7 @@ func TestStoreBindingExpiresWithoutUse(t *testing.T) {
 			require.NoError(t, tc.store.Put(ctx, testActor, Binding{Subject: "alice"}, time.Hour))
 
 			tc.advance(50 * time.Minute)
-			require.NoError(t, tc.store.Touch(ctx, testActor, time.Hour))
+			require.NoError(t, tc.store.Touch(ctx, testActor, "", time.Hour))
 			tc.advance(50 * time.Minute)
 			got, err := tc.store.Get(ctx, testActor)
 			require.NoError(t, err)
@@ -94,7 +94,7 @@ func TestStoreBindingExpiresWithoutUse(t *testing.T) {
 
 			require.NoError(t, tc.store.Put(ctx, testActor, Binding{Subject: "bob"}, time.Hour),
 				"an expired binding no longer holds the actor")
-			assert.NoError(t, tc.store.Touch(ctx, "spiffe://substrate-actor.local/actor/x/none", time.Hour))
+			assert.NoError(t, tc.store.Touch(ctx, "spiffe://substrate-actor.local/actor/x/none", "", time.Hour))
 		})
 	}
 }

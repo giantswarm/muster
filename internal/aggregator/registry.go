@@ -200,6 +200,19 @@ func (r *ServerRegistry) buildExposedNameLocked(serverName, name string) string 
 	return r.musterPrefix + "_" + name
 }
 
+// ToolNames returns the names a server's own tool is exposed under: the
+// family-grouped name when the server's family groups its tools, and the
+// per-server name. Unlike ExposedToolName it records nothing.
+func (r *ServerRegistry) ToolNames(serverName, toolName string) []string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	names := []string{r.buildExposedNameLocked(serverName, toolName)}
+	if family := r.groupedFamilyLocked(serverName, r.familyFallbackStatusLocked()); family != "" {
+		names = append([]string{r.familyExposedName(family, toolName)}, names...)
+	}
+	return names
+}
+
 // ExposedToolPrefix returns the prefix every exposed tool of the server
 // carries: {musterPrefix}_{family}_ for a member of a family whose tools are
 // grouped, else {musterPrefix}_{serverPrefix}_. It needs no tool to have been

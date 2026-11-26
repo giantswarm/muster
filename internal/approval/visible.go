@@ -13,21 +13,38 @@ import (
 // included), the line and paragraph separators, spaces other than the ASCII
 // space, variation selectors and other default-ignorable characters, blank
 // fillers -- is replaced by a visible marker such
-// as ⟨U+202E⟩. An agent chooses its arguments; it must not be able to make a
-// value read differently from what runs (M1-MU-S-06).
+// as ⟨U+202E⟩. So is every combining or enclosing mark (Mn, Me) after the
+// first maxMarksPerBase on one base character: a stack of them draws over
+// the lines around it (M2-S3-S-08), while text that needs accents keeps
+// them. An agent chooses its arguments and its reason; it must not be able
+// to make a value read differently from what runs (M1-MU-S-06).
 func Visible(s string) string {
-	if !strings.ContainsFunc(s, hidden) {
+	if !strings.ContainsFunc(s, hidden) && !strings.ContainsFunc(s, combining) {
 		return s
 	}
 	var b strings.Builder
+	marks := 0
 	for _, r := range s {
-		if hidden(r) {
+		if combining(r) {
+			marks++
+		} else {
+			marks = 0
+		}
+		if hidden(r) || marks > maxMarksPerBase {
 			fmt.Fprintf(&b, "⟨U+%04X⟩", r)
 			continue
 		}
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// maxMarksPerBase is how many combining marks one character keeps as they
+// are; languages written with stacked accents need two.
+const maxMarksPerBase = 2
+
+func combining(r rune) bool {
+	return unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Me, r)
 }
 
 func hidden(r rune) bool {

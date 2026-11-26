@@ -21,8 +21,22 @@ import (
 // BindingsPath is the HTTP path of the Session binding endpoints.
 const BindingsPath = "/session-bindings"
 
-// maxBindRequestBytes bounds a bind request body.
-const maxBindRequestBytes = 16 << 10
+// maxBindRequestBytes bounds a bind request body: a toolset of up to 8 KiB
+// plus an agent's approval settings (at most 128 entries and 256 grants).
+const maxBindRequestBytes = 64 << 10
+
+// ApprovalSettingsHeader is the response header that tells the bind's sender
+// what muster did with the agent and its approval settings: bound, ignored
+// (sent without an approval sender) or none (none sent). A muster that
+// answers without it does not take approval settings.
+const ApprovalSettingsHeader = "X-Muster-Approval-Settings"
+
+// Values of ApprovalSettingsHeader.
+const (
+	ApprovalSettingsBound   = "bound"
+	ApprovalSettingsIgnored = "ignored"
+	ApprovalSettingsNone    = "none"
+)
 
 // BindRequest is the body of PUT /session-bindings.
 type BindRequest struct {
@@ -120,7 +134,8 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	approvalSender, refused := p.reviewSender(r)
+	sender, refused := p.reviewSender(r)
+	approvalSender := sender != ""
 	if refused != 0 {
 		logging.WarnWithAttrs(logSubsystem, "bind_refused",
 			slog.String("reason", "the approval settings sender did not pass the review"), slog.String("sub", sub),
@@ -136,21 +151,31 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 			slog.String("reason", "the bind carries an agent or approval settings but no approval sender"),
 			slog.String("sub", sub), slog.String("actor", req.Actor), slog.String("session", req.Session))
 		req.Agent, req.Approval = "", nil
+		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsIgnored)
+	} else if req.Agent != "" || req.Approval != nil {
+		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsBound)
+	} else {
+		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsNone)
 	}
 
 	signIn := api.SignInIdentityFromContext(r.Context())
 	b := Binding{
 		Agent: req.Agent, Approval: req.Approval,
-		ApprovalSender: approvalSender,
-		Subject:        sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
+		ApprovalSender: approvalSender, Sender: sender,
+		Subject: sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
 		SignInIssuer: signIn.Issuer, SignInSubject: signIn.Subject, BoundAt: time.Now().UTC(),
 	}
 	b.LoginSession, b.LoginIssuer, b.LoginSubject = bindLogin(r)
 	err := p.store.Put(r.Context(), req.Actor, b, p.ttl)
-	if errors.Is(err, ErrBoundToAnother) {
+	if errors.Is(err, ErrBoundToAnother) || errors.Is(err, ErrSenderBound) {
 		logging.WarnWithAttrs(logSubsystem, "bind_refused",
 			slog.String("reason", err.Error()), slog.String("sub", sub),
 			slog.String("actor", req.Actor), slog.String("session", req.Session))
+		w.Header().Del(ApprovalSettingsHeader)
+		if errors.Is(err, ErrSenderBound) && !approvalSender {
+			http.Error(w, "conflict: "+err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "forbidden: "+err.Error(), http.StatusForbidden)
 		return
 	}
@@ -163,8 +188,36 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		slog.String("sub", sub), slog.String("session", req.Session),
 		slog.String("actor", req.Actor), slog.Any("providers", req.Providers),
 		slog.String("login", loginKind(b.LoginSession)),
-		slog.Any("toolset", req.Toolset), slog.Bool("approvalSender", approvalSender), slog.Duration("ttl", p.ttl))
+		slog.Any("toolset", req.Toolset), slog.Bool("approvalSender", approvalSender), slog.Duration("ttl", p.ttl),
+		slog.String("agent", req.Agent), slog.Int("approvalEntries", approvalEntries(req.Approval)),
+		slog.String("default", approvalDefault(req.Approval)), slog.Any("grants", grantNames(req.Approval)))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func approvalEntries(a *api.AgentApproval) int {
+	if a == nil {
+		return 0
+	}
+	return len(a.Entries)
+}
+
+func approvalDefault(a *api.AgentApproval) string {
+	if a == nil {
+		return ""
+	}
+	return a.Default
+}
+
+// grantNames lists a binding's grant marks as entry@server, for the logs.
+func grantNames(a *api.AgentApproval) []string {
+	if a == nil {
+		return nil
+	}
+	names := make([]string, 0, len(a.Grants))
+	for _, g := range a.Grants {
+		names = append(names, g.Entry+"@"+g.Server)
+	}
+	return names
 }
 
 // bindLogin returns the session the bind request came from, whose login ID
@@ -252,27 +305,30 @@ func (p *Provider) releasableNames() []string {
 }
 
 // reviewSender reviews the bind's ApprovalSenderHeader token. Without one
-// the bind is taken without approval settings (false, 0). A token that fails
-// the review refuses the bind (403), as does a review that could not be made
+// the bind is taken without approval settings ("", 0); with one that passes
+// the review, the sender's identity is returned. A token that fails the
+// review refuses the bind (403), as does a review that could not be made
 // (503) or a muster that cannot review (403): an outage never strips an
 // agent's Ask or Block.
-func (p *Provider) reviewSender(r *http.Request) (bool, int) {
+func (p *Provider) reviewSender(r *http.Request) (string, int) {
 	token := strings.TrimSpace(r.Header.Get(ApprovalSenderHeader))
 	if token == "" {
-		return false, 0
+		return "", 0
 	}
 	if p.senders == nil {
-		return false, http.StatusForbidden
+		return "", http.StatusForbidden
 	}
-	err := p.senders.Review(r.Context(), token)
+	sender, err := p.senders.Review(r.Context(), token)
 	switch {
-	case err == nil:
-		return true, 0
-	case errors.Is(err, ErrSenderNotAllowed):
-		logging.WarnWithAttrs(logSubsystem, "approval_sender_refused", slog.String("error", err.Error()))
-		return false, http.StatusForbidden
+	case err == nil && sender != "":
+		return sender, 0
+	case err == nil || errors.Is(err, ErrSenderNotAllowed):
+		if err != nil {
+			logging.WarnWithAttrs(logSubsystem, "approval_sender_refused", slog.String("error", err.Error()))
+		}
+		return "", http.StatusForbidden
 	default:
 		logging.WarnWithAttrs(logSubsystem, "approval_sender_review_failed", slog.String("error", err.Error()))
-		return false, http.StatusServiceUnavailable
+		return "", http.StatusServiceUnavailable
 	}
 }

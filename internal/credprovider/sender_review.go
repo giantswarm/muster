@@ -42,10 +42,11 @@ var ErrSenderNotAllowed = errors.New("the sender may not send approval settings"
 
 // SenderReviewer reviews a bind sender's token.
 type SenderReviewer interface {
-	// Review returns nil when the token is a valid token for audience muster
-	// of an identity allowed to bind toolapprovals, ErrSenderNotAllowed when
-	// it is not, and another error when the review could not be made.
-	Review(ctx context.Context, token string) error
+	// Review returns the sender's Kubernetes identity (its username) when
+	// the token is a valid token for audience muster of an identity allowed
+	// to bind toolapprovals, ErrSenderNotAllowed when it is not, and another
+	// error when the review could not be made.
+	Review(ctx context.Context, token string) (string, error)
 }
 
 // KubernetesSenderReviewer reviews with the Kubernetes API, as muster's
@@ -56,18 +57,18 @@ type KubernetesSenderReviewer struct {
 }
 
 // Review implements SenderReviewer.
-func (k KubernetesSenderReviewer) Review(ctx context.Context, token string) error {
+func (k KubernetesSenderReviewer) Review(ctx context.Context, token string) (string, error) {
 	review, err := k.Client.AuthenticationV1().TokenReviews().Create(ctx, &authenticationv1.TokenReview{
 		Spec: authenticationv1.TokenReviewSpec{Token: token, Audiences: []string{ApprovalSenderAudience}},
 	}, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("token review: %w", err)
+		return "", fmt.Errorf("token review: %w", err)
 	}
 	if review.Status.Error != "" && !review.Status.Authenticated {
-		return fmt.Errorf("%w: %s", ErrSenderNotAllowed, review.Status.Error)
+		return "", fmt.Errorf("%w: %s", ErrSenderNotAllowed, review.Status.Error)
 	}
 	if !review.Status.Authenticated || !slices.Contains(review.Status.Audiences, ApprovalSenderAudience) {
-		return ErrSenderNotAllowed
+		return "", ErrSenderNotAllowed
 	}
 	user := review.Status.User
 	extra := make(map[string]authorizationv1.ExtraValue, len(user.Extra))
@@ -93,10 +94,10 @@ func (k KubernetesSenderReviewer) Review(ctx context.Context, token string) erro
 		},
 	}, metav1.CreateOptions{})
 	if err != nil {
-		return fmt.Errorf("subject access review: %w", err)
+		return "", fmt.Errorf("subject access review: %w", err)
 	}
 	if !access.Status.Allowed {
-		return fmt.Errorf("%w: %s may not %s %s.%s", ErrSenderNotAllowed, user.Username, ApprovalSenderVerb, ApprovalSenderResource, ApprovalSenderGroup)
+		return "", fmt.Errorf("%w: %s may not %s %s.%s", ErrSenderNotAllowed, user.Username, ApprovalSenderVerb, ApprovalSenderResource, ApprovalSenderGroup)
 	}
-	return nil
+	return user.Username, nil
 }

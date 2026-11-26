@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/toolset"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -24,6 +25,13 @@ const ArgAgentTools = "agentTools"
 // schemaTypeString is the JSON Schema string type.
 const schemaTypeString = "string"
 
+// AgentToolsEcho says how many items of agentTools.tools a listing was
+// evaluated with, and how many of them carry a setting.
+type AgentToolsEcho struct {
+	Entries  int `json:"entries"`
+	Settings int `json:"settings"`
+}
+
 // ConnectorRef names the MCPServer behind a server tool, as agent-manager's
 // connector-admin check and grant records need it.
 type ConnectorRef struct {
@@ -34,6 +42,8 @@ type ConnectorRef struct {
 	Name      string `json:"name,omitempty"`
 	// UID is the MCPServer's metadata.uid; empty in filesystem mode.
 	UID string `json:"uid,omitempty"`
+	// Tool is the server's own name of the tool, what a grant names.
+	Tool string `json:"tool,omitempty"`
 }
 
 // agentToolsSchema is the JSON Schema of the agentTools argument.
@@ -53,6 +63,7 @@ var agentToolsSchema = map[string]any{
 			"type": "array",
 			"items": map[string]any{"type": "object", "properties": map[string]any{
 				"entry": map[string]any{"type": schemaTypeString}, "server": map[string]any{"type": schemaTypeString}, "uid": map[string]any{"type": schemaTypeString},
+				"tools": map[string]any{"type": "array", "items": map[string]any{"type": schemaTypeString}},
 			}},
 		},
 	},
@@ -118,13 +129,30 @@ func parseAgentTools(raw any) (*api.AgentApproval, []string, error) {
 			entry, _ := g["entry"].(string)
 			server, _ := g["server"].(string)
 			uid, _ := g["uid"].(string)
-			settings.Grants = append(settings.Grants, api.AgentApprovalGrant{Entry: entry, Server: server, UID: uid})
+			var tools []string
+			if raw, present := g["tools"]; present && raw != nil {
+				list, err := toStringList(raw)
+				if err != nil {
+					return nil, nil, fmt.Errorf("%s.grants[%d].tools must be an array of tool names", ArgAgentTools, i)
+				}
+				tools = list
+			}
+			settings.Grants = append(settings.Grants, api.AgentApprovalGrant{Entry: entry, Server: server, UID: uid, Tools: tools})
 		}
 	}
 	if err := settings.Validate(); err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", ArgAgentTools, err)
 	}
 	return settings, selectors, nil
+}
+
+// refuseAgentCaller refuses agentTools to an agent caller: it would list
+// what the agent's own binding hides from it (M2-S3-S-07).
+func refuseAgentCaller(ctx context.Context) error {
+	if api.IsAgentCaller(api.CallerKind(ctx, api.GetSessionIDFromContext(ctx))) {
+		return fmt.Errorf("%s is for people and services that review an agent's tool list; an agent's own listing is evaluated with the settings bound to its Session", ArgAgentTools)
+	}
+	return nil
 }
 
 // connectorLookup returns, for one request, the connectors behind a server
@@ -154,11 +182,16 @@ func connectorLookup(ctx context.Context) func(tool mcp.Tool) []ConnectorRef {
 		}
 		refs := list()
 		out := make([]ConnectorRef, 0, len(servers))
+		original := ""
+		if origin, ok := toolset.ToolOriginOf(tool); ok {
+			original = origin.Tool
+		}
 		for _, server := range servers {
 			ref, ok := refs[server]
 			if !ok {
 				ref = ConnectorRef{Server: server}
 			}
+			ref.Tool = original
 			out = append(out, ref)
 		}
 		sort.Slice(out, func(i, j int) bool { return out[i].Server < out[j].Server })

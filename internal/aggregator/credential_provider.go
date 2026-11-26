@@ -98,7 +98,9 @@ func (a *AggregatorServer) registerSessionBindingRoutes(mux *http.ServeMux, auth
 	}
 	mux.Handle("PUT "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleBind)))
 	mux.Handle("DELETE "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleUnbind)))
-	mux.Handle("PATCH "+credprovider.GrantsPath, authenticate(http.HandlerFunc(provider.HandleDropGrants)))
+	// Authorized by the approval sender's token alone (no person's bearer):
+	// it only removes grant marks (M2-S3-C-04).
+	mux.Handle("PATCH "+credprovider.GrantsPath, http.HandlerFunc(provider.HandleDropGrants))
 	a.credProvider = provider
 	return nil
 }

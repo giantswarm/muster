@@ -59,17 +59,20 @@ func TestKubernetesSenderReviewer(t *testing.T) {
 	reviewer := KubernetesSenderReviewer{Client: client, Namespace: "muster"}
 	ctx := context.Background()
 
-	require.NoError(t, reviewer.Review(ctx, "agent-manager"))
+	sender, err := reviewer.Review(ctx, "agent-manager")
+	require.NoError(t, err)
+	assert.Equal(t, "system:serviceaccount:agent-platform:agent-manager", sender)
 	assert.Equal(t, &authorizationv1.ResourceAttributes{Namespace: "muster", Verb: "bind", Group: "muster.giantswarm.io", Resource: "toolapprovals"}, asked.ResourceAttributes)
 	assert.Equal(t, []string{"system:serviceaccounts"}, asked.Groups)
 	assert.Equal(t, "u1", asked.UID)
 
 	for _, token := range []string{"other", "wrong-audience", "forged"} {
-		require.ErrorIs(t, reviewer.Review(ctx, token), ErrSenderNotAllowed, token)
+		_, err := reviewer.Review(ctx, token)
+		require.ErrorIs(t, err, ErrSenderNotAllowed, token)
 	}
 
 	broken, _ := fakeCluster(t, errors.New("apiserver unavailable"))
-	err := KubernetesSenderReviewer{Client: broken, Namespace: "muster"}.Review(ctx, "agent-manager")
+	_, err = KubernetesSenderReviewer{Client: broken, Namespace: "muster"}.Review(ctx, "agent-manager")
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrSenderNotAllowed)
 }

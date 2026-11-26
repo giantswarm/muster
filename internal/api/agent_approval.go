@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -47,11 +48,15 @@ type AgentApprovalEntry struct {
 }
 
 // AgentApprovalGrant marks an entry's Allow as granted on one connector: the
-// MCPServer's server key and its UID (a recreated server has another).
+// MCPServer's server key and its UID (a recreated server has another), for
+// the tools (the server's own names) it covered when the connector admin
+// granted it. A tool that starts asking later is not covered: its admin
+// never saw it lifted (M2-S3-S-06).
 type AgentApprovalGrant struct {
-	Entry  string `json:"entry"`
-	Server string `json:"server"`
-	UID    string `json:"uid"`
+	Entry  string   `json:"entry"`
+	Server string   `json:"server"`
+	UID    string   `json:"uid"`
+	Tools  []string `json:"tools,omitempty"`
 }
 
 // AgentApproval is an agent's approval settings as one request sees them.
@@ -127,6 +132,10 @@ type AgentTarget struct {
 	Original string
 	// Exposed is the tool's exposed name (x_..., core_..., workflow_...).
 	Exposed string
+	// Aliases are other names the tool is exposed or was called under (a
+	// family member's per-server name, the name the call used); a tool:
+	// entry naming any of them selects the tool.
+	Aliases []string
 	// Workflow is the workflow's name.
 	Workflow string
 	// Tool is the exposed tool, for preset rules; nil when unknown.
@@ -190,18 +199,27 @@ func (a *AgentApproval) Decide(ctx context.Context, t AgentTarget) (setting, ent
 	return "", ""
 }
 
-// Granted reports whether the entry's Allow is granted on the server with
-// the given UID.
-func (a *AgentApproval) Granted(entry, server, uid string) bool {
-	if a == nil || uid == "" {
-		return false
+// Key identifies a grant mark with what it covers: entry, server, UID and
+// the tools, in any order.
+func (g AgentApprovalGrant) Key() string {
+	tools := slices.Clone(g.Tools)
+	slices.Sort(tools)
+	return strings.Join([]string{g.Entry, g.Server, g.UID, strings.Join(tools, ",")}, "\x00")
+}
+
+// Granted returns the grant that lifts the entry's Allow for the server's
+// own tool original on the server with the given UID, if any: a grant names
+// the tools it covers, so one without tools lifts nothing.
+func (a *AgentApproval) Granted(entry, server, uid, original string) (AgentApprovalGrant, bool) {
+	if a == nil || uid == "" || original == "" {
+		return AgentApprovalGrant{}, false
 	}
 	for _, g := range a.Grants {
-		if g.Entry == entry && g.Server == server && g.UID == uid {
-			return true
+		if g.Entry == entry && g.Server == server && g.UID == uid && slices.Contains(g.Tools, original) {
+			return g, true
 		}
 	}
-	return false
+	return AgentApprovalGrant{}, false
 }
 
 // selectedBy reports whether the selector kind:name selects the target.
@@ -227,7 +245,7 @@ func (t AgentTarget) toolNamed(name string) bool {
 	case AgentTargetCore:
 		return "core_"+strings.TrimPrefix(name, "core_") == "core_"+strings.TrimPrefix(t.Exposed, "core_")
 	}
-	if name == t.Exposed && name != "" {
+	if name != "" && (name == t.Exposed || slices.Contains(t.Aliases, name)) {
 		return true
 	}
 	if t.ResolveTool == nil {
@@ -359,4 +377,57 @@ func WithAgentReason(ctx context.Context, reason string) context.Context {
 func AgentReasonFromContext(ctx context.Context) string {
 	reason, _ := ctx.Value(agentReasonKey{}).(string)
 	return reason
+}
+
+// ToolApprovalHeader carries an agent's approval settings on the requests its
+// runtime sends through its own RemoteMCPServer (the agent chart renders it
+// beside X-Muster-Toolset): "<selector>=<Setting>,...[,default=<Setting>]".
+// It carries no grants, so it can only make tools stricter than their
+// connector's settings, and it applies only where no Session binding with an
+// approval sender's settings does (Sessions not started through
+// agent-manager).
+const ToolApprovalHeader = "X-Muster-Tool-Approval"
+
+// ParseToolApprovalHeader parses a ToolApprovalHeader value. A value that
+// cannot be parsed is an error; the caller then applies a default Ask (fail
+// closed).
+func ParseToolApprovalHeader(value string) (*AgentApproval, error) {
+	settings := &AgentApproval{}
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		i := strings.LastIndex(part, "=")
+		if i <= 0 {
+			return nil, fmt.Errorf("%s entry %q is not <selector>=<Setting>", ToolApprovalHeader, part)
+		}
+		selector, setting := part[:i], part[i+1:]
+		if selector == AgentDefaultEntry {
+			if settings.Default != "" {
+				return nil, fmt.Errorf("%s names default twice", ToolApprovalHeader)
+			}
+			settings.Default = setting
+			continue
+		}
+		settings.Entries = append(settings.Entries, AgentApprovalEntry{Entry: selector, Setting: setting})
+	}
+	if err := settings.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: %w", ToolApprovalHeader, err)
+	}
+	return settings, nil
+}
+
+// ContextWithToolApprovalHeader applies a request's ToolApprovalHeader to
+// ctx unless ctx already carries settings (a Session binding's). An empty
+// value applies nothing; one that cannot be parsed makes every tool ask.
+func ContextWithToolApprovalHeader(ctx context.Context, value string) context.Context {
+	if strings.TrimSpace(value) == "" || AgentApprovalFromContext(ctx) != nil {
+		return ctx
+	}
+	settings, err := ParseToolApprovalHeader(value)
+	if err != nil {
+		settings = &AgentApproval{Default: ApprovalAsk}
+	}
+	return WithAgentApproval(ctx, settings)
 }

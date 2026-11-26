@@ -179,6 +179,11 @@ func (a *AggregatorServer) gateServerTool(ctx context.Context, toolName, server,
 		return args, nil, run.check(toolName, effective)
 	}
 	if effective.Setting == api.ApprovalSettingAllow {
+		if effective.Source == api.ApprovalSourceAgentException {
+			// A connector's Ask lifted for this agent: who granted it is
+			// in agent-manager's record, which grant mark lifted it here.
+			a.auditApproval(ctx, "call_allowed_by_exception", target, "", "", "", effective)
+		}
 		return args, nil, nil
 	}
 	if answer, err, needed := a.signInFirst(ctx, server, original, args); needed {
@@ -453,6 +458,9 @@ func (a *AggregatorServer) auditApproval(ctx context.Context, action string, tar
 	}
 	if effective.Entry != "" {
 		attrs = append(attrs, slog.String("entry", effective.Entry))
+	}
+	if effective.Grant != "" {
+		attrs = append(attrs, slog.String("grant", effective.Grant))
 	}
 	api.AuditApproval(ctx, action, attrs...)
 }

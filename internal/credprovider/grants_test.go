@@ -1,19 +1,24 @@
 package credprovider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/valkey-io/valkey-go"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 const (
@@ -28,7 +33,7 @@ const settingsBindBody = `{"actor":"` + testActor + `","session":"kagent/s1","pr
  "agent":"kagent/alert-review",
  "approval":{"entries":[{"entry":"server:github","setting":"Ask"},{"entry":"tool:x_github_merge_pull_request","setting":"Allow"}],
   "default":"Block",
-  "grants":[{"entry":"tool:x_github_merge_pull_request","server":"github","uid":"u-github"}]}}`
+  "grants":[{"entry":"tool:x_github_merge_pull_request","server":"github","uid":"u-github","tools":["merge_pull_request"]}]}}`
 
 func bindBody(t *testing.T, p *Provider, sender, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -62,14 +67,62 @@ func TestBindTakesAgentSettingsFromTheSenderOnly(t *testing.T) {
 	require.NotNil(t, b.Approval)
 	assert.Equal(t, "Block", b.Approval.Default)
 	assert.Len(t, b.Approval.Entries, 2)
-	assert.Equal(t, []api.AgentApprovalGrant{{Entry: "tool:x_github_merge_pull_request", Server: "github", UID: "u-github"}}, b.Approval.Grants)
+	assert.Equal(t, []api.AgentApprovalGrant{{Entry: "tool:x_github_merge_pull_request", Server: "github", UID: "u-github", Tools: []string{"merge_pull_request"}}}, b.Approval.Grants)
+	assert.Equal(t, "system:serviceaccount:agent-platform:agent-manager", b.Sender)
 
-	require.Equal(t, http.StatusNoContent, bindBody(t, p, "", settingsBindBody).Code)
-	b, err = store.Get(ctx, testActor)
+	other := strings.Replace(settingsBindBody, testActor, otherActor, 1)
+	rec := bindBody(t, p, "", other)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, ApprovalSettingsIgnored, rec.Header().Get(ApprovalSettingsHeader), "the sender is told what muster did")
+	b, err = store.Get(ctx, otherActor)
 	require.NoError(t, err)
 	assert.Empty(t, b.Agent, "no sender, no agent")
 	assert.Nil(t, b.Approval, "no sender, no settings")
 	assert.Equal(t, []string{"server:github", "tool:x_github_merge_pull_request"}, b.Toolset, "the rest is bound")
+}
+
+// The person whose Session it is cannot strip the agent's settings by
+// binding the actor again without the sender (M2-S3-S-01): 409, the binding
+// stays as agent-manager wrote it.
+func TestBindWithoutTheSenderCannotReplaceTheSendersBinding(t *testing.T) {
+	ctx := context.Background()
+	p, store := reviewingProvider(t)
+	rec := bindBody(t, p, "agent-manager", settingsBindBody)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, ApprovalSettingsBound, rec.Header().Get(ApprovalSettingsHeader))
+
+	strip := `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"],"toolset":["preset:full"]}`
+	rec = bindBody(t, p, "", strip)
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Empty(t, rec.Header().Get(ApprovalSettingsHeader))
+	b, err := store.Get(ctx, testActor)
+	require.NoError(t, err)
+	require.NotNil(t, b.Approval, "the settings stay")
+	assert.Equal(t, "kagent/alert-review", b.Agent)
+	assert.Equal(t, []string{"server:github", "tool:x_github_merge_pull_request"}, b.Toolset)
+
+	rec = bindBody(t, p, "agent-manager", strings.Replace(settingsBindBody, `"default":"Block"`, `"default":"Ask"`, 1))
+	require.Equal(t, http.StatusNoContent, rec.Code, "the same sender replaces it")
+	rec = bindBody(t, p, "agent-manager", `{"actor":"`+testActor+`","session":"kagent/s1","providers":["github"]}`)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	assert.Equal(t, ApprovalSettingsNone, rec.Header().Get(ApprovalSettingsHeader))
+}
+
+// namingReviewer passes every token, naming the sender after it.
+type namingReviewer struct{}
+
+func (namingReviewer) Review(_ context.Context, token string) (string, error) {
+	return "system:serviceaccount:ns:" + token, nil
+}
+
+// Another sender identity, even one allowed to send settings, cannot replace
+// a sender's binding.
+func TestBindByAnotherSenderIsRefused(t *testing.T) {
+	p, _ := newTestProvider(t, fakeGrants{})
+	p.senders = namingReviewer{}
+	require.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
+	assert.Equal(t, http.StatusForbidden, bindBody(t, p, "intruder", settingsBindBody).Code)
+	assert.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
 }
 
 func TestBindRejectsBadAgentSettings(t *testing.T) {
@@ -114,7 +167,7 @@ func TestDropGrantsRemovesOnlyMarks(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, dropGrantsRequest(t, p, "", body).Code, "the sender is required")
 	assert.Equal(t, http.StatusForbidden, dropGrantsRequest(t, p, "other", body).Code, "a sender the review refuses")
 
-	keep := `{"agent":"kagent/alert-review","keep":[{"entry":"tool:x_github_merge_pull_request","server":"github","uid":"u-github"}]}`
+	keep := `{"agent":"kagent/alert-review","keep":[{"entry":"tool:x_github_merge_pull_request","server":"github","uid":"u-github","tools":["merge_pull_request"]}]}`
 	rec := dropGrantsRequest(t, p, "agent-manager", keep)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.JSONEq(t, `{"bindings":1,"dropped":0}`, rec.Body.String())
@@ -182,7 +235,7 @@ func TestStoreDropsAnAgentsGrants(t *testing.T) {
 			assert.Equal(t, []string{otherActor}, actors, "an expired binding leaves the index")
 
 			// Rebound to another agent: no longer the first agent's.
-			require.NoError(t, tc.store.Put(ctx, otherActor, Binding{Subject: "bob", Agent: "kagent/b"}, time.Hour))
+			require.NoError(t, tc.store.Put(ctx, otherActor, Binding{Subject: "bob", Agent: "kagent/b", ApprovalSender: true}, time.Hour))
 			actors, err = tc.store.ActorsOfAgent(ctx, "kagent/a")
 			require.NoError(t, err)
 			assert.Empty(t, actors)
@@ -201,4 +254,87 @@ func TestBindingApprovalNeedsTheSender(t *testing.T) {
 	assert.Equal(t, "kagent/a", got.Agent)
 	assert.Equal(t, api.ApprovalAsk, got.Default)
 	assert.False(t, got.Reporting)
+}
+
+// A drop needs no person's bearer, only the sender: agent-manager re-sends a
+// drop that did not reach muster when it starts (M2-S3-C-04).
+func TestDropGrantsWithTheSenderAlone(t *testing.T) {
+	p, store := reviewingProvider(t)
+	require.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
+	body := `{"agent":"kagent/alert-review","keep":[]}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, GrantsPath, strings.NewReader(body))
+	p.HandleDropGrants(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code, "neither a person nor the sender")
+
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPatch, GrantsPath, strings.NewReader(body))
+	req.Header.Set(ApprovalSenderHeader, "agent-manager")
+	p.HandleDropGrants(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"bindings":1,"dropped":1}`, rec.Body.String())
+	b, err := store.Get(context.Background(), testActor)
+	require.NoError(t, err)
+	assert.Empty(t, b.Approval.Grants)
+}
+
+// A drop keeps a mark only when keep names it with the same tools.
+func TestDropGrantsComparesTheTools(t *testing.T) {
+	p, store := reviewingProvider(t)
+	require.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
+	keep := `{"agent":"kagent/alert-review","keep":[{"entry":"tool:x_github_merge_pull_request","server":"github","uid":"u-github","tools":["other"]}]}`
+	rec := dropGrantsRequest(t, p, "agent-manager", keep)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"bindings":1,"dropped":1}`, rec.Body.String())
+	b, err := store.Get(context.Background(), testActor)
+	require.NoError(t, err)
+	assert.Empty(t, b.Approval.Grants)
+}
+
+// The Valkey index lives as long as the agent's bindings: an unread index
+// of expired bindings disappears, while a Session that Touch keeps alive
+// stays in it past the first TTL (M2-S3-C-03).
+func TestValkeyAgentIndexExpiresWithItsBindings(t *testing.T) {
+	ctx := context.Background()
+	srv := miniredis.RunT(t)
+	client, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{srv.Addr()}, DisableCache: true})
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	store := NewValkeyStore(client, "muster:", nil)
+	sender := Binding{Subject: "alice", Agent: "kagent/a", ApprovalSender: true}
+
+	require.NoError(t, store.Put(ctx, testActor, sender, time.Hour))
+	require.True(t, srv.Exists(store.agentKey("kagent/a")))
+	srv.FastForward(61 * time.Minute)
+	assert.False(t, srv.Exists(store.agentKey("kagent/a")), "the index expired with its only binding")
+
+	require.NoError(t, store.Put(ctx, otherActor, Binding{Subject: "bob", Agent: "kagent/a", ApprovalSender: true}, time.Hour))
+	for range 3 {
+		srv.FastForward(50 * time.Minute)
+		require.NoError(t, store.Touch(ctx, otherActor, "kagent/a", time.Hour))
+	}
+	actors, err := store.ActorsOfAgent(ctx, "kagent/a")
+	require.NoError(t, err)
+	assert.Equal(t, []string{otherActor}, actors, "a touched Session stays in the index")
+}
+
+// session_bound records the agent, its settings and the grant marks a
+// Session was bound with (M2-S3-C-13, S-10).
+func TestSessionBoundLogsTheAgentsSettings(t *testing.T) {
+	var buf bytes.Buffer
+	logging.InitForCLI(logging.LevelInfo, &buf)
+	t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, io.Discard) })
+	p, _ := reviewingProvider(t)
+	require.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
+	var line string
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(l, "session_bound") {
+			line = l
+		}
+	}
+	require.NotEmpty(t, line)
+	for _, want := range []string{"agent=kagent/alert-review", "approvalEntries=2", "default=Block", "tool:x_github_merge_pull_request@github"} {
+		assert.Contains(t, line, want)
+	}
 }

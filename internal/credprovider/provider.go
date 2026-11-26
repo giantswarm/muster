@@ -208,7 +208,7 @@ func (p *Provider) FetchSecret(ctx context.Context, req *credproviderpb.FetchSec
 	if token == nil || token.AccessToken == "" {
 		return nil, refuse(codes.NotFound, p.noGrantReason(provider), who...)
 	}
-	if err := p.store.Touch(ctx, actor, p.ttl); err != nil {
+	if err := p.store.Touch(ctx, actor, binding.Agent, p.ttl); err != nil {
 		logging.WarnWithAttrs(logSubsystem, "binding_touch_failed", slog.String("actor", actor), slog.String("error", err.Error()))
 	}
 

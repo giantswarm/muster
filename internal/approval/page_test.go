@@ -441,3 +441,13 @@ func TestPage_AgentSaysAndBoundClient(t *testing.T) {
 	assert.NotContains(t, w.Body.String(), "Agent says")
 	assert.NotContains(t, w.Body.String(), "Client ")
 }
+
+// More than two combining marks on one character are marked, so a stack of
+// them cannot draw over the lines around it; text with accents keeps them
+// (M2-S3-S-08).
+func TestVisible_StackedCombiningMarks(t *testing.T) {
+	assert.Equal(t, "e\u0301\u0302", Visible("e\u0301\u0302"), "two marks stay")
+	assert.Equal(t, "e\u0301\u0302⟨U+0303⟩⟨U+0304⟩", Visible("e\u0301\u0302\u0303\u0304"))
+	assert.Equal(t, "a\u0301b\u0301", Visible("a\u0301b\u0301"), "the count starts again on every base")
+	assert.Equal(t, "x\u20dd\u20dd⟨U+20DD⟩", Visible("x\u20dd\u20dd\u20dd"), "enclosing marks count too")
+}

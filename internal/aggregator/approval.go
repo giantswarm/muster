@@ -256,8 +256,6 @@ func (l *approvalListing) server(ctx context.Context, server, original string, t
 	exposed := ""
 	if tool != nil {
 		exposed = tool.Name
-	} else if l.a != nil && l.a.registry != nil {
-		exposed = l.a.registry.ExposedToolName(server, original)
 	}
 	if l.a != nil {
 		setting = l.a.withAgentSetting(ctx, setting, server, original, exposed, l.uids[server], tool)

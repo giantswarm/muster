@@ -120,14 +120,29 @@ func TestApplyAgentSetting(t *testing.T) {
 }
 
 func TestAgentApproval_Granted(t *testing.T) {
-	a := &AgentApproval{Grants: []AgentApprovalGrant{{Entry: "tool:x", Server: "github", UID: "u1"}}}
-	if !a.Granted("tool:x", "github", "u1") {
+	a := &AgentApproval{Grants: []AgentApprovalGrant{{Entry: "tool:x", Server: "github", UID: "u1", Tools: []string{"merge"}}}}
+	if _, ok := a.Granted("tool:x", "github", "u1", "merge"); !ok {
 		t.Fatal("matching grant not found")
 	}
-	for _, c := range [][3]string{{"tool:y", "github", "u1"}, {"tool:x", "gitlab", "u1"}, {"tool:x", "github", "u2"}, {"tool:x", "github", ""}} {
-		if a.Granted(c[0], c[1], c[2]) {
+	for _, c := range [][4]string{{"tool:y", "github", "u1", "merge"}, {"tool:x", "gitlab", "u1", "merge"}, {"tool:x", "github", "u2", "merge"},
+		{"tool:x", "github", "", "merge"}, {"tool:x", "github", "u1", "delete"}} {
+		if _, ok := a.Granted(c[0], c[1], c[2], c[3]); ok {
 			t.Fatalf("grant matched %v", c)
 		}
+	}
+	// A grant without tools covers nothing (M2-S3-S-06).
+	bare := &AgentApproval{Grants: []AgentApprovalGrant{{Entry: "server:github", Server: "github", UID: "u1"}}}
+	if _, ok := bare.Granted("server:github", "github", "u1", "merge"); ok {
+		t.Fatal("a grant without tools lifted a tool")
+	}
+}
+
+func TestAgentApprovalGrant_Key(t *testing.T) {
+	a := AgentApprovalGrant{Entry: "e", Server: "s", UID: "u", Tools: []string{"b", "a"}}
+	b := AgentApprovalGrant{Entry: "e", Server: "s", UID: "u", Tools: []string{"a", "b"}}
+	c := AgentApprovalGrant{Entry: "e", Server: "s", UID: "u", Tools: []string{"a"}}
+	if a.Key() != b.Key() || a.Key() == c.Key() {
+		t.Fatal("a grant's key is its entry, server, UID and set of tools")
 	}
 }
 
@@ -135,13 +150,13 @@ func TestAgentApproval_Validate(t *testing.T) {
 	ok := &AgentApproval{
 		Entries: []AgentApprovalEntry{{"server:github", ApprovalAsk}, {"tool:x_github_merge", ApprovalAllow}},
 		Default: ApprovalAllow,
-		Grants:  []AgentApprovalGrant{{"tool:x_github_merge", "github", "u"}, {AgentDefaultEntry, "github", "u"}},
+		Grants:  []AgentApprovalGrant{{"tool:x_github_merge", "github", "u", nil}, {AgentDefaultEntry, "github", "u", nil}},
 	}
 	if err := ok.Validate(); err != nil {
 		t.Fatalf("valid settings refused: %v", err)
 	}
-	noUID := &AgentApproval{Entries: []AgentApprovalEntry{{"tool:x", ApprovalAllow}}, Grants: []AgentApprovalGrant{{"tool:x", "s", ""}}}
-	if err := noUID.Validate(); err != nil || noUID.Granted("tool:x", "s", "") {
+	noUID := &AgentApproval{Entries: []AgentApprovalEntry{{"tool:x", ApprovalAllow}}, Grants: []AgentApprovalGrant{{"tool:x", "s", "", []string{"x"}}}}
+	if err := noUID.Validate(); err != nil || func() bool { _, ok := noUID.Granted("tool:x", "s", "", "x"); return ok }() {
 		t.Fatalf("a grant without a UID is accepted and matches nothing: %v", err)
 	}
 	bad := []*AgentApproval{
@@ -149,13 +164,42 @@ func TestAgentApproval_Validate(t *testing.T) {
 		{Entries: []AgentApprovalEntry{{"server:github", "ask"}}},
 		{Entries: []AgentApprovalEntry{{"server:github", ApprovalAsk}, {"server:github", ApprovalBlock}}},
 		{Default: "Never"},
-		{Entries: []AgentApprovalEntry{{"server:github", ApprovalAsk}}, Grants: []AgentApprovalGrant{{"server:github", "github", "u"}}},
-		{Grants: []AgentApprovalGrant{{AgentDefaultEntry, "github", "u"}}},
-		{Entries: []AgentApprovalEntry{{"tool:x", ApprovalAllow}}, Grants: []AgentApprovalGrant{{"tool:x", "", "u"}}},
+		{Entries: []AgentApprovalEntry{{"server:github", ApprovalAsk}}, Grants: []AgentApprovalGrant{{"server:github", "github", "u", nil}}},
+		{Grants: []AgentApprovalGrant{{AgentDefaultEntry, "github", "u", nil}}},
+		{Entries: []AgentApprovalEntry{{"tool:x", ApprovalAllow}}, Grants: []AgentApprovalGrant{{"tool:x", "", "u", nil}}},
 	}
 	for i, a := range bad {
 		if err := a.Validate(); err == nil {
 			t.Fatalf("case %d: invalid settings accepted: %+v", i, a)
 		}
+	}
+}
+
+func TestParseToolApprovalHeader(t *testing.T) {
+	got, err := ParseToolApprovalHeader("server:github=Ask, tool:x_a=b=Block ,default=Ask")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Default != ApprovalAsk || len(got.Entries) != 2 || got.Entries[1] != (AgentApprovalEntry{"tool:x_a=b", ApprovalBlock}) || len(got.Grants) != 0 {
+		t.Fatalf("parsed %+v", got)
+	}
+	for _, bad := range []string{"server:github", "server:github=Deny", "default=Ask,default=Block", "github=Ask", "=Ask"} {
+		if _, err := ParseToolApprovalHeader(bad); err == nil {
+			t.Fatalf("%q accepted", bad)
+		}
+	}
+}
+
+func TestContextWithToolApprovalHeader(t *testing.T) {
+	ctx := context.Background()
+	if AgentApprovalFromContext(ContextWithToolApprovalHeader(ctx, "")) != nil {
+		t.Fatal("no header, no settings")
+	}
+	if got := AgentApprovalFromContext(ContextWithToolApprovalHeader(ctx, "garbage")); got == nil || got.Default != ApprovalAsk {
+		t.Fatalf("an unparseable header asks for everything, got %+v", got)
+	}
+	bound := WithAgentApproval(ctx, &AgentApproval{Agent: "kagent/a"})
+	if got := AgentApprovalFromContext(ContextWithToolApprovalHeader(bound, "default=Block")); got.Agent != "kagent/a" || got.Default != "" {
+		t.Fatal("a binding's settings win over the header")
 	}
 }

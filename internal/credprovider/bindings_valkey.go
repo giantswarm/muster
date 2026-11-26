@@ -28,10 +28,10 @@ import (
 // A binding that names an agent is also indexed:
 //
 //	Key:   {keyPrefix}credprovider:binding-agent:{sha256(agent)}
-//	Value: set of actors
-//	TTL:   none; members whose binding is gone are removed whenever the
-//	       index is read (ActorsOfAgent), so a long-lived Session, whose
-//	       binding only Touch keeps alive, never falls out of it.
+//	Value: sorted set of actors, scored by their binding's expiry (ms)
+//	TTL:   the latest member's expiry; Put and Touch add or rescore the
+//	       actor and remove members already expired, so the index lives
+//	       exactly as long as the agent's bindings (bindings_valkey_index.go).
 type ValkeyStore struct {
 	client    valkey.Client
 	keyPrefix string
@@ -113,8 +113,10 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 		if err != nil {
 			return err
 		}
-		if existing.Subject != b.Subject {
-			return ErrBoundToAnother
+		// The write below only lands while the key still holds current,
+		// so this check holds for what it replaces.
+		if err := checkReplace(existing, b); err != nil {
+			return err
 		}
 	}
 	value, err := s.seal(b)
@@ -134,7 +136,7 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 		return fmt.Errorf("write binding: changed concurrently, retry")
 	}
 	if b.Agent != "" {
-		if err := s.client.Do(ctx, s.client.B().Sadd().Key(s.agentKey(b.Agent)).Member(actor).Build()).Error(); err != nil {
+		if err := s.index(ctx, b.Agent, actor, ttl); err != nil {
 			// Without the index a dropped grant could not reach this
 			// Session: refuse the bind rather than keep a mark nobody can
 			// remove.
@@ -145,11 +147,6 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 	return nil
 }
 
-func (s *ValkeyStore) agentKey(agent string) string {
-	sum := sha256.Sum256([]byte(agent))
-	return s.keyPrefix + "credprovider:binding-agent:" + hex.EncodeToString(sum[:])
-}
-
 // replaceScript writes ARGV[2] keeping the key's TTL while it still holds
 // ARGV[1].
 var replaceScript = valkey.NewLuaScript(`
@@ -157,34 +154,6 @@ local cur = redis.call('GET', KEYS[1])
 if cur ~= ARGV[1] then return 0 end
 redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
 return 1`)
-
-// ActorsOfAgent implements Store.
-func (s *ValkeyStore) ActorsOfAgent(ctx context.Context, agent string) ([]string, error) {
-	if agent == "" {
-		return nil, nil
-	}
-	key := s.agentKey(agent)
-	members, err := s.client.Do(ctx, s.client.B().Smembers().Key(key).Build()).AsStrSlice()
-	if err != nil {
-		return nil, fmt.Errorf("read the agent's bindings: %w", err)
-	}
-	var actors, stale []string
-	for _, actor := range members {
-		b, err := s.Get(ctx, actor)
-		if err != nil {
-			return nil, err
-		}
-		if b == nil || b.Agent != agent {
-			stale = append(stale, actor)
-			continue
-		}
-		actors = append(actors, actor)
-	}
-	if len(stale) > 0 {
-		_ = s.client.Do(ctx, s.client.B().Srem().Key(key).Member(stale...).Build()).Error()
-	}
-	return actors, nil
-}
 
 // maxDropAttempts bounds the retries of a grant drop racing a rebind.
 const maxDropAttempts = 5
@@ -242,10 +211,15 @@ func (s *ValkeyStore) Get(ctx context.Context, actor string) (*Binding, error) {
 }
 
 // Touch implements Store.
-func (s *ValkeyStore) Touch(ctx context.Context, actor string, ttl time.Duration) error {
+func (s *ValkeyStore) Touch(ctx context.Context, actor, agent string, ttl time.Duration) error {
 	err := s.client.Do(ctx, s.client.B().Pexpire().Key(s.key(actor)).Milliseconds(ttl.Milliseconds()).Build()).Error()
 	if err != nil {
 		return fmt.Errorf("touch binding: %w", err)
+	}
+	if agent != "" {
+		if err := s.index(ctx, agent, actor, ttl); err != nil {
+			return fmt.Errorf("touch binding: %w", err)
+		}
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package aggregator
 
 import (
 	"context"
+	"slices"
 
 	"github.com/mark3labs/mcp-go/mcp"
 
@@ -24,6 +25,18 @@ func (a *AggregatorServer) serverAgentTarget(server, original, exposed string, t
 	if a.registry == nil {
 		return target
 	}
+	// The canonical names, recorded nowhere: a tool: or preset: entry is
+	// matched against the name the catalogue lists, whatever alias the call
+	// used (M2-S3-C-12).
+	names := a.registry.ToolNames(server, original)
+	if tool == nil && len(names) > 0 {
+		target.Exposed = names[0]
+	}
+	for _, name := range append(names, exposed) {
+		if name != "" && name != target.Exposed && !slices.Contains(target.Aliases, name) {
+			target.Aliases = append(target.Aliases, name)
+		}
+	}
 	target.Family = a.registry.GroupedFamily(server)
 	target.ResolveTool = func(name string) (string, string, bool) {
 		srv, orig, err := a.registry.ResolveToolName(name)
@@ -36,7 +49,7 @@ func (a *AggregatorServer) serverAgentTarget(server, original, exposed string, t
 				definition = own
 			}
 		}
-		definition.Name = exposed
+		definition.Name = target.Exposed
 		target.Tool = &definition
 	}
 	return target
@@ -51,7 +64,16 @@ func (a *AggregatorServer) withAgentSetting(ctx context.Context, admin api.ToolA
 		return admin
 	}
 	setting, entry := settings.Decide(ctx, a.serverAgentTarget(server, original, exposed, tool))
-	return api.ApplyAgentSetting(admin, setting, entry, setting == api.ApprovalAllow && settings.Granted(entry, server, uid))
+	var grant api.AgentApprovalGrant
+	granted := false
+	if setting == api.ApprovalAllow {
+		grant, granted = settings.Granted(entry, server, uid, original)
+	}
+	effective := api.ApplyAgentSetting(admin, setting, entry, granted)
+	if effective.Source == api.ApprovalSourceAgentException {
+		effective.Grant = grant.Entry + "@" + grant.Server
+	}
+	return effective
 }
 
 // withAgentCoreSetting applies the request's agent settings to a core tool:

@@ -15,6 +15,10 @@ import (
 // an agent's running Sessions.
 const GrantsPath = BindingsPath + "/grants"
 
+// maxDropGrantsBytes bounds a grant drop: up to MaxAgentApprovalGrants
+// marks to keep, each naming its tools.
+const maxDropGrantsBytes = 256 << 10
+
 // DropGrantsRequest is the body of PATCH /session-bindings/grants.
 type DropGrantsRequest struct {
 	// Agent is the agent, <namespace>/<name>, whose bindings are changed.
@@ -34,19 +38,18 @@ type DropGrantsResponse struct {
 // HandleDropGrants is PATCH /session-bindings/grants: removes from every live
 // binding of the agent each grant mark not kept, changing nothing else
 // (person, Session, providers, toolset, settings, expiry). Unlike a bind it
-// may change another person's binding, so it requires an approval sender
-// (agent-manager's ServiceAccount token, reviewed like a bind's): without one,
-// or when the review refuses, it answers 403; when the review fails, 503. It
-// only ever removes marks, so a Session loses an exception at its next call
-// and gains nothing.
+// may change another person's binding, so it is authorized by the approval
+// sender alone (agent-manager's ServiceAccount token, reviewed like a
+// bind's): without one, or when the review refuses, it answers 403; when the
+// review fails, 503. No person's bearer is needed, so agent-manager can
+// re-send a drop that did not reach muster at its start (M2-S3-C-04); a
+// person's subject, when the request carries one, is only logged. It only
+// ever removes marks, so a Session loses an exception at its next call and
+// gains nothing.
 func (p *Provider) HandleDropGrants(w http.ResponseWriter, r *http.Request) {
 	sub := api.GetSubjectFromContext(r.Context())
-	if sub == "" {
-		http.Error(w, "unauthorized: no person identity", http.StatusUnauthorized)
-		return
-	}
 	var req DropGrantsRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBindRequestBytes))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxDropGrantsBytes))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
@@ -64,7 +67,8 @@ func (p *Provider) HandleDropGrants(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden: removing grant marks needs the sender of approval settings ("+ApprovalSenderHeader+")", http.StatusForbidden)
 		return
 	}
-	if allowed, refused := p.reviewSender(r); refused != 0 || !allowed {
+	sender, refused := p.reviewSender(r)
+	if refused != 0 || sender == "" {
 		status := refused
 		if status == 0 {
 			status = http.StatusForbidden
@@ -73,11 +77,11 @@ func (p *Provider) HandleDropGrants(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	keep := make(map[api.AgentApprovalGrant]bool, len(req.Keep))
+	keep := make(map[string]bool, len(req.Keep))
 	for _, g := range req.Keep {
-		keep[g] = true
+		keep[g.Key()] = true
 	}
-	keeps := func(g api.AgentApprovalGrant) bool { return keep[g] }
+	keeps := func(g api.AgentApprovalGrant) bool { return keep[g.Key()] }
 
 	actors, err := p.store.ActorsOfAgent(r.Context(), req.Agent)
 	if err != nil {
@@ -97,12 +101,12 @@ func (p *Provider) HandleDropGrants(w http.ResponseWriter, r *http.Request) {
 		out.Dropped += dropped
 	}
 	logging.InfoWithAttrs(logSubsystem, "session_grants_dropped",
-		slog.String("sub", sub), slog.String("agent", req.Agent),
+		slog.String("sub", sub), slog.String("sender", sender), slog.String("agent", req.Agent),
 		slog.Int("bindings", out.Bindings), slog.Int("dropped", out.Dropped))
 	logging.Audit(logging.AuditEvent{
 		Action:  "session_grants_dropped",
 		Outcome: "success",
-		Subject: logging.TruncateIdentifier(sub),
+		Subject: logging.TruncateIdentifier(sender),
 		Target:  req.Agent,
 		Details: "bindings=" + strconv.Itoa(out.Bindings) + " dropped=" + strconv.Itoa(out.Dropped),
 	})

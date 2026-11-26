@@ -66,7 +66,7 @@ steps:
     expected:
       success: true
       wait_for_state: "20s"
-      contains: ["x_github_get_issue", "x_github_merge_pull_request", "x_pagerduty_ack", "connectors", "namespace"]
+      contains: ["x_github_get_issue", "x_github_merge_pull_request", "x_pagerduty_ack", "connectors", "namespace", "agentTools"]
       not_contains: ["x_github_delete_repository", "core_config_save"]
 
   - id: "agent-block-reported"

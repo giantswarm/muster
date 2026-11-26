@@ -14,6 +14,27 @@ import (
 // bound to a different person.
 var ErrBoundToAnother = errors.New("the actor is bound to another person")
 
+// ErrSenderBound is returned when a bind would replace a binding an approval
+// sender wrote without that same sender: the person could otherwise strip
+// the agent's own Ask and Block from their Session (M2-S3-S-01).
+var ErrSenderBound = errors.New("the binding carries an agent's approval settings: only the approval sender that wrote it (agent-manager) can replace it")
+
+// checkReplace refuses a write of b over the live binding existing: another
+// person's binding, or one an approval sender wrote, replaced without that
+// sender. A binding stored before senders were named accepts any sender.
+func checkReplace(existing *Binding, b Binding) error {
+	if existing == nil {
+		return nil
+	}
+	if existing.Subject != b.Subject {
+		return ErrBoundToAnother
+	}
+	if existing.ApprovalSender && (!b.ApprovalSender || (existing.Sender != "" && existing.Sender != b.Sender)) {
+		return ErrSenderBound
+	}
+	return nil
+}
+
 // Binding ties a Session's sandbox actor to the person who started it and the
 // providers whose grants the Session may use.
 type Binding struct {
@@ -34,6 +55,9 @@ type Binding struct {
 	// allows to send approval settings (sender_review.go). Approval settings
 	// in a binding are honoured only then.
 	ApprovalSender bool `json:"approvalSender,omitempty"`
+	// Sender is the approval sender's Kubernetes identity; only it can
+	// replace this binding.
+	Sender string `json:"sender,omitempty"`
 	// Agent is the Session's agent, <namespace>/<name>; set only by an
 	// approval sender.
 	Agent string `json:"agent,omitempty"`
@@ -74,12 +98,14 @@ func (b *Binding) Allows(provider string) bool {
 // last Put or Touch.
 type Store interface {
 	// Put writes the binding for the actor unless the actor is bound to
-	// another subject (ErrBoundToAnother).
+	// another subject (ErrBoundToAnother) or the live binding came from an
+	// approval sender b does not come from (ErrSenderBound).
 	Put(ctx context.Context, actor string, b Binding, ttl time.Duration) error
 	// Get returns the live binding for the actor, or nil.
 	Get(ctx context.Context, actor string) (*Binding, error)
-	// Touch restarts the actor's binding TTL; a missing binding is no error.
-	Touch(ctx context.Context, actor string, ttl time.Duration) error
+	// Touch restarts the actor's binding TTL, and its place in the agent's
+	// index when agent is set; a missing binding is no error.
+	Touch(ctx context.Context, actor, agent string, ttl time.Duration) error
 	// Delete removes the actor's binding when it belongs to subject
 	// (ErrBoundToAnother otherwise); a missing binding is no error.
 	Delete(ctx context.Context, actor, subject string) error
@@ -148,8 +174,10 @@ func (s *MemoryStore) live(actor string) (memoryEntry, bool) {
 func (s *MemoryStore) Put(_ context.Context, actor string, b Binding, ttl time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if e, ok := s.live(actor); ok && e.binding.Subject != b.Subject {
-		return ErrBoundToAnother
+	if e, ok := s.live(actor); ok {
+		if err := checkReplace(&e.binding, b); err != nil {
+			return err
+		}
 	}
 	s.entries[actor] = memoryEntry{binding: b, expiresAt: s.now().Add(ttl)}
 	return nil
@@ -168,7 +196,7 @@ func (s *MemoryStore) Get(_ context.Context, actor string) (*Binding, error) {
 }
 
 // Touch implements Store.
-func (s *MemoryStore) Touch(_ context.Context, actor string, ttl time.Duration) error {
+func (s *MemoryStore) Touch(_ context.Context, actor, _ string, ttl time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if e, ok := s.live(actor); ok {

@@ -164,8 +164,12 @@ type ListToolsResponse = FilterToolsResponse
 // it now equals len(Tools), i.e. the page size capped by limit. New callers
 // should prefer Total for the match count and Truncated to detect more pages.
 type FilterToolsResponse struct {
-	Filters    FilterCriteria `json:"filters"`
-	TotalTools int            `json:"total_tools"`
+	// AgentTools echoes the agentTools argument the tools were evaluated
+	// with, so a caller can tell a muster that evaluated it from one that
+	// ignored it.
+	AgentTools *AgentToolsEcho `json:"agentTools,omitempty"`
+	Filters    FilterCriteria  `json:"filters"`
+	TotalTools int             `json:"total_tools"`
 	// FilteredCount equals len(Tools) (the current page size). Deprecated: use
 	// Total for the number of matches across the catalogue.
 	FilteredCount int        `json:"filtered_count"`

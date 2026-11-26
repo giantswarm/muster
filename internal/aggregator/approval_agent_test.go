@@ -32,7 +32,7 @@ func boundAgent(rig *gateRig, settings *api.AgentApproval) context.Context {
 	return api.WithAgentApproval(agentContext(rig, "alert-review-1"), settings)
 }
 
-var mergeGrant = api.AgentApprovalGrant{Entry: "tool:x_github_merge_pull_request", Server: "github", UID: githubUID}
+var mergeGrant = api.AgentApprovalGrant{Entry: "tool:x_github_merge_pull_request", Server: "github", UID: githubUID, Tools: []string{"merge_pull_request"}}
 
 // A connector admin's grant lets the agent run the tool the connector asks
 // for; without the mark, or with a mark for another server instance, the
@@ -45,8 +45,10 @@ func TestAgentSettings_GrantLiftsTheConnectorsAsk(t *testing.T) {
 	}{
 		{"granted", []api.AgentApprovalGrant{mergeGrant}, true},
 		{"not granted", nil, false},
-		{"grant of a recreated server", []api.AgentApprovalGrant{{Entry: mergeGrant.Entry, Server: "github", UID: "uid-old"}}, false},
-		{"grant of another entry", []api.AgentApprovalGrant{{Entry: "server:github", Server: "github", UID: githubUID}}, false},
+		{"grant of a recreated server", []api.AgentApprovalGrant{{Entry: mergeGrant.Entry, Server: "github", UID: "uid-old", Tools: mergeGrant.Tools}}, false},
+		{"grant that did not cover the tool", []api.AgentApprovalGrant{{Entry: mergeGrant.Entry, Server: "github", UID: githubUID, Tools: []string{"get_issue"}}}, false},
+		{"grant without tools", []api.AgentApprovalGrant{{Entry: mergeGrant.Entry, Server: "github", UID: githubUID}}, false},
+		{"grant of another entry", []api.AgentApprovalGrant{{Entry: "server:github", Server: "github", UID: githubUID, Tools: mergeGrant.Tools}}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -77,7 +79,7 @@ func TestAgentSettings_TightenAndBlock(t *testing.T) {
 		{Entry: "tool:x_github_get_issue", Setting: api.ApprovalAsk},
 		{Entry: "tool:x_github_merge_pull_request", Setting: api.ApprovalBlock},
 		{Entry: "tool:x_github_delete_repository", Setting: api.ApprovalAllow},
-	}, Grants: []api.AgentApprovalGrant{{Entry: "tool:x_github_delete_repository", Server: "github", UID: githubUID}}})
+	}, Grants: []api.AgentApprovalGrant{{Entry: "tool:x_github_delete_repository", Server: "github", UID: githubUID, Tools: []string{"delete_repository"}}}})
 
 	_, err := rig.server.CallToolInternal(ctx, "x_github_merge_pull_request", map[string]any{})
 	require.EqualError(t, err, "tool not found: x_github_merge_pull_request")
@@ -137,7 +139,7 @@ func TestAgentSettings_GrantNeverLiftsGovernance(t *testing.T) {
 	manager.servers["agent-manager"] = info
 	ctx := boundAgent(rig, &api.AgentApproval{
 		Entries: []api.AgentApprovalEntry{{Entry: "server:agent-manager", Setting: api.ApprovalAllow}},
-		Grants:  []api.AgentApprovalGrant{{Entry: "server:agent-manager", Server: "agent-manager", UID: "uid-am"}},
+		Grants:  []api.AgentApprovalGrant{{Entry: "server:agent-manager", Server: "agent-manager", UID: "uid-am", Tools: []string{"update_agent", "add_organization_member", "list_agents"}}},
 	})
 	for _, tool := range []string{"update_agent", "add_organization_member"} {
 		result, err := rig.server.CallToolInternal(ctx, "x_agent-manager_"+tool, map[string]any{})

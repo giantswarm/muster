@@ -27,6 +27,7 @@ code{font-family:ui-monospace,monospace;font-size:.9em}.muted{color:#57606a;font
 .actions{display:flex;gap:1rem;margin-top:1.5rem}button{font-size:1rem;padding:.5rem 1.2rem;border-radius:.4rem;border:1px solid #8c959f;background:#f6f8fa;cursor:pointer}
 button.approve{background:#1f6feb;color:#fff;border-color:#1f6feb}button[disabled]{opacity:.5;cursor:default}
 pre{white-space:pre-wrap;word-break:break-all;background:#f6f8fa;padding:.5rem}
+blockquote.says{margin:0;padding:.5rem .8rem;border:1px solid #8c959f;border-radius:.4rem;overflow:hidden;overflow-wrap:anywhere;white-space:pre-wrap}
 @media (prefers-color-scheme:dark){body{background:#0d1117;color:#e6edf3}.muted{color:#8d96a0}pre,button{background:#161b22;color:#e6edf3}.tag{background:#3d2a00;color:#f0c27b}}
 </style></head><body>
 <h1>{{.Heading}}</h1>
@@ -38,7 +39,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#f6f8fa;padding:.5rem}
 {{if .Target.Server}}<dt>Connector</dt><dd>{{visible .Display.Connector}} <code>{{visible .Target.Server}}</code></dd>{{else if .Display.Connector}}<dt>Connector</dt><dd>{{visible .Display.Connector}}</dd>{{end}}
 {{range .Display.Arguments}}<dt>{{visible .Label}} <code class="muted">{{visible .Key}}</code></dt><dd>{{visible .Value}}{{if .Type}} <span class="muted">({{.Type}})</span>{{end}}</dd>{{end}}
 </dl>
-{{if .Display.AgentSays}}<h2>Agent says</h2><blockquote>{{visible .Display.AgentSays}}</blockquote><p class="muted">The agent's own words: they decide nothing. Check the action and its arguments above.</p>{{end}}
+{{if .Display.AgentSays}}<h2>Agent says</h2><blockquote class="says">{{visible .Display.AgentSays}}</blockquote><p class="muted">The agent's own words: they decide nothing. Check the action and its arguments above.</p>{{end}}
 {{if .Display.Changes}}<h2>What changes</h2><dl>{{range .Display.Changes}}<dt>{{visible .Field}}</dt><dd>{{visible .Old}} → {{visible .New}}</dd>{{end}}</dl>{{end}}
 {{if .Display.Preset}}<h2>Approval settings written</h2><dl>{{range .Display.Preset}}<dt>{{visible .Label}}</dt><dd>{{visible .Value}}</dd>{{end}}</dl>{{end}}
 {{if .Display.Steps}}<h2>Steps</h2><ol>{{range .Display.Steps}}<li{{if .Asks}} class="asks"{{end}}>{{if .Workflow}}<span class="muted">in workflow {{visible .Workflow}}:</span> {{end}}{{visible .Label}} <code>{{visible .Tool}}</code>{{range .Arguments}}<br><span class="muted">{{visible .Label}}: {{visible .Value}}</span>{{end}}</li>{{end}}</ol>{{end}}

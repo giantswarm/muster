@@ -161,7 +161,7 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 	if !binding.Allows(MusterProvider) {
 		return nil, a.refuse(ErrActorNotAllowed, "the binding does not list "+MusterProvider, actor, binding)
 	}
-	if err := a.store.Touch(ctx, actor, a.ttl); err != nil {
+	if err := a.store.Touch(ctx, actor, binding.Agent, a.ttl); err != nil {
 		logging.WarnWithAttrs(logSubsystem, "binding_touch_failed", slog.String("actor", actor), slog.String("error", err.Error()))
 	}
 	// The session is the actor's under this binding: a rebound actor never

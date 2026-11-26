@@ -61,6 +61,8 @@ type filterToolsOptions struct {
 	// reportConnectors adds the connectors behind each server tool
 	// (agentTools reporting).
 	reportConnectors bool
+	// agentTools echoes the agentTools argument.
+	agentTools *AgentToolsEcho
 }
 
 // handleListTools handles the list_tools meta-tool.
@@ -100,6 +102,9 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]any) 
 
 	var reportConnectors bool
 	if raw, ok := args[ArgAgentTools]; ok && raw != nil {
+		if err := refuseAgentCaller(ctx); err != nil {
+			return errorResult(err.Error()), nil
+		}
 		settings, _, err := parseAgentTools(raw)
 		if err != nil {
 			return errorResult(err.Error()), nil
@@ -216,11 +221,15 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]any) (
 		if opts.toolsetArg != nil {
 			return errorResult("pass toolset or " + ArgAgentTools + ", not both: " + ArgAgentTools + ".tools is the agent's toolset"), nil
 		}
+		if err := refuseAgentCaller(ctx); err != nil {
+			return errorResult(err.Error()), nil
+		}
 		settings, selectors, err := parseAgentTools(raw)
 		if err != nil {
 			return errorResult(err.Error()), nil
 		}
 		opts.toolsetArg, opts.reportConnectors = selectors, true
+		opts.agentTools = &AgentToolsEcho{Entries: len(selectors), Settings: len(settings.Entries)}
 		ctx = api.WithAgentApproval(ctx, settings)
 	}
 	if v, ok := args["include_presets"].(bool); ok {
@@ -428,6 +437,7 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 		Truncated:     truncated,
 		Tools:         toolInfos,
 		Governance:    governanceMode(),
+		AgentTools:    opts.agentTools,
 	}
 	// The response names the toolset the tools above were resolved within:
 	// the argument when one was given (it resolves inside the request's

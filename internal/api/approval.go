@@ -91,6 +91,9 @@ type ToolApproval struct {
 	Entry string `json:"entry,omitempty"`
 	// Admin is the connector's own setting, reported beside Entry.
 	Admin *ToolApproval `json:"admin,omitempty"`
+	// Grant names the grant mark (entry@server) that lifted the
+	// connector's Ask, for the audit; never reported.
+	Grant string `json:"-"`
 }
 
 // builtinAskTools are muster's own server configuration tools, which always
