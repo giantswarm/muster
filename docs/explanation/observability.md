@@ -161,6 +161,7 @@ are a small fixed set or the name of an MCPServer.
 | `muster.approval.cap_hits`         | `Int64Counter`         | `scope`, `caller_kind`                      | `muster_approval_cap_hits_total`               |
 | `muster.approval.time_to_decision` | `Float64Histogram`/s   | `outcome`                                   | `muster_approval_time_to_decision_seconds`     |
 | `muster.approval.handoffs`         | `Int64Counter`         | `outcome`, `page`, `reason`                 | `muster_approval_handoffs_total`               |
+| `muster.approval.completions`      | `Int64Counter`         | `outcome`                                   | `muster_approval_completions_total`            |
 | `muster.approval.pending`          | `Int64ObservableGauge` |                                             | `muster_approval_pending`                      |
 | `muster.approval.store_up`         | `Int64ObservableGauge` |                                             | `muster_approval_store_up`                     |
 | `muster.approval.last_observed_fallbacks` | `Int64Counter`  | `mcpserver.name`, `reason`                  | `muster_approval_last_observed_fallbacks_total` |

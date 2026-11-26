@@ -16,6 +16,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/approval"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -296,9 +297,9 @@ func clientSupportsURLElicitation(ctx context.Context) bool {
 // link gets the same elicitationId: it is one elicitation, completed once. A
 // new link is a new elicitation.
 //
-// The zero value is ready to use. It is local to the replica: a sign-in that
-// completes on another replica sends no notification, which the protocol
-// allows (the notification is optional; the client keeps its own retry).
+// The zero value is ready to use. The entries are local to the replica that
+// answered the asking call; a sign-in that completes on another replica
+// reaches it as a completion notice (approval_completion.go).
 type signInElicitations struct {
 	mu      sync.Mutex
 	entries map[signInElicitationKey]signInElicitation
@@ -352,12 +353,22 @@ func (s *signInElicitations) add(sessionID, server, transportID, authURL string)
 // take removes the elicitations of the session's sign-in to the server and
 // returns the unexpired ones.
 func (s *signInElicitations) take(sessionID, server string) []sentElicitation {
+	return s.takeMatching(func(k pendingSignInKey) bool { return k == pendingSignInKey{sessionID: sessionID, server: server} })
+}
+
+// takeKey is take for a sign-in named by approval.SignInKey, as a completion
+// notice from another replica names it.
+func (s *signInElicitations) takeKey(signInKey string) []sentElicitation {
+	return s.takeMatching(func(k pendingSignInKey) bool { return approval.SignInKey(k.sessionID, k.server) == signInKey })
+}
+
+func (s *signInElicitations) takeMatching(match func(pendingSignInKey) bool) []sentElicitation {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	var taken []sentElicitation
 	for key, e := range s.entries {
-		if key.pendingSignInKey != (pendingSignInKey{sessionID: sessionID, server: server}) {
+		if !match(key.pendingSignInKey) {
 			continue
 		}
 		delete(s.entries, key)
@@ -368,17 +379,14 @@ func (s *signInElicitations) take(sessionID, server string) []sentElicitation {
 	return taken
 }
 
-// completeSignInElicitations sends notifications/elicitation/complete for
-// each elicitation of the session's sign-in to the server.
+// completeSignInElicitations tells that the session's sign-in to the server
+// ended: this replica's asked sessions at once, and every other replica
+// through the completion bus.
 func (a *AggregatorServer) completeSignInElicitations(sessionID, server string) {
-	if a.mcpServer == nil {
-		return
-	}
-	for _, sent := range a.signInElicitations.take(sessionID, server) {
-		params := map[string]any{"elicitationId": sent.elicitationID}
-		if err := a.mcpServer.SendNotificationToSpecificClient(sent.transportID, string(mcp.MethodNotificationElicitationComplete), params); err != nil {
-			logging.Debug("Aggregator", "elicitation complete to session %s failed: %v",
-				logging.TruncateIdentifier(sent.transportID), err)
+	if a.mcpServer != nil {
+		for _, sent := range a.signInElicitations.take(sessionID, server) {
+			a.sendElicitationComplete(sent, "sign-in")
 		}
 	}
+	a.publishCompletion(approval.Completion{Kind: approval.CompletionSignIn, Key: approval.SignInKey(sessionID, server)})
 }

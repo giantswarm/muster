@@ -654,9 +654,14 @@ that exact call:
    elicitation on `-32042` (protocol 2025-11-25) is sent
    `notifications/elicitation/complete` with that elicitation's
    `elicitationId` and nothing else (never the decision or the approval id),
-   so a client can retry at once. Only that session is told, and only when
-   the decision is made on the replica that answered the call; otherwise the
-   client retries on its own, as the protocol allows.
+   so a client can retry at once. Only that session is told, whichever
+   replica serves the approval page: that replica publishes a notice (the
+   request id and `elicitationId`, no decision, no person) on the shared
+   Valkey store and the replica holding the session delivers it. If the
+   store does not take the notice, the decision is still recorded, a session
+   on the deciding replica is still told, and the client retries on its own,
+   as the protocol allows (counted in
+   `muster_approval_completions_total{outcome="publish_failed"}`).
 3. The client calls again with the same arguments (a new MCP connection of
    the same client is fine). muster finds the decision itself (the client's own "accept"
    counts for nothing): an approved call runs once with the arguments the

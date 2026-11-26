@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/approval"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -17,10 +18,9 @@ import (
 // person is done, never what they decided). The client then retries; the
 // outcome is muster's answer to that call.
 //
-// The zero value is ready to use. It is local to the replica: a decision made
-// on a page served by another replica sends no notification, which the
-// protocol allows (the notification is optional; the client keeps its own
-// retry, and the portal its Done button).
+// The zero value is ready to use. The entries are local to the replica that
+// answered the asking call; a decision made on another replica reaches it as
+// a completion notice (approval_completion.go).
 type approvalElicitations struct {
 	mu      sync.Mutex
 	entries map[string][]approvalElicitationEntry // by approval request id
@@ -82,18 +82,35 @@ func (s *approvalElicitations) take(requestID string) []sentElicitation {
 	return taken
 }
 
-// completeApprovalElicitations sends notifications/elicitation/complete for
-// the elicitations of the decided approval request, to the transport sessions
-// that were asked, and to no other.
+// completeApprovalElicitations tells that the approval request was decided:
+// this replica's asked sessions at once, and every other replica through the
+// completion bus, as the asked session may be held by one of them.
 func (a *AggregatorServer) completeApprovalElicitations(request *api.ApprovalRequest) {
-	if a.mcpServer == nil || request == nil {
+	if request == nil {
 		return
 	}
-	for _, sent := range a.approvalElicitations.take(request.ID) {
-		params := map[string]any{"elicitationId": sent.elicitationID}
-		if err := a.mcpServer.SendNotificationToSpecificClient(sent.transportID, string(mcp.MethodNotificationElicitationComplete), params); err != nil {
-			logging.Debug("Aggregator", "approval elicitation complete to session %s failed: %v",
-				logging.TruncateIdentifier(sent.transportID), err)
-		}
+	a.deliverApprovalCompletion(request.ID)
+	a.publishCompletion(approval.Completion{Kind: approval.CompletionApproval, Key: request.ID, ElicitationID: request.ElicitationID})
+}
+
+// deliverApprovalCompletion sends notifications/elicitation/complete for the
+// elicitations of the decided approval request this replica holds, to the
+// transport sessions that were asked, and to no other.
+func (a *AggregatorServer) deliverApprovalCompletion(requestID string) {
+	if a.mcpServer == nil {
+		return
+	}
+	for _, sent := range a.approvalElicitations.take(requestID) {
+		a.sendElicitationComplete(sent, "approval")
+	}
+}
+
+// sendElicitationComplete sends notifications/elicitation/complete, with the
+// elicitationId alone, to the transport session of sent.
+func (a *AggregatorServer) sendElicitationComplete(sent sentElicitation, what string) {
+	params := map[string]any{"elicitationId": sent.elicitationID}
+	if err := a.mcpServer.SendNotificationToSpecificClient(sent.transportID, string(mcp.MethodNotificationElicitationComplete), params); err != nil {
+		logging.Debug("Aggregator", "%s elicitation complete to session %s failed: %v", what,
+			logging.TruncateIdentifier(sent.transportID), err)
 	}
 }

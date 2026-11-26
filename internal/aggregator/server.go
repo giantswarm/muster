@@ -17,6 +17,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/admin"
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/approval"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/internal/credprovider"
 	"github.com/giantswarm/muster/v5/internal/listenfds"
@@ -154,6 +155,11 @@ type AggregatorServer struct {
 	// transport session, completed when the request is decided
 	// (approval_elicitation.go).
 	approvalElicitations approvalElicitations
+
+	// completions carries elicitation-complete notices between the replicas
+	// (approval_completion.go): Valkey pub/sub when the shared store is on
+	// Valkey, in-process otherwise. Nil: this replica's own sessions only.
+	completions approval.Completions
 
 	// Per-backend tool dispatch metrics. May be nil when instrument
 	// creation failed; record() is nil-safe.
@@ -894,6 +900,7 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		valkeyEncryptor:   stores.encryptor,
 		core:              newCoreCatalogue(),
 		approval:          newApprovalSettings(aggConfig, stores),
+		completions:       newCompletions(stores),
 	}, nil
 }
 
@@ -1047,6 +1054,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Keep the approval pending gauge, the expired count and the store gauge.
 	a.wg.Add(1)
 	go a.runApprovalMetrics()
+
+	// Deliver the completion notices the other replicas publish.
+	a.wg.Add(1)
+	go a.runCompletions()
 
 	// Re-list every connected server's capabilities on an interval: a backend
 	// redeployed with another tool set sends no list_changed to a session it
