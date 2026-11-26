@@ -287,13 +287,13 @@ tests:
     asserts:
       - equal:
           path: spec.groups[1].rules[0].expr
-          value: 'sum by (namespace, reason) (increase(muster_approval_refusals_total{reason=~"unavailable|store_unavailable"}[10m])) > 0'
+          value: 'sum by (cluster_id, installation, pipeline, provider, namespace, reason) (increase(muster_approval_refusals_total{reason=~"unavailable|store_unavailable|settings_unavailable"}[10m])) > 0'
       - equal:
           path: spec.groups[1].rules[0].for
           value: 10m
       - equal:
           path: spec.groups[1].rules[1].expr
-          value: 'min by (namespace) (muster_approval_store_up) == 0'
+          value: 'min by (cluster_id, installation, pipeline, provider, namespace) (muster_approval_store_up) == 0'
       - equal:
           path: spec.groups[1].rules[1].for
           value: 5m
@@ -310,10 +310,10 @@ tests:
           value: 30m
       - equal:
           path: spec.groups[1].rules[3].expr
-          value: 'sum by (namespace) (increase(muster_approval_last_observed_fallbacks_total[5m])) > 0'
+          value: 'sum by (cluster_id, installation, pipeline, provider, namespace) (increase(muster_approval_last_observed_fallbacks_total[5m])) > 0'
       - equal:
           path: spec.groups[1].rules[3].for
-          value: 30m
+          value: 10m
 
   - it: keeps the approval alerts free of routing labels, pod labels and runbook links
     set:

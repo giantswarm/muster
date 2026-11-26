@@ -603,13 +603,14 @@ tests:
         eval_time: 45m
         exp_alerts: []
 
-  # Approval unavailable: refusals with reason unavailable or store_unavailable
-  # that keep coming fire after the 10m window; the scrape labels (pod,
-  # instance, ...) are not on the alert, and the other reasons stay silent
-  # (cap_reached and blocked are working as designed).
+  # Approval unavailable: refusals with reason unavailable, store_unavailable
+  # or settings_unavailable that keep coming fire after the 10m window; the
+  # scrape labels (pod, instance, ...) are not on the alert, the cluster
+  # labels are, and the other reasons stay silent (cap_reached and blocked
+  # are working as designed).
   - interval: 1m
     input_series:
-      - series: 'muster_approval_refusals_total{caller_kind="person", container="muster", instance="10.0.0.1:9464", job="muster", namespace="muster", pod="muster-a", reason="store_unavailable"}'
+      - series: 'muster_approval_refusals_total{caller_kind="person", cluster_id="test", container="muster", installation="test", instance="10.0.0.1:9464", job="muster", namespace="muster", pipeline="stable", pod="muster-a", provider="capa", reason="store_unavailable"}'
         values: "0+1x40"
       - series: 'muster_approval_refusals_total{caller_kind="actor", container="muster", instance="10.0.0.1:9464", job="muster", namespace="muster", pod="muster-a", reason="cap_reached"}'
         values: "0+5x40"
@@ -623,12 +624,54 @@ tests:
         eval_time: 25m
         exp_alerts:
           - exp_labels:
+              cluster_id: test
+              installation: test
               namespace: muster
+              pipeline: stable
+              provider: capa
               reason: store_unavailable
               severity: warning
               topic: muster
             exp_annotations:
-              description: 'Muster refused calls that ask for approval because approval is unavailable (reason store_unavailable) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store and the approval prerequisites in the muster logs ("approval_refused" audit events).'
+              description: 'Muster refused calls that ask for approval because approval is unavailable (reason store_unavailable) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store, the approval prerequisites and, for settings_unavailable, whether the Kubernetes API server is reachable, in the muster logs ("approval_refused" and "call_refused" audit events).'
+
+  # The refusals after the fallback ended (settings_unavailable) alert too,
+  # per cluster: two clusters of one ruler are two alerts, and a cluster that
+  # is quiet stays silent.
+  - interval: 1m
+    input_series:
+      - series: 'muster_approval_refusals_total{cluster_id="a", installation="a", pipeline="stable", provider="capa", namespace="muster", pod="muster-a", reason="settings_unavailable"}'
+        values: "0+1x40"
+      - series: 'muster_approval_refusals_total{cluster_id="b", installation="b", pipeline="stable", provider="capa", namespace="muster", pod="muster-b", reason="settings_unavailable"}'
+        values: "0+1x40"
+      - series: 'muster_approval_refusals_total{cluster_id="c", installation="c", pipeline="stable", provider="capa", namespace="muster", pod="muster-c", reason="settings_unavailable"}'
+        values: "0x40"
+    alert_rule_test:
+      - alertname: MusterApprovalUnavailable
+        eval_time: 25m
+        exp_alerts:
+          - exp_labels:
+              cluster_id: a
+              installation: a
+              namespace: muster
+              pipeline: stable
+              provider: capa
+              reason: settings_unavailable
+              severity: warning
+              topic: muster
+            exp_annotations:
+              description: 'Muster refused calls that ask for approval because approval is unavailable (reason settings_unavailable) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store, the approval prerequisites and, for settings_unavailable, whether the Kubernetes API server is reachable, in the muster logs ("approval_refused" and "call_refused" audit events).'
+          - exp_labels:
+              cluster_id: b
+              installation: b
+              namespace: muster
+              pipeline: stable
+              provider: capa
+              reason: settings_unavailable
+              severity: warning
+              topic: muster
+            exp_annotations:
+              description: 'Muster refused calls that ask for approval because approval is unavailable (reason settings_unavailable) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store, the approval prerequisites and, for settings_unavailable, whether the Kubernetes API server is reachable, in the muster logs ("approval_refused" and "call_refused" audit events).'
 
   # A burst of refusals that stopped resolves a window later.
   - interval: 1m
@@ -645,7 +688,7 @@ tests:
               severity: warning
               topic: muster
             exp_annotations:
-              description: 'Muster refused calls that ask for approval because approval is unavailable (reason unavailable) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store and the approval prerequisites in the muster logs ("approval_refused" audit events).'
+              description: 'Muster refused calls that ask for approval because approval is unavailable (reason unavailable) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store, the approval prerequisites and, for settings_unavailable, whether the Kubernetes API server is reachable, in the muster logs ("approval_refused" and "call_refused" audit events).'
       - alertname: MusterApprovalUnavailable
         eval_time: 50m
         exp_alerts: []
@@ -719,24 +762,33 @@ tests:
         eval_time: 120m
         exp_alerts: []
 
-  # Fallback in use for 30m fires; a short outage, which is what the fallback
-  # is for, does not.
+  # The fallback ends at approval.lastObservedMaxAge (30m from the last read):
+  # one that began 8 minutes after the last read lasts 22 minutes, which is
+  # enough to fire after 10m (a 30m `for` never would); a short outage, which
+  # is what the fallback is for, does not. Per cluster.
   - interval: 1m
     input_series:
-      - series: 'muster_approval_last_observed_fallbacks_total{namespace="muster", pod="muster-a", mcpserver_name="github", reason="api_server_unreachable"}'
-        values: "0+2x60"
-      - series: 'muster_approval_last_observed_fallbacks_total{namespace="brief", pod="brief-a", mcpserver_name="github", reason="api_server_unreachable"}'
-        values: "0+2x10 20x50"
+      - series: 'muster_approval_last_observed_fallbacks_total{cluster_id="a", installation="a", pipeline="stable", provider="capa", namespace="muster", pod="muster-a", mcpserver_name="github", reason="api_server_unreachable"}'
+        values: "0+2x22 44x60"
+      - series: 'muster_approval_last_observed_fallbacks_total{cluster_id="b", installation="b", pipeline="stable", provider="capa", namespace="brief", pod="brief-a", mcpserver_name="github", reason="api_server_unreachable"}'
+        values: "0+2x5 10x60"
     alert_rule_test:
       - alertname: MusterApprovalOutageFallbackInUse
-        eval_time: 20m
+        eval_time: 8m
         exp_alerts: []
       - alertname: MusterApprovalOutageFallbackInUse
-        eval_time: 45m
+        eval_time: 18m
         exp_alerts:
           - exp_labels:
+              cluster_id: a
+              installation: a
               namespace: muster
+              pipeline: stable
+              provider: capa
               severity: warning
               topic: muster
             exp_annotations:
-              description: 'Muster has decided calls by the last observed approval settings of its servers for 30m because the Kubernetes API server cannot be reached.'
+              description: 'Muster has decided calls by the last observed approval settings of its servers for 10m because the Kubernetes API server cannot be reached; once approval.lastObservedMaxAge passes they are refused.'
+      - alertname: MusterApprovalOutageFallbackInUse
+        eval_time: 50m
+        exp_alerts: []

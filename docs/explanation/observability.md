@@ -211,15 +211,17 @@ chart's PrometheusRule carries a second group, `muster-approval`:
 
 | Alert | Fires when | For |
 |---|---|---|
-| `MusterApprovalUnavailable` | refusals with `reason` `unavailable` or `store_unavailable` keep coming: calls that ask cannot run | 10m |
+| `MusterApprovalUnavailable` | refusals with `reason` `unavailable`, `store_unavailable` or `settings_unavailable` keep coming: calls that ask cannot run, among them the calls refused once the last observed fallback ended | 10m |
 | `MusterApprovalStoreDown` | a replica's `muster_approval_store_up` is 0 | 5m |
 | `MusterApprovalHighDeclineOrExpiryRatio` | more than half of the last hour's decided or expired requests were declined or expired, with at least 10 of them | 30m |
-| `MusterApprovalOutageFallbackInUse` | calls keep being decided by a server's last observed definition because the API server cannot be reached | 30m |
+| `MusterApprovalOutageFallbackInUse` | calls keep being decided by a server's last observed definition because the API server cannot be reached; the window stays well below `approval.lastObservedMaxAge` (30m by default), which ends the fallback | 10m |
 
 The alerts carry `severity: warning` and `topic: muster`, no team or routing
 labels and no runbook links: route them in your Alertmanager. They aggregate by
-`namespace` (and `reason`), never by pod, so a muster rollout does not resolve
-and re-fire them. Unit tests with promtool are in
+`cluster_id`, `installation`, `pipeline`, `provider` and `namespace` (the
+labels the first group groups by, and `reason` where it is the alert's
+dimension), never by pod, so a muster rollout does not resolve and re-fire
+them, and one ruler evaluating several clusters keeps one alert per cluster. Unit tests with promtool are in
 `helm/muster/tests/promtool/` (run `helm/muster/tests/promtool/run.sh`).
 
 ### Grafana dashboard

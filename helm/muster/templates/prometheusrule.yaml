@@ -48,6 +48,8 @@
 {{- $mcRegex := "(.+?)-mcp-.+" }}
 {{- /* Platform-operated servers only; a series without the label is one. */}}
 {{- $platform := "registered!=\"true\"" }}
+{{- /* The tool approval alerts: $by without the server and the namespace the server is in. */}}
+{{- $approvalBy := "cluster_id, installation, pipeline, provider, namespace" }}
 apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
@@ -204,24 +206,33 @@ spec:
             topic: muster
     # Tool approval (docs/explanation/observability.md#approval-metrics). Kept
     # in a group of its own: these alerts say nothing about MCP backends. They
-    # aggregate by namespace only, which keeps an alert's identity the muster
-    # release and not the pod that exported the series (see above); the
-    # Prometheus' external labels (cluster, installation) are added to the alert
-    # by Prometheus itself.
+    # aggregate by $approvalBy, the labels the group above uses minus the
+    # server: where one ruler evaluates several clusters' series (cluster as a
+    # series label), a store down in one cluster stays that cluster's alert and
+    # the ratio never mixes clusters, and Alertmanager finds the labels it
+    # groups and routes on. The scrape labels (pod, instance, ...) stay off
+    # the alert for the reason given above.
     - name: muster-approval
       rules:
         # Calls that ask are being refused because muster cannot ask: no Valkey
-        # store, no browser sign-in, no public URL (reason unavailable), or the
-        # store does not answer (reason store_unavailable). Every such call
-        # fails closed, so the tools that ask are down for their callers.
+        # store, no browser sign-in, no public URL (reason unavailable), the
+        # store does not answer (reason store_unavailable), or the settings of
+        # a server could not be read and no last observed definition stands in
+        # (reason settings_unavailable: the API server stayed unreachable past
+        # approval.lastObservedMaxAge, or the server was never observed; a few
+        # policy refusals of calls that could not be decided by settings count
+        # under it too). Every such call fails closed, so the tools that ask
+        # are down for their callers. MusterApprovalOutageFallbackInUse warns
+        # earlier, while the fallback still decides; this is what remains once
+        # it ends.
         # increase() over the same window as `for` keeps the alert up for as
         # long as refusals keep coming and lets it resolve on its own a window
         # after they stop.
         - alert: MusterApprovalUnavailable
           annotations:
-            description: '{{`Muster refused calls that ask for approval because approval is unavailable (reason {{ $labels.reason }}) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store and the approval prerequisites in the muster logs ("approval_refused" audit events).`}}'
+            description: '{{`Muster refused calls that ask for approval because approval is unavailable (reason {{ $labels.reason }}) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store, the approval prerequisites and, for settings_unavailable, whether the Kubernetes API server is reachable, in the muster logs ("approval_refused" and "call_refused" audit events).`}}'
           expr: |-
-            sum by (namespace, reason) (increase(muster_approval_refusals_total{reason=~"unavailable|store_unavailable"}[10m])) > 0
+            sum by ({{ $approvalBy }}, reason) (increase(muster_approval_refusals_total{reason=~"unavailable|store_unavailable|settings_unavailable"}[10m])) > 0
           for: 10m
           labels:
             severity: warning
@@ -236,7 +247,7 @@ spec:
           annotations:
             description: '{{`A muster replica cannot reach its approval store (Valkey) for 5m; calls that ask for approval are refused on it.`}}'
           expr: |-
-            min by (namespace) (muster_approval_store_up) == 0
+            min by ({{ $approvalBy }}) (muster_approval_store_up) == 0
           for: 5m
           labels:
             severity: warning
@@ -251,12 +262,12 @@ spec:
             description: '{{`{{ $value | humanizePercentage }} of the approval requests decided or expired in the last hour were declined or expired unanswered.`}}'
           expr: |-
             (
-              sum by (namespace) (increase(muster_approval_decisions_total{outcome=~"declined|expired"}[1h]))
+              sum by ({{ $approvalBy }}) (increase(muster_approval_decisions_total{outcome=~"declined|expired"}[1h]))
               /
-              sum by (namespace) (increase(muster_approval_decisions_total{outcome=~"approved|declined|expired"}[1h]))
+              sum by ({{ $approvalBy }}) (increase(muster_approval_decisions_total{outcome=~"approved|declined|expired"}[1h]))
             ) > 0.5
             and
-            sum by (namespace) (increase(muster_approval_decisions_total{outcome=~"approved|declined|expired"}[1h])) >= 10
+            sum by ({{ $approvalBy }}) (increase(muster_approval_decisions_total{outcome=~"approved|declined|expired"}[1h])) >= 10
           for: 30m
           labels:
             severity: warning
@@ -264,14 +275,19 @@ spec:
         # Calls are being decided by a server's last observed definition
         # because the API server cannot be reached. A short outage is what the
         # fallback is for; one that lasts means a connector tightened in the
-        # meantime goes unseen until it ends (approval.lastObservedMaxAge
-        # bounds it, after which calls are refused).
+        # meantime goes unseen until it ends. approval.lastObservedMaxAge
+        # (default 30m, counted from the last read of each server) bounds the
+        # fallback, so `for` stays well below it: a fallback that began some
+        # minutes after the last read has less than the maximum age left, and
+        # an alert that waits for the whole age never fires. After the
+        # fallback calls are refused (MusterApprovalUnavailable, reason
+        # settings_unavailable).
         - alert: MusterApprovalOutageFallbackInUse
           annotations:
-            description: '{{`Muster has decided calls by the last observed approval settings of its servers for 30m because the Kubernetes API server cannot be reached.`}}'
+            description: '{{`Muster has decided calls by the last observed approval settings of its servers for 10m because the Kubernetes API server cannot be reached; once approval.lastObservedMaxAge passes they are refused.`}}'
           expr: |-
-            sum by (namespace) (increase(muster_approval_last_observed_fallbacks_total[5m])) > 0
-          for: 30m
+            sum by ({{ $approvalBy }}) (increase(muster_approval_last_observed_fallbacks_total[5m])) > 0
+          for: 10m
           labels:
             severity: warning
             topic: muster
