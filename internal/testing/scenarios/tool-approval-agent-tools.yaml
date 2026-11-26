@@ -1,0 +1,171 @@
+name: "tool-approval-agent-tools"
+description: "filter_tools and describe_tool take an agent's tool list with approval settings (agentTools) and report each tool as that agent would see it: its entries tighten the connector's settings, its own Block is listed as blocked, the connector's Block stays hidden, an Allow without a grant gives way to the connector's Ask, the default covers the rest, each server tool names its connectors, and nothing is run differently"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["approval", "metatools", "agent"]
+timeout: "5m"
+
+# Given: github has approval {rule: Ask, tools: {get_issue: Allow, delete_repository: Block}};
+#        pagerduty has none.
+# When:  filter_tools and describe_tool report for the agent tools list
+#        [server:github, {tool:x_github_get_issue: Block},
+#         {tool:x_github_merge_pull_request: Allow}, server:pagerduty], default Ask.
+# Then:  get_issue is listed as block (agent), merge_pull_request asks
+#        (connector) with its entry and the connector's setting beside it,
+#        pagerduty's ack asks (agent, the default), delete_repository stays
+#        hidden, every server tool names its connector, and the same tools
+#        reported without agentTools are unchanged.
+
+pre_configuration:
+  mcp_servers:
+    - name: "github"
+      config:
+        approval:
+          rule: "Ask"
+          tools:
+            get_issue: "Allow"
+            delete_repository: "Block"
+        tools:
+          - name: "get_issue"
+            description: "Get an issue"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { issue: 1 } }]
+          - name: "merge_pull_request"
+            description: "Merge a pull request"
+            annotations: { read_only_hint: false }
+            responses: [{ response: { merged: true } }]
+          - name: "delete_repository"
+            description: "Delete a repository"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+    - name: "pagerduty"
+      config:
+        tools:
+          - name: "ack"
+            description: "Acknowledge an incident"
+            responses: [{ response: { acked: true } }]
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["github", "pagerduty"]
+
+  - id: "agent-block-is-listed-connector-block-is-hidden"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        limit: 50
+        agentTools:
+          tools: ["server:github", { "tool:x_github_get_issue": "Block" }, { "tool:x_github_merge_pull_request": "Allow" }, "server:pagerduty"]
+          default: "Ask"
+    expected:
+      success: true
+      wait_for_state: "20s"
+      contains: ["x_github_get_issue", "x_github_merge_pull_request", "x_pagerduty_ack", "connectors", "namespace"]
+      not_contains: ["x_github_delete_repository", "core_config_save"]
+
+  - id: "agent-block-reported"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_github_get_issue"
+        agentTools: { tools: ["server:github", { "tool:x_github_get_issue": "Block" }] }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "block"
+        approval.source: "agent"
+        approval.entry: "tool:x_github_get_issue"
+        approval.admin.setting: "allow"
+        approval.admin.source: "tool"
+
+  - id: "allow-without-grant-gives-way"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_github_merge_pull_request"
+        agentTools: { tools: [{ "tool:x_github_merge_pull_request": "Allow" }] }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "ask"
+        approval.source: "connector"
+        approval.entry: "tool:x_github_merge_pull_request"
+        approval.admin.setting: "ask"
+      contains: ["connectors", "namespace"]
+
+  - id: "default-tightens-the-rest"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "x_pagerduty_ack"
+        agentTools: { tools: ["server:pagerduty"], default: "Ask" }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "ask"
+        approval.source: "agent"
+        approval.entry: "default"
+        approval.admin.source: "unreviewed"
+
+  - id: "floors-reported-as-for-an-agent"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "describe_tool"
+      arguments:
+        name: "core_mcpserver_create"
+        agentTools: { tools: ["tool:core_mcpserver_create"] }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "ask"
+        approval.source: "builtin"
+
+  - id: "without-agent-tools-unchanged"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_github_get_issue" } }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "allow"
+        approval.source: "tool"
+      not_contains: ["connectors", "namespace"]
+
+  - id: "reporting-never-changes-a-call"
+    description: "The reported Block decides nothing: the person's own call still runs"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "call_tool"
+      arguments: { name: "x_github_get_issue", arguments: {} }
+    expected:
+      success: true
+      contains: ["issue"]
+
+  - id: "toolset-and-agent-tools-refused"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        toolset: ["server:github"]
+        agentTools: { tools: ["server:github"] }
+    expected:
+      success: false
+      error_contains: ["not both"]
+
+  - id: "malformed-agent-tools-refused"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "filter_tools"
+      arguments:
+        agentTools: { tools: [{ "server:github": "Deny" }] }
+    expected:
+      success: false
+      error_contains: ["agentTools", "Deny"]

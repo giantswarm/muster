@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
@@ -118,6 +119,17 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 		if !ok {
 			return errorResult("arguments must be a JSON object"), nil
 		}
+	}
+
+	if raw, present := args["reason"]; present && raw != nil {
+		reason, isString := raw.(string)
+		if !isString {
+			return errorResult("reason must be a string"), nil
+		}
+		if utf8.RuneCountInString(reason) > api.MaxAgentReasonRunes {
+			return errorResult(fmt.Sprintf("reason is longer than %d characters", api.MaxAgentReasonRunes)), nil
+		}
+		ctx = api.WithAgentReason(ctx, reason)
 	}
 
 	handler, errResult := p.getHandler()

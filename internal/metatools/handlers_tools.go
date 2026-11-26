@@ -58,6 +58,9 @@ type filterToolsOptions struct {
 	toolsetArg []string
 	// includePresets adds the known presets to the response.
 	includePresets bool
+	// reportConnectors adds the connectors behind each server tool
+	// (agentTools reporting).
+	reportConnectors bool
 }
 
 // handleListTools handles the list_tools meta-tool.
@@ -95,6 +98,15 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]any) 
 		return errorResult("name argument is required"), nil
 	}
 
+	var reportConnectors bool
+	if raw, ok := args[ArgAgentTools]; ok && raw != nil {
+		settings, _, err := parseAgentTools(raw)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+		ctx, reportConnectors = api.WithAgentApproval(ctx, settings), true
+	}
+
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
@@ -117,7 +129,13 @@ func (p *Provider) handleDescribeTool(ctx context.Context, args map[string]any) 
 	if lookup := connectorAdminLookup(ctx); lookup != nil {
 		connectorAdmin = lookup(*tool)
 	}
-	jsonData, err := p.formatters.formatToolDetailJSON(*tool, connectorAdmin)
+	var connectors []ConnectorRef
+	if reportConnectors {
+		if lookup := connectorLookup(ctx); lookup != nil {
+			connectors = lookup(*tool)
+		}
+	}
+	jsonData, err := p.formatters.formatToolDetailJSON(*tool, connectorAdmin, connectors)
 	if err != nil {
 		return errorResult(fmt.Sprintf("Failed to format tool info: %v", err)), nil
 	}
@@ -193,6 +211,17 @@ func (p *Provider) handleFilterTools(ctx context.Context, args map[string]any) (
 			return errorResult("toolset must be an array of selector strings"), nil
 		}
 		opts.toolsetArg = selectors
+	}
+	if raw, ok := args[ArgAgentTools]; ok && raw != nil {
+		if opts.toolsetArg != nil {
+			return errorResult("pass toolset or " + ArgAgentTools + ", not both: " + ArgAgentTools + ".tools is the agent's toolset"), nil
+		}
+		settings, selectors, err := parseAgentTools(raw)
+		if err != nil {
+			return errorResult(err.Error()), nil
+		}
+		opts.toolsetArg, opts.reportConnectors = selectors, true
+		ctx = api.WithAgentApproval(ctx, settings)
 	}
 	if v, ok := args["include_presets"].(bool); ok {
 		opts.includePresets = v
@@ -350,6 +379,10 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 	// 4. Project each tool to a discovery- or detail-shaped entry.
 	toolInfos := make([]ToolInfo, 0, len(page))
 	connectorAdmin := connectorAdminLookup(ctx)
+	var connectors func(mcp.Tool) []ConnectorRef
+	if opts.reportConnectors {
+		connectors = connectorLookup(ctx)
+	}
 	for _, st := range page {
 		info := ToolInfo{Name: st.tool.Name}
 		if opts.summarize {
@@ -368,6 +401,9 @@ func (p *Provider) pageTools(ctx context.Context, handler api.MetaToolsHandler, 
 		info.Approval = approvalOf(st.tool)
 		if connectorAdmin != nil {
 			info.ConnectorAdmin = connectorAdmin(st.tool)
+		}
+		if connectors != nil {
+			info.Connectors = connectors(st.tool)
 		}
 		if opts.includeSchema {
 			info.InputSchema = st.tool.InputSchema

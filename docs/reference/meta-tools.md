@@ -36,6 +36,10 @@ Write name first, then arguments: a name written after a long arguments object g
     "name": {
       "description": "Name of the tool to call. Always set, and written before arguments.",
       "type": "string"
+    },
+    "reason": {
+      "description": "Why you call it, shown to the person if the call asks for approval (max 500 chars)",
+      "type": "string"
     }
   },
   "required": [
@@ -100,6 +104,63 @@ Get one tool's full description, input schema, origin and annotations, and the c
 ```json
 {
   "properties": {
+    "agentTools": {
+      "description": "Report only: an agent's {tools, default, grants}; approval as that agent sees it, plus connectors",
+      "properties": {
+        "default": {
+          "enum": [
+            "Allow",
+            "Ask",
+            "Block"
+          ],
+          "type": "string"
+        },
+        "grants": {
+          "items": {
+            "properties": {
+              "entry": {
+                "type": "string"
+              },
+              "server": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": {
+                  "enum": [
+                    "Allow",
+                    "Ask",
+                    "Block"
+                  ],
+                  "type": "string"
+                },
+                "maxProperties": 1,
+                "minProperties": 1,
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tools"
+      ],
+      "type": "object"
+    },
     "name": {
       "description": "Name of the tool to describe",
       "type": "string"
@@ -195,6 +256,63 @@ A tool you cannot find may sit behind a sign-in: servers_requiring_auth names ea
 ```json
 {
   "properties": {
+    "agentTools": {
+      "description": "Report only: an agent's {tools, default, grants}; approvals as that agent sees them, plus connectors; replaces toolset",
+      "properties": {
+        "default": {
+          "enum": [
+            "Allow",
+            "Ask",
+            "Block"
+          ],
+          "type": "string"
+        },
+        "grants": {
+          "items": {
+            "properties": {
+              "entry": {
+                "type": "string"
+              },
+              "server": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "tools": {
+          "items": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": {
+                  "enum": [
+                    "Allow",
+                    "Ask",
+                    "Block"
+                  ],
+                  "type": "string"
+                },
+                "maxProperties": 1,
+                "minProperties": 1,
+                "type": "object"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tools"
+      ],
+      "type": "object"
+    },
     "case_sensitive": {
       "default": false,
       "description": "Whether pattern matching should be case-sensitive",

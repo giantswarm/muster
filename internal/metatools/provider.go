@@ -110,6 +110,13 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Required:    true,
 					Description: "Name of the tool to describe",
 				},
+				{
+					Name:        ArgAgentTools,
+					Type:        api.ArgTypeObject,
+					Required:    false,
+					Description: "Report only: an agent's {tools, default, grants}; approval as that agent sees it, plus connectors",
+					Schema:      agentToolsSchema,
+				},
 			},
 		},
 		{
@@ -143,8 +150,15 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Schema: map[string]any{
 						"type":     "array",
 						"maxItems": toolset.MaxInlineSelectors,
-						"items":    map[string]any{"type": "string"},
+						"items":    map[string]any{"type": schemaTypeString},
 					},
+				},
+				{
+					Name:        ArgAgentTools,
+					Type:        api.ArgTypeObject,
+					Required:    false,
+					Description: "Report only: an agent's {tools, default, grants}; approvals as that agent sees them, plus connectors; replaces toolset",
+					Schema:      agentToolsSchema,
 				},
 				{
 					Name:        "include_presets",
@@ -226,6 +240,12 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Arguments to pass to the tool (as JSON object)",
+				},
+				{
+					Name:        "reason",
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Why you call it, shown to the person if the call asks for approval (max 500 chars)",
 				},
 			},
 		},

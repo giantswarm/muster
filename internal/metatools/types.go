@@ -94,7 +94,10 @@ type ToolInfo struct {
 	// change its server's approval settings (for a family tool, every
 	// member's). Omitted for workflows and core tools.
 	ConnectorAdmin *bool `json:"connectorAdmin,omitempty"`
-	InputSchema    any   `json:"inputSchema,omitempty"`
+	// Connectors names the MCPServers behind a server tool, reported only
+	// with agentTools.
+	Connectors  []ConnectorRef `json:"connectors,omitempty"`
+	InputSchema any            `json:"inputSchema,omitempty"`
 }
 
 // Text returns the human-readable line for the tool: the full description
@@ -335,6 +338,7 @@ type DescribeToolResponse struct {
 	// Approval and ConnectorAdmin are as in ToolInfo.
 	Approval       *api.ToolApproval `json:"approval,omitempty"`
 	ConnectorAdmin *bool             `json:"connectorAdmin,omitempty"`
+	Connectors     []ConnectorRef    `json:"connectors,omitempty"`
 	InputSchema    any               `json:"inputSchema,omitempty"`
 	// Invocation states how the described tool is called: through call_tool,
 	// never by its own name.
