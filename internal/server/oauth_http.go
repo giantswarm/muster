@@ -599,6 +599,7 @@ func (s *OAuthHTTPServer) withValidatedSubject(next http.Handler) http.Handler {
 
 		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil || userInfo.ID == "" {
+			w.Header().Set("WWW-Authenticate", s.invalidTokenChallenge())
 			http.Error(w, "Unauthorized: missing user identity", http.StatusUnauthorized)
 			return
 		}

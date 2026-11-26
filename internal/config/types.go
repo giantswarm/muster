@@ -623,8 +623,10 @@ type OAuthServerConfig struct {
 	// Format: Go duration string of at least one second (e.g., "25m").
 	ProviderTokenRefreshThreshold string `yaml:"providerTokenRefreshThreshold,omitempty"`
 
-	// AllowedOrigins is a comma-separated list of allowed CORS origins for
-	// browser-based MCP clients. Empty disables CORS (default, secure).
+	// AllowedOrigins lists comma-separated browser origins for CORS and the
+	// MCP Origin check. Same-origin requests and clients without Origin are
+	// allowed. An unlisted or malformed Origin logs DEPRECATED during the
+	// overlap. Entries are exact origins without paths or wildcards.
 	AllowedOrigins string `yaml:"allowedOrigins,omitempty"`
 
 	// TrustedAudiences lists additional OAuth client IDs (audiences) whose

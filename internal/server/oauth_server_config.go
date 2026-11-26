@@ -95,6 +95,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		RestrictClientMetadata:                cfg.RestrictClientMetadata,
 		ClientMetadataHosts:                   cfg.ClientMetadataHosts,
 		TrustedAudiences:                      cfg.TrustedAudiences,
+		DefaultChallengeScopes:                []string{"openid", "profile", "email"},
 		AllowPrivateIPJWKS:                    cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC, //nolint:staticcheck // SA1019: accepted until forward mode goes
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see
@@ -108,6 +109,9 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		// is still validated, and the session's mirrored ID token is
 		// replaced by the current one on each request.
 		ForwardedSessionIdentity: oauthserver.ForwardedSessionIdentityPrincipal,
+	}
+	result.ResourceMetadataByPath = map[string]oauthserver.ProtectedResourceConfig{
+		"/mcp": {ResourceIdentifier: result.GetResourceIdentifier(), ScopesSupported: []string{"openid", "profile", "email"}},
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")

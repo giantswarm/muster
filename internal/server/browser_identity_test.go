@@ -283,6 +283,7 @@ func TestOAuthHTTPServer_ValidatedSubjectCarriesTheSignInIdentity(t *testing.T) 
 		Provider: OAuthProviderDex,
 		Dex:      config.DexConfig{IssuerURL: "https://dex.example.com"},
 	}}
+	s.oauthServer = &oauth.Server{Config: newOAuthServerConfig(config.OAuthServerConfig{BaseURL: testIdentityIssuer}, oauthTokenLifetimes{})}
 	var subject string
 	var identity api.SignInIdentity
 	h := s.withValidatedSubject(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -302,4 +303,5 @@ func TestOAuthHTTPServer_ValidatedSubjectCarriesTheSignInIdentity(t *testing.T) 
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/session-bindings", nil))
 	require.Equal(t, http.StatusUnauthorized, rec.Code, "no validated user, no identity")
+	require.Contains(t, rec.Header().Get("WWW-Authenticate"), `resource_metadata="https://muster.example.com/.well-known/oauth-protected-resource"`)
 }

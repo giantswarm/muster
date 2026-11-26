@@ -460,7 +460,16 @@ dex (or their own IdP), never against muster.
 |-------|------|---------|-------------|
 | `resourceIdentifier` | `string` | `""` | RFC 8707 canonical URI for this muster instance as a resource server. Access tokens carry this value in their `aud` claim; tokens bound to a different resource are rejected, preventing replay across resource servers sharing the same IdP. Defaults to `baseUrl` when empty. |
 
+#### Browser Origins and MCP Discovery
+
+`oauth.server.allowedOrigins` is a comma-separated list of exact browser origins, for example `https://portal.example.com,https://client.example.com`. The Helm value is `muster.oauth.server.allowedOrigins`. Same-origin requests and clients without an `Origin` header are accepted. Unlisted, null, empty, repeated or malformed Origin values emit `DEPRECATED:` warnings on `/mcp`, `/sse` and `/message` without changing the response during the overlap. Entries have no path, credentials, query, fragment or wildcard. Configure legitimate browser origins before the enforcement release returns 403 for an invalid Origin. This field also configures the existing CORS headers.
+
+MCP authentication challenges point to the metadata endpoint for the configured `resourceIdentifier`. Default OAuth challenges advertise `openid profile email`, and `/mcp` protected-resource metadata lists those scopes. These defaults do not restrict the authorization server's accepted scopes or replace a delegated caller's toolset. A caller-specific insufficient-toolset challenge carries no fixed scope list.
+
+When discovering a backend, muster discards an entire metadata document whose `resource` names another origin, including its authorization server. During the overlap, missing resources and same-origin resource aliases remain accepted with `DEPRECATED:` warnings. Exact identifier matching is enabled only after the coordinated backend resource and caller migration. This release does not change an existing resource identifier or force re-authorization.
+
 #### DPoP and Trusted Proxies
+
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
