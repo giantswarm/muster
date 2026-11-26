@@ -557,7 +557,9 @@ protocol support, not authorization to receive confidential information.
   different settings for the same identifier, muster advertises `{}` without
   assigning a meaning to their fields. An extension requiring a setting may
   consequently be unavailable through that combined view.
-- Initial discovery waits for an active session bootstrap. A backend added or
+- Initial discovery waits for an active session bootstrap when the client
+  declares application extensions. Other clients are answered without waiting
+  for the session's backends to connect. A backend added or
   signed into later appears on the client's next `initialize` or
   `server/discover`.
 - Workflow steps receive the initiating call's metadata, with the same

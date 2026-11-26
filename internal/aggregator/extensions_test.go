@@ -245,51 +245,74 @@ func TestBackendExtensionsAreScopedToCaller(t *testing.T) {
 	}, aggregator.backendExtensions(api.WithSessionID(t.Context(), "alice")))
 }
 
-func TestExtensionDiscoveryWaitsForBootstrap(t *testing.T) {
+func TestExtensionDiscoveryBootstrap(t *testing.T) {
 	for _, revision := range []string{mcp.ProtocolVersion20260728, mcp.LATEST_LEGACY_PROTOCOL_VERSION} {
-		t.Run(revision, func(t *testing.T) {
-			synctest.Test(t, func(t *testing.T) {
-				const sessionID = "bootstrap-session"
-				aggregator := newBootstrapTestAggregator(t, newConnectGates(), "backend")
-				release := make(chan struct{})
-				aggregator.ssoConnect = func(ctx context.Context, _ *ServerInfo, _ string) ssoConnectOutcome {
-					select {
-					case <-release:
-						aggregator.connPool.Put(sessionID, "backend", &notifMockClient{capabilities: mcp.ServerCapabilities{Extensions: extensionDeclarations(map[string]any{})}})
-						return ssoConnected
-					case <-ctx.Done():
-						return ssoConnectFailed
+		for _, usesExtensions := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/extensions=%t", revision, usesExtensions), func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					const sessionID = "bootstrap-session"
+					aggregator := newBootstrapTestAggregator(t, newConnectGates(), "backend")
+					release := make(chan struct{})
+					aggregator.ssoConnect = func(ctx context.Context, _ *ServerInfo, _ string) ssoConnectOutcome {
+						select {
+						case <-release:
+							aggregator.connPool.Put(sessionID, "backend", &notifMockClient{capabilities: mcp.ServerCapabilities{Extensions: extensionDeclarations(map[string]any{})}})
+							return ssoConnected
+						case <-ctx.Done():
+							return ssoConnectFailed
+						}
 					}
-				}
-				require.NotNil(t, aggregator.beginSessionBootstrap(ssoSession{userID: "alice", sessionID: sessionID}))
-				hooks := &mcpserver.Hooks{}
-				aggregator.addExtensionHooks(hooks)
-				frontend := mcpserver.NewMCPServer("muster", "test", mcpserver.WithHooks(hooks))
-				message := fmt.Appendf(nil, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":%q,"clientInfo":{"name":"test","version":"1"},"capabilities":{}}}`, revision)
-				if mcp.IsModernProtocol(revision) {
-					message = fmt.Appendf(nil, `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{%q:%q,%q:{},%q:{"name":"test","version":"1"}}}}`, mcp.MetaKeyProtocolVersion, revision, mcp.MetaKeyClientCapabilities, mcp.MetaKeyClientInfo)
-				}
-				result := make(chan mcp.JSONRPCMessage, 1)
-				go func() {
-					result <- frontend.HandleMessage(api.WithSessionID(t.Context(), sessionID), message)
-				}()
-				synctest.Wait()
-				select {
-				case <-result:
-					t.Fatal("discovery returned before the backend connected")
-				default:
-				}
-				close(release)
-				encoded, err := json.Marshal(<-result)
-				require.NoError(t, err)
-				var response struct {
-					Result struct {
-						Capabilities mcp.ServerCapabilities `json:"capabilities"`
-					} `json:"result"`
-				}
-				require.NoError(t, json.Unmarshal(encoded, &response))
-				require.Equal(t, extensionDeclarations(map[string]any{}), response.Result.Capabilities.Extensions)
+					require.NotNil(t, aggregator.beginSessionBootstrap(ssoSession{userID: "alice", sessionID: sessionID}))
+					hooks := &mcpserver.Hooks{}
+					aggregator.addExtensionHooks(hooks)
+					frontend := mcpserver.NewMCPServer("muster", "test", mcpserver.WithHooks(hooks))
+					capabilities := `{}`
+					if usesExtensions {
+						capabilities = `{"extensions":{"com.example/context":{}}}`
+					}
+					message := fmt.Appendf(nil, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":%q,"clientInfo":{"name":"test","version":"1"},"capabilities":%s}}`, revision, capabilities)
+					if mcp.IsModernProtocol(revision) {
+						message = fmt.Appendf(nil, `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{%q:%q,%q:%s,%q:{"name":"test","version":"1"}}}}`, mcp.MetaKeyProtocolVersion, revision, mcp.MetaKeyClientCapabilities, capabilities, mcp.MetaKeyClientInfo)
+					}
+					result := make(chan mcp.JSONRPCMessage, 1)
+					go func() {
+						result <- frontend.HandleMessage(api.WithSessionID(t.Context(), sessionID), message)
+					}()
+					synctest.Wait()
+					if !usesExtensions {
+						select {
+						case result := <-result:
+							close(release)
+							encoded, err := json.Marshal(result)
+							require.NoError(t, err)
+							var response map[string]any
+							require.NoError(t, json.Unmarshal(encoded, &response))
+							require.Contains(t, response, "result")
+							require.NotContains(t, response, "error")
+							return
+						default:
+							close(release)
+							t.Fatal("a client without extensions waited for backend bootstrap")
+						}
+					}
+					select {
+					case <-result:
+						close(release)
+						t.Fatal("discovery returned before the backend connected")
+					default:
+					}
+					close(release)
+					encoded, err := json.Marshal(<-result)
+					require.NoError(t, err)
+					var response struct {
+						Result struct {
+							Capabilities mcp.ServerCapabilities `json:"capabilities"`
+						} `json:"result"`
+					}
+					require.NoError(t, json.Unmarshal(encoded, &response))
+					require.Equal(t, extensionDeclarations(map[string]any{}), response.Result.Capabilities.Extensions)
+				})
 			})
-		})
+		}
 	}
 }
