@@ -26,15 +26,18 @@ func ExtensionMetaRelay() server.ToolHandlerMiddleware {
 }
 
 func (a *AggregatorServer) addExtensionHooks(hooks *server.Hooks) {
-	hooks.AddAfterInitialize(func(ctx context.Context, _ any, _ *mcp.InitializeRequest, result *mcp.InitializeResult) {
-		a.advertiseExtensions(ctx, &result.Capabilities)
+	hooks.AddAfterInitialize(func(ctx context.Context, _ any, request *mcp.InitializeRequest, result *mcp.InitializeResult) {
+		a.advertiseExtensions(ctx, &result.Capabilities, request.Params.Capabilities.Extensions)
 	})
 	hooks.AddAfterDiscover(func(ctx context.Context, _ any, _ *mcp.DiscoverRequest, result *mcp.DiscoverResult) {
-		a.advertiseExtensions(ctx, &result.Capabilities)
+		a.advertiseExtensions(ctx, &result.Capabilities, callerCapabilities(ctx).Extensions)
 	})
 }
 
-func (a *AggregatorServer) advertiseExtensions(ctx context.Context, capabilities *mcp.ServerCapabilities) {
+func (a *AggregatorServer) advertiseExtensions(ctx context.Context, capabilities *mcp.ServerCapabilities, clientExtensions map[string]any) {
+	if len(api.RelayedExtensions(clientExtensions)) > 0 {
+		a.awaitSessionBootstrap(ctx, getSessionIDFromContext(ctx))
+	}
 	merged := a.backendExtensions(ctx)
 	if len(merged) == 0 {
 		return
@@ -47,7 +50,6 @@ func (a *AggregatorServer) advertiseExtensions(ctx context.Context, capabilities
 // object for conflicting settings. Their meaning belongs to the extension.
 func (a *AggregatorServer) backendExtensions(ctx context.Context) map[string]any {
 	sessionID := getSessionIDFromContext(ctx)
-	a.awaitSessionBootstrap(ctx, sessionID)
 	clients := make(map[string]MCPClient)
 	for name, info := range a.registry.GetAllServers() {
 		if info.Client != nil && !info.RequiresSessionAuth() {
