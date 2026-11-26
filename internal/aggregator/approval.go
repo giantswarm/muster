@@ -271,7 +271,7 @@ func (l *approvalListing) server(ctx context.Context, server, original string, t
 		// an agent's listing like a Block; the call names the reason.
 		return api.ToolApproval{Setting: api.ApprovalSettingBlock, Source: api.ApprovalSourceGovernance}, true
 	case applies:
-		return api.StrictestApproval(setting, entry), true
+		return api.KeepExplanation(api.StrictestApproval(setting, entry), setting), true
 	}
 	return setting, true
 }
@@ -284,7 +284,7 @@ func (l *approvalListing) core(ctx context.Context, name string) api.ToolApprova
 	}
 	if l.agent {
 		if entry, ok := l.governance.CoreEntry(coreName(name)); ok {
-			return api.StrictestApproval(entry, effective)
+			return api.KeepExplanation(api.StrictestApproval(entry, effective), effective)
 		}
 	}
 	return effective

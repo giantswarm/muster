@@ -272,7 +272,11 @@ func WorkflowNameOf(name string) string {
 // entry is reported with the admin setting beside it.
 func ApplyAgentSetting(admin ToolApproval, setting, entry string, granted bool) ToolApproval {
 	if setting == "" {
-		return admin
+		// Where an agent's settings apply, the connector's own setting is
+		// reported even when no entry decides (M2I-6).
+		explained := admin
+		explained.Admin = &ToolApproval{Setting: admin.Setting, Source: admin.Source}
+		return explained
 	}
 	adminOnly := admin
 	adminOnly.Unavailable = ""
@@ -295,6 +299,21 @@ func ApplyAgentSetting(admin ToolApproval, setting, entry string, granted bool) 
 		return explained(ToolApproval{Setting: agent, Source: ApprovalSourceAgent, New: admin.New, Unavailable: admin.Unavailable})
 	}
 	return explained(admin)
+}
+
+// KeepExplanation returns final, the approval after floors and governance,
+// with the agent explanation of decided (the approval before them): the
+// deciding entry and the connector's own setting stay reported when a floor
+// or the governed default is what decides (M2I-6). A grant mark is kept only
+// when it is still what lets the call run.
+func KeepExplanation(final, decided ToolApproval) ToolApproval {
+	final.Entry, final.Admin = decided.Entry, decided.Admin
+	if final.Source == ApprovalSourceAgentException {
+		final.Grant = decided.Grant
+	} else {
+		final.Grant = ""
+	}
+	return final
 }
 
 type agentApprovalKey struct{}

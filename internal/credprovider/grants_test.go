@@ -94,7 +94,7 @@ func TestBindWithoutTheSenderCannotReplaceTheSendersBinding(t *testing.T) {
 	strip := `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"],"toolset":["preset:full"]}`
 	rec = bindBody(t, p, "", strip)
 	assert.Equal(t, http.StatusConflict, rec.Code)
-	assert.Empty(t, rec.Header().Get(ApprovalSettingsHeader))
+	assert.Equal(t, ApprovalSettingsRefused, rec.Header().Get(ApprovalSettingsHeader))
 	b, err := store.Get(ctx, testActor)
 	require.NoError(t, err)
 	require.NotNil(t, b.Approval, "the settings stay")
@@ -478,4 +478,28 @@ func (c *readCounter) Read(b []byte) (int, error) {
 	n, err := c.r.Read(b)
 	c.n += n
 	return n, err
+}
+
+// A refused bind says so in X-Muster-Approval-Settings, and a bind of an
+// actor whose sender-written binding ended says why it is refused (M2I-7).
+func TestRefusedBindsSayWhy(t *testing.T) {
+	p, _ := newTestProvider(t, fakeGrants{})
+	p.senders = namingReviewer{}
+	strip := `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"]}`
+	require.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
+
+	rec := bindBody(t, p, "", strip)
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, ApprovalSettingsRefused, rec.Header().Get(ApprovalSettingsHeader))
+	assert.NotContains(t, rec.Body.String(), "has ended", "a live binding is not called ended")
+
+	require.Equal(t, http.StatusNoContent, unbindWithSender(t, p, "agent-manager").Code)
+	rec = bindBody(t, p, "", strip)
+	assert.Equal(t, http.StatusConflict, rec.Code)
+	assert.Equal(t, ApprovalSettingsRefused, rec.Header().Get(ApprovalSettingsHeader))
+	assert.Contains(t, rec.Body.String(), "has ended; start a new Session through agent-manager")
+
+	rec = bindBody(t, p, "agent-manager", strings.Replace(settingsBindBody, `"setting":"Ask"`, `"setting":"Deny"`, 1))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, ApprovalSettingsRefused, rec.Header().Get(ApprovalSettingsHeader))
 }

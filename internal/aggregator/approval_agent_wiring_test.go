@@ -191,3 +191,33 @@ func TestAgentSettings_GrantedCallIsAudited(t *testing.T) {
 	assert.Contains(t, line, "grant=tool:x_github_merge_pull_request@github")
 	assert.Contains(t, line, "agent=kagent/alert-review")
 }
+
+// Where a floor or the governed default decides, the report for an agent
+// still names the deciding entry and the connector's own setting, for core
+// tools and server tools alike (M2I-6).
+func TestAgentSettings_FloorDecidedToolsKeepTheirExplanation(t *testing.T) {
+	rig, _ := governedRig(t, api.GovernanceGoverned)
+	report := api.WithAgentApproval(rig.ctx, &api.AgentApproval{Reporting: true, Entries: []api.AgentApprovalEntry{
+		{Entry: "tool:x_agent-manager_update_agent", Setting: api.ApprovalAllow},
+	}})
+	tools := rig.server.applyApprovals(report, []mcp.Tool{
+		approvalSoloTool("agent-manager", "update_agent"),
+		approvalSoloTool("agent-manager", "start_session"),
+		approvalCoreTool("core_mcpserver_set_approval", "core"),
+	})
+	got, _ := approvalOf(t, tools, "x_agent-manager_update_agent")
+	assert.Equal(t, api.ApprovalSettingAsk, got.Setting)
+	assert.Equal(t, api.ApprovalSourceGovernance, got.Source)
+	assert.Equal(t, "tool:x_agent-manager_update_agent", got.Entry, "the deciding entry stays reported")
+	require.NotNil(t, got.Admin)
+	assert.Equal(t, api.ApprovalSettingAllow, got.Admin.Setting)
+
+	got, _ = approvalOf(t, tools, "x_agent-manager_start_session")
+	assert.Equal(t, api.ApprovalSourceGovernance, got.Source)
+	assert.Empty(t, got.Entry, "no entry decides")
+	require.NotNil(t, got.Admin, "the connector's own setting is reported where an agent's settings apply")
+
+	got, _ = approvalOf(t, tools, "core_mcpserver_set_approval")
+	assert.Equal(t, api.ApprovalSourceBuiltin, got.Source)
+	require.NotNil(t, got.Admin)
+}

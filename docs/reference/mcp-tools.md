@@ -183,8 +183,9 @@ approval sender, [API](api.md)); every request of the Session resolves with them
 4. floors and the governed default on top: a grant never lifts them.
 
 An agent's `Block` hides the tool from that Session and `call_tool` refuses it as `tool not
-found`. `approval` then also carries `entry` (the deciding entry, `default` for the default) and
-`admin` (the connector's own setting), and `source` can be `agent` (the agent's entry is
+found`. `approval` then also carries `admin` (the connector's own setting, also where a floor or the
+governed default decides) and `entry` (the deciding entry, `default` for the default, when one
+decides), and `source` can be `agent` (the agent's entry is
 stricter) or `agent-exception` (a granted `Allow`).
 
 A request without bound settings (a Session agent-manager did not start) takes the agent's

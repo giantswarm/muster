@@ -36,6 +36,9 @@ const (
 	ApprovalSettingsBound   = "bound"
 	ApprovalSettingsIgnored = "ignored"
 	ApprovalSettingsNone    = "none"
+	// ApprovalSettingsRefused answers a bind refused because of the
+	// approval settings or their sender: nothing was bound.
+	ApprovalSettingsRefused = "refused"
 )
 
 // BindRequest is the body of PUT /session-bindings.
@@ -130,6 +133,7 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := validateAgentSettings(req); err != nil {
+		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsRefused)
 		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -140,6 +144,7 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		logging.WarnWithAttrs(logSubsystem, "bind_refused",
 			slog.String("reason", "the approval settings sender did not pass the review"), slog.String("sub", sub),
 			slog.String("actor", req.Actor), slog.String("session", req.Session))
+		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsRefused)
 		http.Error(w, http.StatusText(refused)+": the sender of approval settings did not pass the review", refused)
 		return
 	}
@@ -171,7 +176,7 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		logging.WarnWithAttrs(logSubsystem, "bind_refused",
 			slog.String("reason", err.Error()), slog.String("sub", sub),
 			slog.String("actor", req.Actor), slog.String("session", req.Session))
-		w.Header().Del(ApprovalSettingsHeader)
+		w.Header().Set(ApprovalSettingsHeader, ApprovalSettingsRefused)
 		if errors.Is(err, ErrSenderBound) && !approvalSender {
 			http.Error(w, "conflict: "+err.Error(), http.StatusConflict)
 			return

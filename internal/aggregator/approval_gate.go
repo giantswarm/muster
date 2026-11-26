@@ -100,7 +100,7 @@ func (a *AggregatorServer) serverToolApproval(ctx context.Context, server, origi
 			return info, api.ToolApproval{}, fmt.Errorf("agents may not call %s on server %s: it is a floor of a platform role, and muster's governance configuration names no governed server of that role (governance.governedServers in muster's configuration, muster.governance in the muster chart), so muster cannot tell the platform's server from a look-alike", original, server)
 		}
 		if applies {
-			effective = api.StrictestApproval(effective, floor)
+			effective = api.KeepExplanation(api.StrictestApproval(effective, floor), effective)
 		}
 	}
 	return info, effective, nil
@@ -143,7 +143,7 @@ func coreToolApproval(ctx context.Context, name string, _ map[string]any) api.To
 	}
 	if api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
 		if floor, ok := api.GetGovernance().CoreEntry(name); ok {
-			return api.StrictestApproval(floor, effective)
+			return api.KeepExplanation(api.StrictestApproval(floor, effective), effective)
 		}
 	}
 	return effective

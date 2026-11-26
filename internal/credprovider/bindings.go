@@ -3,6 +3,7 @@ package credprovider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
@@ -18,6 +19,11 @@ var ErrBoundToAnother = errors.New("the actor is bound to another person")
 // sender wrote without that same sender: the person could otherwise strip
 // the agent's own Ask and Block from their Session (M2-S3-S-01).
 var ErrSenderBound = errors.New("the binding carries an agent's approval settings: only the approval sender that wrote it (agent-manager) can replace it")
+
+// ErrSenderSealed is ErrSenderBound for an actor whose sender-written
+// binding has ended: the bind is refused for the same reason, said for
+// what the caller sees (M2I-7).
+var ErrSenderSealed = fmt.Errorf("%w (this actor's binding by an approval sender has ended; start a new Session through agent-manager instead of binding this one again)", ErrSenderBound)
 
 // sealFactor is how many binding TTLs an actor's sender seal outlives its
 // last bind or Touch: after a sender-written binding is deleted or expires,
@@ -41,7 +47,7 @@ func checkReplace(existing *Binding, seal string, sealed bool, b Binding) error 
 		return nil
 	}
 	if sealed && (!b.ApprovalSender || (seal != "" && seal != b.Sender)) {
-		return ErrSenderBound
+		return ErrSenderSealed
 	}
 	return nil
 }
