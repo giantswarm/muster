@@ -194,10 +194,10 @@ func TestList_ReportsTheGovernanceMode(t *testing.T) {
 // (re-check R-S-04, R2-S-04).
 func TestAuditURL(t *testing.T) {
 	for raw, want := range map[string]string{
-		"https://user:secret@mcp.example.com/sse?api_key=k#frag":       "https://mcp.example.com/sse",
-		"https://mcp.example.com/mcp;token=abc123":                     "https://mcp.example.com/mcp",
-		"https://mcp.example.com/sse/abcDEF0123456789ghijKLMN": "https://mcp.example.com/sse/<redacted>",
-		"https://mcp.example.com/v1/organizations/mcp":                 "https://mcp.example.com/v1/organizations/mcp",
+		"https://user:secret@mcp.example.com/sse?api_key=k#frag": "https://mcp.example.com/sse",
+		"https://mcp.example.com/mcp;token=abc123":               "https://mcp.example.com/mcp",
+		"https://mcp.example.com/sse/abcDEF0123456789ghijKLMN":   "https://mcp.example.com/sse/<redacted>",
+		"https://mcp.example.com/v1/organizations/mcp":           "https://mcp.example.com/v1/organizations/mcp",
 		"not a url": "(not a URL)",
 	} {
 		assert.Equal(t, want, auditURL(raw), raw)
