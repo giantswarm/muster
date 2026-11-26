@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 )
@@ -86,6 +87,16 @@ var roleFloors = map[string][]string{
 	GovernanceRoleModelManager:     {"add_backend"},
 }
 
+// floorRole returns a role the tool name is a floor of, "" for none.
+func floorRole(tool string) string {
+	for _, role := range slices.Sorted(maps.Keys(roleFloors)) {
+		if slices.Contains(roleFloors[role], tool) {
+			return role
+		}
+	}
+	return ""
+}
+
 // RoleFloors returns the floor tool names of a role.
 func RoleFloors(role string) []string { return slices.Clone(roleFloors[role]) }
 
@@ -137,6 +148,9 @@ func (g Governance) Validate() error {
 		for _, tool := range s.Safe {
 			if slices.Contains(roleFloors[s.Role], tool) {
 				return fmt.Errorf("governance: %s on server %s is a floor of role %s and cannot be on its safe list", tool, s.Server, s.Role)
+			}
+			if role := floorRole(tool); role != "" {
+				return fmt.Errorf("governance: %s on server %s is a floor of role %s and cannot be on any safe list: on a governed platform it asks agents on every governed server", tool, s.Server, role)
 			}
 		}
 	}
@@ -194,6 +208,13 @@ func (g Governance) hasRole(role string) bool {
 func (g Governance) ServerEntry(server, tool string) (approval ToolApproval, applies, refused bool) {
 	if s, ok := g.governed(server); ok {
 		if slices.Contains(roleFloors[s.Role], tool) {
+			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceBuiltin}, true, false
+		}
+		if g.Governed() && floorRole(tool) != "" {
+			// A floor's name on a governed server of another role (a role
+			// override, a mis-set role) still asks on Governed: no role
+			// configuration removes approve_action, merge_action or the
+			// grant tools from the floors (decision #90).
 			return ToolApproval{Setting: ApprovalSettingAsk, Source: ApprovalSourceBuiltin}, true, false
 		}
 		if g.Governed() && !slices.Contains(s.Safe, tool) {

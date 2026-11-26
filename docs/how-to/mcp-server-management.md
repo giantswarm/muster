@@ -701,8 +701,8 @@ governance:
 Roles: `agentManager`, `platformManager`, `connectorManager`,
 `sessionManager`, `modelManager`, `clusterManager`, `vmManager`,
 `workspaceManager`, `toolchainManager`, `skillManager`, `infrastructure`.
-muster refuses to start on an unknown role, a server named twice, a floor on a
-safe list, or both shapes at once. The earlier shape `servers: {agentManager:
+muster refuses to start on an unknown role, a server named twice, a floor of
+any role on any safe list, or both shapes at once. The earlier shape `servers: {agentManager:
 [..], platformManager: [..], connectorManager: [..]}` is still read: its
 servers are governed with empty safe lists.
 
@@ -714,7 +714,9 @@ servers are governed with empty safe lists.
   `set_organization_egress_policy`, `replace_organization_credential`;
   platformManager `approve_action`, `merge_action`; connectorManager
   `mcpserver_create`, `_connect`, `_set_approval`; toolchainManager
-  `approve_source`; modelManager `add_backend`.
+  `approve_source`; modelManager `add_backend`. On governed, every one of
+  these names also asks agents on every governed server whatever role it is
+  configured with, so a role override or a mis-set role never removes a floor.
 - **Governed** (`mode: governed`, or no readable configuration): an agent is
   asked before every tool of a governed server that is not on its safe list --
   a tool the server adds or renames later included, until someone lists it --

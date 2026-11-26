@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -117,4 +118,31 @@ func TestGovernance_RegisteredCopyIsImmutable(t *testing.T) {
 	again := GetGovernance()
 	assert.Equal(t, "agent-manager", again.Servers[0].Server)
 	assert.Equal(t, []string{"list_agents"}, again.Servers[0].Safe)
+}
+
+// On Governed a floor's name asks agents on every governed server, whatever
+// role it is configured with, so a role override cannot remove a floor; a
+// safe list naming any role's floor is refused at load (decision #90).
+func TestGovernance_FloorNamesHoldWhateverTheRole(t *testing.T) {
+	misrole := Governance{Mode: GovernanceGoverned, Readable: true, Servers: []GovernedServer{
+		{Server: "platform-manager", Role: GovernanceRoleAgentManager},
+	}}
+	for _, tool := range []string{"approve_action", "merge_action", "set_agent_approval"} {
+		got, applies, refused := misrole.ServerEntry("platform-manager", tool)
+		if !applies || refused || got.Setting != ApprovalSettingAsk || got.Source != ApprovalSourceBuiltin {
+			t.Fatalf("%s on a governed server of another role: got %+v applies=%v refused=%v", tool, got, applies, refused)
+		}
+	}
+	trusted := misrole
+	trusted.Mode = GovernanceTrusted
+	if _, applies, _ := trusted.ServerEntry("platform-manager", "approve_action"); applies {
+		t.Fatal("on Trusted the role's own floors decide, as before")
+	}
+
+	safe := Governance{Mode: GovernanceGoverned, Readable: true, Servers: []GovernedServer{
+		{Server: "agent-manager", Role: GovernanceRoleAgentManager, Safe: []string{"list_agents", "approve_action"}},
+	}}
+	if err := safe.Validate(); err == nil || !strings.Contains(err.Error(), "approve_action") {
+		t.Fatalf("a safe list naming another role's floor must be refused, got %v", err)
+	}
 }
