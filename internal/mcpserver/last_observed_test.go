@@ -139,3 +139,21 @@ func TestObservedServers_ReplaceAllKeepsAReadNewerThanTheListing(t *testing.T) {
 	_, _, ok = o.get("created-meanwhile")
 	assert.False(t, ok, "a server a later listing does not return is forgotten")
 }
+
+// all reports the oldest read, so a listing is judged by its stalest
+// definition and not its newest (D-GO-40).
+func TestObservedServers_AllReportsTheOldestRead(t *testing.T) {
+	at := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	o := &observedServers{now: func() time.Time { return at }}
+	oldest := at
+	o.record("github", api.MCPServerInfo{Name: "github"})
+	at = at.Add(5 * time.Minute)
+	o.record("kagent", api.MCPServerInfo{Name: "kagent"})
+	at = at.Add(5 * time.Minute)
+	o.record("agent-manager", api.MCPServerInfo{Name: "agent-manager"})
+
+	infos, got, ok := o.all()
+	require.True(t, ok)
+	assert.Len(t, infos, 3)
+	assert.Equal(t, oldest, got)
+}

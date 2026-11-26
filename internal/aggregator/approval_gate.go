@@ -331,9 +331,11 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 		if decodeErr != nil {
 			return nil, nil, decodeErr
 		}
+		approval.DefaultMetrics().Pending().Done(request.ID)
 		a.auditApproval(ctx, "approval_used", target, request.ID, hash, "", effective)
 		return approved, nil, nil
 	case err == nil && request.Status == api.ApprovalStatusDeclined:
+		approval.DefaultMetrics().Pending().Done(request.ID)
 		a.auditApproval(ctx, "approval_declined", target, request.ID, hash, "", effective)
 		return nil, declinedResult(name), nil
 	case err == nil:
@@ -366,12 +368,16 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 	})
 	switch {
 	case errors.Is(err, api.ErrApprovalLimit):
+		if limit, ok := errors.AsType[*api.ApprovalLimitError](err); ok {
+			approval.DefaultMetrics().CapHit(ctx, limit.Scope, api.CallerKind(ctx, getSessionIDFromContext(ctx)))
+		}
 		a.auditApproval(ctx, "approval_refused", target, "", hash, "too many pending approvals", effective)
 		return nil, nil, fmt.Errorf("%s asks before it runs, and %s: decide or decline those at their approval links first, or wait until they expire (after at most %s)", name, limitReason(err), a.approval.ttl)
 	case err != nil:
 		a.auditApproval(ctx, "approval_refused", target, "", hash, "store unavailable", effective)
 		return nil, nil, storeUnreachable(name, err)
 	}
+	approval.DefaultMetrics().Pending().Track(request)
 	a.auditApproval(ctx, "approval_requested", target, request.ID, hash, "", effective)
 	return nil, a.recordApprovalChallenge(ctx, request), nil
 }
@@ -477,6 +483,7 @@ func (a *AggregatorServer) auditApproval(ctx context.Context, action string, tar
 		attrs = append(attrs, slog.String("grant", effective.Grant))
 	}
 	api.AuditApproval(ctx, action, attrs...)
+	a.recordApprovalEvent(ctx, action, target, reason, effective)
 }
 
 // newApprovalSettings registers the approval store when muster's shared

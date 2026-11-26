@@ -1039,6 +1039,10 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	a.wg.Add(1)
 	go a.runSSOTrackerCleanup()
 
+	// Keep the approval pending gauge, the expired count and the store gauge.
+	a.wg.Add(1)
+	go a.runApprovalMetrics()
+
 	// Re-list every connected server's capabilities on an interval: a backend
 	// redeployed with another tool set sends no list_changed to a session it
 	// has never seen (capability_poller.go).

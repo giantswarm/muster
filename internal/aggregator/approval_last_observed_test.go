@@ -148,6 +148,9 @@ func TestGate_NotFoundOrForbiddenRefusesDespiteAnObservedDefinition(t *testing.T
 		"not found": api.NewMCPServerNotFoundError("github"),
 		"forbidden": fmt.Errorf("failed to get MCPServer github: %w", apierrors.NewForbidden(gr, "github", errors.New("RBAC"))),
 		"decode":    fmt.Errorf("failed to get MCPServer github: %w", errors.New("json: cannot unmarshal string into Go struct field")),
+		// Throttling that queues the read (API priority and fairness) ends
+		// in the call's own deadline, not in a 429: no fallback (D-GO-39).
+		"client deadline": fmt.Errorf("failed to get MCPServer github: %w", &url.Error{Op: "Get", URL: "https://apiserver/apis", Err: context.DeadlineExceeded}),
 	} {
 		t.Run(name, func(t *testing.T) {
 			rig := newGateRig(t)
@@ -190,18 +193,20 @@ func TestAPIServerUnreachable(t *testing.T) {
 		err  error
 		want bool
 	}{
-		"connection refused":  {connectionRefused(), true},
-		"service unavailable": {apierrors.NewServiceUnavailable("etcd"), true},
-		"server timeout":      {apierrors.NewServerTimeout(gr, "get", 1), true},
-		"too many requests":   {apierrors.NewTooManyRequests("slow down", 1), false},
-		"deadline exceeded":   {fmt.Errorf("get: %w", context.DeadlineExceeded), true},
-		"canceled":            {fmt.Errorf("get: %w", context.Canceled), false},
-		"not found":           {apierrors.NewNotFound(gr, "github"), false},
-		"muster not found":    {api.NewMCPServerNotFoundError("github"), false},
-		"forbidden":           {apierrors.NewForbidden(gr, "github", errors.New("RBAC")), false},
-		"unauthorized":        {apierrors.NewUnauthorized("token expired"), false},
-		"decode":              {errors.New("json: cannot unmarshal"), false},
-		"nil":                 {nil, false},
+		"connection refused":      {connectionRefused(), true},
+		"service unavailable":     {apierrors.NewServiceUnavailable("etcd"), true},
+		"server timeout":          {apierrors.NewServerTimeout(gr, "get", 1), true},
+		"too many requests":       {apierrors.NewTooManyRequests("slow down", 1), false},
+		"deadline exceeded":       {fmt.Errorf("get: %w", context.DeadlineExceeded), false},
+		"deadline in a url error": {&url.Error{Op: "Get", URL: "https://api", Err: context.DeadlineExceeded}, false},
+		"dial timeout":            {&net.OpError{Op: "dial", Err: errors.New("i/o timeout")}, true},
+		"canceled":                {fmt.Errorf("get: %w", context.Canceled), false},
+		"not found":               {apierrors.NewNotFound(gr, "github"), false},
+		"muster not found":        {api.NewMCPServerNotFoundError("github"), false},
+		"forbidden":               {apierrors.NewForbidden(gr, "github", errors.New("RBAC")), false},
+		"unauthorized":            {apierrors.NewUnauthorized("token expired"), false},
+		"decode":                  {errors.New("json: cannot unmarshal"), false},
+		"nil":                     {nil, false},
 	} {
 		assert.Equal(t, tc.want, apiServerUnreachable(tc.err), name)
 	}
@@ -238,6 +243,13 @@ func TestApplyApprovals_UnreachableAPIServerListsByTheLastObservedSettings(t *te
 		got, found := approvalOf(t, rig.server.applyApprovals(rig.ctx, tools), "x_github_get_issue")
 		require.True(t, found)
 		assert.Equal(t, ask, got, "a server never observed is unavailable")
+	})
+	t.Run("client deadline", func(t *testing.T) {
+		rig := newGateRig(t)
+		withOutage(t, &url.Error{Op: "Get", URL: "https://apiserver/apis", Err: context.DeadlineExceeded}, []string{"github"})
+		got, found := approvalOf(t, rig.server.applyApprovals(rig.ctx, tools), "x_github_get_issue")
+		require.True(t, found)
+		assert.Equal(t, ask, got, "the call's own deadline is no outage")
 	})
 	t.Run("other failure", func(t *testing.T) {
 		rig := newGateRig(t)
@@ -352,4 +364,22 @@ func TestApplyApprovals_OverAgeAndThrottledListingsAreUnavailable(t *testing.T) 
 			assert.Equal(t, ask, got)
 		})
 	}
+}
+
+// The configured maximum age is stored at start, and zero leaves the default
+// (newApprovalSettings, D-GO-40).
+func TestNewApprovalSettings_StoresTheConfiguredMaxAge(t *testing.T) {
+	t.Cleanup(func() { lastObservedMaxAge.Store(0); api.RegisterApprovalStore(nil) })
+	newApprovalSettings(AggregatorConfig{ApprovalLastObservedMaxAge: 7 * time.Minute}, storeBundle{})
+	assert.Equal(t, 7*time.Minute, maxLastObservedAge())
+	newApprovalSettings(AggregatorConfig{}, storeBundle{})
+	assert.Equal(t, DefaultLastObservedMaxAge, maxLastObservedAge())
+}
+
+// The default covers more than the reconciler's resync interval: a server
+// nobody called since the last resync is at most one interval old, and an
+// outage right before the next resync must leave cover (D-GO-39).
+func TestDefaultLastObservedMaxAgeIsAboveTheResyncInterval(t *testing.T) {
+	const resync = 10 * time.Minute // the reconciler's default (reconciler.DefaultResyncInterval)
+	assert.GreaterOrEqual(t, DefaultLastObservedMaxAge, 3*resync)
 }

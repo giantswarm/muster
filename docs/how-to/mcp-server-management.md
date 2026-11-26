@@ -571,14 +571,14 @@ Rules:
   ([Tool approval](../reference/mcp-tools.md#tool-approval)).
 - A registered server whose MCPServer object muster no longer finds (deleted,
   or no longer served) is refused, never `Allow`.
-- While the API server cannot be reached (no connection, a timeout, or
-  unavailable), nobody can change the settings, so a call is decided by the
+- While the API server cannot be reached (no connection, a timeout the network or the API server reports, or
+  unavailable; not the call's own deadline expiring, which also happens when throttling queues the read), nobody can change the settings, so a call is decided by the
   server's last definition muster read (its reconciler reads every server on
   each watch event and resync): the servers muster runs keep working through
   the outage. muster logs each such call with the server and the age of the
   definition and counts it in `muster_approval_last_observed_fallbacks_total`.
   The definition must be at most `approval.lastObservedMaxAge` old (default
-  `10m`, at most `1h`; Helm: `muster.approval.lastObservedMaxAge`): a muster
+  `30m`, three of the reconciler's 10 minute resync intervals so a server nobody called since the last resync is covered, at most `1h`; Helm: `muster.approval.lastObservedMaxAge`): a muster
   that alone cannot reach the API server looks like an outage, and an admin
   may have tightened the connector meanwhile, so an older definition decides
   nothing and the call is refused as `approval settings unavailable` (logged

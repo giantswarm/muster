@@ -301,6 +301,7 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	// Every refusal of a decision answers the browser alike and logs which
 	// check refused it (no secrets): nothing was approved or declined.
 	refuse := func(reason, body string) {
+		DefaultMetrics().Refused(r.Context(), ReasonPageCheck, "")
 		logging.WarnWithAttrs("Approval", "decision refused: nothing was decided",
 			slog.String("approval", logging.TruncateIdentifier(id)), slog.String("reason", reason))
 		p.renderMessage(w, http.StatusForbidden, "Nothing was decided", "Nothing was approved or declined: "+body)
@@ -345,6 +346,7 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	if flow.Identity == (api.SignInIdentity{}) || flow.Identity != request.Identity {
 		logging.WarnWithAttrs("Approval", "decision refused: the signed-in person is not the requester",
 			slog.String("approval", logging.TruncateIdentifier(id)))
+		DefaultMetrics().Refused(r.Context(), ReasonForeign, request.CallerKind)
 		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: only the person who asked can decide", "Nothing was approved or declined. This request was made for someone else; only they can decide it.")
 		return
 	}
@@ -371,6 +373,7 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	// The flow stays until it expires: a repeated submit of the same form (a
 	// double click) reaches Decide, which answers with what stands.
 	auditDecision(r.Context(), request, approve, flow.Identity)
+	recordDecision(r.Context(), request, approve, p.now())
 
 	if flow.Redirect != "" {
 		if target, err := url.Parse(flow.Redirect); err == nil {
@@ -438,4 +441,16 @@ func auditDecision(ctx context.Context, request *api.ApprovalRequest, approve bo
 		slog.String("argumentsHash", request.ArgumentsHash),
 		slog.String("setting", request.Display.Setting),
 		slog.String("source", request.Display.Source))
+}
+
+// recordDecision counts a decision and how long the request waited for it.
+func recordDecision(ctx context.Context, request *api.ApprovalRequest, approve bool, now time.Time) {
+	outcome := OutcomeDeclined
+	if approve {
+		outcome = OutcomeApproved
+	}
+	m := DefaultMetrics()
+	m.Decided(ctx, outcome)
+	m.TimeToDecision(ctx, outcome, now.Sub(request.CreatedAt).Seconds())
+	m.Pending().Done(request.ID)
 }

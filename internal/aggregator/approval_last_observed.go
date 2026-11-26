@@ -28,10 +28,14 @@ import (
 // an outage. The fallback is bounded:
 //
 //   - Only an unreachable API server falls back (a transport error, a
-//     timeout, an unavailable answer). Throttling (HTTP 429) does not: the
-//     API server is reachable and an admin may have tightened the server
-//     meanwhile, so the read is retried briefly within the call's deadline
-//     and the call is refused if it stays throttled.
+//     timeout the API server or the network reports, an unavailable answer).
+//     Throttling (HTTP 429) does not: the API server is reachable and an
+//     admin may have tightened the server meanwhile, so the read is retried
+//     briefly within the call's deadline and the call is refused if it stays
+//     throttled. Neither does the client's own deadline: throttling that
+//     queues the request (API priority and fairness) instead of answering 429
+//     ends there, and a read that outlived the call's deadline says nothing
+//     about the API server being gone.
 //   - Only a definition read within the maximum age (approval.lastObservedMaxAge,
 //     DefaultLastObservedMaxAge) is used: a muster-only partition is
 //     indistinguishable from an outage, so the window in which a connector
@@ -42,8 +46,12 @@ import (
 //     (muster may not read it), a definition that cannot be decoded.
 
 // DefaultLastObservedMaxAge is how old a server's last observed definition
-// may be and still decide a call while the API server cannot be reached.
-const DefaultLastObservedMaxAge = 10 * time.Minute
+// may be and still decide a call while the API server cannot be reached. It
+// is three of the reconciler's resync intervals (10m by default): a server
+// nobody called since the last resync has a definition at most one interval
+// old, so an outage right before a resync leaves at least two more intervals
+// of cover instead of none.
+const DefaultLastObservedMaxAge = 30 * time.Minute
 
 // lastObservedMaxAge holds the configured maximum age in nanoseconds; zero
 // means DefaultLastObservedMaxAge. Set at start (newApprovalSettings).
@@ -179,18 +187,18 @@ func lastObservedWhileUnreachable(ctx context.Context, server string, err error)
 }
 
 // apiServerUnreachable reports whether err says the API server could not be
-// reached or could not answer: a transport error, a timeout, or an
-// unavailable answer. Throttling (429), NotFound, Forbidden, Unauthorized, a
-// decode error and the caller's own cancellation are not.
+// reached or could not answer: a transport error, a timeout the network or
+// the API server reports, or an unavailable answer. Throttling (429),
+// NotFound, Forbidden, Unauthorized, a decode error, the caller's own
+// cancellation and the caller's own deadline (also when a transport error
+// wraps it) are not.
 func apiServerUnreachable(err error) bool {
 	switch {
-	case err == nil, errors.Is(err, context.Canceled):
+	case err == nil, errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
 		return false
 	case api.IsNotFound(err), apierrors.IsNotFound(err), apierrors.IsForbidden(err), apierrors.IsUnauthorized(err), apierrors.IsTooManyRequests(err):
 		return false
 	case apierrors.IsServiceUnavailable(err), apierrors.IsTimeout(err), apierrors.IsServerTimeout(err):
-		return true
-	case errors.Is(err, context.DeadlineExceeded):
 		return true
 	}
 	var netErr net.Error
