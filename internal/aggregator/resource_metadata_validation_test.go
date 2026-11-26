@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,13 +25,17 @@ func TestDiscoverProtectedResourceMetadata_ResourceValidation(t *testing.T) {
 			{name: "exact resource", resource: "/mcp"},
 			{name: "same-origin alias", resource: "/", wantWarning: true},
 			{name: "missing resource", wantWarning: true},
-			{name: "cross-origin resource", resource: "https://foreign.example/mcp", wantError: true},
+			{name: "cross-origin resource", resource: "https://foreign.example/mcp", wantWarning: true},
+			{name: "relative resource", resource: "relative/mcp", wantError: true},
+			{name: "cross-origin fragment", resource: "https://foreign.example/mcp#fragment", wantError: true},
+			{name: "cross-origin credentials", resource: "https://user:password@foreign.example/mcp", wantError: true},
 		} {
 			t.Run(mode+"/"+test.name, func(t *testing.T) {
 				var logs bytes.Buffer
 				logging.InitForCLI(logging.LevelInfo, &logs)
 				t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, os.Stderr) })
 				var backend *httptest.Server
+				var metadataRequests atomic.Int32
 				backend = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 					if request.URL.Path == "/mcp" {
 						if mode == "challenge" {
@@ -40,6 +45,7 @@ func TestDiscoverProtectedResourceMetadata_ResourceValidation(t *testing.T) {
 						return
 					}
 					resource := test.resource
+					metadataRequests.Add(1)
 					if resource == "/mcp" || resource == "/" {
 						resource = backend.URL + resource
 					}
@@ -55,6 +61,12 @@ func TestDiscoverProtectedResourceMetadata_ResourceValidation(t *testing.T) {
 				}
 				require.NoError(t, err)
 				require.Equal(t, "https://issuer.example", metadata.Issuer)
+				resource := test.resource
+				if resource == "/mcp" || resource == "/" {
+					resource = backend.URL + resource
+				}
+				require.Equal(t, resource, metadata.Resource)
+				require.Equal(t, int32(1), metadataRequests.Load(), "valid discovery must not fall back to another metadata request")
 				if test.wantWarning {
 					require.Contains(t, logs.String(), "DEPRECATED:")
 				} else {
