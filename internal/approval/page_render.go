@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"math"
 	"net/http"
+	"strings"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
@@ -37,11 +38,12 @@ pre{white-space:pre-wrap;word-break:break-all;background:#f6f8fa;padding:.5rem}
 {{if .Target.Server}}<dt>Connector</dt><dd>{{visible .Display.Connector}} <code>{{visible .Target.Server}}</code></dd>{{else if .Display.Connector}}<dt>Connector</dt><dd>{{visible .Display.Connector}}</dd>{{end}}
 {{range .Display.Arguments}}<dt>{{visible .Label}} <code class="muted">{{visible .Key}}</code></dt><dd>{{visible .Value}}{{if .Type}} <span class="muted">({{.Type}})</span>{{end}}</dd>{{end}}
 </dl>
+{{if .Display.AgentSays}}<h2>Agent says</h2><blockquote>{{visible .Display.AgentSays}}</blockquote><p class="muted">The agent's own words: they decide nothing. Check the action and its arguments above.</p>{{end}}
 {{if .Display.Changes}}<h2>What changes</h2><dl>{{range .Display.Changes}}<dt>{{visible .Field}}</dt><dd>{{visible .Old}} → {{visible .New}}</dd>{{end}}</dl>{{end}}
 {{if .Display.Preset}}<h2>Approval settings written</h2><dl>{{range .Display.Preset}}<dt>{{visible .Label}}</dt><dd>{{visible .Value}}</dd>{{end}}</dl>{{end}}
 {{if .Display.Steps}}<h2>Steps</h2><ol>{{range .Display.Steps}}<li{{if .Asks}} class="asks"{{end}}>{{if .Workflow}}<span class="muted">in workflow {{visible .Workflow}}:</span> {{end}}{{visible .Label}} <code>{{visible .Tool}}</code>{{range .Arguments}}<br><span class="muted">{{visible .Label}}: {{visible .Value}}</span>{{end}}</li>{{end}}</ol>{{end}}
 {{end}}
-{{if .Request}}<p class="muted">Asks because: {{.Request.Display.Source}} setting · {{if $.Installation}}Installation {{$.Installation}} · {{end}}{{.Request.CallerKind}}{{if .Request.Agent}} · Agent {{visible .Request.Agent}}{{end}} · Session {{.Session}} · Expires in {{.ExpiresIn}} min</p>
+{{if .Request}}<p class="muted">Asks because: {{.Request.Display.Source}} setting · {{if $.Installation}}Installation {{$.Installation}} · {{end}}{{.Request.CallerKind}}{{if .Request.Agent}} · Agent {{visible .Request.Agent}}{{end}} · Session {{.Session}}{{if .Client}} · Client {{visible .Client}}{{end}} · Expires in {{.ExpiresIn}} min</p>
 <details><summary>Show details</summary><pre>{{visible .Request.Arguments}}</pre><p class="muted">SHA-256 {{.Request.ArgumentsHash}}</p></details>
 {{if .Token}}
 <form id="decide" method="post" action="{{.Action}}">
@@ -64,10 +66,13 @@ type pageData struct {
 	Request      *api.ApprovalRequest
 	Installation string
 	Session      string
-	ExpiresIn    int
-	Action       string
-	Token        string
-	ScriptNonce  string
+	// Client is the calling client the approval is bound to (the OAuth
+	// client or acting party), when the binding names one.
+	Client      string
+	ExpiresIn   int
+	Action      string
+	Token       string
+	ScriptNonce string
 	// ReturnOrigin is the origin of the flow's return, which the form's
 	// policy admits (securityHeaders).
 	ReturnOrigin string
@@ -105,6 +110,7 @@ func (p *Page) renderRequest(w http.ResponseWriter, request *api.ApprovalRequest
 		Request:      request,
 		Installation: p.Installation,
 		Session:      logging.TruncateIdentifier(request.SessionID),
+		Client:       boundClient(request.SessionID),
 		ExpiresIn:    int(math.Ceil(request.ExpiresAt.Sub(p.now()).Minutes())),
 		Action:       p.URL(request.ID),
 		Token:        flow.Token,
@@ -142,4 +148,14 @@ func heading(request *api.ApprovalRequest) string {
 	default:
 		return "Approve this action?"
 	}
+}
+
+// boundClient returns the client part of an approval's session
+// (<session>/client:<id> or <session>/actor:<issuer>#<actor>), "" without.
+func boundClient(sessionID string) string {
+	_, client, ok := strings.Cut(sessionID, "/")
+	if !ok || (!strings.HasPrefix(client, "client:") && !strings.HasPrefix(client, "actor:")) {
+		return ""
+	}
+	return client
 }

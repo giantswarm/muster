@@ -108,6 +108,14 @@ func (a *AggregatorServer) gateWorkflow(ctx context.Context, toolName string, ar
 	if plan.blocked != "" {
 		return ctx, nil, nil, fmt.Errorf("workflow %s cannot run: step tool not found: %s", name, plan.blocked)
 	}
+	// The agent's own entry for the workflow (workflow:, tool:, default)
+	// applies to the run itself.
+	switch own := withAgentWorkflowSetting(api.WithoutReportingApproval(ctx), api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}, name); own.Setting {
+	case api.ApprovalSettingBlock:
+		return ctx, nil, nil, fmt.Errorf("tool not found: %s", toolName)
+	case api.ApprovalSettingAsk:
+		plan.asks = append(plan.asks, own)
+	}
 	if len(plan.asks) == 0 && plan.unknown > 0 && a.approvalUnavailable(ctx) == "" {
 		// A step muster cannot resolve counts as asking where muster can
 		// ask. Where it cannot, the run is not refused for it: the step is
@@ -279,16 +287,16 @@ func (a *AggregatorServer) stepApproval(ctx context.Context, tool string, args m
 		if err != nil {
 			return unresolved, nil
 		}
-		_, effective, err := serverToolApproval(ctx, member, original, args)
+		_, effective, err := a.serverToolApproval(ctx, member, original, tool, args)
 		return effective, err
 	}
 	if server, original, err := a.registry.ResolveToolName(tool); err == nil {
-		_, effective, err := serverToolApproval(ctx, server, original, args)
+		_, effective, err := a.serverToolApproval(ctx, server, original, tool, args)
 		return effective, err
 	}
 	if sessionID := getSessionIDFromContext(ctx); sessionID != "" {
 		if server, original, err := a.resolveUserTool(sessionID, tool); err == nil {
-			_, effective, err := serverToolApproval(ctx, server, original, args)
+			_, effective, err := a.serverToolApproval(ctx, server, original, tool, args)
 			return effective, err
 		}
 	}
@@ -329,7 +337,7 @@ func (a *AggregatorServer) familyStepApproval(ctx context.Context, tool string, 
 		if err != nil {
 			continue
 		}
-		_, effective, err := serverToolApproval(ctx, member, original, args)
+		_, effective, err := a.serverToolApproval(ctx, member, original, tool, args)
 		if err != nil {
 			return api.ToolApproval{}, err
 		}
@@ -353,10 +361,11 @@ func (a *AggregatorServer) workflowReport(ctx context.Context, l *approvalListin
 	}
 	l.list(ctx)
 	settings := a.workflowStepSettings(ctx, l, workflow, 0)
-	if len(settings) == 0 {
-		return api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}, true
+	steps := api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}
+	if len(settings) > 0 {
+		steps = api.StrictestApproval(settings...)
 	}
-	return api.StrictestApproval(settings...), true
+	return withAgentWorkflowSetting(ctx, steps, workflow.Name), true
 }
 
 // workflowStepSettings lists the settings of a workflow's step tools.
@@ -372,7 +381,7 @@ func (a *AggregatorServer) workflowStepSettings(ctx context.Context, l *approval
 			return
 		}
 		if server, original, err := a.registry.ResolveToolName(tool); err == nil {
-			if setting, found := l.server(server, original); found {
+			if setting, found := l.server(ctx, server, original, nil); found {
 				settings = append(settings, setting)
 				return
 			}
@@ -388,7 +397,7 @@ func (a *AggregatorServer) workflowStepSettings(ctx context.Context, l *approval
 				settings = append(settings, builtin)
 				return
 			}
-			settings = append(settings, l.core(tool))
+			settings = append(settings, l.core(ctx, tool))
 			return
 		}
 		nested, err := a.reportedWorkflow(strings.TrimPrefix(strings.TrimPrefix(tool, "core_"), "workflow_"))

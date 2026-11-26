@@ -86,6 +86,11 @@ type ToolApproval struct {
 	// (no shared store on Valkey, no browser sign-in, no public URL, no
 	// person on the request): calls to it are refused until it is fixed.
 	Unavailable string `json:"unavailable,omitempty"`
+	// Entry is the agent entry that decided the agent setting ("default"
+	// for the list's default); empty when no agent setting applies.
+	Entry string `json:"entry,omitempty"`
+	// Admin is the connector's own setting, reported beside Entry.
+	Admin *ToolApproval `json:"admin,omitempty"`
 }
 
 // builtinAskTools are muster's own server configuration tools, which always

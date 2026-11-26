@@ -78,6 +78,9 @@ type ActorCaller struct {
 	// LoginIdentity is whom a forwarded LoginSession's token must be issued
 	// to (Binding.LoginIssuer, Binding.LoginSubject).
 	LoginIdentity api.SignInIdentity
+	// Approval is the agent's approval settings the binding carries, with
+	// the agent; nil when an approval sender bound none.
+	Approval *api.AgentApproval
 }
 
 // ActorBearer authenticates Substrate actor JWTs as the person the actor is
@@ -182,7 +185,22 @@ func (a *ActorBearer) Authenticate(ctx context.Context, bearer string) (*ActorCa
 
 		LoginSession:  binding.LoginSession,
 		LoginIdentity: api.SignInIdentity{Issuer: binding.LoginIssuer, Subject: binding.LoginSubject},
+		Approval:      bindingApproval(binding),
 	}, nil
+}
+
+// bindingApproval returns the agent and its approval settings of a binding an
+// approval sender wrote; nil otherwise. A binding naming only the agent
+// carries empty settings, so the agent is still known to the approval page.
+func bindingApproval(b *Binding) *api.AgentApproval {
+	if !b.ApprovalSender || (b.Agent == "" && b.Approval == nil) {
+		return nil
+	}
+	out := &api.AgentApproval{Agent: b.Agent}
+	if b.Approval != nil {
+		out.Entries, out.Default, out.Grants = b.Approval.Entries, b.Approval.Default, b.Approval.Grants
+	}
+	return out
 }
 
 func (a *ActorBearer) refuse(kind error, reason, actor string, binding *Binding) error {
@@ -209,6 +227,9 @@ func actorAuditDetails(actor string, binding *Binding) string {
 	}
 	if binding != nil && binding.Toolset != nil {
 		details += " toolset=[" + strings.Join(binding.Toolset, ",") + "]"
+	}
+	if binding != nil && binding.Agent != "" {
+		details += " agent=" + binding.Agent
 	}
 	return details
 }

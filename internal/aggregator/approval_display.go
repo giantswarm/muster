@@ -172,6 +172,9 @@ func approvalMessage(ctx context.Context, title, connector string) string {
 		where = " in " + connector
 	}
 	if api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
+		if agent := api.AgentOfContext(ctx); agent != "" {
+			return fmt.Sprintf("Agent %s wants to run %s%s.", agent, title, where)
+		}
 		return fmt.Sprintf("An agent wants to run %s%s.", title, where)
 	}
 	return fmt.Sprintf("Confirm %s%s.", title, where)

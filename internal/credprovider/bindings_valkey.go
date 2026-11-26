@@ -10,6 +10,8 @@ import (
 
 	"github.com/giantswarm/mcp-oauth/security"
 	"github.com/valkey-io/valkey-go"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // ValkeyStore keeps bindings in Valkey, shared by every muster replica.
@@ -22,6 +24,14 @@ import (
 //
 // Put and Delete check the owner and write in one Lua script, so two replicas
 // cannot race a bind past another person's binding.
+//
+// A binding that names an agent is also indexed:
+//
+//	Key:   {keyPrefix}credprovider:binding-agent:{sha256(agent)}
+//	Value: set of actors
+//	TTL:   none; members whose binding is gone are removed whenever the
+//	       index is read (ActorsOfAgent), so a long-lived Session, whose
+//	       binding only Touch keeps alive, never falls out of it.
 type ValkeyStore struct {
 	client    valkey.Client
 	keyPrefix string
@@ -123,7 +133,91 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 		}
 		return fmt.Errorf("write binding: changed concurrently, retry")
 	}
+	if b.Agent != "" {
+		if err := s.client.Do(ctx, s.client.B().Sadd().Key(s.agentKey(b.Agent)).Member(actor).Build()).Error(); err != nil {
+			// Without the index a dropped grant could not reach this
+			// Session: refuse the bind rather than keep a mark nobody can
+			// remove.
+			_ = s.client.Do(ctx, s.client.B().Del().Key(key).Build()).Error()
+			return fmt.Errorf("index binding by agent: %w", err)
+		}
+	}
 	return nil
+}
+
+func (s *ValkeyStore) agentKey(agent string) string {
+	sum := sha256.Sum256([]byte(agent))
+	return s.keyPrefix + "credprovider:binding-agent:" + hex.EncodeToString(sum[:])
+}
+
+// replaceScript writes ARGV[2] keeping the key's TTL while it still holds
+// ARGV[1].
+var replaceScript = valkey.NewLuaScript(`
+local cur = redis.call('GET', KEYS[1])
+if cur ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+return 1`)
+
+// ActorsOfAgent implements Store.
+func (s *ValkeyStore) ActorsOfAgent(ctx context.Context, agent string) ([]string, error) {
+	if agent == "" {
+		return nil, nil
+	}
+	key := s.agentKey(agent)
+	members, err := s.client.Do(ctx, s.client.B().Smembers().Key(key).Build()).AsStrSlice()
+	if err != nil {
+		return nil, fmt.Errorf("read the agent's bindings: %w", err)
+	}
+	var actors, stale []string
+	for _, actor := range members {
+		b, err := s.Get(ctx, actor)
+		if err != nil {
+			return nil, err
+		}
+		if b == nil || b.Agent != agent {
+			stale = append(stale, actor)
+			continue
+		}
+		actors = append(actors, actor)
+	}
+	if len(stale) > 0 {
+		_ = s.client.Do(ctx, s.client.B().Srem().Key(key).Member(stale...).Build()).Error()
+	}
+	return actors, nil
+}
+
+// maxDropAttempts bounds the retries of a grant drop racing a rebind.
+const maxDropAttempts = 5
+
+// DropGrants implements Store.
+func (s *ValkeyStore) DropGrants(ctx context.Context, actor, agent string, keep func(api.AgentApprovalGrant) bool) (int, error) {
+	key := s.key(actor)
+	for range maxDropAttempts {
+		current, err := s.raw(ctx, key)
+		if err != nil || current == "" {
+			return 0, err
+		}
+		b, err := s.open(current)
+		if err != nil {
+			return 0, err
+		}
+		dropped := dropGrants(b, agent, keep)
+		if dropped == 0 {
+			return 0, nil
+		}
+		value, err := s.seal(*b)
+		if err != nil {
+			return 0, fmt.Errorf("encode binding: %w", err)
+		}
+		ok, err := replaceScript.Exec(ctx, s.client, []string{key}, []string{current, value}).AsInt64()
+		if err != nil {
+			return 0, fmt.Errorf("write binding: %w", err)
+		}
+		if ok == 1 {
+			return dropped, nil
+		}
+	}
+	return 0, fmt.Errorf("write binding: changed concurrently %d times, retry", maxDropAttempts)
 }
 
 // raw returns the stored value, "" when the key is missing.

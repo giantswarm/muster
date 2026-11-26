@@ -60,10 +60,14 @@ func (a *AggregatorServer) approvalUnavailable(ctx context.Context) string {
 }
 
 // serverToolApproval resolves the effective approval of a server's tool for
-// the caller: the server's admin setting, made stricter for an agent caller
-// by a floor or governance entry. A floor's or governed name on a server the
-// governance configuration does not name is refused to agents.
-func serverToolApproval(ctx context.Context, server, original string, _ map[string]any) (*api.MCPServerInfo, api.ToolApproval, error) {
+// the caller: the server's admin setting, combined with the bound agent's
+// settings (an agent Block or Ask tightens it, a granted Allow lifts the
+// connector's Ask), then made stricter for an agent caller by a floor or
+// governance entry. A floor's or governed name on a server the governance
+// configuration does not name is refused to agents. exposed is the name the
+// call or step used.
+func (a *AggregatorServer) serverToolApproval(ctx context.Context, server, original, exposed string, _ map[string]any) (*api.MCPServerInfo, api.ToolApproval, error) {
+	ctx = api.WithoutReportingApproval(ctx)
 	if problem := api.ApprovalSchemaProblem(ctx); problem != "" {
 		return nil, api.ToolApproval{}, fmt.Errorf("approval_unavailable: %s", problem)
 	}
@@ -76,6 +80,14 @@ func serverToolApproval(ctx context.Context, server, original string, _ map[stri
 		settings = info.Approval
 	}
 	effective := api.ResolveConnectorApproval(settings, original)
+	if effective.Setting == api.ApprovalSettingBlock {
+		return info, effective, nil
+	}
+	var uid string
+	if info != nil {
+		uid = info.UID
+	}
+	effective = a.withAgentSetting(ctx, effective, server, original, exposed, uid, nil)
 	if effective.Setting == api.ApprovalSettingBlock {
 		return info, effective, nil
 	}
@@ -121,15 +133,20 @@ func connectorInfo(ctx context.Context, serverKey string) (*api.MCPServerInfo, e
 // on Governed every core tool but muster's reads asks them; every other core
 // tool runs.
 func coreToolApproval(ctx context.Context, name string, _ map[string]any) api.ToolApproval {
+	ctx = api.WithoutReportingApproval(ctx)
 	if builtin, ok := api.BuiltinApproval(name); ok {
-		return builtin
+		return withAgentCoreSetting(ctx, builtin, name)
+	}
+	effective := withAgentCoreSetting(ctx, api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}, name)
+	if effective.Setting == api.ApprovalSettingBlock {
+		return effective
 	}
 	if api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
 		if floor, ok := api.GetGovernance().CoreEntry(name); ok {
-			return floor
+			return api.StrictestApproval(floor, effective)
 		}
 	}
-	return api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}
+	return effective
 }
 
 // coreName returns a core tool's name with its core_ prefix, the form the
@@ -144,7 +161,7 @@ func coreName(toolName string) string {
 // declined result), or an error refusing the call.
 func (a *AggregatorServer) gateServerTool(ctx context.Context, toolName, server, original string, args map[string]any) (map[string]any, *mcp.CallToolResult, error) {
 	run := workflowRunFromContext(ctx)
-	info, effective, err := serverToolApproval(ctx, server, original, args)
+	info, effective, err := a.serverToolApproval(ctx, server, original, toolName, args)
 	target := api.ApprovalTarget{Kind: api.ApprovalTargetTool, Server: server, Name: original, Exposed: toolName}
 	if err != nil {
 		a.auditApproval(ctx, "call_refused", target, "", "", err.Error(), effective)
@@ -205,6 +222,10 @@ func (a *AggregatorServer) gateCoreTool(ctx context.Context, toolName string, ar
 	}
 	name := coreName(toolName)
 	effective := coreToolApproval(ctx, name, args)
+	if effective.Setting == api.ApprovalSettingBlock {
+		a.auditApproval(ctx, "call_refused", api.ApprovalTarget{Kind: api.ApprovalTargetCore, Name: name, Exposed: toolName}, "", "", "blocked by the agent's approval settings", effective)
+		return nil, nil, fmt.Errorf("tool not found: %s", toolName)
+	}
 	if run != nil {
 		return args, nil, run.check(toolName, effective)
 	}
@@ -280,7 +301,8 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 	store := api.GetApprovalStore()
 	sessionID := approvalSessionID(ctx)
 	identity := api.SignInIdentityFromContext(ctx)
-	key := api.ApprovalBindingKey(identity, sessionID, "", target, hash)
+	agent := api.AgentOfContext(ctx)
+	key := api.ApprovalBindingKey(identity, sessionID, agent, target, hash)
 
 	request, err := store.Consume(ctx, key)
 	switch {
@@ -303,6 +325,9 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 
 	shown := display()
 	shown.Setting, shown.Source = effective.Setting, effective.Source
+	if api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx))) {
+		shown.AgentSays = api.AgentReasonFromContext(ctx)
+	}
 	now := clock.Now()
 	request, err = store.Create(ctx, &api.ApprovalRequest{
 		ID:            rand.Text(),
@@ -311,6 +336,7 @@ func (a *AggregatorServer) ask(ctx context.Context, target api.ApprovalTarget, e
 		SessionID:     sessionID,
 		CallerKind:    api.CallerKind(ctx, getSessionIDFromContext(ctx)),
 		RequesterName: requesterName(ctx),
+		Agent:         agent,
 		Target:        target,
 		Arguments:     canonical,
 		ArgumentsHash: hash,
@@ -409,6 +435,7 @@ func declinedResult(name string) *mcp.CallToolResult {
 func (a *AggregatorServer) auditApproval(ctx context.Context, action string, target api.ApprovalTarget, id, hash, reason string, effective api.ToolApproval) {
 	attrs := []slog.Attr{
 		slog.String("session", getSessionIDFromContext(ctx)),
+		slog.String("agent", api.AgentOfContext(ctx)),
 		slog.String("targetKind", target.Kind),
 		slog.String("server", target.Server),
 		slog.String("target", target.Name),
@@ -423,6 +450,9 @@ func (a *AggregatorServer) auditApproval(ctx context.Context, action string, tar
 	}
 	if reason != "" {
 		attrs = append(attrs, slog.String("reason", reason))
+	}
+	if effective.Entry != "" {
+		attrs = append(attrs, slog.String("entry", effective.Entry))
 	}
 	api.AuditApproval(ctx, action, attrs...)
 }

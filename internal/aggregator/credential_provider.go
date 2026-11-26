@@ -98,6 +98,7 @@ func (a *AggregatorServer) registerSessionBindingRoutes(mux *http.ServeMux, auth
 	}
 	mux.Handle("PUT "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleBind)))
 	mux.Handle("DELETE "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleUnbind)))
+	mux.Handle("PATCH "+credprovider.GrantsPath, authenticate(http.HandlerFunc(provider.HandleDropGrants)))
 	a.credProvider = provider
 	return nil
 }

@@ -33,21 +33,23 @@ import (
 // keyed by server key. managed is false without a manager: no server has
 // settings then. ok is false when the listing failed: no tool's setting is
 // known then.
-func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServerApproval, managed, ok bool) {
+func connectorApprovals(ctx context.Context) (approvals map[string]*api.MCPServerApproval, uids map[string]string, managed, ok bool) {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
-		return nil, false, true
+		return nil, nil, false, true
 	}
 	definitions, err := manager.ListMCPServers(ctx)
 	if err != nil {
 		logging.Warn("Aggregator", "approval settings unavailable: listing MCPServers failed: %v", err)
-		return nil, true, false
+		return nil, nil, true, false
 	}
 	approvals = make(map[string]*api.MCPServerApproval, len(definitions))
+	uids = make(map[string]string, len(definitions))
 	for _, definition := range definitions {
 		approvals[definition.ServerKey()] = definition.Approval
+		uids[definition.ServerKey()] = definition.UID
 	}
-	return approvals, true, true
+	return approvals, uids, true, true
 }
 
 // applyApprovals records on each tool of the caller's catalogue its
@@ -126,7 +128,7 @@ func anyAsks(tools []mcp.Tool) bool {
 
 // resolveApprovals is applyApprovals without the availability of asking.
 func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Tool) []mcp.Tool {
-	l := &approvalListing{readable: true}
+	l := &approvalListing{readable: true, a: a}
 	l.unavailable = api.ToolApproval{Setting: api.ApprovalSettingAsk, Source: api.ApprovalSourceUnavailable}
 	if problem := api.ApprovalSchemaProblem(ctx); problem != "" {
 		l.readable = false
@@ -135,25 +137,45 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 	}
 	// What a call would do for this caller: an agent caller gets the floors
 	// and, on Governed, the governed default reported too (M1-MU-C-08).
-	l.agent = api.IsAgentCaller(api.CallerKind(ctx, getSessionIDFromContext(ctx)))
+	// A listing reporting for an agent's settings (filter_tools agentTools)
+	// reports them the same way.
+	l.agent = isAgentCallerOrReport(ctx)
 	l.governance = api.GetGovernance()
+	// What an agent's own entries block is listed when reporting for its
+	// settings, so an editor can show the Block and lift it; a connector's
+	// Block stays hidden from everyone.
+	keepAgentBlocks := api.ReportingAsAgent(ctx)
+	hidden := func(approval api.ToolApproval) bool {
+		return approval.Setting == api.ApprovalSettingBlock && (!keepAgentBlocks || approval.Source != api.ApprovalSourceAgent)
+	}
 
 	out := tools[:0:0]
 	for _, tool := range tools {
 		if builtin, ok := api.BuiltinApproval(tool.Name); ok {
-			api.SetToolApproval(&tool, builtin)
+			reported := withAgentCoreSetting(ctx, builtin, tool.Name)
+			if hidden(reported) {
+				continue
+			}
+			api.SetToolApproval(&tool, reported)
 			out = append(out, tool)
 			continue
 		}
 		switch toolset.KindOf(tool) {
 		case toolset.KindEntryWorkflow:
 			if reported, ok := a.workflowReport(ctx, l, tool.Name); ok {
+				if hidden(reported) {
+					continue
+				}
 				api.SetToolApproval(&tool, reported)
 			}
 			out = append(out, tool)
 			continue
 		case toolset.KindEntryCore:
-			api.SetToolApproval(&tool, l.core(tool.Name))
+			reported := l.core(ctx, tool.Name)
+			if hidden(reported) {
+				continue
+			}
+			api.SetToolApproval(&tool, reported)
 			out = append(out, tool)
 			continue
 		}
@@ -170,12 +192,12 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 		var settings []api.ToolApproval
 		missing := false
 		for _, server := range servers {
-			setting, found := l.server(server, original)
+			setting, found := l.server(ctx, server, original, &tool)
 			if !found {
 				missing = true
 				break
 			}
-			if setting.Setting == api.ApprovalSettingBlock {
+			if hidden(setting) {
 				continue
 			}
 			kept = append(kept, server)
@@ -201,7 +223,9 @@ func (a *AggregatorServer) resolveApprovals(ctx context.Context, tools []mcp.Too
 // approvalListing resolves the approvals of one listing for its caller,
 // reading the connectors' settings once.
 type approvalListing struct {
+	a           *AggregatorServer
 	approvals   map[string]*api.MCPServerApproval
+	uids        map[string]string
 	managed     bool
 	readable    bool
 	listed      bool
@@ -212,19 +236,32 @@ type approvalListing struct {
 
 func (l *approvalListing) list(ctx context.Context) {
 	if !l.listed {
-		l.approvals, l.managed, l.readable = connectorApprovals(ctx)
+		l.approvals, l.uids, l.managed, l.readable = connectorApprovals(ctx)
 		l.listed = true
 	}
 }
 
 // server resolves a server's own tool for the caller; found is false for a
-// server the manager does not know.
-func (l *approvalListing) server(server, original string) (api.ToolApproval, bool) {
+// server the manager does not know. tool is the listed tool, nil when the
+// listing resolves a workflow step.
+func (l *approvalListing) server(ctx context.Context, server, original string, tool *mcp.Tool) (api.ToolApproval, bool) {
 	written, found := l.approvals[server]
 	if l.managed && !found {
 		return api.ToolApproval{}, false
 	}
 	setting := api.ResolveConnectorApproval(written, original)
+	if setting.Setting == api.ApprovalSettingBlock {
+		return setting, true
+	}
+	exposed := ""
+	if tool != nil {
+		exposed = tool.Name
+	} else if l.a != nil && l.a.registry != nil {
+		exposed = l.a.registry.ExposedToolName(server, original)
+	}
+	if l.a != nil {
+		setting = l.a.withAgentSetting(ctx, setting, server, original, exposed, l.uids[server], tool)
+	}
 	if setting.Setting == api.ApprovalSettingBlock || !l.agent {
 		return setting, true
 	}
@@ -242,13 +279,17 @@ func (l *approvalListing) server(server, original string) (api.ToolApproval, boo
 }
 
 // core resolves one of muster's core tools for the caller.
-func (l *approvalListing) core(name string) api.ToolApproval {
+func (l *approvalListing) core(ctx context.Context, name string) api.ToolApproval {
+	effective := withAgentCoreSetting(ctx, api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}, name)
+	if effective.Setting == api.ApprovalSettingBlock {
+		return effective
+	}
 	if l.agent {
 		if entry, ok := l.governance.CoreEntry(coreName(name)); ok {
-			return entry
+			return api.StrictestApproval(entry, effective)
 		}
 	}
-	return api.ToolApproval{Setting: api.ApprovalSettingAllow, Source: api.ApprovalSourceUnreviewed}
+	return effective
 }
 
 // approvalTarget returns the servers a server tool runs on (one, or a

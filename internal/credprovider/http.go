@@ -3,8 +3,11 @@ package credprovider
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -34,6 +37,35 @@ type BindRequest struct {
 	// binds none: the actor's requests are unscoped unless they send the
 	// header.
 	Toolset []string `json:"toolset,omitempty"`
+	// Agent is the Session's agent, <namespace>/<name>. Taken only from an
+	// approval sender.
+	Agent string `json:"agent,omitempty"`
+	// Approval is the agent's approval settings: entries with a setting
+	// (each also in Toolset), the default and the grant marks. Taken only
+	// from an approval sender.
+	Approval *api.AgentApproval `json:"approval,omitempty"`
+}
+
+// agentPattern is <namespace>/<name> of Kubernetes names.
+var agentPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?/[a-z0-9]([-.a-z0-9]{0,251}[a-z0-9])?$`)
+
+// validateAgentSettings checks the agent and its approval settings of a bind.
+func validateAgentSettings(req BindRequest) error {
+	if req.Agent != "" && !agentPattern.MatchString(req.Agent) {
+		return fmt.Errorf("agent %q is not <namespace>/<name>", req.Agent)
+	}
+	if req.Approval == nil {
+		return nil
+	}
+	if err := req.Approval.Validate(); err != nil {
+		return err
+	}
+	for _, e := range req.Approval.Entries {
+		if !slices.Contains(req.Toolset, e.Entry) {
+			return fmt.Errorf("approval entry %q is not in the toolset", e.Entry)
+		}
+	}
+	return nil
 }
 
 // HandleBind is PUT /session-bindings: binds the actor to the calling person.
@@ -83,6 +115,11 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := validateAgentSettings(req); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	approvalSender, refused := p.reviewSender(r)
 	if refused != 0 {
 		logging.WarnWithAttrs(logSubsystem, "bind_refused",
@@ -92,8 +129,18 @@ func (p *Provider) HandleBind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !approvalSender && (req.Agent != "" || req.Approval != nil) {
+		// Settings come only from a sender Kubernetes allows: the rest of
+		// the bind is taken, the agent and its settings are not.
+		logging.WarnWithAttrs(logSubsystem, "approval_settings_ignored",
+			slog.String("reason", "the bind carries an agent or approval settings but no approval sender"),
+			slog.String("sub", sub), slog.String("actor", req.Actor), slog.String("session", req.Session))
+		req.Agent, req.Approval = "", nil
+	}
+
 	signIn := api.SignInIdentityFromContext(r.Context())
 	b := Binding{
+		Agent: req.Agent, Approval: req.Approval,
 		ApprovalSender: approvalSender,
 		Subject:        sub, Session: req.Session, Providers: req.Providers, Toolset: req.Toolset,
 		SignInIssuer: signIn.Issuer, SignInSubject: signIn.Subject, BoundAt: time.Now().UTC(),

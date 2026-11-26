@@ -156,6 +156,9 @@ type ApprovalDisplay struct {
 	// Setting and Source say why the call asks.
 	Setting string `json:"setting"`
 	Source  string `json:"source"`
+	// AgentSays is the reason an agent caller gave with the call
+	// (call_tool's reason); shown, never bound or used to decide.
+	AgentSays string `json:"agentSays,omitempty"`
 }
 
 // ApprovalRequest is a pending approval: bound to the person and Session the

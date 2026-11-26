@@ -418,3 +418,26 @@ func TestPage_RequesterAndWorkflowName(t *testing.T) {
 	p.renderRequest(w, workflow, &api.ApprovalPageFlow{Identity: alice, Token: "t"})
 	assert.NotContains(t, w.Body.String(), "<code>release</code>")
 }
+
+// The agent's reason is shown in its own box, escaped and with invisible
+// characters marked, and the page names the agent and the client the
+// approval is bound to (M1-MU-C-23, R2-S-03).
+func TestPage_AgentSaysAndBoundClient(t *testing.T) {
+	p := &Page{PublicURL: "https://muster.example.com"}
+	request := &api.ApprovalRequest{ID: "x", Identity: alice, Status: api.ApprovalStatusPending, ExpiresAt: time.Now().Add(time.Minute),
+		Agent: "kagent/alert-review", SessionID: "session-1/client:portal",
+		Display: api.ApprovalDisplay{Title: "Merge pull request", AgentSays: "<b>trust me</b>\u200b"}}
+	w := httptest.NewRecorder()
+	p.renderRequest(w, request, &api.ApprovalPageFlow{Identity: alice, Token: "t"})
+	body := w.Body.String()
+	assert.Contains(t, body, "<h2>Agent says</h2>")
+	assert.Contains(t, body, "&lt;b&gt;trust me&lt;/b&gt;⟨U&#43;200B⟩")
+	assert.Contains(t, body, "Agent kagent/alert-review")
+	assert.Contains(t, body, "Client client:portal")
+
+	request.Display.AgentSays, request.SessionID = "", "mcp-actor-abc"
+	w = httptest.NewRecorder()
+	p.renderRequest(w, request, &api.ApprovalPageFlow{Identity: alice, Token: "t"})
+	assert.NotContains(t, w.Body.String(), "Agent says")
+	assert.NotContains(t, w.Body.String(), "Client ")
+}

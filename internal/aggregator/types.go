@@ -284,6 +284,18 @@ func (s *ServerInfo) UpdateTools(tools []mcp.Tool) {
 	s.Tools = tools
 }
 
+// Tool returns the server's own tool named name from its cached list.
+func (s *ServerInfo) Tool(name string) (mcp.Tool, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, t := range s.Tools {
+		if t.Name == name {
+			return t, true
+		}
+	}
+	return mcp.Tool{}, false
+}
+
 // UpdateResources safely updates the server's cached resource list.
 // This method is thread-safe and should be used whenever
 // the server's available resources change.

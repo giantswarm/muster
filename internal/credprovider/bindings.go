@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // ErrBoundToAnother is returned when a bind or unbind names an actor that is
@@ -32,6 +34,14 @@ type Binding struct {
 	// allows to send approval settings (sender_review.go). Approval settings
 	// in a binding are honoured only then.
 	ApprovalSender bool `json:"approvalSender,omitempty"`
+	// Agent is the Session's agent, <namespace>/<name>; set only by an
+	// approval sender.
+	Agent string `json:"agent,omitempty"`
+	// Approval is the agent's approval settings at the Session's start:
+	// entries with Allow, Ask or Block, the default and the grant marks.
+	// Set only by an approval sender; grant marks can later be removed by
+	// one (Store.DropGrants), nothing else changes.
+	Approval *api.AgentApproval `json:"approval,omitempty"`
 	// SignInIssuer and SignInSubject are the issuer and raw sub of the
 	// bind request's bearer: who the person signed in as, which a sign-in
 	// link the actor's requests are answered with must be completed by
@@ -73,6 +83,34 @@ type Store interface {
 	// Delete removes the actor's binding when it belongs to subject
 	// (ErrBoundToAnother otherwise); a missing binding is no error.
 	Delete(ctx context.Context, actor, subject string) error
+	// ActorsOfAgent returns the actors whose live bindings name the agent.
+	ActorsOfAgent(ctx context.Context, agent string) ([]string, error)
+	// DropGrants removes from the actor's binding of the agent every grant
+	// mark keep refuses, keeping the binding's person, settings and expiry;
+	// it returns how many it removed. A missing binding, or one of another
+	// agent, is left alone (0).
+	DropGrants(ctx context.Context, actor, agent string, keep func(api.AgentApprovalGrant) bool) (int, error)
+}
+
+// dropGrants removes the grant marks keep refuses from b, returning how
+// many it removed; b is changed only when it names the agent.
+func dropGrants(b *Binding, agent string, keep func(api.AgentApprovalGrant) bool) int {
+	if b == nil || b.Agent != agent || b.Approval == nil || len(b.Approval.Grants) == 0 {
+		return 0
+	}
+	kept := make([]api.AgentApprovalGrant, 0, len(b.Approval.Grants))
+	for _, g := range b.Approval.Grants {
+		if keep(g) {
+			kept = append(kept, g)
+		}
+	}
+	dropped := len(b.Approval.Grants) - len(kept)
+	if dropped > 0 {
+		approval := *b.Approval
+		approval.Grants = kept
+		b.Approval = &approval
+	}
+	return dropped
 }
 
 // MemoryStore is the in-process Store for a muster that runs without Valkey.
@@ -138,6 +176,35 @@ func (s *MemoryStore) Touch(_ context.Context, actor string, ttl time.Duration) 
 		s.entries[actor] = e
 	}
 	return nil
+}
+
+// ActorsOfAgent implements Store.
+func (s *MemoryStore) ActorsOfAgent(_ context.Context, agent string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var actors []string
+	for actor := range s.entries {
+		if e, ok := s.live(actor); ok && agent != "" && e.binding.Agent == agent {
+			actors = append(actors, actor)
+		}
+	}
+	slices.Sort(actors)
+	return actors, nil
+}
+
+// DropGrants implements Store.
+func (s *MemoryStore) DropGrants(_ context.Context, actor, agent string, keep func(api.AgentApprovalGrant) bool) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.live(actor)
+	if !ok {
+		return 0, nil
+	}
+	dropped := dropGrants(&e.binding, agent, keep)
+	if dropped > 0 {
+		s.entries[actor] = e
+	}
+	return dropped, nil
 }
 
 // Delete implements Store.

@@ -1,0 +1,360 @@
+package api
+
+import (
+	"context"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/mark3labs/mcp-go/mcp"
+)
+
+// An agent's approval settings: the entries of its tool list that carry
+// Allow, Ask or Block, the list's default, and the grants a connector admin
+// recorded in agent-manager (an Allow over that connector's Ask). muster takes
+// them from a Session binding sent by a sender Kubernetes allows
+// (credprovider), and, for reporting only, from filter_tools' agentTools
+// argument. They combine with the connector's settings (ApplyAgentSetting):
+// the stricter holds, except a granted Allow over a connector's Ask; floors
+// and governance apply on top and are never lifted.
+
+// Where an effective approval comes from, when an agent's settings decided it.
+const (
+	// ApprovalSourceAgent is an agent entry (or the list's default) that is
+	// stricter than the connector's setting.
+	ApprovalSourceAgent = "agent"
+	// ApprovalSourceAgentException is an agent's granted Allow over the
+	// connector's Ask.
+	ApprovalSourceAgentException = "agent-exception"
+)
+
+// AgentDefaultEntry names the list's default where an entry is named.
+const AgentDefaultEntry = "default"
+
+// Bounds on the approval settings a binding or a reporting call carries.
+const (
+	MaxAgentApprovalEntries = 128
+	MaxAgentApprovalGrants  = 256
+)
+
+// agentSelectorPattern is the toolset grammar an entry is written in.
+var agentSelectorPattern = regexp.MustCompile(`^(preset|server|workflow|tool):[^\s,]+$`)
+
+// AgentApprovalEntry is one entry of an agent's tool list with its setting.
+type AgentApprovalEntry struct {
+	Entry   string `json:"entry"`
+	Setting string `json:"setting"`
+}
+
+// AgentApprovalGrant marks an entry's Allow as granted on one connector: the
+// MCPServer's server key and its UID (a recreated server has another).
+type AgentApprovalGrant struct {
+	Entry  string `json:"entry"`
+	Server string `json:"server"`
+	UID    string `json:"uid"`
+}
+
+// AgentApproval is an agent's approval settings as one request sees them.
+type AgentApproval struct {
+	// Agent is the agent, <namespace>/<name>, where known.
+	Agent   string               `json:"agent,omitempty"`
+	Entries []AgentApprovalEntry `json:"entries,omitempty"`
+	Default string               `json:"default,omitempty"`
+	Grants  []AgentApprovalGrant `json:"grants,omitempty"`
+	// Reporting marks settings passed to a listing to report what an
+	// agent would see; they never decide a call.
+	Reporting bool `json:"-"`
+}
+
+// Validate checks the settings' shape: selectors in the toolset grammar, each
+// once, values Allow, Ask or Block, grants naming an Allow entry (or an
+// allowing default), a server and a UID.
+func (a *AgentApproval) Validate() error {
+	if a == nil {
+		return nil
+	}
+	if len(a.Entries) > MaxAgentApprovalEntries {
+		return fmt.Errorf("approval.entries has %d entries, more than %d", len(a.Entries), MaxAgentApprovalEntries)
+	}
+	if len(a.Grants) > MaxAgentApprovalGrants {
+		return fmt.Errorf("approval.grants has %d grants, more than %d", len(a.Grants), MaxAgentApprovalGrants)
+	}
+	settings := make(map[string]string, len(a.Entries))
+	for _, e := range a.Entries {
+		if !agentSelectorPattern.MatchString(e.Entry) {
+			return fmt.Errorf("approval entry %q is not a selector (preset:, server:, workflow: or tool:)", e.Entry)
+		}
+		if !validWrittenSetting(e.Setting) {
+			return fmt.Errorf("approval entry %q has setting %q: use Allow, Ask or Block", e.Entry, e.Setting)
+		}
+		if _, dup := settings[e.Entry]; dup {
+			return fmt.Errorf("approval entry %q appears twice", e.Entry)
+		}
+		settings[e.Entry] = e.Setting
+	}
+	if a.Default != "" && !validWrittenSetting(a.Default) {
+		return fmt.Errorf("approval default %q: use Allow, Ask or Block", a.Default)
+	}
+	for _, g := range a.Grants {
+		if g.Server == "" || g.UID == "" {
+			return fmt.Errorf("approval grant for %q needs server and uid", g.Entry)
+		}
+		setting := settings[g.Entry]
+		if g.Entry == AgentDefaultEntry {
+			setting = a.Default
+		}
+		if setting != ApprovalAllow {
+			return fmt.Errorf("approval grant for %q names no entry with Allow", g.Entry)
+		}
+	}
+	return nil
+}
+
+func validWrittenSetting(value string) bool {
+	return value == ApprovalAllow || value == ApprovalAsk || value == ApprovalBlock
+}
+
+// AgentTarget is what an agent entry is matched against: a server's tool
+// (one member of a family), a workflow, or a core tool.
+type AgentTarget struct {
+	// Kind is "tool", "workflow" or "core".
+	Kind string
+	// Server is the member server's key; Family the family's name, if any.
+	Server, Family string
+	// Original is the server's own name of the tool.
+	Original string
+	// Exposed is the tool's exposed name (x_..., core_..., workflow_...).
+	Exposed string
+	// Workflow is the workflow's name.
+	Workflow string
+	// Tool is the exposed tool, for preset rules; nil when unknown.
+	Tool *mcp.Tool
+	// ResolveTool maps an exposed name to the server and the server's own
+	// name, so a tool: entry selects the dispatch target whatever alias it
+	// names. nil compares names only.
+	ResolveTool func(name string) (server, original string, ok bool)
+}
+
+// Target kinds of AgentTarget.
+const (
+	AgentTargetTool     = "tool"
+	AgentTargetWorkflow = "workflow"
+	AgentTargetCore     = "core"
+)
+
+// entryRank orders entry kinds by specificity.
+func entryRank(kind string) int {
+	switch kind {
+	case "tool":
+		return 4
+	case "workflow":
+		return 3
+	case "server":
+		return 2
+	case "preset":
+		return 1
+	}
+	return 0
+}
+
+// Decide returns the agent setting for the target and the entry that decided
+// it: the most specific entry selecting it (tool: over workflow: over server:
+// over preset:), the strictest of equally specific ones, else the default.
+// Both are empty when nothing applies.
+func (a *AgentApproval) Decide(ctx context.Context, t AgentTarget) (setting, entry string) {
+	if a == nil {
+		return "", ""
+	}
+	best := -1
+	for _, e := range a.Entries {
+		kind, name, _ := strings.Cut(e.Entry, ":")
+		if !t.selectedBy(ctx, kind, name) {
+			continue
+		}
+		rank := entryRank(kind)
+		switch {
+		case rank > best:
+			best, setting, entry = rank, e.Setting, e.Entry
+		case rank == best && approvalRank(settingOf(e.Setting)) > approvalRank(settingOf(setting)):
+			setting, entry = e.Setting, e.Entry
+		}
+	}
+	if best >= 0 {
+		return setting, entry
+	}
+	if a.Default != "" {
+		return a.Default, AgentDefaultEntry
+	}
+	return "", ""
+}
+
+// Granted reports whether the entry's Allow is granted on the server with
+// the given UID.
+func (a *AgentApproval) Granted(entry, server, uid string) bool {
+	if a == nil || uid == "" {
+		return false
+	}
+	for _, g := range a.Grants {
+		if g.Entry == entry && g.Server == server && g.UID == uid {
+			return true
+		}
+	}
+	return false
+}
+
+// selectedBy reports whether the selector kind:name selects the target.
+func (t AgentTarget) selectedBy(ctx context.Context, kind, name string) bool {
+	switch kind {
+	case "tool":
+		return t.toolNamed(name)
+	case "workflow":
+		return t.Kind == AgentTargetWorkflow && name == t.Workflow
+	case "server":
+		return t.Kind == AgentTargetTool && (name == t.Server || (t.Family != "" && name == t.Family))
+	case "preset":
+		return PresetSelects(ctx, name, t)
+	}
+	return false
+}
+
+// toolNamed reports whether a tool: entry names the target.
+func (t AgentTarget) toolNamed(name string) bool {
+	switch t.Kind {
+	case AgentTargetWorkflow:
+		return WorkflowNameOf(name) == t.Workflow && WorkflowNameOf(name) != ""
+	case AgentTargetCore:
+		return "core_"+strings.TrimPrefix(name, "core_") == "core_"+strings.TrimPrefix(t.Exposed, "core_")
+	}
+	if name == t.Exposed && name != "" {
+		return true
+	}
+	if t.ResolveTool == nil {
+		return false
+	}
+	server, original, ok := t.ResolveTool(name)
+	return ok && original == t.Original && (server == t.Server || (t.Family != "" && server == t.Family))
+}
+
+// WorkflowNameOf returns the workflow an exposed name runs (workflow_X,
+// core_workflow_X), "" for any other name.
+func WorkflowNameOf(name string) string {
+	rest, ok := strings.CutPrefix(strings.TrimPrefix(name, "core_"), "workflow_")
+	if !ok {
+		return ""
+	}
+	return rest
+}
+
+// ApplyAgentSetting combines the admin setting with an agent setting (as
+// written, "" for none): an admin Block holds; an agent Block blocks; a
+// granted Allow over an admin Ask of a connector (its tool entry or rule)
+// allows; otherwise the stricter holds, ties keeping the admin's source.
+// entry is reported with the admin setting beside it.
+func ApplyAgentSetting(admin ToolApproval, setting, entry string, granted bool) ToolApproval {
+	if setting == "" {
+		return admin
+	}
+	adminOnly := admin
+	adminOnly.Unavailable = ""
+	explained := func(a ToolApproval) ToolApproval {
+		a.Entry = entry
+		a.Admin = &ToolApproval{Setting: adminOnly.Setting, Source: adminOnly.Source}
+		return a
+	}
+	if admin.Setting == ApprovalSettingBlock {
+		return explained(admin)
+	}
+	agent := settingOf(setting)
+	switch {
+	case agent == ApprovalSettingBlock:
+		return explained(ToolApproval{Setting: ApprovalSettingBlock, Source: ApprovalSourceAgent, New: admin.New})
+	case agent == ApprovalSettingAllow && granted && admin.Setting == ApprovalSettingAsk &&
+		(admin.Source == ApprovalSourceTool || admin.Source == ApprovalSourceConnector):
+		return explained(ToolApproval{Setting: ApprovalSettingAllow, Source: ApprovalSourceAgentException, New: admin.New})
+	case approvalRank(agent) > approvalRank(admin.Setting):
+		return explained(ToolApproval{Setting: agent, Source: ApprovalSourceAgent, New: admin.New, Unavailable: admin.Unavailable})
+	}
+	return explained(admin)
+}
+
+type agentApprovalKey struct{}
+
+// WithAgentApproval returns ctx carrying an agent's approval settings.
+func WithAgentApproval(ctx context.Context, a *AgentApproval) context.Context {
+	if a == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, agentApprovalKey{}, a)
+}
+
+// AgentApprovalFromContext returns the agent's approval settings the request
+// carries, nil without.
+func AgentApprovalFromContext(ctx context.Context) *AgentApproval {
+	a, _ := ctx.Value(agentApprovalKey{}).(*AgentApproval)
+	return a
+}
+
+// WithoutReportingApproval returns ctx without settings that were passed for
+// reporting only, so they never decide a call.
+func WithoutReportingApproval(ctx context.Context) context.Context {
+	if a := AgentApprovalFromContext(ctx); a != nil && a.Reporting {
+		return context.WithValue(ctx, agentApprovalKey{}, (*AgentApproval)(nil))
+	}
+	return ctx
+}
+
+// ReportingAsAgent reports whether a listing reports for an agent's settings
+// passed to it (filter_tools agentTools): floors and governance are then
+// reported as for an agent caller.
+func ReportingAsAgent(ctx context.Context) bool {
+	a := AgentApprovalFromContext(ctx)
+	return a != nil && a.Reporting
+}
+
+// AgentOfContext returns the bound agent (<namespace>/<name>) of a request,
+// "" when it carries none or only reporting settings.
+func AgentOfContext(ctx context.Context) string {
+	a := AgentApprovalFromContext(ctx)
+	if a == nil || a.Reporting {
+		return ""
+	}
+	return a.Agent
+}
+
+// PresetSelector reports whether a toolset preset selects a target.
+type PresetSelector func(ctx context.Context, preset string, t AgentTarget) bool
+
+var presetSelector PresetSelector
+
+// RegisterPresetSelector registers how preset: entries are resolved (the
+// meta-tools adapter, which holds the presets).
+func RegisterPresetSelector(s PresetSelector) { presetSelector = s }
+
+// PresetSelects resolves a preset: entry; without a registered selector a
+// preset selects nothing.
+func PresetSelects(ctx context.Context, preset string, t AgentTarget) bool {
+	if presetSelector == nil {
+		return false
+	}
+	return presetSelector(ctx, preset, t)
+}
+
+// MaxAgentReasonRunes bounds the reason an agent gives with a call.
+const MaxAgentReasonRunes = 500
+
+type agentReasonKey struct{}
+
+// WithAgentReason returns ctx carrying the reason the caller gave with a
+// call (call_tool's reason argument).
+func WithAgentReason(ctx context.Context, reason string) context.Context {
+	if reason == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, agentReasonKey{}, reason)
+}
+
+// AgentReasonFromContext returns the reason the caller gave with the call.
+func AgentReasonFromContext(ctx context.Context) string {
+	reason, _ := ctx.Value(agentReasonKey{}).(string)
+	return reason
+}

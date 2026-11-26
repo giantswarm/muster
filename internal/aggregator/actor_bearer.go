@@ -107,6 +107,9 @@ func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Hand
 		// The binding's toolset bounds the request whatever header it sends:
 		// the header can narrow it and never widen it.
 		ctx = toolset.ContextWithBound(ctx, caller.Toolset)
+		// The agent's approval settings decide with the connectors'
+		// settings on every listing and call of the Session.
+		ctx = api.WithAgentApproval(ctx, caller.Approval)
 		// A sign-in link the request is answered with completes only for
 		// the person who bound the actor.
 		if caller.SignIn != (api.SignInIdentity{}) {
