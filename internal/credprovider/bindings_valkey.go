@@ -228,12 +228,13 @@ func (s *ValkeyStore) Touch(ctx context.Context, actor, agent string, ttl time.D
 	if err != nil {
 		return fmt.Errorf("touch binding: %w", err)
 	}
+	// The seal only exists for a binding a sender wrote, whether or not it
+	// names an agent; PEXPIRE of a missing key changes nothing. The memory
+	// store refreshes it on the same terms.
+	if err := s.client.Do(ctx, s.client.B().Pexpire().Key(s.sealKey(actor)).Milliseconds((sealFactor * ttl).Milliseconds()).Build()).Error(); err != nil {
+		return fmt.Errorf("touch binding: %w", err)
+	}
 	if agent != "" {
-		// Only a sender writes an agent, so the binding has a seal to
-		// keep ahead of it.
-		if err := s.client.Do(ctx, s.client.B().Pexpire().Key(s.sealKey(actor)).Milliseconds((sealFactor * ttl).Milliseconds()).Build()).Error(); err != nil {
-			return fmt.Errorf("touch binding: %w", err)
-		}
 		if err := s.index(ctx, agent, actor, ttl); err != nil {
 			return fmt.Errorf("touch binding: %w", err)
 		}

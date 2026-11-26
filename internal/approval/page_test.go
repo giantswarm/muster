@@ -449,3 +449,11 @@ func TestVisible_StackedCombiningMarks(t *testing.T) {
 	assert.Equal(t, "a\u0301b\u0301", Visible("a\u0301b\u0301"), "the count starts again on every base")
 	assert.Equal(t, "x\u20dd\u20dd⟨U+20DD⟩", Visible("x\u20dd\u20dd\u20dd"), "enclosing marks count too")
 }
+
+// The requester's name can come from the identity provider's own claim, so
+// a hidden or bidirectional character in it is shown as a marker, like any
+// other text the page prints.
+func TestPage_RequesterNameIsMadeVisible(t *testing.T) {
+	request := &api.ApprovalRequest{Identity: alice, RequesterName: "alice\u202Eevil"}
+	assert.Equal(t, "alice⟨U+202E⟩evil", requester(request))
+}
