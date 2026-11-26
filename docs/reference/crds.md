@@ -158,9 +158,9 @@ the MCP server as its own workload and register it with `streamable-http` or
 | `auth` | `MCPServerAuth` | No | Authentication configuration | Only for streamable-http and sse servers |
 | `suspended` | `boolean` | No | Desired lifecycle state: `true` stops the server's service and keeps it stopped; setting it back to `false` resumes it | Default: `false` |
 | `restartRequestedAt` | `timestamp` | No | Requests a one-shot restart; processed by the reconciler's first attempt, whatever its outcome, which mirrors the value into `status.lastRestartedAt`. A failed attempt is not repeated by the reconciler: the service retries on its reconnect backoff (`status.nextRetryAfter`) | RFC 3339 timestamp |
-| `approval` | `MCPServerApproval` | No | Per tool of this server: `Allow` (runs), `Ask` (a person confirms the exact call first) or `Block` (hidden and refused). Unset, every tool is `Allow` and reported as not reviewed. See [Tool approval](../how-to/mcp-server-management.md#tool-approval) | No default. Only `Block` is enforced in this release; `Ask` is reported, not yet asked |
-| `approval.rule` | `string` | No | What a tool without its own entry in `approval.tools` gets, a tool the server adds later included; `Block` hides and refuses them like a tool's own `Block`. Unset, such a tool is `Allow` | `Allow`, `Ask` or `Block` |
-| `approval.tools` | `map[string]string` | No | The server's own tool name (without `toolPrefix`, the family name or muster's `x_` prefix) to its setting; an entry wins over `approval.rule` | Values `Allow`, `Ask` or `Block`, case-sensitive; max 512 entries |
+| `approval` | `MCPServerApproval` | No | Per tool of this server: `Allow` (runs), `Ask` (a person confirms the exact call first) or `Block` (hidden and refused). Unset, every tool is `Allow`, reported as not reviewed. See [Tool approval](../how-to/mcp-server-management.md#tool-approval) | No default |
+| `approval.rule` | `string` | No | What a tool without its own entry gets, tools added later included. Unset: `Allow` | `Allow`, `Ask` or `Block` |
+| `approval.tools` | `map[string]string` | No | The server's own tool name (no `toolPrefix`, family or `x_` prefix) to its setting; wins over `approval.rule` | Values `Allow`, `Ask` or `Block`, case-sensitive; max 512 entries |
 
 #### MCPServerHeaderFrom Fields
 

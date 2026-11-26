@@ -122,46 +122,29 @@ filter_tools(pattern="x_slack_*")   # tools: [], servers_requiring_auth: [{"name
 
 #### Tool approval
 
-`list_tools`, `filter_tools` and `describe_tool` report each tool's effective approval for the
-caller as `approval`, from its server's `spec.approval`
+`list_tools`, `filter_tools` and `describe_tool` report each tool's effective approval for
+the caller as `approval`, from its server's `spec.approval`
 ([Tool approval](../how-to/mcp-server-management.md#tool-approval)):
 
-- `setting`: `allow`, `ask` or `block`. A `block` tool is never listed or described and
-  `call_tool` refuses it as `tool not found`; a family tool drops the members that block it
-  from its instance argument.
-- `source`: `tool` (the tool's own entry), `connector` (the server's rule), `unreviewed` (a
-  server without approval settings, or a core tool: `allow`), `builtin` (muster's own
-  configuration tools, `core_config_update_aggregator`, `core_config_save` and
-  `core_config_reload`, which always ask; and, for an agent caller, a floor), `governance`
-  (for an agent caller on a governed platform: a governed server's tool outside its safe
-  list, or a core tool that is not a read) or `unavailable` (the settings could not be read,
-  the server's MCPServer is missing, or the CRD does not know `spec.approval`: reported as
-  `ask`, and a call is refused). While the API server cannot be reached, the listing and a call
-  are both decided by the server's last observed settings, if not older than
-  `approval.lastObservedMaxAge`, else they are `unavailable`
-  ([Tool approval](../how-to/mcp-server-management.md#tool-approval)).
-- `new`: `true` for a tool without its own entry on a server that has settings; it follows
-  the rule.
-- `unavailable`: on a tool whose setting is `ask`, why muster cannot ask here (no shared store
-  on Valkey, or the store cannot be reached, no browser sign-in, no public URL, no person on
-  the request, a CRD without `spec.approval`); calls to it are refused until that is fixed.
-  Omitted when muster can ask.
+| Field | Meaning |
+|---|---|
+| `setting` | `allow`, `ask` or `block`. A `block` tool is never listed or described; `call_tool` refuses it as `tool not found`. A family tool drops the members that block it from its instance argument. |
+| `source` | `tool` (the tool's own entry), `connector` (the server's rule), `unreviewed` (no approval settings, or a core tool: `allow`), `builtin` (`core_config_update_aggregator`, `_save` and `_reload`, which always ask; for an agent caller, a floor), `governance` (agent caller on a governed platform: a tool outside the safe list, or a core tool that is not a read), `unavailable` (settings unreadable, MCPServer missing or CRD without `spec.approval`: reported `ask`, calls refused). During an API server outage listing and call use the last observed settings, else `unavailable`. |
+| `new` | `true` for a tool without its own entry on a server that has settings; it follows the rule. |
+| `unavailable` | On an `ask` tool, why muster cannot ask (no Valkey store, sign-in, public URL or person on the request, or a CRD without `spec.approval`); calls are refused until fixed. Omitted when muster can ask. |
 
-`allow` runs, `block` is refused as not found, and `ask` asks the person through muster's
-approval page ([When a call asks](../how-to/mcp-server-management.md#when-a-call-asks)).
-A client that declared `elicitation.url` at `initialize` (2025-11-25) and received the approval
-page as a `-32042` URL elicitation is sent `notifications/elicitation/complete` with its
-`elicitationId` when the request is decided, approved or declined (the notification carries
-no decision), whichever replica serves the decision; retry the call then. A workflow reports its strictest step (the steps of the workflows it calls included); a
-workflow run asks once, up front, when one of its steps asks. The report is evaluated for the
-caller: an agent sees the floors and, on a governed platform, the governed default.
-`filter_tools` also returns `governance: trusted|governed`, the platform's mode (never the
-governed servers or their safe lists); `core_mcpserver_list` returns it too.
+`ask` asks the person on muster's approval page ([When a call
+asks](../how-to/mcp-server-management.md#when-a-call-asks)). A client that got the page as a
+`-32042` URL elicitation (it declared `elicitation.url` at `initialize`, 2025-11-25) is sent
+`notifications/elicitation/complete` with its `elicitationId` when the request is decided,
+without the decision; retry the call then. A workflow reports its strictest step (called
+workflows included) and asks once, up front. The report is evaluated for the caller: an agent
+sees floors and, on a governed platform, the governed default. `filter_tools` and
+`core_mcpserver_list` also return `governance: trusted|governed`.
 
-A server tool also carries `connectorAdmin`: whether the caller may change its server's
-settings, that is may `update` MCPServers in the server's namespace (for a family tool, of
-every member). In Kubernetes mode muster asks the API server with a SelfSubjectAccessReview as
-the caller; in filesystem mode every caller is one.
+A server tool also carries `connectorAdmin`: whether the caller may `update` MCPServers in the
+server's namespace (for a family tool, of every member), checked with a SelfSubjectAccessReview
+as the caller; in filesystem mode every caller is one.
 
 ```json
 {"name": "x_github_merge_pull_request", "server": "github", "kind": "tool",
@@ -170,50 +153,40 @@ the caller; in filesystem mode every caller is one.
 
 #### An agent's approval settings
 
-An agent's tool list can carry `Allow`, `Ask` or `Block` per entry and a `default`
-(agent chart `tools` and `default`, written by agent-manager). agent-manager binds them to each
-Session it starts (`PUT /session-bindings` with `agent` and `approval`, taken only from an
-approval sender, [API](api.md)); every request of the Session resolves with them:
+An agent's tool list can carry `Allow`, `Ask` or `Block` per entry and a `default` (agent
+chart `tools` and `default`). agent-manager binds them to each Session it starts
+(`PUT /session-bindings`, accepted only from an approval sender, [API](api.md)). Every request
+of the Session resolves in this order:
 
-1. the connector's setting (the tool's entry, else the rule, else Allow, not reviewed);
-2. the agent's setting: the most specific entry selecting the tool, `tool:` before `workflow:`
-   before `server:` before `preset:`, the strictest of equally specific ones, else `default`.
-   `tool:` names the dispatch target, so any alias of the tool matches; for a family tool the
-   setting is resolved per member;
-3. the stricter of the two, except that an agent `Allow` over the connector's `Ask` (its tool
-   entry or rule) runs when the binding carries a **grant** for that entry, server and
-   MCPServer UID that names the tool (`tools`, the server's own names it covered when granted):
-   a connector admin allowed it through agent-manager's `set_agent_approval`. A tool that starts
-   asking later is not covered.
-   An `Allow` without a grant changes nothing; a connector's `Block` always holds;
-4. floors and the governed default on top: a grant never lifts them.
+1. The connector's setting (the tool's entry, else the rule, else `Allow`).
+2. The agent's setting: the most specific entry selecting the tool (`tool:` before
+   `workflow:` before `server:` before `preset:`; the strictest of equals), else `default`.
+   `tool:` matches any alias of the tool; a family tool resolves per member.
+3. The stricter of the two. Exception: an agent `Allow` over the connector's `Ask` runs when
+   the binding carries a **grant** for that entry, server and MCPServer UID naming the tool,
+   which a connector admin gives through agent-manager's `set_agent_approval`. A tool that
+   starts asking later is not covered; an `Allow` without a grant changes nothing; a
+   connector's `Block` always holds.
+4. Floors and the governed default on top; a grant never lifts them.
 
-An agent's `Block` hides the tool from that Session and `call_tool` refuses it as `tool not
-found`. `approval` then also carries `admin` (the connector's own setting, also where a floor or the
-governed default decides) and `entry` (the deciding entry, `default` for the default, when one
-decides), and `source` can be `agent` (the agent's entry is
-stricter) or `agent-exception` (a granted `Allow`).
+An agent's `Block` hides the tool from that Session. `approval` then also carries `admin` (the
+connector's own setting) and `entry` (the deciding entry), and `source` can be `agent` or
+`agent-exception` (a granted `Allow`, audited as `call_allowed_by_exception`).
 
-A request without bound settings (a Session agent-manager did not start) takes the agent's
-settings from `X-Muster-Tool-Approval: <selector>=<Setting>,...[,default=<Setting>]`, which the
-agent chart renders on the agent's RemoteMCPServer. It carries no grants, so it can only make
-tools stricter; a value muster cannot parse makes every tool ask. The header is asserted by the
-client: muster applies it when the agent's runtime sends it, and a runtime that leaves it out
-(or a process in the sandbox calling muster itself) runs without the agent's `Ask` and `Block`.
-Only the settings agent-manager binds to the Sessions it starts (`start_session`) are
-authoritative; there a binding written by agent-manager cannot be removed or replaced without
-it. A call that a grant let run is
-audited as `call_allowed_by_exception` with the grant mark.
+A request without bound settings (a Session agent-manager did not start) takes them from
+`X-Muster-Tool-Approval: <selector>=<Setting>,...[,default=<Setting>]`, rendered by the agent
+chart. It carries no grants, so it only makes tools stricter; an unparsable value makes every
+tool ask. The client asserts it: a runtime that omits it (or a process in the sandbox calling
+muster itself) runs without the agent's `Ask` and `Block`. Only the settings agent-manager
+binds are authoritative.
 
-`filter_tools` and `describe_tool` take `agentTools`, `{"tools": [<selector> | {<selector>:
-"Allow"|"Ask"|"Block"}], "default", "grants": [{"entry", "server", "uid", "tools"}]}`, to report
-what that agent would see. It never changes what runs, and agent callers are refused it. The
-`filter_tools` answer echoes `agentTools: {"entries", "settings"}`. Its selectors narrow the listing like `toolset`
-(passing both is refused); floors and governance are reported as for an agent caller; tools the
-agent's own entries block are listed with `{"setting": "block", "source": "agent"}` (a
-connector's `Block` stays hidden); and each server tool carries `connectors`, the MCPServers
-behind it (`{"server", "namespace", "name", "uid", "tool"}`, `tool` the server's own name),
-which agent-manager uses for its connector-admin check and grant records.
+`filter_tools` and `describe_tool` take `agentTools` (`{"tools": [<selector> |
+{<selector>: "Allow"|"Ask"|"Block"}], "default", "grants": [{"entry", "server", "uid",
+"tools"}]}`) to report what that agent would see. It changes nothing that runs and agent
+callers are refused it. Its selectors narrow the listing like `toolset` (both is refused);
+tools the agent's entries block are listed with `{"setting": "block", "source": "agent"}`; each
+server tool carries `connectors` (`{"server", "namespace", "name", "uid", "tool"}`) for
+agent-manager's connector-admin check and grant records.
 
 ```json
 {"name": "x_github_merge_pull_request", "server": "github", "kind": "tool",
@@ -262,7 +235,7 @@ A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked 
 | 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitation and its `elicitationId`, the same one for every call of that session answered with the same link. When the sign-in completes, on any replica, the session is sent `notifications/elicitation/complete` with that `elicitationId`; retry the call then. A retry before the sign-in completed gets the same error again: this protocol tells muster neither that the person accepted nor that they declined, so muster cannot hold the retry until the sign-in completes. |
 | Any other | The `auth_required` answer. |
 
-An agent's search is answered the same way: a `filter_tools` call made by an agent (actor JWT or delegated token) whose client declared `elicitation.url`, naming exactly one server that awaits the person's sign-in — its `pattern` lies under the server's tool prefix (`x_miro_*`), or its `query` or `description_filter` has the server's name as a word — is answered with that server's `auth_required` answer and so with the sign-in elicitation above, and lists nothing. The retry after the sign-in lists the server's tools. A search naming no such server, or several, a person's own client and a client without URL elicitation get the listing with `servers_requiring_auth`, as before. A grant the person already holds (`grantScope: subject`) connects the session instead, and the listing shows the server's tools.
+An agent's `filter_tools` search (actor JWT or delegated token, client declared `elicitation.url`) that names exactly one server awaiting sign-in (its `pattern` under the server's tool prefix such as `x_miro_*`, or its `query` or `description_filter` has the server's name as a word) is answered with that server's `auth_required` elicitation above and lists nothing; the retry after sign-in lists the server's tools. Any other search, a person's own client and a client without URL elicitation get the listing with `servers_requiring_auth`. A grant the person already holds (`grantScope: subject`) connects the session instead.
 
 Only the sign-in answers muster issues are elicited: a backend result that has the same shape is returned unchanged. A server muster connects with the person's muster sign-in (token forwarding, token exchange) has no link to open, and keeps the `auth_required` answer.
 

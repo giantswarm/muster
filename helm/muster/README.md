@@ -278,53 +278,40 @@ Pick the bindings' subjects to match how the instance is used:
 * **Single-team installs**, where every authenticated SSO user is trusted to
   register servers and author workflows, may bind `system:authenticated`.
 
-Whoever holds `mcpserver-editor` is a **connector admin**: they set a
-connector's tool approval (`spec.approval`) and may let an agent skip a tool's
-`Ask` (see [tool approval](../../docs/how-to/mcp-server-management.md#tool-approval); a platform
-built on muster may describe it further, for example the Giant Swarm Agent Platform's
-[Governing tool calls](https://docs.giantswarm.io/overview/agent-platform/governing-tool-calls/)).
-So `rbac.mcpServerEditor.subjects` binds **nobody by default**: the Role ships,
-its RoleBinding renders only for a non-empty list. Name the connector admins
-there (an admin group, or `system:authenticated` to keep the chart's earlier
-"everyone registers" default). **Upgrading** from a chart that bound
-`system:authenticated`: with `subjects` empty the render fails while the cluster
-still holds the old RoleBinding, naming its subjects; set `subjects`, or
-`rbac.mcpServerEditor.allowRemovingBinding: true` to drop it. `workflow-editor` still defaults to
-`system:authenticated`, and an empty `rbac.workflowEditor.subjects` **fails the
-render**: a RoleBinding bound to nobody looks enforced while granting nothing.
-To manage the grants entirely out of band, set
-`rbac.mcpServerEditor.create: false` / `rbac.workflowEditor.create: false` and
-bind the verbs yourself.
+Whoever holds `mcpserver-editor` is a **connector admin**: they set a connector's
+tool approval (`spec.approval`) and may let an agent skip a tool's `Ask` (see
+[tool approval](../../docs/how-to/mcp-server-management.md#tool-approval)).
+`rbac.mcpServerEditor.subjects` therefore binds **nobody by default**: the Role
+ships, the RoleBinding renders only for a non-empty list. Name the connector
+admins there (an admin group, or `system:authenticated` for the chart's earlier
+"everyone registers" behaviour).
 
-## Who may send approval settings (muster-approval-binder)
+- **Upgrading** from a chart that bound `system:authenticated`: with `subjects`
+  empty the render fails while the cluster still holds the old RoleBinding. Set
+  `subjects`, or `rbac.mcpServerEditor.allowRemovingBinding: true` to drop it.
+- `workflow-editor` still defaults to `system:authenticated`; an empty
+  `rbac.workflowEditor.subjects` fails the render.
+- To manage the grants out of band, set `rbac.mcpServerEditor.create: false` /
+  `rbac.workflowEditor.create: false` and bind the verbs yourself.
 
-A Session binding carries an agent's tool list. muster takes its per-entry
-settings, `default` and grant marks only from a sender whose projected
-ServiceAccount token (audience muster) passes a `TokenReview` and whose
-identity a `LocalSubjectAccessReview` allows verb `bind` on `toolapprovals` in
-group `muster.giantswarm.io` in muster's namespace (`muster.namespace`, default
-the release namespace). The chart ships that permission as the Role
-`muster-approval-binder` (`rbac.approvalBinder`) in that namespace, bound to
-nobody by default — the Agent Platform binds it to agent-manager's
-ServiceAccount, with a RoleBinding in muster's namespace — and grants muster's
-ServiceAccount `create` on `tokenreviews` (a ClusterRole named
-`<fullname>-<release namespace>-token-reviewer`: the API is cluster-scoped) and
-on `localsubjectaccessreviews` in muster's namespace only
-(`rbac.approvalBinder.reviews`, also for an external ServiceAccount). Bind only
-agent-manager's ServiceAccount: every subject bound is trusted to send an
-agent's settings and grant marks. `rbac.approvalBinder.subjects` binds the Role
-here instead.
+## Approval permissions (muster-approval-binder, muster-approval-decider)
 
-A trusted client (`approval.trustedClients`, the portal) decides a person's
-approvals and asks for sign-in handoff tickets with the person's bearer only
-together with its backend's own projected ServiceAccount token (audience
-muster, header `X-Muster-Approval-Client`), whose identity a `TokenReview` and
-a `LocalSubjectAccessReview` must allow verb `decide` on `toolapprovals` in
-muster's namespace. The chart ships that permission as the Role
-`muster-approval-decider` (`rbac.approvalDecider`), bound to nobody by default:
-the Agent Platform binds it to the portal's ServiceAccount. It uses the review
-rights above. Bind only the portal backend's ServiceAccount: with a person's
-portal token, every subject bound can approve that person's requests.
+Both Roles are bound to nobody by default, live in muster's namespace
+(`muster.namespace`, default the release namespace) and are checked by muster with
+a `TokenReview` of the caller's projected ServiceAccount token (audience `muster`)
+and a `LocalSubjectAccessReview`. The chart grants muster's ServiceAccount `create`
+on `localsubjectaccessreviews` in that namespace and on `tokenreviews` (a
+ClusterRole `<fullname>-<release namespace>-token-reviewer`, the API is
+cluster-scoped), controlled by `rbac.approvalBinder.reviews`.
+
+| Role | Verb on `toolapprovals` (group `muster.giantswarm.io`) | Allows | Bind |
+|---|---|---|---|
+| `muster-approval-binder` (`rbac.approvalBinder.subjects`) | `bind` | sending an agent's per-entry settings, `default` and grant marks with a Session binding | agent-manager's ServiceAccount only |
+| `muster-approval-decider` (`rbac.approvalDecider.subjects`) | `decide` | a trusted client (`approval.trustedClients`) deciding a person's approvals and requesting sign-in handoff tickets, with the person's bearer plus the `X-Muster-Approval-Client` token | the trusted client backend's ServiceAccount only (the portal) |
+
+Every subject bound to the binder is trusted to send grant marks, and every subject
+bound to the decider can approve for any person whose token it holds. Never bind a
+group "to make it work".
 
 ## Rolling on credential rotation
 

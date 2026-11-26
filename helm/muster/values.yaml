@@ -56,14 +56,12 @@ rbac:
   #
   # Whoever holds the Role is a connector admin: they edit every connector of
   # this namespace, set its tool approval (spec.approval) and may let an agent
-  # skip a tool's Ask (see muster's docs/how-to/mcp-server-management.md,
-  # "Tool approval").
-  # Everyone bound here also registers servers into a SHARED aggregator:
-  # other users see those servers and are routed through them.
+  # skip a tool's Ask (docs/how-to/mcp-server-management.md, "Tool approval").
+  # Everyone bound here also registers servers into a SHARED aggregator that
+  # other users are routed through.
   #
-  # The default binds nobody: the Role ships, the RoleBinding renders only
-  # for a non-empty `subjects`. Bind an admin group for admin-only
-  # registration, or group system:authenticated to deliberately let every
+  # The default binds nobody: the RoleBinding renders only for a non-empty
+  # `subjects`. Bind an admin group, or group system:authenticated to let every
   # authenticated user register MCP servers (the chart's earlier default).
   # Set create=false to manage the Role out of band too.
   mcpServerEditor:
@@ -72,11 +70,9 @@ rbac:
     # rbac.authorization.k8s.io/v1 subjects (Group, User, or ServiceAccount).
     # Empty (the default) renders no RoleBinding.
     #
-    # UPGRADE: charts before tool approval bound system:authenticated here by
-    # default. With subjects empty, an upgrade deletes that RoleBinding and
-    # nobody can register MCP servers as themselves; the render fails while
-    # the cluster still holds it (see allowRemovingBinding). To keep the old
-    # behaviour set:
+    # UPGRADE: charts before tool approval bound system:authenticated here.
+    # With subjects empty the render fails while the cluster still holds that
+    # RoleBinding (see allowRemovingBinding). To keep the old behaviour:
     #   subjects: [{kind: Group, apiGroup: rbac.authorization.k8s.io, name: system:authenticated}]
     # workflowEditor keeps binding system:authenticated by default.
     subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
@@ -84,49 +80,40 @@ rbac:
     # existing mcpserver-editor RoleBinding instead of failing the render.
     allowRemovingBinding: false
   # approvalBinder ships the Role muster-approval-binder: verb `bind` on
-  # `toolapprovals` in group muster.giantswarm.io, a permission on no real
-  # resource that says "may send approval settings with a Session binding".
-  # muster takes a binding's per-entry settings, `default` and grant marks
-  # only from a sender whose projected ServiceAccount token (audience muster)
-  # passes a TokenReview and whose identity a LocalSubjectAccessReview allows
-  # that verb in muster's namespace; so muster's ServiceAccount gets `create`
-  # on tokenreviews (a ClusterRole, the API is cluster-scoped) and on
-  # localsubjectaccessreviews in muster.namespace (rbac.approvalBinder.reviews;
-  # no cluster-wide system:auth-delegator). The Role, its RoleBinding and the
-  # review Role live in muster.namespace, where the review asks. The chart
-  # binds the Role to nobody: the platform
-  # binds it to agent-manager's ServiceAccount (agent-platform's connectivity
-  # chart); `subjects` binds it here instead. Granting it is Kubernetes RBAC
-  # in muster's namespace.
+  # `toolapprovals` (group muster.giantswarm.io), "may send approval settings
+  # with a Session binding". muster takes a binding's per-entry settings,
+  # `default` and grant marks only from a sender whose projected
+  # ServiceAccount token (audience muster) passes a TokenReview and whose
+  # identity a LocalSubjectAccessReview allows that verb in muster.namespace.
+  # So muster's ServiceAccount gets `create` on tokenreviews (ClusterRole) and
+  # on localsubjectaccessreviews in muster.namespace (`reviews`). Bound to
+  # nobody by default; the platform binds it to agent-manager's
+  # ServiceAccount, or use `subjects`.
   approvalBinder:
     create: true
     # reviews grants muster's ServiceAccount the two reviews above. Off, a
-    # bind that carries a sender token is answered 503 (the review errors).
+    # bind that carries a sender token is answered 503.
     reviews: true
-    # RoleBinding subjects granted muster-approval-binder. Empty (the
-    # default) renders no RoleBinding. Bind agent-manager's ServiceAccount
-    # and nothing else: muster trusts every subject bound here to send an
-    # agent's per-entry settings, `default` and grant marks, including the
-    # exceptions that let an agent skip a connector admin's Ask. Never bind
-    # a group "to make it work".
+    # RoleBinding subjects granted muster-approval-binder. Empty renders no
+    # RoleBinding. Bind agent-manager's ServiceAccount and nothing else: every
+    # subject bound is trusted to send grant marks that let an agent skip a
+    # connector admin's Ask. Never bind a group "to make it work".
     subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
   # approvalDecider ships the Role muster-approval-decider: verb `decide` on
-  # `toolapprovals` in group muster.giantswarm.io, a permission on no real
-  # resource that says "may decide a person's approvals with the person's
-  # bearer, and ask for sign-in handoff tickets". muster takes a trusted
-  # client's (approval.trustedClients) decision or ticket request only with
-  # the client backend's own projected ServiceAccount token (audience
-  # muster, header X-Muster-Approval-Client) beside the person's bearer, and
-  # only when its identity passes a TokenReview and a
-  # LocalSubjectAccessReview for that verb in muster's namespace (the review
-  # rights are rbac.approvalBinder.reviews). The chart binds the Role to
-  # nobody: the platform binds it to the portal's ServiceAccount.
+  # `toolapprovals` (group muster.giantswarm.io), "may decide a person's
+  # approvals with the person's bearer and request sign-in handoff tickets".
+  # muster takes a trusted client's (approval.trustedClients) decision or
+  # ticket request only with the client backend's projected ServiceAccount
+  # token (audience muster, header X-Muster-Approval-Client) beside the
+  # person's bearer, and only if its identity passes a TokenReview and a
+  # LocalSubjectAccessReview for that verb (reviews: approvalBinder.reviews).
+  # Bound to nobody by default; the platform binds it to the portal's
+  # ServiceAccount.
   approvalDecider:
     create: true
-    # RoleBinding subjects granted muster-approval-decider. Empty (the
-    # default) renders no RoleBinding. Bind the portal backend's
-    # ServiceAccount and nothing else: with a person's token of a trusted
-    # client, every subject bound here can approve that person's requests.
+    # RoleBinding subjects granted muster-approval-decider. Empty renders no
+    # RoleBinding. Bind the portal backend's ServiceAccount and nothing else:
+    # every subject bound can approve for any person whose token it holds.
     subjects: []  # @schema item: object ; itemProperties: {apiGroup: {type: string}, kind: {type: string}, name: {type: string}, namespace: {type: string}}
   # workflowEditor ships the default answer to "who may create and manage
   # workflows" under writes-as-caller: a namespaced Role granting
@@ -415,8 +402,9 @@ muster:
     # adds every Secret it mounts and the ingress TLS Secrets.
     protectedSecrets: []  # @schema item: string
 
-  # Governance configuration of tool approval, rendered verbatim into
-  # muster's config.yaml as `governance` and read once at start:
+  # Governance of tool approval, rendered verbatim into config.yaml as
+  # `governance` and read once at start (docs/how-to/mcp-server-management.md,
+  # "Governance and floors"):
   #   governance:
   #     mode: governed           # or trusted; any other value fails the render
   #     roleFloors:              # optional: floors added to the built-in ones
@@ -425,30 +413,17 @@ muster:
   #       - server: agent-manager            # server key
   #         role: agentManager               # which floors hold on it
   #         safe: [get_info, list_agents]    # tools agents call unasked
-  #       - server: example-manager
-  #         role: exampleManager             # declared in roleFloors
-  #         safe: [list_changes]
-  # On governed, an agent is asked before every tool of a governed server
-  # that is not on its safe list (a new or renamed tool too), and before
-  # every core tool but muster's reads; a role's floors ask agents in both
-  # modes. roleFloors (role -> tool names, default none) only adds floors and
-  # roles to muster's built-in ones. Without governance muster applies the
-  # governed default and refuses to agents the floor names of a role no
-  # governed server holds.
+  # Without governance, muster applies the governed default.
   governance: {}  # @schema additionalProperties: true
 
   # The approval round trip, rendered verbatim into config.yaml as `approval`:
-  # ttl (how long a pending approval lives, default "5m", at most "30m"),
-  # lastObservedMaxAge (how old a server's last observed approval settings may
-  # be and still decide a call while the API server cannot be reached, default
-  # "30m", at most "1h"; older, the call is refused as "approval settings
-  # unavailable"), installation (the name the approval page shows) and
-  # trustedClients (OAuth client ids muster trusts with a person's approvals:
-  # deciding them inline with the person's bearer and one-time sign-in handoff
-  # tickets; the portal's own client only, never one an agent or CLI signs in
-  # through; default none). handoffClients, its earlier name, is still read.
-  # Asking also needs
-  # oauth.server with storage.type valkey and oauth.mcpClient.publicUrl.
+  # ttl (pending approval lifetime, default "5m", max "30m"),
+  # lastObservedMaxAge (how old a server's last observed settings may be to
+  # decide a call during an API server outage, default "30m", max "1h"),
+  # installation (name shown on the approval page) and trustedClients (OAuth
+  # client ids trusted with a person's approvals; the portal's own client
+  # only; default none). Asking also needs oauth.server with storage.type
+  # valkey and oauth.mcpClient.publicUrl.
   approval: {}  # @schema additionalProperties: true
 
   # Toolset presets: named selections of the tool catalogue that an agent's
@@ -548,21 +523,18 @@ muster:
       # issuer's host (an in-cluster Service).
       allowPrivateIPJWKSHosts: []
     # The session bindings API (PUT/DELETE /session-bindings, PATCH
-    # /session-bindings/grants), which only agent-manager calls, on a port of
-    # its own: agent-manager's bindings URL is
-    # http://<muster service>.<namespace>.svc:<port>/session-bindings.
+    # /session-bindings/grants), called only by agent-manager, on a port of its
+    # own: http://<muster service>.<namespace>.svc:<port>/session-bindings.
     sessionBindings:
       # HTTP port of the session bindings API, on the Service as
       # `session-bindings`.
       port: 8091
       # Deprecated: also serve the API on the aggregator's port, where a
-      # network policy cannot tell it from /mcp. On by default so an upgrade
-      # keeps working; turn it off once agent-manager calls the port above
-      # (the agent-platform chart does).
+      # network policy cannot tell it from /mcp. Turn it off once
+      # agent-manager calls the port above.
       onMainPort: true
       # Who muster's network policy admits to the port: entries
-      # {namespace, podLabels}. Empty admits nobody through the policy (only
-      # without a network policy is the port reachable at all).
+      # {namespace, podLabels}. Empty admits nobody through the policy.
       # Example: [{namespace: agent-platform, podLabels: {app.kubernetes.io/name: agent-manager}}]
       allowedFrom: []
 

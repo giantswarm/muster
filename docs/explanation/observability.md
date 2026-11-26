@@ -146,119 +146,75 @@ last got) and `send_failed` (the caller's session could not take it).
 
 ### Approval metrics
 
-Tool approval ([Tool approval](../how-to/mcp-server-management.md#tool-approval))
-emits these instruments, at the points where it writes its `[AUDIT]` log events
-(`approval_requested`, `approval_used`, `approval_refused`, `call_refused`) and
-on the approval page (`approval_decision`). No label carries a person, a
-session, an approval id, a tool name or an argument; the values of every label
-are a small fixed set or the name of an MCPServer.
+[Tool approval](../how-to/mcp-server-management.md#tool-approval) emits these
+instruments where it writes its `[AUDIT]` events. No label carries a person,
+session, approval id, tool name or argument.
 
-| OTel name                          | Type                   | Attributes                                  | Prometheus export name                         |
-|------------------------------------|------------------------|---------------------------------------------|------------------------------------------------|
-| `muster.approval.requests`         | `Int64Counter`         | `mcpserver.name`, `caller_kind`, `source`   | `muster_approval_requests_total`               |
-| `muster.approval.decisions`        | `Int64Counter`         | `outcome`, `path` (decisions only)          | `muster_approval_decisions_total`              |
-| `muster.approval.refusals`         | `Int64Counter`         | `reason`, `caller_kind`, `path` (decisions) | `muster_approval_refusals_total`               |
-| `muster.approval.cap_hits`         | `Int64Counter`         | `scope`, `caller_kind`                      | `muster_approval_cap_hits_total`               |
-| `muster.approval.time_to_decision` | `Float64Histogram`/s   | `outcome`, `path`                           | `muster_approval_time_to_decision_seconds`     |
-| `muster.approval.handoffs`         | `Int64Counter`         | `outcome`, `page`, `reason`                 | `muster_approval_handoffs_total`               |
-| `muster.approval.completions`      | `Int64Counter`         | `outcome`                                   | `muster_approval_completions_total`            |
-| `muster.approval.pending`          | `Int64ObservableGauge` |                                             | `muster_approval_pending`                      |
-| `muster.approval.store_up`         | `Int64ObservableGauge` |                                             | `muster_approval_store_up`                     |
-| `muster.approval.last_observed_fallbacks` | `Int64Counter`  | `mcpserver.name`, `reason`                  | `muster_approval_last_observed_fallbacks_total` |
-| `muster.approval.settings_refusals` | `Int64Counter`        | `mcpserver.name`, `reason`                  | `muster_approval_settings_refusals_total`      |
+| OTel name | Type | Attributes | Prometheus name |
+|---|---|---|---|
+| `muster.approval.requests` | counter | `mcpserver.name`, `caller_kind`, `source` | `muster_approval_requests_total` |
+| `muster.approval.decisions` | counter | `outcome`, `path` | `muster_approval_decisions_total` |
+| `muster.approval.refusals` | counter | `reason`, `caller_kind`, `path` (decisions) | `muster_approval_refusals_total` |
+| `muster.approval.cap_hits` | counter | `scope`, `caller_kind` | `muster_approval_cap_hits_total` |
+| `muster.approval.time_to_decision` | histogram (s) | `outcome`, `path` | `muster_approval_time_to_decision_seconds` |
+| `muster.approval.handoffs` | counter | `outcome`, `page`, `reason` | `muster_approval_handoffs_total` |
+| `muster.approval.completions` | counter | `outcome` | `muster_approval_completions_total` |
+| `muster.approval.pending` | gauge | | `muster_approval_pending` |
+| `muster.approval.store_up` | gauge | | `muster_approval_store_up` |
+| `muster.approval.last_observed_fallbacks` | counter | `mcpserver.name`, `reason` | `muster_approval_last_observed_fallbacks_total` |
+| `muster.approval.settings_refusals` | counter | `mcpserver.name`, `reason` | `muster_approval_settings_refusals_total` |
 
-- **Asks** (`requests`): calls answered with an approval request. `mcpserver.name`
-  is the server called, or `core` or `workflow` for muster's own tools and
-  workflows. `caller_kind` is `person`, `actor` (an agent) or `delegated`.
-  `source` says what made the call ask: `connector` (the server's approval
-  settings), `agent` (the agent's), `governance` (a platform floor or the
-  governed default), `builtin` (muster's own tools), `tool`, `unreviewed`,
-  `unavailable`, `agent-exception` or `other`.
-- **Decisions**: `approved` and `declined` count the person's decision, with
-  `path` `page` (muster's approval page) or `api` (a trusted client deciding
-  inline with the person's bearer), `used` an approved call that ran (once), `expired` a request
-  nobody decided or used in time. A declined request retried by the caller is
-  not counted again.
-- **Refusals** by `reason`: `blocked` (the effective approval is Block),
-  `settings_unavailable` (the server's settings could not be read or resolved;
-  `settings_refusals` below says why), `unavailable` (muster cannot ask: no
-  Valkey store, no browser sign-in, no public URL, no identified person),
-  `store_unavailable` (the approval store did not answer), `cap_reached` (a cap
-  on pending approvals), `foreign` (another person tried to decide a request)
-  and `page_check` (the approval page refused a decision on its origin, cookie,
-  anti-forgery token or expired flow); a trusted client's decision is also
-  refused as `untrusted_client` (a client not on `approval.trustedClients`),
-  `untrusted_workload` (without the client backend's own ServiceAccount token,
-  or one not allowed to `decide`), `acting_party` (an agent's credential),
-  `changed` (the digest is not the request's), `not_found` (unknown, expired
-  from the store or used), `expired` (past its expiry), `bad_request` (an
-  unreadable decision) or `not_pending` (already decided). Refused
-  decisions carry `path` `page` or `api`. Every refusal fails closed.
-- **Cap hits**: `scope` is `person` (10 pending per person, across clients) or
-  `session` (3 pending per client). A cap hit is also a `cap_reached` refusal.
-- **Handoffs**: sign-in handoff tickets `issued` to a client on
-  `approval.trustedClients`, `redeemed` on muster's page, or `refused`;
-  `page` is `approval` or `sign_in` (`other` when the link named no page),
-  `reason` is `none` (issued, redeemed), `client` (a client not on the list),
-  `workload` (no or a refused workload token of the client), `acting_party`
-  (an agent's credential),
-  `target` (a link to no page muster hands off to, or a ticket shown to
-  another page), `foreign` (another person, or an unknown approval),
-  `invalid` (an unknown, expired or used ticket) or `unavailable` (the store).
-  A refused redemption falls back to muster's own sign-in.
-- **Time to decision**: seconds from the request to the decision, by `path`.
-- **Pending** and **expired** are per replica: each replica tracks the requests
-  it made and reconciles them with the store every 15 seconds, so the gauge
-  lags by that much and a request decided on another replica in the last
-  seconds before it expires can be counted `expired` here. Sum over replicas.
-  Only a request this replica made is counted.
-- **Store up**: 1 when the replica's last check of the approval store (a Valkey
-  `PING`, cached for 10 seconds) succeeded, 0 when it failed. The series is
-  absent while no store is registered, that is when muster's shared store is
-  not on Valkey; calls that ask are then refused with `reason="unavailable"`.
-- **Fallbacks** rise only during a Kubernetes API server outage (`reason` is
-  `api_server_unreachable`): the call was decided by the server's last observed
-  definition. `settings_refusals` counts the reads that had no usable fallback,
-  with `reason` `last_observed_too_old` (older than `approval.lastObservedMaxAge`),
-  `never_observed` or `throttled` (HTTP 429, not a fallback case). The same
-  reasons are in the warning log lines. Each such refusal is also a
-  `settings_unavailable` refusal.
+- **Requests**: calls answered with an approval request. `mcpserver.name` is the
+  server, or `core` or `workflow`. `caller_kind` is `person`, `actor` (agent) or
+  `delegated`. `source` is what made the call ask: `connector`, `agent`,
+  `governance`, `builtin`, `tool`, `unreviewed`, `unavailable`, `agent-exception`
+  or `other`.
+- **Decisions**: `approved`, `declined`, `used` (an approved call ran) and
+  `expired`; `path` is `page` or `api` (a trusted client deciding inline).
+- **Refusals**: `blocked`, `settings_unavailable` (see `settings_refusals`),
+  `unavailable` (no Valkey store, sign-in, public URL or identified person),
+  `store_unavailable`, `cap_reached`, `foreign`, `page_check`; for a trusted
+  client's decision also `untrusted_client`, `untrusted_workload`, `acting_party`,
+  `changed`, `not_found`, `expired`, `bad_request`, `not_pending`. Every refusal
+  fails closed.
+- **Cap hits**: `scope` is `person` (10 pending) or `session` (3 per client).
+- **Handoffs**: tickets `issued`, `redeemed` or `refused`; `page` is `approval`,
+  `sign_in` or `other`; `reason` is `none`, `client`, `workload`, `acting_party`,
+  `target`, `foreign`, `invalid` or `unavailable`. A refused redemption falls
+  back to muster's own sign-in.
+- **Pending** and **expired** are per replica (reconciled with the store every 15
+  seconds): sum over replicas.
+- **Store up**: 1 when the last Valkey `PING` (cached 10 seconds) succeeded; absent
+  while muster's shared store is not Valkey.
+- **Fallbacks** rise only during an API server outage (`api_server_unreachable`).
+  `settings_refusals` counts reads without a usable fallback: `last_observed_too_old`
+  (older than `approval.lastObservedMaxAge`), `never_observed`, `throttled`.
 
 #### Approval alerts
 
-With `muster.observability.metrics.prometheus.prometheusRule.enabled: true` the
-chart's PrometheusRule carries a second group, `muster-approval`:
+With `muster.observability.metrics.prometheus.prometheusRule.enabled: true`, the
+PrometheusRule carries a second group, `muster-approval`:
 
 | Alert | Fires when | For |
 |---|---|---|
-| `MusterApprovalUnavailable` | refusals with `reason` `unavailable`, `store_unavailable` or `settings_unavailable` keep coming: calls that ask cannot run, among them the calls refused once the last observed fallback ended | 10m |
+| `MusterApprovalUnavailable` | refusals `unavailable`, `store_unavailable` or `settings_unavailable` keep coming | 10m |
 | `MusterApprovalStoreDown` | a replica's `muster_approval_store_up` is 0 | 5m |
-| `MusterApprovalHighDeclineOrExpiryRatio` | more than half of the last hour's decided or expired requests were declined or expired, with at least 10 of them | 30m |
-| `MusterApprovalOutageFallbackInUse` | calls keep being decided by a server's last observed definition because the API server cannot be reached; the window stays well below `approval.lastObservedMaxAge` (30m by default), which ends the fallback | 10m |
+| `MusterApprovalHighDeclineOrExpiryRatio` | over half of the last hour's decided or expired requests were declined or expired (at least 10) | 30m |
+| `MusterApprovalOutageFallbackInUse` | calls keep being decided by a last observed definition (API server unreachable) | 10m |
 
-The alerts carry `severity: warning` and `topic: muster`, no team or routing
-labels and no runbook links: route them in your Alertmanager. They aggregate by
-`cluster_id`, `installation`, `pipeline`, `provider` and `namespace` (the
-labels the first group groups by, and `reason` where it is the alert's
-dimension), never by pod, so a muster rollout does not resolve and re-fire
-them, and one ruler evaluating several clusters keeps one alert per cluster. Unit tests with promtool are in
-`helm/muster/tests/promtool/` (run `helm/muster/tests/promtool/run.sh`).
+Alerts carry `severity: warning` and `topic: muster`, no team, routing or runbook
+labels: route them in your Alertmanager. Promtool tests:
+`helm/muster/tests/promtool/run.sh`.
 
-### Grafana dashboard
-
-The chart ships two ready-made dashboards built on these metrics, in one
-ConfigMap. `helm/muster/dashboards/muster.json` (uid `muster`): MCP server
-fleet state, per-server/per-tool usage and latency, aggregator boundary
-traffic, and workflow executions. `helm/muster/dashboards/muster-approval.json`
-(uid `muster-approval`, "Muster / Tool approval"): asks by source and by
-server, decisions by outcome, time to decision, refusals by reason, cap hits,
-pending requests, the approval store and the outage fallback. Enable them with
-`muster.observability.grafanaDashboard.enabled: true` (off by default) and
-add the label your Grafana sidecar selects on through
-`muster.observability.grafanaDashboard.labels` (for the upstream sidecar,
-`grafana_dashboard: "1"`); the folder is `grafanaDashboard.folder`. On Giant
-Swarm clusters additionally set `grafanaDashboard.giantswarm.enabled: true`
-to have the observability platform pick it up.
+The chart ships two dashboards in one ConfigMap: `muster` (MCP server fleet state,
+per-server/per-tool usage and latency, aggregator boundary traffic, workflow
+executions) and `muster-approval` ("Muster / Tool approval": asks, decisions, time
+to decision, refusals, cap hits, pending, approval store, outage fallback). Enable
+with `muster.observability.grafanaDashboard.enabled: true` (off by default), set the
+label your Grafana sidecar selects on in `grafanaDashboard.labels` (upstream:
+`grafana_dashboard: "1"`) and optionally `grafanaDashboard.folder`. On Giant Swarm
+clusters additionally set `grafanaDashboard.giantswarm.enabled: true` to have the
+observability platform pick it up.
 
 ### Workflow execution metrics
 
