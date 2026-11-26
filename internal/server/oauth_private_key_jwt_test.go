@@ -20,8 +20,8 @@ import (
 func TestPrivateKeyJWTRegistrationToken(t *testing.T) {
 	server, err := NewOAuthHTTPServer(config.OAuthServerConfig{
 		Enabled: true, BaseURL: "https://muster.example.com", Provider: OAuthProviderGoogle,
-		Google:            config.GoogleConfig{ClientID: "muster", ClientSecret: "secret"},
-		RegistrationToken: "registration-test",
+		Google:             config.GoogleConfig{ClientID: "muster", ClientSecret: "secret"},
+		InitialAccessToken: "registration-test",
 	}, http.NotFoundHandler(), false)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.WithoutCancel(t.Context()))) })

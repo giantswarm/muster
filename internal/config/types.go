@@ -495,13 +495,18 @@ type OAuthServerConfig struct {
 	// Storage configuration for OAuth tokens and client registrations.
 	Storage OAuthStorageConfig `yaml:"storage,omitempty"`
 
-	// RegistrationToken is the token required for dynamic client registration.
-	// Required if AllowPublicClientRegistration is false.
-	// For production, use RegistrationTokenFile instead to avoid secrets in config files.
+	// InitialAccessToken authorizes dynamic client registration (RFC 7591).
+	InitialAccessToken string `yaml:"initialAccessToken,omitempty"`
+
+	// InitialAccessTokenFile contains the initial access token.
+	InitialAccessTokenFile string `yaml:"initialAccessTokenFile,omitempty"`
+
+	// RegistrationToken accepts the deprecated registrationToken key.
+	// Use InitialAccessToken instead.
 	RegistrationToken string `yaml:"registrationToken,omitempty"`
 
-	// RegistrationTokenFile is the path to a file containing the registration token.
-	// This is the recommended way to provide secrets in production deployments.
+	// RegistrationTokenFile accepts the deprecated registrationTokenFile key.
+	// Use InitialAccessTokenFile instead.
 	RegistrationTokenFile string `yaml:"registrationTokenFile,omitempty"`
 
 	// AllowPublicClientRegistration allows unauthenticated dynamic client registration.
@@ -526,7 +531,7 @@ type OAuthServerConfig struct {
 	TrustedPublicRegistrationSchemes []string `yaml:"trustedPublicRegistrationSchemes,omitempty"`
 
 	// TrustedPublicRegistrationRedirectURIs lists fully-qualified HTTPS redirect URIs
-	// allowed to register without a RegistrationAccessToken. Matching is exact after
+	// allowed to register without an InitialAccessToken. Matching is exact after
 	// RFC 3986 normalization. Enables SaaS MCP clients that cannot send a DCR token.
 	// Example: ["https://claude.ai/api/mcp/auth_callback"]
 	TrustedPublicRegistrationRedirectURIs []string `yaml:"trustedPublicRegistrationRedirectURIs,omitempty"`

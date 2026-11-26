@@ -1,0 +1,12 @@
+suite: Initial access token deprecation warning
+templates:
+  - templates/NOTES.txt
+set:
+  muster.oauth.server.registrationToken: legacy-secret
+tests:
+  - it: names the replacement without exposing the secret
+    asserts:
+      - matchRegexRaw:
+          pattern: 'DEPRECATED: muster.oauth.server.registrationToken is set; use muster.oauth.server.initialAccessToken'
+      - notMatchRegexRaw:
+          pattern: legacy-secret
