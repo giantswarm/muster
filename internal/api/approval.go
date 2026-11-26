@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
@@ -260,4 +261,25 @@ func ApprovalSchemaProblem(ctx context.Context) string {
 		return checker.ApprovalSchemaProblem(ctx)
 	}
 	return ""
+}
+
+// MCPServerLastObserved is the optional capability of an MCPServer manager
+// that remembers the last definition of each server it read from its
+// definition source (the reconciler's reads on every watch event and resync,
+// and every live read since). A server the source reported deleted is
+// forgotten.
+type MCPServerLastObserved interface {
+	// LastObservedMCPServer returns the last definition read of the server
+	// key names and when it was read; ok is false for a server never read,
+	// or one read as deleted since.
+	LastObservedMCPServer(key string) (info *MCPServerInfo, observedAt time.Time, ok bool)
+}
+
+// LastObservedMCPServer returns the registered manager's last observed
+// definition of a server; ok is false without a manager offering it.
+func LastObservedMCPServer(key string) (*MCPServerInfo, time.Time, bool) {
+	if observer, ok := GetMCPServerManager().(MCPServerLastObserved); ok {
+		return observer.LastObservedMCPServer(key)
+	}
+	return nil, time.Time{}, false
 }

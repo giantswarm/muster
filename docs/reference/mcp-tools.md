@@ -136,7 +136,9 @@ caller as `approval`, from its server's `spec.approval`
   (for an agent caller on a governed platform: a governed server's tool outside its safe
   list, or a core tool that is not a read) or `unavailable` (the settings could not be read,
   the server's MCPServer is missing, or the CRD does not know `spec.approval`: reported as
-  `ask`, and a call is refused).
+  `ask`, and a call is refused). While the API server cannot be reached, the listing reports
+  `unavailable`, but a call is decided by the server's last observed settings
+  ([Tool approval](../how-to/mcp-server-management.md#tool-approval)).
 - `new`: `true` for a tool without its own entry on a server that has settings; it follows
   the rule.
 - `unavailable`: on a tool whose setting is `ask`, why muster cannot ask here (no shared store

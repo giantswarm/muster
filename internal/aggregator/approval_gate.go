@@ -109,7 +109,9 @@ func (a *AggregatorServer) serverToolApproval(ctx context.Context, server, origi
 // connectorInfo reads one server's definition; nil without a manager. A
 // server the manager does not find is an error: its registry entry outlived
 // its object (deleted, or no longer served), and its settings, Block
-// included, cannot be known, so it must not resolve to Allow.
+// included, cannot be known, so it must not resolve to Allow. While the API
+// server cannot be reached, the server's last observed definition decides
+// (approval_last_observed.go); without one the read's error stands.
 func connectorInfo(ctx context.Context, serverKey string) (*api.MCPServerInfo, error) {
 	manager := api.GetMCPServerManager()
 	if manager == nil {
@@ -119,6 +121,9 @@ func connectorInfo(ctx context.Context, serverKey string) (*api.MCPServerInfo, e
 	if err != nil {
 		if api.IsNotFound(err) {
 			return nil, fmt.Errorf("its MCPServer object cannot be found (deleted, or no longer served)")
+		}
+		if last := lastObservedWhileUnreachable(ctx, serverKey, err); last != nil {
+			return last, nil
 		}
 		return nil, err
 	}

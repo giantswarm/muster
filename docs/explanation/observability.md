@@ -144,6 +144,17 @@ It counts the `notifications/progress` downstream servers sent, by
 carries the token), `not_increasing` (not above the progress the caller
 last got) and `send_failed` (the caller's session could not take it).
 
+### Approval fallback metrics
+
+| OTel name                                 | Type           | Attributes       | Prometheus export name                           |
+|-------------------------------------------|----------------|------------------|--------------------------------------------------|
+| `muster.approval.last_observed_fallbacks` | `Int64Counter` | `mcpserver.name` | `muster_approval_last_observed_fallbacks_total`  |
+
+It counts the tool calls whose approval settings came from the server's
+last observed definition because the API server could not be reached
+([Tool approval](../how-to/mcp-server-management.md#tool-approval)). It
+rises only during an API server outage.
+
 ### Grafana dashboard
 
 The chart ships a ready-made dashboard built on these metrics

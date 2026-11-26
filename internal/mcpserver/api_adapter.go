@@ -245,6 +245,10 @@ type Adapter struct {
 	// approvalSchema remembers whether the API server's MCPServer CRD knows
 	// spec.approval (approval_schema.go).
 	approvalSchema approvalSchemaCache
+
+	// observed remembers the last definition read of each server
+	// (last_observed.go).
+	observed observedServers
 }
 
 // mcpServerWriter is the write surface the mutation handlers go through. The
@@ -498,12 +502,14 @@ func (a *Adapter) GetMCPServer(ctx context.Context, key string) (*api.MCPServerI
 	server, err := a.getServed(ctx, key)
 	if err != nil {
 		if api.IsNotFound(err) {
+			a.observed.forget(key)
 			return nil, err
 		}
 		return nil, fmt.Errorf("failed to get MCPServer %s: %w", key, err)
 	}
 
 	info := a.toInfo(server)
+	a.observed.record(key, info)
 	return &info, nil
 }
 
