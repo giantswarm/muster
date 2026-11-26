@@ -124,6 +124,12 @@ Get one tool's full description, input schema, origin and annotations, and the c
               "server": {
                 "type": "string"
               },
+              "tools": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
               "uid": {
                 "type": "string"
               }
@@ -275,6 +281,12 @@ A tool you cannot find may sit behind a sign-in: servers_requiring_auth names ea
               },
               "server": {
                 "type": "string"
+              },
+              "tools": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
               },
               "uid": {
                 "type": "string"

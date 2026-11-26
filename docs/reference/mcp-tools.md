@@ -176,7 +176,9 @@ approval sender, [API](api.md)); every request of the Session resolves with them
    setting is resolved per member;
 3. the stricter of the two, except that an agent `Allow` over the connector's `Ask` (its tool
    entry or rule) runs when the binding carries a **grant** for that entry, server and
-   MCPServer UID: a connector admin allowed it through agent-manager's `set_agent_approval`.
+   MCPServer UID that names the tool (`tools`, the server's own names it covered when granted):
+   a connector admin allowed it through agent-manager's `set_agent_approval`. A tool that starts
+   asking later is not covered.
    An `Allow` without a grant changes nothing; a connector's `Block` always holds;
 4. floors and the governed default on top: a grant never lifts them.
 
@@ -185,14 +187,21 @@ found`. `approval` then also carries `entry` (the deciding entry, `default` for 
 `admin` (the connector's own setting), and `source` can be `agent` (the agent's entry is
 stricter) or `agent-exception` (a granted `Allow`).
 
+A request without bound settings (a Session agent-manager did not start) takes the agent's
+settings from `X-Muster-Tool-Approval: <selector>=<Setting>,...[,default=<Setting>]`, which the
+agent chart renders on the agent's RemoteMCPServer. It carries no grants, so it can only make
+tools stricter; a value muster cannot parse makes every tool ask. A call that a grant let run is
+audited as `call_allowed_by_exception` with the grant mark.
+
 `filter_tools` and `describe_tool` take `agentTools`, `{"tools": [<selector> | {<selector>:
-"Allow"|"Ask"|"Block"}], "default", "grants": [{"entry", "server", "uid"}]}`, to report what that
-agent would see. It never changes what runs. Its selectors narrow the listing like `toolset`
+"Allow"|"Ask"|"Block"}], "default", "grants": [{"entry", "server", "uid", "tools"}]}`, to report
+what that agent would see. It never changes what runs, and agent callers are refused it. The
+`filter_tools` answer echoes `agentTools: {"entries", "settings"}`. Its selectors narrow the listing like `toolset`
 (passing both is refused); floors and governance are reported as for an agent caller; tools the
 agent's own entries block are listed with `{"setting": "block", "source": "agent"}` (a
 connector's `Block` stays hidden); and each server tool carries `connectors`, the MCPServers
-behind it (`{"server", "namespace", "name", "uid"}`), which agent-manager uses for its
-connector-admin check and grant records.
+behind it (`{"server", "namespace", "name", "uid", "tool"}`, `tool` the server's own name),
+which agent-manager uses for its connector-admin check and grant records.
 
 ```json
 {"name": "x_github_merge_pull_request", "server": "github", "kind": "tool",
