@@ -28,7 +28,7 @@ func TestChartBuiltinRoleFloorsMatch(t *testing.T) {
 		if !ok {
 			t.Fatalf("the chart does not know the built-in role %s", role)
 		}
-		if !slices.Equal(got, builtinRoleFloors[role]) && !(len(got) == 0 && len(builtinRoleFloors[role]) == 0) {
+		if !slices.Equal(got, builtinRoleFloors[role]) && (len(got) != 0 || len(builtinRoleFloors[role]) != 0) {
 			t.Fatalf("role %s: chart floors %v, muster's %v", role, got, builtinRoleFloors[role])
 		}
 	}
