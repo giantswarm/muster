@@ -43,6 +43,9 @@
 // transport, because the body has to be rewritten before it is signed. See
 // meta_transport.go.
 //
+// A tool call relays negotiated application extension metadata to its
+// backend without interpreting the payload or settings. See caller_meta.go.
+//
 // # Configuration Structure
 //
 // MCP servers are defined using the MCPServer CRD or YAML configuration files. Each server

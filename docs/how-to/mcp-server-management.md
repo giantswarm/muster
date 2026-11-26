@@ -513,9 +513,11 @@ Rules:
   (OpenTelemetry).
 - Everyone who can read the MCPServer can read these values, so they hold no
   secret.
-- muster does not forward a caller's `_meta` to the backend, so an entry here
-  applies to every call. It never replaces a key muster has already set on the
-  request.
+- muster relays negotiated application extension metadata (see
+  [Extension metadata](#extension-metadata)), so an entry here applies to every
+  call. It never replaces a key already set on the request (`progressToken`,
+  the protocol's own `io.modelcontextprotocol/` keys, and relayed extension
+  entries).
 - A request without `params` is left untouched. `initialize` does carry
   `params`, so the handshake gets the entries as well.
 - `type: stdio` rejects the field. A stdio server speaks over a pipe, so no HTTP
@@ -524,6 +526,48 @@ Rules:
 - `meta` is the former name of `requestMeta` and is still read. muster writes
   it as `requestMeta` when it creates or updates a server, and refuses a
   definition that sets both. It will be removed in a later release.
+
+## Extension metadata
+
+muster relays application extension data in a tool call's
+`params._meta[<extension-id>]` when the caller and the destination backend both
+declare that identifier in `capabilities.extensions`. For example, a caller
+and backend declaring `com.example/context` can exchange an opaque value at
+`_meta["com.example/context"]`. There is no forwarding configuration or policy
+allowlist.
+
+Payloads and settings remain opaque. muster does not interpret nested fields,
+merge payloads, filter nested keys, or implement extension-specific methods.
+The backend validates the data. A backend declaring an identifier can receive
+that identifier's complete value on calls routed to it. Declarations describe
+protocol support, not authorization to receive confidential information.
+
+- Extension identifiers follow MCP's qualified `_meta` naming rules. The
+  MCP-reserved namespaces and hop-owned progress/protocol fields are excluded.
+  Declarations must contain a settings object; `capabilities.experimental` is
+  not used.
+- On MCP 2026-07-28, client extension declarations travel with each tool call.
+  On MCP 2025-11-25, muster learns the backend's application extension IDs and
+  establishes a fresh connection declaring them with empty client settings.
+  A legacy stdio server declaring extensions is therefore started twice.
+  Extensions requiring particular client settings or custom RPC routing need
+  their own implementation.
+- The upstream capability view contains the extensions of visible, connected
+  backends. Identical settings are preserved. When two backends declare
+  different settings for the same identifier, muster advertises `{}` without
+  assigning a meaning to their fields. An extension requiring a setting may
+  consequently be unavailable through that combined view.
+- Initial discovery waits for an active session bootstrap when the client
+  declares application extensions. Other clients are answered without waiting
+  for the session's backends to connect. A backend added or
+  signed into later appears on the client's next `initialize` or
+  `server/discover`.
+- Workflow steps receive the initiating call's metadata, with the same
+  destination declaration check. A request without metadata inherits no values.
+  Prompts, resources, lists and discovery do not carry these request values.
+- Existing outbound metadata takes precedence. Values must not contain
+  credentials. HTTP authorization stays in each hop's `Authorization` header;
+  stdio credentials come from its environment.
 
 ## Display name
 

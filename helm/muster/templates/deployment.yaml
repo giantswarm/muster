@@ -111,6 +111,10 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 3
           env:
+            {{- if and .Values.muster.oauth.server.enabled (or .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.initialAccessToken .Values.muster.oauth.server.registrationToken) }}
+            - name: OAUTH_INITIAL_ACCESS_TOKEN_FILE
+              value: /etc/muster/secrets/registration-token
+            {{- end }}
             - name: K8S_NAMESPACE
               valueFrom:
                 fieldRef:
@@ -214,6 +218,7 @@ spec:
         {{- if .Values.muster.oauth.server.enabled }}
         - name: oauth-secrets
           projected:
+            defaultMode: 0440
             sources:
               # OAuth credentials (dex-client-secret, oauth-encryption-key, registration-token)
               - secret:

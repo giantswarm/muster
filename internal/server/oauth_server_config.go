@@ -61,8 +61,13 @@ func parseOAuthTokenLifetimes(cfg config.OAuthServerConfig) (oauthTokenLifetimes
 }
 
 // newOAuthServerConfig maps the muster OAuth config onto the mcp-oauth Config.
-// Pure mapper: no I/O, no goroutines.
 func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLifetimes) *oauthserver.Config {
+	if cfg.RegistrationToken != "" {
+		slog.Warn("DEPRECATED: registrationToken is set; use initialAccessToken", "replacement", "initialAccessToken")
+		if cfg.InitialAccessToken == "" {
+			cfg.InitialAccessToken = cfg.RegistrationToken
+		}
+	}
 	result := &oauthserver.Config{
 		Issuer:                                cfg.BaseURL,
 		ResourceIdentifier:                    cfg.ResourceIdentifier,
@@ -73,7 +78,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		RequirePKCE:                           true,
 		AllowPKCEPlain:                        false,
 		AllowPublicClientRegistration:         cfg.AllowPublicClientRegistration,
-		RegistrationAccessToken:               cfg.RegistrationToken,
+		InitialAccessToken:                    cfg.InitialAccessToken,
 		EnableClientManagementEndpoint:        cfg.EnableClientManagementEndpoint,
 		MaxClientsPerIP:                       DefaultMaxClientsPerIP,
 		EnableClientIDMetadataDocuments:       cfg.EnableCIMD,

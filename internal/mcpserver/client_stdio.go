@@ -42,6 +42,10 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 	if c.connected {
 		return nil
 	}
+	return c.connectLocked(ctx)
+}
+
+func (c *StdioClient) connectLocked(ctx context.Context) error {
 
 	// Environment values are where stdio servers get their API keys: log names only.
 	logging.Debug("StdioClient", "Creating stdio client for command: %s %v with env: %s", c.command, c.args, logging.KeyNames(c.env))
@@ -82,10 +86,14 @@ func (c *StdioClient) Initialize(ctx context.Context) error {
 
 	logging.Debug("StdioClient", "MCP protocol initialized successfully for %s", c.command)
 
+	if c.fellBackToLegacy(initResult) && len(c.declaredExtensions) > 0 {
+		_ = mcpClient.Close()
+		return c.connectLocked(ctx)
+	}
+
 	c.client = mcpClient
 	c.connected = true
 	c.recordHandshake(initResult)
-	c.fellBackToLegacy(initResult)
 	c.wireNotificationHandler()
 	c.startListChangedStream(mcpClient, c.command)
 

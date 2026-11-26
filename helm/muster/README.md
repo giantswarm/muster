@@ -156,7 +156,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.storage.valkey.existingSecret | string | `""` |  |
 | muster.oauth.server.storage.valkey.existingSecretChecksum | string | `""` |  |
 | muster.oauth.server.storage.valkey.secretKeyPassword | string | `"valkey-password"` |  |
-| muster.oauth.server.registrationToken | string | `""` | ------------------------------------------------------------------------- Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production so the value never appears in Helm release history. |
+| muster.oauth.server.initialAccessToken | string | `""` | Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production so the value never appears in Helm release history. |
+| muster.oauth.server.registrationToken | string | `""` | Deprecated: use initialAccessToken. The new key wins when both are set. |
 | muster.oauth.server.allowPublicClientRegistration | bool | `false` |  |
 | muster.oauth.server.enableClientManagementEndpoint | bool | `false` |  |
 | muster.oauth.server.encryptionKey | bool | `false` |  |
