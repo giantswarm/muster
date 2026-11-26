@@ -437,7 +437,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "governance:\n      governedServers:\n      - role: agentManager\n        safe:\n        - list_agents\n        server: agent-manager\n      mode: governed"
+          pattern: "governance:\n  governedServers:\n  - role: agentManager\n    safe:\n    - list_agents\n    server: agent-manager\n  mode: governed"
 
   - it: fails on a governance mode muster does not know
     set:
@@ -446,7 +446,7 @@ tests:
       - failedTemplate:
           errorMessage: 'muster.governance.mode must be trusted or governed, not "Governed" (muster would apply the governed default)'
 
-  - it: fails on both governance shapes at once
+  - it: fails on the removed governance servers shape, alone or beside governedServers
     set:
       muster.governance:
         mode: governed
@@ -454,7 +454,7 @@ tests:
         governedServers: [{server: b}]
     asserts:
       - failedTemplate:
-          errorMessage: "muster.governance: set governedServers or the earlier servers.<role> lists, not both"
+          errorMessage: "muster.governance.servers is no longer read: name each server in muster.governance.governedServers ({server, role, safe}) and declare roles muster does not build in with muster.governance.roleFloors"
 
   - it: fails on an approval ttl that is no duration in s or m
     set:
