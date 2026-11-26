@@ -25,6 +25,7 @@ const (
 	attrReason     = "reason"
 	attrScope      = "scope"
 	attrPage       = "page"
+	attrPath       = "path"
 )
 
 // Outcomes of a sign-in handoff, the values of the outcome attribute of
@@ -41,7 +42,7 @@ const (
 	// HandoffReasonNone is an issued or redeemed handoff.
 	HandoffReasonNone = "none"
 	// HandoffReasonClient is a request from an OAuth client that is not on
-	// approval.handoffClients (or a bearer naming no client).
+	// approval.trustedClients (or a bearer naming no client).
 	HandoffReasonClient = "client"
 	// HandoffReasonTarget is a link that is no page muster hands off to, or
 	// a ticket redeemed on another page than it is bound to.
@@ -89,15 +90,27 @@ const (
 	// ReasonPageCheck is a decision the approval page refused on a check
 	// (origin, cookie, anti-forgery token, expired browser flow).
 	ReasonPageCheck = "page_check"
+	// ReasonUntrustedClient is a decision posted by a bearer of an OAuth
+	// client not on approval.trustedClients.
+	ReasonUntrustedClient = "untrusted_client"
+	// ReasonActingParty is a decision posted with an agent's credential
+	// (actor JWT, delegated token, a token naming an acting party).
+	ReasonActingParty = "acting_party"
+	// ReasonChanged is a decision whose digest is not the request's: the
+	// client showed something else.
+	ReasonChanged = "changed"
+	// ReasonNotPending is a decision on a request that is unknown, expired,
+	// used or already decided, or an unreadable decision.
+	ReasonNotPending = "not_pending"
 )
 
 // Metrics holds the instruments of approval:
 //
 //	muster_approval_requests_total{mcpserver_name,caller_kind,source}
-//	muster_approval_decisions_total{outcome}
-//	muster_approval_refusals_total{reason,caller_kind}
+//	muster_approval_decisions_total{outcome[,path]}
+//	muster_approval_refusals_total{reason,caller_kind[,path]}
 //	muster_approval_cap_hits_total{scope,caller_kind}
-//	muster_approval_time_to_decision_seconds{outcome}
+//	muster_approval_time_to_decision_seconds{outcome,path}
 //	muster_approval_handoffs_total{outcome,page,reason}
 //	muster_approval_completions_total{outcome}
 //	muster_approval_pending
@@ -128,8 +141,8 @@ func NewMetrics(mp metric.MeterProvider, storeUp func(context.Context) (up, regi
 		return c
 	}
 	m.requests = counter("muster.approval.requests", "Calls answered with an approval request, by the server called, the caller kind and what made the call ask (source: connector, agent, governance, builtin, ...).", "{request}")
-	m.decisions = counter("muster.approval.decisions", "Approval outcomes: approved or declined on the approval page, used (an approved call ran once), expired (a request nobody decided or used in time).", "{decision}")
-	m.refusals = counter("muster.approval.refusals", "Calls and decisions refused by the approval gate, by reason (blocked, settings_unavailable, unavailable, store_unavailable, cap_reached, foreign, page_check).", "{refusal}")
+	m.decisions = counter("muster.approval.decisions", "Approval outcomes: approved or declined (path page: on the approval page, api: by a trusted client), used (an approved call ran once), expired (a request nobody decided or used in time).", "{decision}")
+	m.refusals = counter("muster.approval.refusals", "Calls and decisions refused by the approval gate, by reason (blocked, settings_unavailable, unavailable, store_unavailable, cap_reached, foreign, page_check, untrusted_client, acting_party, changed, not_pending); decisions refused carry path (page, api).", "{refusal}")
 	m.capHits = counter("muster.approval.cap_hits", "Calls refused by a cap on pending approvals: scope person (per person, across clients) or session (per client).", "{refusal}")
 	m.handoffs = counter("muster.approval.handoffs", "Sign-in handoffs: tickets issued to a trusted client, redeemed on muster's page, or refused (by reason: client, target, foreign, invalid, unavailable), by page (approval, sign_in).", "{handoff}")
 	m.completions = counter("muster.approval.completions", "Completion notices (elicitation/complete) shared between replicas, by outcome: published, publish_failed (the asked session may then not be told when it is on another replica), received (from another replica or this one), subscription_lost.", "{notice}")
@@ -217,11 +230,27 @@ func (m *Metrics) Decided(ctx context.Context, outcome string) {
 	m.decisions.Add(ctx, 1, metric.WithAttributes(attribute.String(attrOutcome, outcome)))
 }
 
-// TimeToDecision records how long a request waited for its decision.
-func (m *Metrics) TimeToDecision(ctx context.Context, outcome string, seconds float64) {
+// DecidedOn counts a decision (OutcomeApproved, OutcomeDeclined) by the path
+// it was taken on (PathPage, PathAPI).
+func (m *Metrics) DecidedOn(ctx context.Context, outcome, path string) {
+	m.decisions.Add(ctx, 1, metric.WithAttributes(attribute.String(attrOutcome, outcome), attribute.String(attrPath, path)))
+}
+
+// TimeToDecision records how long a request waited for its decision, by the
+// path it was taken on.
+func (m *Metrics) TimeToDecision(ctx context.Context, outcome, path string, seconds float64) {
 	if m.timeToDecision != nil {
-		m.timeToDecision.Record(ctx, max(seconds, 0), metric.WithAttributes(attribute.String(attrOutcome, outcome)))
+		m.timeToDecision.Record(ctx, max(seconds, 0), metric.WithAttributes(attribute.String(attrOutcome, outcome), attribute.String(attrPath, path)))
 	}
+}
+
+// DecisionRefused counts a refused decision by reason and the path it was
+// posted on (PathPage, PathAPI).
+func (m *Metrics) DecisionRefused(ctx context.Context, reason, callerKind, path string) {
+	m.refusals.Add(ctx, 1, metric.WithAttributes(
+		attribute.String(attrReason, reason),
+		attribute.String(attrCallerKind, CallerKindLabel(callerKind)),
+		attribute.String(attrPath, path)))
 }
 
 // Refused counts a refusal by reason (the Reason constants).

@@ -38,8 +38,9 @@ const (
 
 // Page serves the approval page: GET shows a request (after signing the
 // browser in to muster's identity provider), POST records the decision. No
-// GET changes a decision. Only muster's browser sign-in decides: a bearer or
-// actor token on the request is never read.
+// GET changes a decision. On the page only muster's browser sign-in decides:
+// a bearer or actor token on the request is never read by the page (a GET
+// with a bearer goes to the decision API, see Bearer and DecisionAPI).
 type Page struct {
 	// PublicURL is muster's public origin (https://muster.example.com); every
 	// link and the identity sign-in's return are built from it.
@@ -62,6 +63,10 @@ type Page struct {
 	// answered; nil: nothing. The aggregator uses it to send the asked
 	// client session notifications/elicitation/complete.
 	OnDecided func(*api.ApprovalRequest)
+	// Bearer serves a GET that carries an Authorization bearer: the decision
+	// API's view for a trusted client, behind the OAuth server's bearer
+	// check. nil: such a GET is served as the page, its bearer never read.
+	Bearer http.Handler
 }
 
 // Register mounts the page on mux.
@@ -158,6 +163,10 @@ func securityHeaders(w http.ResponseWriter, scriptNonce, returnOrigin string) {
 // handleView shows a request, after the browser signed in, or finishes that
 // sign-in when the identity provider sent the browser back with a code.
 func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
+	if p.Bearer != nil && HasBearer(r) {
+		p.Bearer.ServeHTTP(w, r)
+		return
+	}
 	id := r.PathValue("id")
 	store, identity := p.Store(), p.Identity()
 	if store == nil || identity == nil {
@@ -305,7 +314,7 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	// Every refusal of a decision answers the browser alike and logs which
 	// check refused it (no secrets): nothing was approved or declined.
 	refuse := func(reason, body string) {
-		DefaultMetrics().Refused(r.Context(), ReasonPageCheck, "")
+		DefaultMetrics().DecisionRefused(r.Context(), ReasonPageCheck, "", PathPage)
 		logging.WarnWithAttrs("Approval", "decision refused: nothing was decided",
 			slog.String("approval", logging.TruncateIdentifier(id)), slog.String("reason", reason))
 		p.renderMessage(w, http.StatusForbidden, "Nothing was decided", "Nothing was approved or declined: "+body)
@@ -350,7 +359,7 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	if flow.Identity == (api.SignInIdentity{}) || flow.Identity != request.Identity {
 		logging.WarnWithAttrs("Approval", "decision refused: the signed-in person is not the requester",
 			slog.String("approval", logging.TruncateIdentifier(id)))
-		DefaultMetrics().Refused(r.Context(), ReasonForeign, request.CallerKind)
+		DefaultMetrics().DecisionRefused(r.Context(), ReasonForeign, request.CallerKind, PathPage)
 		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: only the person who asked can decide", "Nothing was approved or declined. This request was made for someone else; only they can decide it.")
 		return
 	}
@@ -376,8 +385,8 @@ func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
 	}
 	// The flow stays until it expires: a repeated submit of the same form (a
 	// double click) reaches Decide, which answers with what stands.
-	auditDecision(r.Context(), request, approve, flow.Identity)
-	recordDecision(r.Context(), request, approve, p.now())
+	auditDecision(r.Context(), request, approve, flow.Identity, PathPage, "")
+	recordDecision(r.Context(), request, approve, p.now(), PathPage)
 	if p.OnDecided != nil {
 		p.OnDecided(request)
 	}
@@ -427,9 +436,10 @@ func (p *Page) renderStoreError(w http.ResponseWriter, err error) {
 }
 
 // auditDecision records who decided what, for whom, on which target. The
-// approver is the person signed in on the page; the request's own caller is
-// named as requester.
-func auditDecision(ctx context.Context, request *api.ApprovalRequest, approve bool, approver api.SignInIdentity) {
+// approver is the person signed in on the page, or the person whose bearer a
+// trusted client posted the decision with (path api, client named); the
+// request's own caller is named as requester.
+func auditDecision(ctx context.Context, request *api.ApprovalRequest, approve bool, approver api.SignInIdentity, path, client string) {
 	outcome := "declined"
 	if approve {
 		outcome = "approved"
@@ -447,17 +457,19 @@ func auditDecision(ctx context.Context, request *api.ApprovalRequest, approve bo
 		slog.String("target", request.Target.Name),
 		slog.String("argumentsHash", request.ArgumentsHash),
 		slog.String("setting", request.Display.Setting),
-		slog.String("source", request.Display.Source))
+		slog.String("source", request.Display.Source),
+		slog.String("path", path),
+		slog.String("client", client))
 }
 
 // recordDecision counts a decision and how long the request waited for it.
-func recordDecision(ctx context.Context, request *api.ApprovalRequest, approve bool, now time.Time) {
+func recordDecision(ctx context.Context, request *api.ApprovalRequest, approve bool, now time.Time, path string) {
 	outcome := OutcomeDeclined
 	if approve {
 		outcome = OutcomeApproved
 	}
 	m := DefaultMetrics()
-	m.Decided(ctx, outcome)
-	m.TimeToDecision(ctx, outcome, now.Sub(request.CreatedAt).Seconds())
+	m.DecidedOn(ctx, outcome, path)
+	m.TimeToDecision(ctx, outcome, path, now.Sub(request.CreatedAt).Seconds())
 	m.Pending().Done(request.ID)
 }

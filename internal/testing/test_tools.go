@@ -321,7 +321,8 @@ func IsTestTool(toolName string) bool {
 		TestToolAdvanceClock,
 		TestToolMeasureMetaTool,
 		TestToolValkeyFootprint,
-		TestToolDecideApproval:
+		TestToolDecideApproval,
+		TestToolApprovalAPI:
 		return true
 	}
 	return false
@@ -408,6 +409,8 @@ func (h *TestToolsHandler) HandleTestTool(ctx context.Context, toolName string, 
 		return h.handleStopValkey(ctx, args)
 	case TestToolDecideApproval:
 		return h.handleDecideApproval(ctx, args)
+	case TestToolApprovalAPI:
+		return h.handleApprovalAPI(ctx, args)
 	case TestToolStartValkey:
 		return h.handleStartValkey(ctx, args)
 	case TestToolSetAPIServerReachable:

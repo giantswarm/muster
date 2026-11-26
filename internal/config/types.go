@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/giantswarm/muster/v5/internal/toolset"
@@ -58,14 +59,33 @@ type ApprovalConfig struct {
 	LastObservedMaxAge string `yaml:"lastObservedMaxAge,omitempty"`
 	// Installation names the installation on the approval page.
 	Installation string `yaml:"installation,omitempty"`
-	// HandoffClients are the OAuth client ids (a token's azp, else its single
-	// audience) whose bearers may ask muster for sign-in handoff tickets
-	// (POST /handoff-tickets): the portal's own client. A ticket spares the
-	// person muster's browser sign-in on one approval page or connector
-	// sign-in start. Empty (the default): muster issues none. Never list a
-	// client an agent or a CLI signs in through: holding the person's bearer
-	// would then be enough to decide on the approval page.
+	// TrustedClients are the OAuth client ids (a token's azp, else its single
+	// audience) muster trusts to act on a person's approvals with the
+	// person's own bearer: ask for sign-in handoff tickets (POST
+	// /handoff-tickets) and show and decide the person's pending approvals
+	// inline (GET /approvals/{id} with a bearer, POST
+	// /approvals/{id}/decision). The portal's own client only. Empty (the
+	// default): muster trusts none, and approvals are decided on its page
+	// only. Never list a client an agent or a CLI signs in through: holding
+	// the person's bearer would then be enough to approve.
+	TrustedClients []string `yaml:"trustedClients,omitempty"`
+	// HandoffClients is the earlier name of TrustedClients, still read:
+	// its ids are trusted too.
+	//
+	// Deprecated: use TrustedClients.
 	HandoffClients []string `yaml:"handoffClients,omitempty"`
+}
+
+// TrustedClientIDs returns the trusted clients: trustedClients and the
+// deprecated handoffClients, each id once.
+func (c ApprovalConfig) TrustedClientIDs() []string {
+	var ids []string
+	for _, id := range append(append([]string{}, c.TrustedClients...), c.HandoffClients...) {
+		if id != "" && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // GovernanceConfig is muster's governance configuration, rendered by the

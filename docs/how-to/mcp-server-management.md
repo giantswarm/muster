@@ -707,12 +707,75 @@ report it as `approval.unavailable`. The page returns the browser to the
 Approval pages are only ever served on muster's own host. An agent that drives
 the person's signed-in browser acts as the person and can approve.
 
+#### Trusted clients
+
+`approval.trustedClients` lists the OAuth client ids (the token's `azp`, else
+its single audience) muster trusts with a person's approvals: the portal's own
+client, and nothing else. A trusted client can decide approvals inline in its
+own UI (below) and spare the person muster's browser sign-in on muster's pages
+(sign-in handoff). The earlier name `approval.handoffClients` is still read;
+its ids are trusted too. Empty (the default): approvals are decided on
+muster's page only.
+
+#### Deciding inline from a trusted client
+
+A trusted client shows the person's pending approval in its own UI and posts
+the person's click, with the person's own bearer:
+
+```
+GET /approvals/<id>
+Authorization: Bearer <the person's token>
+-> 200 {"id", "status", "heading", "message", "tool": {"title", "name", "exposed", "kind"},
+        "connector": {"displayName", "server"}, "changesData", "arguments": [{"key", "label", "value", "type"}],
+        "changes", "preset", "steps", "agentSays", "agent": {"namespace", "name"},
+        "why": {"setting", "source"}, "actsFor": {"name", "subject", "issuer"}, "callerKind",
+        "session", "client", "installation", "canonicalArguments", "argumentsHash", "expiresAt", "digest"}
+
+POST /approvals/<id>/decision
+Authorization: Bearer <the person's token>
+{"decision": "approve" | "decline", "digest": "<the digest the GET returned>"}
+-> 200 {"status": "approved" | "declined"}
+```
+
+The view holds what the approval page shows, made safe the same way: every
+text an agent or a connector chose has invisible, bidi and blank look-alike
+characters marked as `⟨U+XXXX⟩`; the client renders it as text, never as
+markup. `digest` is the SHA-256 of the view: a decision with another digest
+is refused (409 `changed`), so a client cannot approve something other than it
+showed. A GET without a bearer is the page as before; the page never reads a
+bearer.
+
+muster takes the decision only:
+
+- from a person's own bearer: a token naming an acting party (`act`), a
+  delegated token, an actor JWT, or any credential of an agent's Session is
+  refused (403 `acting_party`). An agent never decides an approval, also not
+  its own;
+- from a client on `approval.trustedClients` (else 403 `untrusted_client`);
+- for the person the request was made for, by issuer and subject (else 403
+  `foreign`);
+- on a pending request (404 `not_found` when unknown, expired or used; 409
+  `decided` with the `status` that stands; 410 `expired`), once: approved
+  once, used once, exactly as on the page.
+
+A decision is audited as `approval_decision` like a page decision, with
+`path=api` and the `client`; the page's carry `path=page`. muster sends the
+asking session `notifications/elicitation/complete` as for a page decision.
+Counted in `muster_approval_decisions_total{outcome, path}` and refusals in
+`muster_approval_refusals_total{reason, path}`.
+
+Security: whoever holds the person's bearer of a trusted client can approve
+without muster's browser sign-in, so the trusted client must decide only on
+the person's click, never from message content. Script injected into a
+trusted client (XSS) can approve the person's pending requests. This is the
+same exposure as the sign-in handoff, which already turns such a bearer into a
+signed-in approval page. Never list a client an agent, a CLI or kubectl signs
+in through.
+
 #### Sign-in handoff from a trusted client
 
-A client the operator trusts with it (the portal) can spare a person who is
-signed in there muster's browser sign-in on one page. List its OAuth client
-id in `approval.handoffClients` (the token's `azp`, else its single audience).
-The client asks muster with the person's own bearer:
+A trusted client can spare a person who is signed in there muster's browser
+sign-in on one page. The client asks muster with the person's own bearer:
 
 ```
 POST /handoff-tickets

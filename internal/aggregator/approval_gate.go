@@ -507,8 +507,9 @@ func newApprovalSettings(cfg AggregatorConfig, stores storeBundle) approvalSetti
 
 // registerApprovalPage mounts the approval page on muster's public URL (the
 // OAuth proxy's publicUrl, else the OAuth server's baseUrl, which must share
-// its origin: the page's sign-in returns to it), and the sign-in handoff
-// endpoint behind authenticate (the OAuth server's subject check).
+// its origin: the page's sign-in returns to it), and, behind authenticate
+// (the OAuth server's bearer and subject check), the sign-in handoff endpoint
+// and the decision API for the trusted clients (approval.trustedClients).
 func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL string, authenticate func(http.Handler) http.Handler) {
 	publicURL := a.config.OAuth.PublicURL
 	if publicURL == "" {
@@ -518,12 +519,21 @@ func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL stri
 		logging.Warn("Aggregator", "No public URL: the approval page is not served and calls that ask are refused")
 		return
 	}
+	trusted := a.config.ApprovalTrustedClients
 	handoffs := &approval.Handoffs{
 		PublicURL: publicURL,
 		StartPath: config.DefaultOAuthProxyStartPath,
-		Clients:   a.config.ApprovalHandoffClients,
+		Clients:   trusted,
 		Store:     api.GetApprovalStore,
 		ClientOf:  bearerClient,
+	}
+	decisions := &approval.DecisionAPI{
+		Clients:         trusted,
+		Installation:    a.config.ApprovalInstallation,
+		Store:           api.GetApprovalStore,
+		ClientOf:        bearerClient,
+		AgentCredential: a.agentCredential,
+		OnDecided:       a.completeApprovalElicitations,
 	}
 	page := &approval.Page{
 		PublicURL:       publicURL,
@@ -533,13 +543,38 @@ func (a *AggregatorServer) registerApprovalPage(mux *http.ServeMux, baseURL stri
 		RedirectAllowed: api.PostLoginRedirectAllowed,
 		Handoffs:        handoffs,
 		OnDecided:       a.completeApprovalElicitations,
+		Bearer:          authenticate(http.HandlerFunc(decisions.ServeView)),
 	}
 	page.Register(mux)
 	a.approval.page = page
 	api.RegisterHandoffRedeemer(handoffs.Redeem)
 	mux.Handle("POST "+approval.HandoffPath, authenticate(handoffs))
+	mux.Handle("POST "+approval.PathPrefix+"{id}"+approval.DecisionSuffix, authenticate(http.HandlerFunc(decisions.ServeDecision)))
 	logging.InfoWithAttrs("Aggregator", "Mounted the approval page", slog.String("path", approval.PathPrefix+"{id}"),
-		slog.Int("handoffClients", len(a.config.ApprovalHandoffClients)))
+		slog.Int("trustedClients", len(trusted)))
+}
+
+// agentCredential says why the request's validated credential is an
+// agent's, "" for a person's own bearer: a token naming an acting party
+// (already refused by the subject check), a delegated token, an actor
+// Session, or a token of the actor-JWT issuer. The decision API refuses all
+// of them: an agent never decides an approval.
+func (a *AggregatorServer) agentCredential(ctx context.Context) string {
+	info, ok := oauthhandler.UserInfoFromContext(ctx)
+	switch {
+	case ok && info != nil && len(info.ActorChain) > 0:
+		return "the token names an acting party (act)"
+	case ok && info != nil && a.config.CredentialProvider.ActorBearer.Issuer != "" &&
+		info.Issuer == a.config.CredentialProvider.ActorBearer.Issuer:
+		return "the token is an actor JWT"
+	}
+	if _, delegated := api.DelegatedCallerFromContext(ctx); delegated {
+		return "the token is a delegated token"
+	}
+	if kind := api.CallerKind(ctx, getSessionIDFromContext(ctx)); api.IsAgentCaller(kind) {
+		return "the credential is an agent's (" + kind + ")"
+	}
+	return ""
 }
 
 // bearerClient names the OAuth client the request's validated bearer was

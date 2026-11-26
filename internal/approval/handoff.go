@@ -36,7 +36,7 @@ const maxTicketLength = 64
 const maxHandoffBody = 8 << 10
 
 // Handoffs issues and redeems sign-in handoffs (see api.SignInHandoff): a
-// client on approval.handoffClients asks with the person's bearer for a
+// client on approval.trustedClients asks with the person's bearer for a
 // ticket bound to one of muster's pages and that person; the page redeems it
 // once and treats the browser as signed in as that person, for that page
 // only. A ticket is never stored (only its SHA-256), never logged and never
@@ -104,7 +104,7 @@ func (h *Handoffs) targetOf(raw string) (kind, target string, ok bool) {
 // ServeHTTP issues a ticket: POST {"url": "<a page of muster>"} with the
 // person's bearer (behind the OAuth server's subject check, which refuses a
 // token naming an acting party). Answers 201 {"ticket", "expiresIn"}; 403
-// for a client not on approval.handoffClients and for an approval that is not
+// for a client not on approval.trustedClients and for an approval that is not
 // the person's (or unknown: both answer alike); 400 for a link to no page
 // muster hands off to; 503 while the store is unavailable.
 func (h *Handoffs) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +124,7 @@ func (h *Handoffs) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		client = h.ClientOf(ctx)
 	}
 	if identity.Subject == "" || client == "" || !slices.Contains(h.Clients, client) {
-		refuse(http.StatusForbidden, "", HandoffReasonClient, "muster hands off sign-ins only to the clients on approval.handoffClients")
+		refuse(http.StatusForbidden, "", HandoffReasonClient, "muster hands off sign-ins only to the clients on approval.trustedClients")
 		return
 	}
 	store := h.Store()

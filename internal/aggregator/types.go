@@ -397,9 +397,10 @@ type AggregatorConfig struct {
 	ApprovalLastObservedMaxAge time.Duration
 	// ApprovalInstallation names the installation on the approval page.
 	ApprovalInstallation string
-	// ApprovalHandoffClients are the OAuth clients muster issues sign-in
-	// handoff tickets to (approval.handoffClients); empty issues none.
-	ApprovalHandoffClients []string
+	// ApprovalTrustedClients are the OAuth clients muster trusts with a
+	// person's approvals (approval.trustedClients, formerly handoffClients):
+	// sign-in handoff tickets and the decision API. Empty trusts none.
+	ApprovalTrustedClients []string
 
 	// Port specifies the port number to listen on for the aggregated MCP endpoint
 	Port int

@@ -156,10 +156,10 @@ are a small fixed set or the name of an MCPServer.
 | OTel name                          | Type                   | Attributes                                  | Prometheus export name                         |
 |------------------------------------|------------------------|---------------------------------------------|------------------------------------------------|
 | `muster.approval.requests`         | `Int64Counter`         | `mcpserver.name`, `caller_kind`, `source`   | `muster_approval_requests_total`               |
-| `muster.approval.decisions`        | `Int64Counter`         | `outcome`                                   | `muster_approval_decisions_total`              |
-| `muster.approval.refusals`         | `Int64Counter`         | `reason`, `caller_kind`                     | `muster_approval_refusals_total`               |
+| `muster.approval.decisions`        | `Int64Counter`         | `outcome`, `path` (decisions only)          | `muster_approval_decisions_total`              |
+| `muster.approval.refusals`         | `Int64Counter`         | `reason`, `caller_kind`, `path` (decisions) | `muster_approval_refusals_total`               |
 | `muster.approval.cap_hits`         | `Int64Counter`         | `scope`, `caller_kind`                      | `muster_approval_cap_hits_total`               |
-| `muster.approval.time_to_decision` | `Float64Histogram`/s   | `outcome`                                   | `muster_approval_time_to_decision_seconds`     |
+| `muster.approval.time_to_decision` | `Float64Histogram`/s   | `outcome`, `path`                           | `muster_approval_time_to_decision_seconds`     |
 | `muster.approval.handoffs`         | `Int64Counter`         | `outcome`, `page`, `reason`                 | `muster_approval_handoffs_total`               |
 | `muster.approval.completions`      | `Int64Counter`         | `outcome`                                   | `muster_approval_completions_total`            |
 | `muster.approval.pending`          | `Int64ObservableGauge` |                                             | `muster_approval_pending`                      |
@@ -174,8 +174,9 @@ are a small fixed set or the name of an MCPServer.
   settings), `agent` (the agent's), `governance` (a platform floor or the
   governed default), `builtin` (muster's own tools), `tool`, `unreviewed`,
   `unavailable`, `agent-exception` or `other`.
-- **Decisions**: `approved` and `declined` count the person's decision on the
-  approval page, `used` an approved call that ran (once), `expired` a request
+- **Decisions**: `approved` and `declined` count the person's decision, with
+  `path` `page` (muster's approval page) or `api` (a trusted client deciding
+  inline with the person's bearer), `used` an approved call that ran (once), `expired` a request
   nobody decided or used in time. A declined request retried by the caller is
   not counted again.
 - **Refusals** by `reason`: `blocked` (the effective approval is Block),
@@ -185,18 +186,22 @@ are a small fixed set or the name of an MCPServer.
   `store_unavailable` (the approval store did not answer), `cap_reached` (a cap
   on pending approvals), `foreign` (another person tried to decide a request)
   and `page_check` (the approval page refused a decision on its origin, cookie,
-  anti-forgery token or expired flow). Every refusal fails closed.
+  anti-forgery token or expired flow); a trusted client's decision is also
+  refused as `untrusted_client` (a client not on `approval.trustedClients`),
+  `acting_party` (an agent's credential), `changed` (the digest is not the
+  request's) or `not_pending` (unknown, expired, used or decided). Refused
+  decisions carry `path` `page` or `api`. Every refusal fails closed.
 - **Cap hits**: `scope` is `person` (10 pending per person, across clients) or
   `session` (3 pending per client). A cap hit is also a `cap_reached` refusal.
 - **Handoffs**: sign-in handoff tickets `issued` to a client on
-  `approval.handoffClients`, `redeemed` on muster's page, or `refused`;
+  `approval.trustedClients`, `redeemed` on muster's page, or `refused`;
   `page` is `approval` or `sign_in` (`other` when the link named no page),
   `reason` is `none` (issued, redeemed), `client` (a client not on the list),
   `target` (a link to no page muster hands off to, or a ticket shown to
   another page), `foreign` (another person, or an unknown approval),
   `invalid` (an unknown, expired or used ticket) or `unavailable` (the store).
   A refused redemption falls back to muster's own sign-in.
-- **Time to decision**: seconds from the request to the decision on the page.
+- **Time to decision**: seconds from the request to the decision, by `path`.
 - **Pending** and **expired** are per replica: each replica tracks the requests
   it made and reconciles them with the store every 15 seconds, so the gauge
   lags by that much and a request decided on another replica in the last

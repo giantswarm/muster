@@ -290,12 +290,16 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			return nil, err
 		}
 
+		if len(cfg.MusterConfig.Approval.HandoffClients) > 0 { //nolint:staticcheck // SA1019: read to warn about the deprecated name
+			logging.Warn("Services", "approval.handoffClients is deprecated: name the clients in approval.trustedClients (both are read)")
+		}
+
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{
 			ApprovalTTL:                ttl,
 			ApprovalLastObservedMaxAge: maxAge,
 			ApprovalInstallation:       cfg.MusterConfig.Approval.Installation,
-			ApprovalHandoffClients:     cfg.MusterConfig.Approval.HandoffClients,
+			ApprovalTrustedClients:     cfg.MusterConfig.Approval.TrustedClientIDs(),
 			Port:                       cfg.MusterConfig.Aggregator.Port,
 			Host:                       cfg.MusterConfig.Aggregator.Host,
 			Transport:                  cfg.MusterConfig.Aggregator.Transport,
