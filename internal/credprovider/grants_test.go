@@ -338,3 +338,144 @@ func TestSessionBoundLogsTheAgentsSettings(t *testing.T) {
 		assert.Contains(t, line, want)
 	}
 }
+
+func unbindWithSender(t *testing.T, p *Provider, sender string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, BindingsPath+"?actor="+testActor, nil)
+	if sender != "" {
+		req.Header.Set(ApprovalSenderHeader, sender)
+	}
+	asPerson("alice", p.HandleUnbind).ServeHTTP(rec, req)
+	return rec
+}
+
+// The person cannot strip the agent's settings by unbinding and binding
+// again: a sender-written binding is unbound only by its sender, and after
+// it ends (unbound or expired) the actor's seal still refuses a bind without
+// the sender (M2-S3-R-01).
+func TestUnbindThenRebindCannotStripTheSettings(t *testing.T) {
+	ctx := context.Background()
+	p, store := newTestProvider(t, fakeGrants{})
+	p.senders = namingReviewer{}
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+	strip := `{"actor":"` + testActor + `","session":"kagent/s1","providers":["github"],"toolset":["preset:full"]}`
+
+	require.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
+	assert.Equal(t, http.StatusConflict, unbindWithSender(t, p, "").Code, "the person alone cannot unbind it")
+	assert.Equal(t, http.StatusForbidden, unbindWithSender(t, p, "intruder").Code, "nor another sender")
+	b, err := store.Get(ctx, testActor)
+	require.NoError(t, err)
+	require.NotNil(t, b)
+
+	require.Equal(t, http.StatusNoContent, unbindWithSender(t, p, "agent-manager").Code, "its sender can")
+	assert.Equal(t, http.StatusConflict, bindBody(t, p, "", strip).Code, "the seal refuses a bind without the sender")
+	assert.Equal(t, http.StatusForbidden, bindBody(t, p, "intruder", settingsBindBody).Code, "and one from another sender")
+
+	require.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", settingsBindBody).Code)
+	now = now.Add(p.ttl + time.Minute)
+	assert.Equal(t, http.StatusConflict, bindBody(t, p, "", strip).Code, "after the binding expired too")
+	now = now.Add(sealFactor * p.ttl)
+	assert.Equal(t, http.StatusNoContent, bindBody(t, p, "", strip).Code, "the seal ends after sealFactor TTLs")
+}
+
+// Both stores enforce the sender on replace and delete, and keep the seal
+// (the Valkey store is production's, M2-S3-R-07).
+func TestStoresKeepTheSendersBinding(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range storeCases(t) {
+		t.Run(tc.name, func(t *testing.T) {
+			sent := Binding{Subject: "alice", ApprovalSender: true, Sender: "am", Agent: "kagent/a"}
+			require.NoError(t, tc.store.Put(ctx, testActor, sent, time.Hour))
+			assert.ErrorIs(t, tc.store.Put(ctx, testActor, Binding{Subject: "alice"}, time.Hour), ErrSenderBound)
+			other := sent
+			other.Sender = "other"
+			assert.ErrorIs(t, tc.store.Put(ctx, testActor, other, time.Hour), ErrSenderBound)
+			assert.ErrorIs(t, tc.store.Delete(ctx, testActor, "alice", ""), ErrSenderBound)
+			assert.ErrorIs(t, tc.store.Delete(ctx, testActor, "alice", "other"), ErrSenderBound)
+			require.NoError(t, tc.store.Delete(ctx, testActor, "alice", "am"))
+			assert.ErrorIs(t, tc.store.Put(ctx, testActor, Binding{Subject: "alice"}, time.Hour), ErrSenderBound, "sealed after delete")
+			tc.advance(90 * time.Minute)
+			assert.ErrorIs(t, tc.store.Put(ctx, testActor, Binding{Subject: "alice"}, time.Hour), ErrSenderBound, "sealed past the binding's TTL")
+			tc.advance(time.Hour)
+			require.NoError(t, tc.store.Put(ctx, testActor, Binding{Subject: "alice"}, time.Hour), "the seal ends")
+		})
+	}
+}
+
+// An unread agent index is pruned of expired members on the next write
+// (M2-S3-R-07): an agent that always has a live Session does not grow its
+// index with every Session it ever had.
+func TestValkeyAgentIndexPrunesExpiredMembers(t *testing.T) {
+	ctx := context.Background()
+	srv := miniredis.RunT(t)
+	client, err := valkey.NewClient(valkey.ClientOption{InitAddress: []string{srv.Addr()}, DisableCache: true})
+	require.NoError(t, err)
+	t.Cleanup(client.Close)
+	store := NewValkeyStore(client, "muster:", nil)
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	store.now = func() time.Time { return now }
+	require.NoError(t, store.Put(ctx, testActor, Binding{Subject: "alice", Agent: "kagent/a", ApprovalSender: true}, time.Hour))
+	now = now.Add(2 * time.Hour)
+	require.NoError(t, store.Put(ctx, otherActor, Binding{Subject: "bob", Agent: "kagent/a", ApprovalSender: true}, time.Hour))
+	members, err := srv.ZMembers(store.agentKey("kagent/a"))
+	require.NoError(t, err)
+	assert.Equal(t, []string{otherActor}, members)
+}
+
+// The body limits fit the settings: a bind of 40 KiB and a drop of 200 KiB
+// are read, larger ones refused (M2-S3-C-10, R-07).
+func TestBodyLimits(t *testing.T) {
+	p, _ := reviewingProvider(t)
+	pad := strings.Repeat("x", 40<<10)
+	big := strings.Replace(settingsBindBody, `"session":"kagent/s1"`, `"session":"kagent/`+pad+`"`, 1)
+	assert.Equal(t, http.StatusNoContent, bindBody(t, p, "agent-manager", big).Code)
+	tooBig := strings.Replace(settingsBindBody, `"session":"kagent/s1"`, `"session":"kagent/`+strings.Repeat("x", 65<<10)+`"`, 1)
+	assert.Equal(t, http.StatusBadRequest, bindBody(t, p, "agent-manager", tooBig).Code)
+
+	grant := `{"entry":"tool:x","server":"github","uid":"u","tools":["` + strings.Repeat("t", 780) + `"]}`
+	keep := strings.TrimSuffix(strings.Repeat(grant+",", 250), ",")
+	rec := dropGrantsRequest(t, p, "agent-manager", `{"agent":"kagent/alert-review","keep":[`+keep+`]}`)
+	assert.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+// An unauthenticated drop is refused before its body is read (M2-S3-R-04).
+func TestDropGrantsChecksTheSenderBeforeTheBody(t *testing.T) {
+	p, _ := newTestProvider(t, fakeGrants{})
+	reviews := 0
+	p.senders = countingReviewer{n: &reviews}
+	body := &readCounter{r: strings.NewReader(`{"agent":"kagent/a","keep":[]}`)}
+	rec := httptest.NewRecorder()
+	p.HandleDropGrants(rec, httptest.NewRequest(http.MethodPatch, GrantsPath, body))
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Zero(t, body.n, "no sender: the body is not read")
+	assert.Zero(t, reviews, "and nothing is reviewed")
+
+	body = &readCounter{r: strings.NewReader(`{"agent":"kagent/a","keep":[]}`)}
+	req := httptest.NewRequest(http.MethodPatch, GrantsPath, body)
+	req.Header.Set(ApprovalSenderHeader, "junk")
+	rec = httptest.NewRecorder()
+	p.HandleDropGrants(rec, req)
+	assert.Equal(t, http.StatusForbidden, rec.Code)
+	assert.Zero(t, body.n, "a refused sender: the body is not read")
+	assert.Equal(t, 1, reviews)
+}
+
+type countingReviewer struct{ n *int }
+
+func (c countingReviewer) Review(context.Context, string) (string, error) {
+	*c.n++
+	return "", ErrSenderNotAllowed
+}
+
+type readCounter struct {
+	r io.Reader
+	n int
+}
+
+func (c *readCounter) Read(b []byte) (int, error) {
+	n, err := c.r.Read(b)
+	c.n += n
+	return n, err
+}

@@ -60,7 +60,10 @@ func TestActorBearerHandlerCarriesTheAgentsSettings(t *testing.T) {
 	call("tool:x_github_get_issue=Ask")
 	assert.Equal(t, settings.Entries, seen.Entries, "a binding's settings win over the header")
 
-	require.NoError(t, store.Delete(context.Background(), actor, "alice"))
+	// A fresh store: the actor's seal keeps a bind without the sender
+	// out of the first one (M2-S3-R-01).
+	store = credprovider.NewMemoryStore()
+	h = actorBearerHandler(testActorBearer(t, store), mcpHandler, http.NotFoundHandler(), nil, nil)
 	require.NoError(t, store.Put(context.Background(), actor, credprovider.Binding{Subject: "alice", Session: "kagent/s1",
 		Providers: []string{credprovider.MusterProvider}, Agent: "kagent/alert-review", Approval: settings}, time.Hour))
 	call("")

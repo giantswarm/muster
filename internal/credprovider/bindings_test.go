@@ -59,17 +59,17 @@ func TestStoreBindingLifecycle(t *testing.T) {
 
 			assert.ErrorIs(t, tc.store.Put(ctx, testActor, Binding{Subject: "mallory"}, time.Hour), ErrBoundToAnother,
 				"nobody rebinds another person's sandbox")
-			assert.ErrorIs(t, tc.store.Delete(ctx, testActor, "mallory"), ErrBoundToAnother,
+			assert.ErrorIs(t, tc.store.Delete(ctx, testActor, "mallory", ""), ErrBoundToAnother,
 				"nobody unbinds another person's sandbox")
 
 			b.Providers = []string{"github", "github-enterprise"}
 			require.NoError(t, tc.store.Put(ctx, testActor, b, time.Hour), "the person rebinds their own")
 
-			require.NoError(t, tc.store.Delete(ctx, testActor, "alice"))
+			require.NoError(t, tc.store.Delete(ctx, testActor, "alice", ""))
 			got, err = tc.store.Get(ctx, testActor)
 			require.NoError(t, err)
 			assert.Nil(t, got, "unbound")
-			assert.NoError(t, tc.store.Delete(ctx, testActor, "alice"), "unbinding an unbound actor succeeds")
+			assert.NoError(t, tc.store.Delete(ctx, testActor, "alice", ""), "unbinding an unbound actor succeeds")
 		})
 	}
 }

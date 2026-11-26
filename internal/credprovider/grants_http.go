@@ -42,12 +42,27 @@ type DropGrantsResponse struct {
 // sender alone (agent-manager's ServiceAccount token, reviewed like a
 // bind's): without one, or when the review refuses, it answers 403; when the
 // review fails, 503. No person's bearer is needed, so agent-manager can
-// re-send a drop that did not reach muster at its start (M2-S3-C-04); a
-// person's subject, when the request carries one, is only logged. It only
+// re-send a drop that did not reach muster at its start (M2-S3-C-04); the
+// route takes no bearer, and the sender's identity is what is logged. It only
 // ever removes marks, so a Session loses an exception at its next call and
 // gains nothing.
 func (p *Provider) HandleDropGrants(w http.ResponseWriter, r *http.Request) {
-	sub := api.GetSubjectFromContext(r.Context())
+	// The sender is checked before the body is read: an unauthenticated
+	// caller costs one header check, and the 256 KiB body is read only for
+	// a sender that passed the review (M2-S3-R-04).
+	if strings.TrimSpace(r.Header.Get(ApprovalSenderHeader)) == "" {
+		http.Error(w, "forbidden: removing grant marks needs the sender of approval settings ("+ApprovalSenderHeader+")", http.StatusForbidden)
+		return
+	}
+	sender, refused := p.reviewSender(r)
+	if refused != 0 || sender == "" {
+		status := refused
+		if status == 0 {
+			status = http.StatusForbidden
+		}
+		http.Error(w, http.StatusText(status)+": the sender of approval settings did not pass the review", status)
+		return
+	}
 	var req DropGrantsRequest
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxDropGrantsBytes))
 	dec.DisallowUnknownFields()
@@ -61,19 +76,6 @@ func (p *Provider) HandleDropGrants(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(req.Keep) > api.MaxAgentApprovalGrants {
 		http.Error(w, "bad request: keep lists too many grants", http.StatusBadRequest)
-		return
-	}
-	if strings.TrimSpace(r.Header.Get(ApprovalSenderHeader)) == "" {
-		http.Error(w, "forbidden: removing grant marks needs the sender of approval settings ("+ApprovalSenderHeader+")", http.StatusForbidden)
-		return
-	}
-	sender, refused := p.reviewSender(r)
-	if refused != 0 || sender == "" {
-		status := refused
-		if status == 0 {
-			status = http.StatusForbidden
-		}
-		http.Error(w, http.StatusText(status)+": the sender of approval settings did not pass the review", status)
 		return
 	}
 
@@ -101,7 +103,7 @@ func (p *Provider) HandleDropGrants(w http.ResponseWriter, r *http.Request) {
 		out.Dropped += dropped
 	}
 	logging.InfoWithAttrs(logSubsystem, "session_grants_dropped",
-		slog.String("sub", sub), slog.String("sender", sender), slog.String("agent", req.Agent),
+		slog.String("sender", sender), slog.String("agent", req.Agent),
 		slog.Int("bindings", out.Bindings), slog.Int("dropped", out.Dropped))
 	logging.Audit(logging.AuditEvent{
 		Action:  "session_grants_dropped",

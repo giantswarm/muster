@@ -264,7 +264,9 @@ func loginKind(loginSession string) string {
 }
 
 // HandleUnbind is DELETE /session-bindings?actor=<id>: removes the calling
-// person's binding of the actor. Unbinding an unbound actor succeeds.
+// person's binding of the actor. A binding an approval sender wrote is
+// removed only with that sender (X-Muster-Approval-Sender): 409 without it,
+// 403 with another (M2-S3-R-01). Unbinding an unbound actor succeeds.
 func (p *Provider) HandleUnbind(w http.ResponseWriter, r *http.Request) {
 	sub := api.GetSubjectFromContext(r.Context())
 	if sub == "" {
@@ -276,7 +278,22 @@ func (p *Provider) HandleUnbind(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad request: actor is required", http.StatusBadRequest)
 		return
 	}
-	err := p.store.Delete(r.Context(), actor, sub)
+	sender, refused := p.reviewSender(r)
+	if refused != 0 {
+		http.Error(w, http.StatusText(refused)+": the sender of approval settings did not pass the review", refused)
+		return
+	}
+	err := p.store.Delete(r.Context(), actor, sub, sender)
+	if errors.Is(err, ErrSenderBound) {
+		logging.WarnWithAttrs(logSubsystem, "unbind_refused",
+			slog.String("reason", err.Error()), slog.String("sub", sub), slog.String("actor", actor))
+		status, text := http.StatusConflict, "conflict: "
+		if sender != "" {
+			status, text = http.StatusForbidden, "forbidden: "
+		}
+		http.Error(w, text+err.Error(), status)
+		return
+	}
 	if errors.Is(err, ErrBoundToAnother) {
 		logging.WarnWithAttrs(logSubsystem, "unbind_refused",
 			slog.String("reason", err.Error()), slog.String("sub", sub), slog.String("actor", actor))

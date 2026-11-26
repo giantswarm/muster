@@ -36,12 +36,14 @@ type ValkeyStore struct {
 	client    valkey.Client
 	keyPrefix string
 	encryptor *security.Encryptor
+	// now scores the agent index; time.Now outside tests.
+	now func() time.Time
 }
 
 // NewValkeyStore returns a Store on the shared Valkey client. encryptor, when
 // enabled, seals each value with AES-256-GCM like muster's token store.
 func NewValkeyStore(client valkey.Client, keyPrefix string, encryptor *security.Encryptor) *ValkeyStore {
-	return &ValkeyStore{client: client, keyPrefix: keyPrefix, encryptor: encryptor}
+	return &ValkeyStore{client: client, keyPrefix: keyPrefix, encryptor: encryptor, now: time.Now}
 }
 
 func (s *ValkeyStore) key(actor string) string {
@@ -108,16 +110,20 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 	if err != nil {
 		return err
 	}
+	var existing *Binding
 	if current != "" {
-		existing, err := s.open(current)
-		if err != nil {
+		if existing, err = s.open(current); err != nil {
 			return err
 		}
-		// The write below only lands while the key still holds current,
-		// so this check holds for what it replaces.
-		if err := checkReplace(existing, b); err != nil {
-			return err
-		}
+	}
+	// The write below only lands while the key still holds current, so
+	// this check holds for what it replaces.
+	seal, sealed, err := s.readSeal(ctx, actor)
+	if err != nil {
+		return err
+	}
+	if err := checkReplace(existing, seal, sealed, b); err != nil {
+		return err
 	}
 	value, err := s.seal(b)
 	if err != nil {
@@ -134,6 +140,12 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 			return ErrBoundToAnother
 		}
 		return fmt.Errorf("write binding: changed concurrently, retry")
+	}
+	if b.ApprovalSender {
+		if err := s.writeSeal(ctx, actor, b.Sender, ttl); err != nil {
+			_ = s.client.Do(ctx, s.client.B().Del().Key(key).Build()).Error()
+			return err
+		}
 	}
 	if b.Agent != "" {
 		if err := s.index(ctx, b.Agent, actor, ttl); err != nil {
@@ -217,6 +229,11 @@ func (s *ValkeyStore) Touch(ctx context.Context, actor, agent string, ttl time.D
 		return fmt.Errorf("touch binding: %w", err)
 	}
 	if agent != "" {
+		// Only a sender writes an agent, so the binding has a seal to
+		// keep ahead of it.
+		if err := s.client.Do(ctx, s.client.B().Pexpire().Key(s.sealKey(actor)).Milliseconds((sealFactor * ttl).Milliseconds()).Build()).Error(); err != nil {
+			return fmt.Errorf("touch binding: %w", err)
+		}
 		if err := s.index(ctx, agent, actor, ttl); err != nil {
 			return fmt.Errorf("touch binding: %w", err)
 		}
@@ -224,8 +241,35 @@ func (s *ValkeyStore) Touch(ctx context.Context, actor, agent string, ttl time.D
 	return nil
 }
 
+func (s *ValkeyStore) sealKey(actor string) string {
+	sum := sha256.Sum256([]byte(actor))
+	return s.keyPrefix + "credprovider:binding-sender:" + hex.EncodeToString(sum[:])
+}
+
+// readSeal returns the actor's sender seal (sealFactor.)
+func (s *ValkeyStore) readSeal(ctx context.Context, actor string) (string, bool, error) {
+	v, err := s.client.Do(ctx, s.client.B().Get().Key(s.sealKey(actor)).Build()).ToString()
+	if valkey.IsValkeyNil(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read binding seal: %w", err)
+	}
+	return v, true, nil
+}
+
+// writeSeal records the sender of a sender-written binding beyond its
+// expiry (sealFactor).
+func (s *ValkeyStore) writeSeal(ctx context.Context, actor, sender string, ttl time.Duration) error {
+	err := s.client.Do(ctx, s.client.B().Set().Key(s.sealKey(actor)).Value(sender).PxMilliseconds((sealFactor * ttl).Milliseconds()).Build()).Error()
+	if err != nil {
+		return fmt.Errorf("write binding seal: %w", err)
+	}
+	return nil
+}
+
 // Delete implements Store.
-func (s *ValkeyStore) Delete(ctx context.Context, actor, subject string) error {
+func (s *ValkeyStore) Delete(ctx context.Context, actor, subject, sender string) error {
 	key := s.key(actor)
 	current, err := s.raw(ctx, key)
 	if err != nil || current == "" {
@@ -235,8 +279,8 @@ func (s *ValkeyStore) Delete(ctx context.Context, actor, subject string) error {
 	if err != nil {
 		return err
 	}
-	if existing.Subject != subject {
-		return ErrBoundToAnother
+	if err := checkDelete(existing, subject, sender); err != nil {
+		return err
 	}
 	if err := deleteScript.Exec(ctx, s.client, []string{key}, []string{current}).Error(); err != nil {
 		return fmt.Errorf("delete binding: %w", err)

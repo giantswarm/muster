@@ -35,7 +35,7 @@ return 1`)
 
 // index records the actor's binding of the agent until now+ttl.
 func (s *ValkeyStore) index(ctx context.Context, agent, actor string, ttl time.Duration) error {
-	now := time.Now().UnixMilli()
+	now := s.now().UnixMilli()
 	err := indexScript.Exec(ctx, s.client, []string{s.agentKey(agent)}, []string{
 		actor, strconv.FormatInt(now+ttl.Milliseconds(), 10), strconv.FormatInt(now, 10), strconv.FormatInt(ttl.Milliseconds(), 10),
 	}).Error()
@@ -53,7 +53,7 @@ func (s *ValkeyStore) ActorsOfAgent(ctx context.Context, agent string) ([]string
 		return nil, nil
 	}
 	key := s.agentKey(agent)
-	now := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	now := strconv.FormatInt(s.now().UnixMilli(), 10)
 	members, err := s.client.Do(ctx, s.client.B().Zrange().Key(key).Min(now).Max("+inf").Byscore().Build()).AsStrSlice()
 	if err != nil {
 		return nil, fmt.Errorf("read the agent's bindings: %w", err)

@@ -19,17 +19,41 @@ var ErrBoundToAnother = errors.New("the actor is bound to another person")
 // the agent's own Ask and Block from their Session (M2-S3-S-01).
 var ErrSenderBound = errors.New("the binding carries an agent's approval settings: only the approval sender that wrote it (agent-manager) can replace it")
 
-// checkReplace refuses a write of b over the live binding existing: another
-// person's binding, or one an approval sender wrote, replaced without that
-// sender. A binding stored before senders were named accepts any sender.
-func checkReplace(existing *Binding, b Binding) error {
-	if existing == nil {
+// sealFactor is how many binding TTLs an actor's sender seal outlives its
+// last bind or Touch: after a sender-written binding is deleted or expires,
+// a bind of that actor without the sender stays refused for that long
+// (M2-S3-R-01). An actor is one Session's sandbox, so by then it is gone.
+const sealFactor = 2
+
+// checkReplace refuses a write of b over the live binding existing, or,
+// without one, over the actor's sender seal (the sender of the last
+// sender-written binding, "" when none): another person's binding, or a
+// binding an approval sender wrote, replaced without that sender. A binding
+// stored before senders were named accepts any sender.
+func checkReplace(existing *Binding, seal string, sealed bool, b Binding) error {
+	if existing != nil {
+		if existing.Subject != b.Subject {
+			return ErrBoundToAnother
+		}
+		if existing.ApprovalSender && (!b.ApprovalSender || (existing.Sender != "" && existing.Sender != b.Sender)) {
+			return ErrSenderBound
+		}
 		return nil
 	}
-	if existing.Subject != b.Subject {
+	if sealed && (!b.ApprovalSender || (seal != "" && seal != b.Sender)) {
+		return ErrSenderBound
+	}
+	return nil
+}
+
+// checkDelete refuses removing a sender-written binding without its sender:
+// the person could otherwise unbind and bind again without the agent's
+// settings (M2-S3-R-01).
+func checkDelete(existing *Binding, subject, sender string) error {
+	if existing.Subject != subject {
 		return ErrBoundToAnother
 	}
-	if existing.ApprovalSender && (!b.ApprovalSender || (existing.Sender != "" && existing.Sender != b.Sender)) {
+	if existing.ApprovalSender && (sender == "" || (existing.Sender != "" && existing.Sender != sender)) {
 		return ErrSenderBound
 	}
 	return nil
@@ -107,8 +131,10 @@ type Store interface {
 	// index when agent is set; a missing binding is no error.
 	Touch(ctx context.Context, actor, agent string, ttl time.Duration) error
 	// Delete removes the actor's binding when it belongs to subject
-	// (ErrBoundToAnother otherwise); a missing binding is no error.
-	Delete(ctx context.Context, actor, subject string) error
+	// (ErrBoundToAnother otherwise) and, for a binding an approval sender
+	// wrote, sender is that sender (ErrSenderBound otherwise); a missing
+	// binding is no error.
+	Delete(ctx context.Context, actor, subject, sender string) error
 	// ActorsOfAgent returns the actors whose live bindings name the agent.
 	ActorsOfAgent(ctx context.Context, agent string) ([]string, error)
 	// DropGrants removes from the actor's binding of the agent every grant
@@ -143,7 +169,26 @@ func dropGrants(b *Binding, agent string, keep func(api.AgentApprovalGrant) bool
 type MemoryStore struct {
 	mu      sync.Mutex
 	entries map[string]memoryEntry
+	seals   map[string]memorySeal
 	now     func() time.Time
+}
+
+type memorySeal struct {
+	sender    string
+	expiresAt time.Time
+}
+
+// seal returns the actor's live sender seal. Callers hold mu.
+func (s *MemoryStore) seal(actor string) (string, bool) {
+	seal, ok := s.seals[actor]
+	if !ok {
+		return "", false
+	}
+	if !s.now().Before(seal.expiresAt) {
+		delete(s.seals, actor)
+		return "", false
+	}
+	return seal.sender, true
 }
 
 type memoryEntry struct {
@@ -153,7 +198,7 @@ type memoryEntry struct {
 
 // NewMemoryStore returns an empty MemoryStore.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{entries: map[string]memoryEntry{}, now: time.Now}
+	return &MemoryStore{entries: map[string]memoryEntry{}, seals: map[string]memorySeal{}, now: time.Now}
 }
 
 // live returns the actor's entry when it has not expired, dropping it
@@ -174,12 +219,18 @@ func (s *MemoryStore) live(actor string) (memoryEntry, bool) {
 func (s *MemoryStore) Put(_ context.Context, actor string, b Binding, ttl time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	var existing *Binding
 	if e, ok := s.live(actor); ok {
-		if err := checkReplace(&e.binding, b); err != nil {
-			return err
-		}
+		existing = &e.binding
+	}
+	seal, sealed := s.seal(actor)
+	if err := checkReplace(existing, seal, sealed, b); err != nil {
+		return err
 	}
 	s.entries[actor] = memoryEntry{binding: b, expiresAt: s.now().Add(ttl)}
+	if b.ApprovalSender {
+		s.seals[actor] = memorySeal{sender: b.Sender, expiresAt: s.now().Add(sealFactor * ttl)}
+	}
 	return nil
 }
 
@@ -202,6 +253,9 @@ func (s *MemoryStore) Touch(_ context.Context, actor, _ string, ttl time.Duratio
 	if e, ok := s.live(actor); ok {
 		e.expiresAt = s.now().Add(ttl)
 		s.entries[actor] = e
+		if seal, sealed := s.seal(actor); sealed && e.binding.ApprovalSender {
+			s.seals[actor] = memorySeal{sender: seal, expiresAt: s.now().Add(sealFactor * ttl)}
+		}
 	}
 	return nil
 }
@@ -236,15 +290,15 @@ func (s *MemoryStore) DropGrants(_ context.Context, actor, agent string, keep fu
 }
 
 // Delete implements Store.
-func (s *MemoryStore) Delete(_ context.Context, actor, subject string) error {
+func (s *MemoryStore) Delete(_ context.Context, actor, subject, sender string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.live(actor)
 	if !ok {
 		return nil
 	}
-	if e.binding.Subject != subject {
-		return ErrBoundToAnother
+	if err := checkDelete(&e.binding, subject, sender); err != nil {
+		return err
 	}
 	delete(s.entries, actor)
 	return nil
