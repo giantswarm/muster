@@ -360,7 +360,7 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 		defer done()
 		params.Meta = &mcp.Meta{ProgressToken: token}
 	}
-	params.Meta = withCallerMeta(ctx, params.Meta, b.serverCapabilities.Extensions)
+	params.Meta = withCallerMeta(ctx, params.Meta)
 
 	capabilities := callerCapabilitiesFrom(ctx)
 	ctx = client.WithRequestClientCapabilities(ctx, capabilities)

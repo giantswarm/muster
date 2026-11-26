@@ -2,25 +2,42 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"maps"
+	"regexp"
 	"strings"
+
+	"github.com/mark3labs/mcp-go/mcp"
 )
 
 type callerMetaKey struct{}
 
-// WithCallerMeta carries the current tool call's negotiated extension data.
+var callerMetaKeyPattern = regexp.MustCompile(`^([A-Za-z]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z]([A-Za-z0-9-]*[A-Za-z0-9])?)*/)?([A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?)?$`)
+
+// WithCallerMeta carries the current tool call's application metadata.
 // Values are opaque and are never used as credentials.
-func WithCallerMeta(ctx context.Context, entries, extensions map[string]any) context.Context {
-	values := make(map[string]any)
-	for identifier := range RelayedExtensions(extensions) {
-		if value, present := entries[identifier]; present {
-			values[identifier] = value
+func WithCallerMeta(ctx context.Context, entries map[string]any) (context.Context, error) {
+	for key := range entries {
+		if !callerMetaKeyPattern.MatchString(key) {
+			return nil, fmt.Errorf("%w: invalid MCP metadata key %q", mcp.ErrInvalidParams, key)
 		}
 	}
-	return context.WithValue(ctx, callerMetaKey{}, values)
+	values := maps.Clone(entries)
+	maps.DeleteFunc(values, func(key string, _ any) bool {
+		if reservedRequestMetaKeys[key] {
+			return true
+		}
+		switch key {
+		case mcp.MetaKeyProtocolVersion, mcp.MetaKeyClientInfo, mcp.MetaKeyClientCapabilities,
+			mcp.MetaKeyLogLevel, mcp.MetaKeyServerInfo, mcp.MetaKeySubscriptionID:
+			return true
+		}
+		return false
+	})
+	return context.WithValue(ctx, callerMetaKey{}, values), nil
 }
 
-// CallerMeta returns the request-scoped extension metadata carried by ctx.
+// CallerMeta returns the request-scoped application metadata carried by ctx.
 func CallerMeta(ctx context.Context) map[string]any {
 	values, _ := ctx.Value(callerMetaKey{}).(map[string]any)
 	return values
