@@ -1175,11 +1175,15 @@ muster:
           # cluster.
           labels: {}  # @schema additionalProperties: true
         # PrometheusRule with the MCPServer connection-state alerts
-        # (MusterMCPServerFailed, MusterMCPServerFlapping) and the
-        # backend tool-call error alert (MusterToolCallErrorRate). Fires
+        # (MusterMCPServerFailed, MusterMCPServerFlapping), the
+        # backend tool-call error alert (MusterToolCallErrorRate) and, in
+        # a group of their own, the tool approval alerts
+        # (MusterApprovalUnavailable, MusterApprovalStoreDown,
+        # MusterApprovalHighDeclineOrExpiryRatio,
+        # MusterApprovalOutageFallbackInUse). Fires
         # on muster's own muster_mcpserver_state /
         # muster_mcpserver_state_transitions_total /
-        # muster_downstream_tool_calls_total metrics, so the
+        # muster_downstream_tool_calls_total / muster_approval_* metrics, so the
         # Prometheus that loads the rule has to be receiving them —
         # either by scraping the endpoint above, or via OTLP to a
         # remote-write target. Gated separately from serviceMonitor so
@@ -1191,9 +1195,11 @@ muster:
           # to the right Prometheus instance (ruleSelector).
           labels: {}  # @schema additionalProperties: true
 
-    # Grafana dashboard ("Muster / MCP Gateway": MCP server fleet state,
-    # per-server/per-tool usage and latency, workflow executions) shipped
-    # as a ConfigMap rendered from dashboards/muster.json. Discovery is
+    # Grafana dashboards ("Muster / MCP Gateway": MCP server fleet state,
+    # per-server/per-tool usage and latency, workflow executions; "Muster /
+    # Tool approval": asks, decisions, refusals, pending, time to decision)
+    # shipped as one ConfigMap rendered from dashboards/muster.json and
+    # dashboards/muster-approval.json. Discovery is
     # deployment-specific: the upstream Grafana sidecar needs its marker
     # label added via labels below (e.g. grafana_dashboard: "1"); Giant
     # Swarm's observability stack picks the ConfigMap up via

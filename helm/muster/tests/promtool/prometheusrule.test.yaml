@@ -602,3 +602,141 @@ tests:
       - alertname: MusterToolCallErrorRate
         eval_time: 45m
         exp_alerts: []
+
+  # Approval unavailable: refusals with reason unavailable or store_unavailable
+  # that keep coming fire after the 10m window; the scrape labels (pod,
+  # instance, ...) are not on the alert, and the other reasons stay silent
+  # (cap_reached and blocked are working as designed).
+  - interval: 1m
+    input_series:
+      - series: 'muster_approval_refusals_total{caller_kind="person", container="muster", instance="10.0.0.1:9464", job="muster", namespace="muster", pod="muster-a", reason="store_unavailable"}'
+        values: "0+1x40"
+      - series: 'muster_approval_refusals_total{caller_kind="actor", container="muster", instance="10.0.0.1:9464", job="muster", namespace="muster", pod="muster-a", reason="cap_reached"}'
+        values: "0+5x40"
+      - series: 'muster_approval_refusals_total{caller_kind="actor", namespace="muster", pod="muster-a", reason="blocked"}'
+        values: "0+5x40"
+    alert_rule_test:
+      - alertname: MusterApprovalUnavailable
+        eval_time: 8m
+        exp_alerts: []
+      - alertname: MusterApprovalUnavailable
+        eval_time: 25m
+        exp_alerts:
+          - exp_labels:
+              namespace: muster
+              reason: store_unavailable
+              severity: warning
+              topic: muster
+            exp_annotations:
+              description: 'Muster refused calls that ask for approval because approval is unavailable (reason store_unavailable) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store and the approval prerequisites in the muster logs ("approval_refused" audit events).'
+
+  # A burst of refusals that stopped resolves a window later.
+  - interval: 1m
+    input_series:
+      - series: 'muster_approval_refusals_total{namespace="muster", pod="muster-a", reason="unavailable"}'
+        values: "0+1x15 15x40"
+    alert_rule_test:
+      - alertname: MusterApprovalUnavailable
+        eval_time: 20m
+        exp_alerts:
+          - exp_labels:
+              namespace: muster
+              reason: unavailable
+              severity: warning
+              topic: muster
+            exp_annotations:
+              description: 'Muster refused calls that ask for approval because approval is unavailable (reason unavailable) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store and the approval prerequisites in the muster logs ("approval_refused" audit events).'
+      - alertname: MusterApprovalUnavailable
+        eval_time: 50m
+        exp_alerts: []
+
+  # The store gauge: one replica that cannot reach Valkey is enough, for 5m;
+  # healthy replicas and an installation without a store (no series) are
+  # silent.
+  - interval: 1m
+    input_series:
+      - series: 'muster_approval_store_up{namespace="muster", pod="muster-a"}'
+        values: "1x30"
+      - series: 'muster_approval_store_up{namespace="muster", pod="muster-b"}'
+        values: "1x5 0x25"
+      - series: 'muster_approval_store_up{namespace="other", pod="other-a"}'
+        values: "1x30"
+    alert_rule_test:
+      - alertname: MusterApprovalStoreDown
+        eval_time: 8m
+        exp_alerts: []
+      - alertname: MusterApprovalStoreDown
+        eval_time: 15m
+        exp_alerts:
+          - exp_labels:
+              namespace: muster
+              severity: warning
+              topic: muster
+            exp_annotations:
+              description: 'A muster replica cannot reach its approval store (Valkey) for 5m; calls that ask for approval are refused on it.'
+  - interval: 1m
+    input_series: []
+    alert_rule_test:
+      - alertname: MusterApprovalStoreDown
+        eval_time: 30m
+        exp_alerts: []
+
+  # Mostly declined or expired for long enough, with enough volume.
+  - interval: 1m
+    input_series:
+      - series: 'muster_approval_decisions_total{namespace="muster", pod="muster-a", outcome="approved"}'
+        values: "0+1x150"
+      - series: 'muster_approval_decisions_total{namespace="muster", pod="muster-a", outcome="declined"}'
+        values: "0+1x150"
+      - series: 'muster_approval_decisions_total{namespace="muster", pod="muster-a", outcome="expired"}'
+        values: "0+1x150"
+      - series: 'muster_approval_decisions_total{namespace="muster", pod="muster-a", outcome="used"}'
+        values: "0+1x150"
+    alert_rule_test:
+      - alertname: MusterApprovalHighDeclineOrExpiryRatio
+        eval_time: 20m
+        exp_alerts: []
+      - alertname: MusterApprovalHighDeclineOrExpiryRatio
+        eval_time: 120m
+        exp_alerts:
+          - exp_labels:
+              namespace: muster
+              severity: warning
+              topic: muster
+            exp_annotations:
+              description: '66.67% of the approval requests decided or expired in the last hour were declined or expired unanswered.'
+  # Mostly approved: silent. Declined but too few decisions: silent.
+  - interval: 1m
+    input_series:
+      - series: 'muster_approval_decisions_total{namespace="muster", pod="muster-a", outcome="approved"}'
+        values: "0+3x150"
+      - series: 'muster_approval_decisions_total{namespace="muster", pod="muster-a", outcome="declined"}'
+        values: "0+1x150"
+      - series: 'muster_approval_decisions_total{namespace="few", pod="few-a", outcome="declined"}'
+        values: "0 0 3 3x147"
+    alert_rule_test:
+      - alertname: MusterApprovalHighDeclineOrExpiryRatio
+        eval_time: 120m
+        exp_alerts: []
+
+  # Fallback in use for 30m fires; a short outage, which is what the fallback
+  # is for, does not.
+  - interval: 1m
+    input_series:
+      - series: 'muster_approval_last_observed_fallbacks_total{namespace="muster", pod="muster-a", mcpserver_name="github", reason="api_server_unreachable"}'
+        values: "0+2x60"
+      - series: 'muster_approval_last_observed_fallbacks_total{namespace="brief", pod="brief-a", mcpserver_name="github", reason="api_server_unreachable"}'
+        values: "0+2x10 20x50"
+    alert_rule_test:
+      - alertname: MusterApprovalOutageFallbackInUse
+        eval_time: 20m
+        exp_alerts: []
+      - alertname: MusterApprovalOutageFallbackInUse
+        eval_time: 45m
+        exp_alerts:
+          - exp_labels:
+              namespace: muster
+              severity: warning
+              topic: muster
+            exp_annotations:
+              description: 'Muster has decided calls by the last observed approval settings of its servers for 30m because the Kubernetes API server cannot be reached.'

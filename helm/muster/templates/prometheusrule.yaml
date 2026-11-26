@@ -202,4 +202,77 @@ spec:
             severity: notify
             team: bumblebee
             topic: muster
+    # Tool approval (docs/explanation/observability.md#approval-metrics). Kept
+    # in a group of its own: these alerts say nothing about MCP backends. They
+    # aggregate by namespace only, which keeps an alert's identity the muster
+    # release and not the pod that exported the series (see above); the
+    # Prometheus' external labels (cluster, installation) are added to the alert
+    # by Prometheus itself.
+    - name: muster-approval
+      rules:
+        # Calls that ask are being refused because muster cannot ask: no Valkey
+        # store, no browser sign-in, no public URL (reason unavailable), or the
+        # store does not answer (reason store_unavailable). Every such call
+        # fails closed, so the tools that ask are down for their callers.
+        # increase() over the same window as `for` keeps the alert up for as
+        # long as refusals keep coming and lets it resolve on its own a window
+        # after they stop.
+        - alert: MusterApprovalUnavailable
+          annotations:
+            description: '{{`Muster refused calls that ask for approval because approval is unavailable (reason {{ $labels.reason }}) for 10m: the tools that ask cannot run. Check muster_approval_store_up, the Valkey store and the approval prerequisites in the muster logs ("approval_refused" audit events).`}}'
+          expr: |-
+            sum by (namespace, reason) (increase(muster_approval_refusals_total{reason=~"unavailable|store_unavailable"}[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+            topic: muster
+        # The approval store (Valkey) is unreachable from at least one replica.
+        # muster_approval_store_up is absent while no store is registered, so
+        # an installation without Valkey (where approval refuses every call
+        # that asks and MusterApprovalUnavailable fires once one is made)
+        # does not trigger this. min, not max: a replica that cannot reach the
+        # store refuses calls whatever the others do.
+        - alert: MusterApprovalStoreDown
+          annotations:
+            description: '{{`A muster replica cannot reach its approval store (Valkey) for 5m; calls that ask for approval are refused on it.`}}'
+          expr: |-
+            min by (namespace) (muster_approval_store_up) == 0
+          for: 5m
+          labels:
+            severity: warning
+            topic: muster
+        # Most requests are declined or run out unanswered: people do not see
+        # the approval link (the client shows no URL elicitation), approve
+        # elsewhere than they are asked, or an agent asks for things nobody
+        # wants. The 10-decision floor keeps a few requests of a quiet hour
+        # from tripping it.
+        - alert: MusterApprovalHighDeclineOrExpiryRatio
+          annotations:
+            description: '{{`{{ $value | humanizePercentage }} of the approval requests decided or expired in the last hour were declined or expired unanswered.`}}'
+          expr: |-
+            (
+              sum by (namespace) (increase(muster_approval_decisions_total{outcome=~"declined|expired"}[1h]))
+              /
+              sum by (namespace) (increase(muster_approval_decisions_total{outcome=~"approved|declined|expired"}[1h]))
+            ) > 0.5
+            and
+            sum by (namespace) (increase(muster_approval_decisions_total{outcome=~"approved|declined|expired"}[1h])) >= 10
+          for: 30m
+          labels:
+            severity: warning
+            topic: muster
+        # Calls are being decided by a server's last observed definition
+        # because the API server cannot be reached. A short outage is what the
+        # fallback is for; one that lasts means a connector tightened in the
+        # meantime goes unseen until it ends (approval.lastObservedMaxAge
+        # bounds it, after which calls are refused).
+        - alert: MusterApprovalOutageFallbackInUse
+          annotations:
+            description: '{{`Muster has decided calls by the last observed approval settings of its servers for 30m because the Kubernetes API server cannot be reached.`}}'
+          expr: |-
+            sum by (namespace) (increase(muster_approval_last_observed_fallbacks_total[5m])) > 0
+          for: 30m
+          labels:
+            severity: warning
+            topic: muster
 {{- end }}
