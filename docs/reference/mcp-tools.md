@@ -190,7 +190,12 @@ stricter) or `agent-exception` (a granted `Allow`).
 A request without bound settings (a Session agent-manager did not start) takes the agent's
 settings from `X-Muster-Tool-Approval: <selector>=<Setting>,...[,default=<Setting>]`, which the
 agent chart renders on the agent's RemoteMCPServer. It carries no grants, so it can only make
-tools stricter; a value muster cannot parse makes every tool ask. A call that a grant let run is
+tools stricter; a value muster cannot parse makes every tool ask. The header is asserted by the
+client: muster applies it when the agent's runtime sends it, and a runtime that leaves it out
+(or a process in the sandbox calling muster itself) runs without the agent's `Ask` and `Block`.
+Only the settings agent-manager binds to the Sessions it starts (`start_session`) are
+authoritative; there a binding written by agent-manager cannot be removed or replaced without
+it. A call that a grant let run is
 audited as `call_allowed_by_exception` with the grant mark.
 
 `filter_tools` and `describe_tool` take `agentTools`, `{"tools": [<selector> | {<selector>:
