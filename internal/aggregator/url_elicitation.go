@@ -128,7 +128,7 @@ func (a *AggregatorServer) urlElicitation() mcpserver.ToolHandlerMiddleware {
 			supportsURL := clientSupportsURLElicitation(ctx)
 			if state != nil && state.Kind == stateKindBackend {
 				ctx = withBackendRoundTrip(ctx, *state.Backend, req.Params.InputResponses)
-			} else if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); supportsURL && answer != nil {
+			} else if answer := mcpserver.ElicitationResponse(req.Params.InputResponses, signInInputKey); (supportsURL || state != nil) && answer != nil {
 				var signIn signInRequestState
 				if state != nil {
 					signIn = *state.SignIn

@@ -612,3 +612,30 @@ func (h *finishedSignInHandler) SignInFinished(_ context.Context, sessionID, sta
 	defer h.mu.Unlock()
 	return h.finished[[2]string{sessionID, startURL}]
 }
+
+func TestSealedSignInRefusalWithoutURLCapabilityRunsNothing(t *testing.T) {
+	for _, action := range []mcp.ElicitationResponseAction{mcp.ElicitationResponseActionDecline, mcp.ElicitationResponseActionCancel} {
+		t.Run(string(action), func(t *testing.T) {
+			aggregator := elicitingAggregator(t)
+			ctx := withTestCaller(sessionModernContext(mcp.ClientCapabilities{}))
+			request := mcp.CallToolRequest{}
+			request.Params.Name = "call_tool"
+			request.Params.Arguments = map[string]any{"name": "backend_write"}
+			request.Params.RequestState = sealedFor(t, aggregator, ctx, request, sealedRequestState{
+				Kind: stateKindSignIn, SignIn: &signInRequestState{Server: "backend", Link: "https://muster.example/sign-in"},
+			})
+			request.Params.InputResponses = mcp.InputResponses{signInInputKey: mcp.NewElicitationInputResponse(mcp.ElicitationResult{
+				ElicitationResponse: mcp.ElicitationResponse{Action: action},
+			})}
+			called := false
+			next := func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				called = true
+				return mcp.NewToolResultText("ran"), nil
+			}
+			result, err := aggregator.urlElicitation()(next)(ctx, request)
+			require.NoError(t, err)
+			require.True(t, result.IsError)
+			require.False(t, called)
+		})
+	}
+}
