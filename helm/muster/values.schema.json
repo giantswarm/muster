@@ -892,6 +892,25 @@
                 "providerApps": {
                     "type": "array"
                 },
+                "requestState": {
+                    "type": "object",
+                    "description": "Shared root key for HKDF-derived request-state sealing across replicas. Independent of OAuth token encryption. Without this reference, the OAuth encryption key is used when enabled; otherwise the key is process-local.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "secretKeyRef": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "key": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
                 "secretBinding": {
                     "type": "object",
                     "additionalProperties": false,

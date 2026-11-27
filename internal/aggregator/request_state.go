@@ -51,16 +51,20 @@ type sealedRequestState struct {
 }
 
 // requestStateKeyLabel separates the requestState key derived from muster's
-// token encryption key from that key and from any other key derived from it.
+// root key from that key and from any other key derived from it.
 const requestStateKeyLabel = "muster requestState v1"
 
-// newRequestStateSealer returns the sealer of muster's requestState. Its key
-// is derived from the token encryption key (HKDF-SHA256), which every replica
-// shares, so a retry can reach any replica and no further secret is needed.
-// Without an encryption key it seals with a key of this process alone and
-// warns: a retry that reaches another replica is then refused.
-func newRequestStateSealer(oauthServer config.OAuthServerConfig) (*requeststate.Sealer, error) {
-	secret, err := requestStateSecret(oauthServer.EncryptionKey)
+// newRequestStateSealer derives its key from explicit request-state key material,
+// falling back to the storage encryption key only when no explicit key is set.
+func newRequestStateSealer(settings config.RequestStateConfig, encryptionKey string) (*requeststate.Sealer, error) {
+	if settings.KeyFile != "" && settings.Key == "" {
+		return nil, errors.New("requestState key file is empty or unresolved")
+	}
+	rootKey := settings.Key
+	if rootKey == "" {
+		rootKey = encryptionKey
+	}
+	secret, err := requestStateSecret(rootKey)
 	if err != nil {
 		return nil, err
 	}
@@ -71,21 +75,21 @@ func newRequestStateSealer(oauthServer config.OAuthServerConfig) (*requeststate.
 	return requeststate.New(ring)
 }
 
-func requestStateSecret(encryptionKey string) ([]byte, error) {
-	if encryptionKey == "" {
+func requestStateSecret(rootKey string) ([]byte, error) {
+	if rootKey == "" {
 		secret := make([]byte, 32)
 		if _, err := rand.Read(secret); err != nil {
 			return nil, fmt.Errorf("requestState key: %w", err)
 		}
-		logging.Warn("Aggregator", "No encryptionKey configured: sealing requestState with a key of this process; with more than one replica, a retry reaching another replica is refused")
+		logging.Warn("Aggregator", "No shared requestState key configured: sealing with a key of this process; with more than one replica, a retry reaching another replica is refused")
 		return secret, nil
 	}
-	key, err := security.DecodeKey(encryptionKey)
+	key, err := security.DecodeKey(rootKey)
 	if err != nil {
-		return nil, fmt.Errorf("encryption key: %w", err)
+		return nil, fmt.Errorf("requestState root key: %w", err)
 	}
 	if err := security.ValidateKeyEntropy(key); err != nil {
-		return nil, fmt.Errorf("encryption key: %w", err)
+		return nil, fmt.Errorf("requestState root key: %w", err)
 	}
 	secret, err := hkdf.Key(sha256.New, key, nil, requestStateKeyLabel, 32)
 	if err != nil {

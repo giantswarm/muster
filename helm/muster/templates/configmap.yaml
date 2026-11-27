@@ -10,6 +10,13 @@ data:
       host: "0.0.0.0"
       port: {{ .Values.muster.aggregator.port }}
       transport: {{ .Values.muster.aggregator.transport | quote }}
+      {{- with .Values.muster.requestState.secretKeyRef }}
+      {{- if or .name .key }}
+      {{- if not (and .name .key) }}{{ fail "muster.requestState.secretKeyRef requires name and key" }}{{ end }}
+      requestState:
+        keyFile: /etc/muster/request-state/key
+      {{- end }}
+      {{- end }}
       {{- with .Values.muster.credentialProvider }}
       {{- if .enabled }}
       {{- if not .gatewayIdentity }}{{ fail "muster.credentialProvider.gatewayIdentity is required" }}{{- end }}
@@ -87,7 +94,7 @@ data:
           {{- end }}
           {{- end }}
         {{- end }}
-        {{- if and (or (and .Values.autoscaling.enabled (gt (int .Values.autoscaling.maxReplicas) 1)) (and (not .Values.autoscaling.enabled) (gt (int .Values.replicaCount) 1))) (not .Values.muster.oauth.server.encryptionKey) }}{{ fail "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused" }}{{- end }}
+        {{- if and (or (and .Values.autoscaling.enabled (gt (int .Values.autoscaling.maxReplicas) 1)) (and (not .Values.autoscaling.enabled) (gt (int .Values.replicaCount) 1))) (not (or (and .Values.muster.requestState.secretKeyRef.name .Values.muster.requestState.secretKeyRef.key) .Values.muster.oauth.server.encryptionKey)) }}{{ fail "multiple replicas require muster.requestState.secretKeyRef or muster.oauth.server.encryptionKey: retries must share a requestState sealing key" }}{{- end }}
         {{- if or .Values.muster.oauth.server.enabled .Values.muster.oauth.server.encryptionKey }}
         {{- $secretsPath := "/etc/muster/secrets" }}
         server:

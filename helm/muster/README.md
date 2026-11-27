@@ -99,6 +99,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | affinity | object | `{}` |  |
 | muster.aggregator.port | int | `8090` |  |
 | muster.aggregator.transport | string | `"streamable-http"` |  |
+| muster.requestState | object | `{"secretKeyRef":{"key":"","name":""}}` | Shared root key for HKDF-derived request-state sealing across replicas. Independent of OAuth token encryption. Without this reference, the OAuth encryption key is used when enabled; otherwise the key is process-local. |
 | muster.namespace | string | `""` |  |
 | muster.debug | bool | `false` |  |
 | muster.writesAsCaller.kubernetesAudience | string | `""` |  |

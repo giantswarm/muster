@@ -409,6 +409,9 @@ type AggregatorConfig struct {
 	// OAuthServer configuration for protecting the Muster Server (resource server role)
 	OAuthServer OAuthServerConfig
 
+	// RequestState supplies key material independently of token encryption.
+	RequestState configPkg.RequestStateConfig
+
 	// Debug enables debug logging
 	Debug bool
 

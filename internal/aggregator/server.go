@@ -832,6 +832,11 @@ func (s *ssoTracker) CleanupExpired() {
 // Returns a configured but unstarted aggregator server ready for initialization,
 // or an error when the configured session store backend cannot be reached.
 func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorCallback func(error)) (*AggregatorServer, error) {
+	oauthServer, _ := aggConfig.OAuthServer.Config.(config.OAuthServerConfig)
+	requestStates, err := newRequestStateSealer(aggConfig.RequestState, oauthServer.EncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("requestState: %w", err)
+	}
 	rateLimiter := NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 	stores, err := createStores(ctx, aggConfig)
 	if err != nil {
@@ -846,12 +851,6 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		return nil, fmt.Errorf("provider Apps: %w", err)
 	}
 	setAppOwnedIssuers(providerApps)
-	oauthServer, _ := aggConfig.OAuthServer.Config.(config.OAuthServerConfig)
-	requestStates, err := newRequestStateSealer(oauthServer)
-	if err != nil {
-		return nil, fmt.Errorf("requestState: %w", err)
-	}
-
 	var deviceStore deviceSignInStore = newMemoryDeviceSignInStore()
 	var bearerExpiries bearerExpiryStore
 	if stores.valkeyClient != nil {

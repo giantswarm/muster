@@ -164,6 +164,11 @@ spec:
             - name: config
               mountPath: /etc/muster
               readOnly: true
+            {{- if .Values.muster.requestState.secretKeyRef.name }}
+            - name: request-state-key
+              mountPath: /etc/muster/request-state
+              readOnly: true
+            {{- end }}
             {{- if or .Values.muster.oauth.server.enabled .Values.muster.oauth.server.encryptionKey }}
             - name: oauth-secrets
               mountPath: /etc/muster/secrets
@@ -215,6 +220,17 @@ spec:
         - name: config
           configMap:
             name: {{ include "muster.fullname" . }}-config
+        {{- with .Values.muster.requestState.secretKeyRef }}
+        {{- if .name }}
+        - name: request-state-key
+          secret:
+            secretName: {{ .name | quote }}
+            defaultMode: 0440
+            items:
+              - key: {{ .key | quote }}
+                path: key
+        {{- end }}
+        {{- end }}
         {{- if or .Values.muster.oauth.server.enabled .Values.muster.oauth.server.encryptionKey }}
         - name: oauth-secrets
           projected:

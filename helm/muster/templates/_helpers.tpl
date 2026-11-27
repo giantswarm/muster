@@ -214,6 +214,9 @@ MCPServer may share one.
 {{- define "muster.protectedSecrets" -}}
 {{- $names := list -}}
 {{- $s := .Values.muster.oauth.server -}}
+{{- with .Values.muster.requestState.secretKeyRef.name -}}
+{{- $names = append $names . -}}
+{{- end -}}
 {{- if or $s.enabled $s.encryptionKey -}}
 {{- $names = append $names ($s.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .))) -}}
 {{- end -}}

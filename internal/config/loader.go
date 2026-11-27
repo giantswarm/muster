@@ -134,6 +134,7 @@ func resolveSecretFiles(config *MusterConfig) error {
 	resolveInitialAccessToken(oauthServer)
 
 	secrets := []secretMapping{
+		{config.Aggregator.RequestState.KeyFile, &config.Aggregator.RequestState.Key, "requestState root key"},
 		{oauthServer.Dex.ClientSecretFile, &oauthServer.Dex.ClientSecret, "Dex client secret"},
 		{oauthServer.Google.ClientSecretFile, &oauthServer.Google.ClientSecret, "Google client secret"},
 		{oauthServer.InitialAccessTokenFile, &oauthServer.InitialAccessToken, "initial access token"},

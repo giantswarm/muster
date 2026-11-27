@@ -128,9 +128,13 @@ func contentOf(answer *mcp.ElicitationResult) string {
 // its key over a real muster client (tenant adoption is not under test), and serves muster's tools/call -- the URL
 // elicitation middleware in front of CallToolInternal, as call_tool reaches
 // it -- over streamable HTTP. It returns muster's URL.
-func newInputMuster(t *testing.T, backends map[string]*inputBackend) string {
+func newInputMuster(t *testing.T, backends map[string]*inputBackend, settings ...AggregatorConfig) string {
 	t.Helper()
-	a, err := NewAggregatorServer(t.Context(), AggregatorConfig{Host: "localhost", Port: 0}, nil)
+	aggregatorSettings := AggregatorConfig{Host: "localhost", Port: 0}
+	if len(settings) > 0 {
+		aggregatorSettings = settings[0]
+	}
+	a, err := NewAggregatorServer(t.Context(), aggregatorSettings, nil)
 	require.NoError(t, err)
 	srv := mcpserver.NewMCPServer("muster", "test", mcpserver.WithToolHandlerMiddleware(a.urlElicitation()))
 	for key, backend := range backends {

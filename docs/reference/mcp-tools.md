@@ -171,7 +171,25 @@ Every `requestState` muster answers with is sealed with AES-256-GCM (mcp-oauth's
 
 A retry whose `requestState` was changed, was sealed for another caller or call, or was sealed by a muster with another key is refused with JSON-RPC `-32602` (invalid params) and runs nothing. A lapsed `requestState` is ignored: the call runs as a first call and asks again. A caller without a resolved subject or session, or an OAuth caller naming no single client, gets an error instead of an answer that needs a `requestState`.
 
-The sealing key is derived (HKDF-SHA256) from muster's token encryption key (`muster.oauth.server.encryptionKey`, `oauth-encryption-key` in the OAuth Secret), which every replica shares; it is a key of its own, not the encryption key. Rotating the encryption key voids the `requestState` in flight, which lives 10 minutes. Without an encryption key, each muster process seals with a key of its own and warns at start: a retry that reaches another replica is refused. The chart therefore requires `encryptionKey` for more than one replica (`replicaCount` above 1, or autoscaling with `maxReplicas` above 1), including when the OAuth server is disabled. The shared key is mounted independently of inbound OAuth. Invalid state is logged with a rejection reason and caller identity, without the sealed value or its payload.
+The sealing key is derived with HKDF-SHA256 from the high-entropy, base64-encoded
+32-byte root key in `aggregator.requestState.keyFile`. The chart mounts
+`muster.requestState.secretKeyRef.{name,key}` at that path. This does not enable
+OAuth token encryption or change existing stored credentials. Every replica
+must read the same root key.
+
+Without an explicit request-state key, the token encryption key remains the
+fallback (`muster.oauth.server.encryptionKey`, `oauth-encryption-key` in the
+OAuth Secret). The same root key produces the same derived sealing key through
+either configuration. An invalid explicit key fails startup rather than using
+the fallback. Rotating the root key invalidates request states in flight, whose
+lifetime is 10 minutes; restart every replica after updating the Secret.
+
+Without either shared key, each process uses a random key and warns at startup.
+The chart requires an explicit reference or the encryption-key fallback for more
+than one replica, including with inbound OAuth disabled. Existing plaintext
+OAuth stores should use the independent request-state reference; enabling token
+encryption is a separate storage migration. Invalid state is logged with a
+rejection reason and caller identity, without its sealed value or payload.
 
 #### A call a server answers with an input request
 

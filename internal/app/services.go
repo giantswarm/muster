@@ -287,6 +287,7 @@ func InitializeServices(cfg *Config) (*Services, error) {
 			ConfigDir:    cfg.ConfigPath,
 			Debug:        cfg.Debug,
 			OAuth:        mergedOAuthMCPClientConfig,
+			RequestState: cfg.MusterConfig.Aggregator.RequestState,
 			OAuthServer: aggregator.OAuthServerConfig{
 				// serve command flag overrides config file if enabled
 				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuth.Server.Enabled,

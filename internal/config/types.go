@@ -103,6 +103,9 @@ type AggregatorConfig struct {
 	// - oauth.server: muster as OAuth resource server for protecting ITSELF
 	OAuth OAuthConfig `yaml:"oauth,omitempty"`
 
+	// RequestState seals retry state across replicas without changing token storage.
+	RequestState RequestStateConfig `yaml:"requestState,omitempty"`
+
 	// Admin exposes a read-only web UI for listing and managing sessions on a
 	// separate HTTP listener. Disabled by default. When enabled, the listener
 	// binds to AdminBindAddress:AdminPort without authentication, so it is

@@ -310,6 +310,14 @@ muster:
     # Options: "streamable-http", "sse"
     transport: "streamable-http"
 
+  # -- Shared root key for HKDF-derived request-state sealing across replicas.
+  # Independent of OAuth token encryption. Without this reference, the OAuth
+  # encryption key is used when enabled; otherwise the key is process-local.
+  requestState:
+    secretKeyRef:
+      name: ""
+      key: ""
+
   # Namespace for MCPServer and Workflow discovery
   # Defaults to the release namespace if not set
   namespace: ""

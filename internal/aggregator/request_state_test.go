@@ -40,7 +40,7 @@ func withTestCaller(ctx context.Context) context.Context {
 
 func testRequestStateSealer(t *testing.T) *requeststate.Sealer {
 	t.Helper()
-	sealer, err := newRequestStateSealer(config.OAuthServerConfig{})
+	sealer, err := newRequestStateSealer(config.RequestStateConfig{}, "")
 	require.NoError(t, err)
 	return sealer
 }
@@ -79,18 +79,53 @@ func newKey(t *testing.T) string {
 }
 
 func TestNewRequestStateSealer(t *testing.T) {
+	t.Run("explicit root preserves the legacy derived key without storage encryption", func(t *testing.T) {
+		key := newKey(t)
+		legacy, err := newRequestStateSealer(config.RequestStateConfig{}, key)
+		require.NoError(t, err)
+		explicit, err := newRequestStateSealer(config.RequestStateConfig{Key: key}, "")
+		require.NoError(t, err)
+		for _, pair := range [][2]*requeststate.Sealer{{legacy, explicit}, {explicit, legacy}} {
+			sealed, err := pair[0].Seal(testCaller(), "call", []byte("state"), requestStateTTL)
+			require.NoError(t, err)
+			opened, err := pair[1].Open(testCaller(), "call", sealed)
+			require.NoError(t, err)
+			require.Equal(t, "state", string(opened))
+		}
+	})
+	t.Run("invalid explicit key never falls back", func(t *testing.T) {
+		for _, settings := range []config.RequestStateConfig{
+			{Key: "invalid"},
+			{KeyFile: "/empty-key"},
+		} {
+			_, err := newRequestStateSealer(settings, newKey(t))
+			require.Error(t, err)
+		}
+	})
+	t.Run("explicit root takes precedence", func(t *testing.T) {
+		key := newKey(t)
+		one, err := newRequestStateSealer(config.RequestStateConfig{Key: key}, newKey(t))
+		require.NoError(t, err)
+		two, err := newRequestStateSealer(config.RequestStateConfig{Key: key}, "")
+		require.NoError(t, err)
+		sealed, err := one.Seal(testCaller(), "call", []byte("state"), requestStateTTL)
+		require.NoError(t, err)
+		opened, err := two.Open(testCaller(), "call", sealed)
+		require.NoError(t, err)
+		require.Equal(t, "state", string(opened))
+	})
 	for _, value := range []byte{0, 'a'} {
 		t.Run(fmt.Sprintf("rejects repeated root byte %d", value), func(t *testing.T) {
 			key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{value}, 32))
-			_, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: key})
+			_, err := newRequestStateSealer(config.RequestStateConfig{}, key)
 			require.Error(t, err)
 		})
 	}
 	t.Run("replicas with one encryption key open each other's state", func(t *testing.T) {
 		key := newKey(t)
-		one, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: key})
+		one, err := newRequestStateSealer(config.RequestStateConfig{}, key)
 		require.NoError(t, err)
-		two, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: key})
+		two, err := newRequestStateSealer(config.RequestStateConfig{}, key)
 		require.NoError(t, err)
 
 		sealed, err := one.Seal(testCaller(), "call", []byte("state"), requestStateTTL)
@@ -111,9 +146,9 @@ func TestNewRequestStateSealer(t *testing.T) {
 	})
 
 	t.Run("another encryption key does not open the state", func(t *testing.T) {
-		one, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: newKey(t)})
+		one, err := newRequestStateSealer(config.RequestStateConfig{}, newKey(t))
 		require.NoError(t, err)
-		two, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: newKey(t)})
+		two, err := newRequestStateSealer(config.RequestStateConfig{}, newKey(t))
 		require.NoError(t, err)
 
 		sealed, err := one.Seal(testCaller(), "call", []byte("state"), requestStateTTL)
@@ -132,7 +167,7 @@ func TestNewRequestStateSealer(t *testing.T) {
 	})
 
 	t.Run("refuses an encryption key that is not 32 bytes", func(t *testing.T) {
-		_, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: base64.StdEncoding.EncodeToString([]byte("short"))})
+		_, err := newRequestStateSealer(config.RequestStateConfig{}, base64.StdEncoding.EncodeToString([]byte("short")))
 		require.Error(t, err)
 	})
 
