@@ -617,9 +617,8 @@ func (h *TestToolsHandler) handleSimulateOAuthCallback(ctx context.Context, args
 			state[:min(16, len(state))], redirectURI)
 	}
 
-	// Step 4: Generate an authorization code in the mock OAuth server
-	// Use the parameters from muster's auth URL so PKCE verification will pass
-	authCode := oauthServer.GenerateAuthCode(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, nonce)
+	backendSubject, _ := args["backend_subject"].(string)
+	authCode := oauthServer.GenerateAuthCodeWithSubject(clientID, redirectURI, scope, state, codeChallenge, codeChallengeMethod, backendSubject, nonce)
 
 	if h.debug {
 		h.logger.Debug("🔐 Generated auth code: %s...\n", authCode[:min(16, len(authCode))])

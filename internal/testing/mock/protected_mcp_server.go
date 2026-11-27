@@ -544,7 +544,9 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 			m.sendAuthChallenge(w, "invalid_token", fmt.Sprintf("token validation failed: %v", err))
 			return
 		}
-		r = r.WithContext(withReceivedToken(r.Context(), &receivedToken{Raw: token, Claims: claims}))
+		r = r.WithContext(withReceivedToken(r.Context(), &receivedToken{Raw: token, Claims: claims,
+			Authorization: &authorizationObservation{Subject: claims.Sub, Issuer: claims.Iss},
+		}))
 		if m.debug {
 			fmt.Fprintf(os.Stderr, "🔒 JWKS-validated token (sub=%s), passing to MCP handler\n", claims.Sub)
 		}
@@ -580,9 +582,16 @@ func (m *oauthProtectionMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Req
 		fmt.Fprintf(os.Stderr, "🔒 Token validated, passing request to MCP handler\n")
 	}
 
-	// Token valid - pass through to MCP handler. The raw bearer travels down
-	// so an echo_token tool can return it (opaque tokens carry no claims).
-	r = r.WithContext(withReceivedToken(r.Context(), &receivedToken{Raw: token}))
+	received := &receivedToken{Raw: token}
+	if m.oauthServer != nil {
+		if identity := m.oauthServer.GetTokenInfo(token); identity != nil {
+			received.Authorization = &authorizationObservation{
+				Subject: identity.Subject, Issuer: m.oauthServer.GetIssuerURL(),
+				ClientID: identity.ClientID, Scopes: strings.Fields(identity.Scope),
+			}
+		}
+	}
+	r = r.WithContext(withReceivedToken(r.Context(), received))
 	m.handler.ServeHTTP(w, r)
 }
 

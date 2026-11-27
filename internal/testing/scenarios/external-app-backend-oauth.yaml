@@ -1,0 +1,99 @@
+name: external-app-backend-oauth
+category: behavioral
+concept: oauth
+description: Backend onboarding uses the existing OAuth flow and a backend-issued user token. Other platform users have no access to that grant. Tool observations contain verified identity and no bearer token.
+tags: [oauth, subject-grant, multi-user, backend-authorization]
+timeout: 3m
+instance_logs:
+  not_contains_issued_credentials: true
+pre_configuration:
+  mock_oauth_servers:
+  - name: platform-idp
+    scopes: [openid, profile, email]
+    auto_approve: true
+    pkce_required: false
+    token_lifetime: 1h
+    client_id: platform-client
+    client_secret: platform-test-secret
+    use_as_muster_oauth_server: true
+  - name: backend-idp
+    scopes: [mcp:write]
+    auto_approve: true
+    pkce_required: true
+    token_lifetime: 1h
+    client_id: backend-client
+    use_tls: true
+  mcp_servers:
+  - name: reference-backend
+    config:
+      type: streamable-http
+      oauth:
+        required: true
+        mock_oauth_server_ref: backend-idp
+        scope: mcp:write
+        grant_scope: subject
+      tools:
+      - name: operate
+        description: Apply an operation as the authenticated backend user
+        echo_authorization: true
+        responses:
+        - response:
+            status: updated
+steps:
+- id: alice-platform-login
+  tool: test_muster_auth_login
+  args: {subject: platform-alice}
+  expected: {success: true}
+- id: alice-session
+  tool: test_create_user
+  args: {name: alice}
+  expected: {success: true}
+- id: bob-platform-login
+  tool: test_muster_auth_login
+  args: {subject: platform-bob}
+  expected: {success: true}
+- id: bob-session
+  tool: test_create_user
+  args: {name: bob}
+  expected: {success: true}
+- id: no-backend-grant
+  as_user: alice
+  tool: x_reference-backend_operate
+  args: {}
+  expected: {success: false}
+- id: onboarding-challenge
+  as_user: alice
+  tool: core_auth_login
+  args: {server: reference-backend}
+  expected:
+    success: true
+    contains: [Authentication Required]
+- id: onboarding-sign-in
+  as_user: alice
+  tool: test_simulate_oauth_callback
+  args: {server: reference-backend, backend_subject: backend-alice}
+  expected: {success: true}
+- id: operation-as-backend-user
+  as_user: alice
+  tool: x_reference-backend_operate
+  args: {}
+  expected:
+    success: true
+    wait_for_state: 30s
+    json_path:
+      authorization.subject: backend-alice
+    not_contains: [received_token, X-Muster-Id-Token, platform-alice]
+- id: another-platform-user-has-no-backend-grant
+  as_user: bob
+  tool: x_reference-backend_operate
+  args: {}
+  expected: {success: false}
+- id: retry-retains-backend-identity
+  as_user: alice
+  tool: x_reference-backend_operate
+  args: {}
+  expected:
+    success: true
+    json_path:
+      authorization.subject: backend-alice
+    not_contains: [received_token, X-Muster-Id-Token, platform-alice]
