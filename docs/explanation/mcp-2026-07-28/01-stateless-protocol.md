@@ -300,8 +300,10 @@ person:
 | HTTP, 2025-11-25 or earlier | the one person, kept per transport session, so two connections do not see each other's sign-ins (ADR 006, section 4.1) |
 | HTTP, 2026-07-28 | the one person, shared by every request: the revision has no transport session |
 
-Two people who use one muster need its inbound OAuth; on 2026-07-28 each
-token is its own session (scenario
+Two people who use one muster need its inbound OAuth. Its verified session
+key scopes the caller's state independently of the MCP transport. Tokens
+from the same refresh-token family share that key across token rotation;
+other validated tokens use a bearer-derived key (scenario
 `session-multi-user-progressive-auth-2026-07-28`). muster warns at start
 when it listens beyond loopback without inbound OAuth.
 
