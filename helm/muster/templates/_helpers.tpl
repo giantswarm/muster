@@ -109,7 +109,7 @@ the effective exporter list. Distinguishes "prometheus" /
 {{/*
 Data of the OAuth credentials Secret the chart renders (templates/oauth-secret.yaml),
 one "key: base64" line per entry: the provider's client secret (and Google's
-client id), the registration token, the token encryption key and, with Valkey
+client id), the registration token and, with Valkey
 storage and no Valkey Secret of its own, the Valkey password. Its SHA-256 is the
 pod template's checksum/oauth-secret annotation, so muster rolls when one of
 them changes; the Secret template and the annotation share it so the two
@@ -143,13 +143,6 @@ cannot drift. The gates fail the render the way the Secret template did.
 {{- fail "OAuth client registration has no gate configured. Set one of: initialAccessToken | allowPublicClientRegistration=true | trustedPublicRegistrationSchemes | trustedPublicRegistrationRedirectURIs | existingSecret." -}}
 {{- end -}}
 {{- end -}}
-{{- if $s.encryptionKey -}}
-{{- if $s.encryptionKeyValue -}}
-{{- $lines = append $lines (printf "oauth-encryption-key: %s" ($s.encryptionKeyValue | b64enc | quote)) -}}
-{{- else -}}
-{{- fail "muster.oauth.server.encryptionKeyValue is required when encryptionKey is true and existingSecret is not set" -}}
-{{- end -}}
-{{- end -}}
 {{- if and $s.enabled (eq $s.storage.type "valkey") (not $s.storage.valkey.existingSecret) $s.storage.valkey.password -}}
 {{- $lines = append $lines (printf "valkey-password: %s" ($s.storage.valkey.password | b64enc | quote)) -}}
 {{- end -}}
@@ -160,12 +153,12 @@ cannot drift. The gates fail the render the way the Secret template did.
 Value of the pod template's checksum/oauth-secret annotation: the SHA-256 of the
 chart-rendered Secret's data, or muster.oauth.server.existingSecretChecksum
 verbatim when the credentials come from an existing Secret the chart cannot
-read. Empty without OAuth or an encryption key, or without an existing Secret's
+read. Empty without OAuth, or without an existing Secret's
 revision.
 */}}
 {{- define "muster.oauthSecretChecksum" -}}
 {{- $s := .Values.muster.oauth.server -}}
-{{- if or $s.enabled $s.encryptionKey -}}
+{{- if $s.enabled -}}
 {{- if $s.existingSecret -}}
 {{- $s.existingSecretChecksum -}}
 {{- else -}}
@@ -214,8 +207,12 @@ MCPServer may share one.
 {{- define "muster.protectedSecrets" -}}
 {{- $names := list -}}
 {{- $s := .Values.muster.oauth.server -}}
-{{- if or $s.enabled $s.encryptionKey -}}
+{{- if $s.enabled -}}
 {{- $names = append $names ($s.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .))) -}}
+{{- end -}}
+{{- if $s.encryptionKey -}}
+{{- $key := include "muster.encryptionKey" . | fromJson -}}
+{{- $names = append $names $key.name -}}
 {{- end -}}
 {{- with $s.storage.valkey.existingSecret -}}
 {{- $names = append $names . -}}

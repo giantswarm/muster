@@ -160,8 +160,11 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.registrationToken | string | `""` | Deprecated: use initialAccessToken. The new key wins when both are set. |
 | muster.oauth.server.allowPublicClientRegistration | bool | `false` |  |
 | muster.oauth.server.enableClientManagementEndpoint | bool | `false` |  |
-| muster.oauth.server.encryptionKey | bool | `false` |  |
+| muster.oauth.server.encryptionKey | bool | `true` |  |
 | muster.oauth.server.encryptionKeyValue | string | `""` |  |
+| muster.oauth.server.encryptionKeySecret.name | string | `""` |  |
+| muster.oauth.server.encryptionKeySecret.key | string | `"oauth-encryption-key"` |  |
+| muster.oauth.server.encryptionKeySecret.checksum | string | `""` |  |
 | muster.oauth.server.trustedPublicRegistrationSchemes | list | `[]` |  |
 | muster.oauth.server.trustedPublicRegistrationRedirectURIs | list | `[]` |  |
 | muster.oauth.server.enableCIMD | bool | `true` |  |
@@ -280,6 +283,32 @@ set `rbac.mcpServerEditor.create: false` / `rbac.workflowEditor.create: false`
 and bind the verbs yourself.
 
 ## Rolling on credential rotation
+
+Token encryption and a shared requestState sealing key are enabled by default, even with inbound OAuth
+disabled. The chart generates a random 32-byte key in `<fullname>-encryption-key`, with its own mount
+and checksum. It reuses that key through Helm/Flux upgrades and retains the Secret while encryption
+is disabled and on uninstall. Multiple replicas and autoscaling above one replica require encryption.
+
+OAuth credentials and encryption keys have separate lifecycles. An `existingSecret` without a key
+receives a dedicated generated key; the chart never modifies the external Secret. A key already in
+the external credentials Secret remains in use, while a chart-owned `<fullname>-oauth` key is copied
+unchanged into the dedicated Secret on upgrade. An existing dedicated key takes precedence over
+automatic detection in the credentials Secret. `encryptionKeyValue` supplies the chart-managed key.
+
+`muster.oauth.server.encryptionKeySecret.name` explicitly selects an external key Secret, with `.key`
+defaulting to `oauth-encryption-key`. It overrides all automatic selection and inline key values.
+`checksum/encryption-key` hashes the selected key during a live render, or uses
+`encryptionKeySecret.checksum` when supplied. Change that mark with an external key rotation; Flux
+can feed it through `valuesFrom`. A missing or empty key in an existing dedicated Secret fails the render.
+
+Upgrades from `encryptionKey: false` require fresh sign-ins because stored tokens are unreadable with
+the new key. Unreadable actor bindings grant no credentials and are treated as absent; bind and unbind
+can replace or remove them without waiting for their TTL. Complete the rollout before rebinding.
+Single-replica installations can explicitly retain `encryptionKey: false` to defer that transition.
+
+Key reuse uses Helm's cluster-connected `lookup`: offline `helm template` renders generate a fresh key.
+Use Helm install/upgrade or Flux helm-controller to preserve it; for render-and-apply deployment, supply
+an externally managed key. Restore the encryption key with any backup of encrypted token storage.
 
 muster reads its OAuth credentials (the Dex or Google client secret, the registration token, the token
 encryption key) and the Valkey password from Secrets projected into the pod at start and never again. The

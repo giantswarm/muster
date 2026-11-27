@@ -11,6 +11,8 @@ set:
 tests:
   - it: renders one replica without the encryption key
     template: templates/configmap.yaml
+    set:
+      muster.oauth.server.encryptionKey: false
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]
@@ -20,6 +22,7 @@ tests:
     template: templates/deployment.yaml
     set:
       replicaCount: 2
+      muster.oauth.server.encryptionKey: false
     asserts:
       - failedTemplate:
           errorMessage: "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused"
@@ -28,6 +31,7 @@ tests:
     template: templates/deployment.yaml
     set:
       autoscaling.enabled: true
+      muster.oauth.server.encryptionKey: false
     asserts:
       - failedTemplate:
           errorMessage: "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused"
@@ -41,13 +45,14 @@ tests:
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"'
+          pattern: 'encryptionKeyFile: "/etc/muster/encryption/oauth-encryption-key"'
 
   - it: refuses multiple replicas without OAuth and without a shared key
     template: templates/deployment.yaml
     set:
       muster.oauth.server.enabled: false
       replicaCount: 2
+      muster.oauth.server.encryptionKey: false
     asserts:
       - failedTemplate:
           errorMessage: "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused"
@@ -57,12 +62,12 @@ tests:
     set:
       muster.oauth.server.enabled: false
       muster.oauth.server.encryptionKey: true
-      muster.oauth.server.existingSecret: shared-key
+      muster.oauth.server.encryptionKeySecret.name: shared-key
       replicaCount: 2
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'enabled: false\s+encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"'
+          pattern: 'enabled: false\s+encryptionKeyFile: "/etc/muster/encryption/oauth-encryption-key"'
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'protectedSecrets:\s+- shared-key'
@@ -72,28 +77,29 @@ tests:
     set:
       muster.oauth.server.enabled: false
       muster.oauth.server.encryptionKey: true
-      muster.oauth.server.existingSecret: shared-key
+      muster.oauth.server.encryptionKeySecret.name: shared-key
       muster.oauth.server.storage.type: valkey
       replicaCount: 2
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: oauth-secrets
-            mountPath: /etc/muster/secrets
+            name: encryption-key
+            mountPath: /etc/muster/encryption
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: oauth-secrets
-            projected:
+            name: encryption-key
+            secret:
+              secretName: shared-key
               defaultMode: 288
-              sources:
-                - secret:
-                    name: shared-key
+              items:
+                - key: oauth-encryption-key
+                  path: oauth-encryption-key
 
   - it: creates only the encryption key without OAuth credentials
-    template: templates/oauth-secret.yaml
+    template: templates/encryption-key-secret.yaml
     set:
       muster.oauth.server.enabled: false
       muster.oauth.server.encryptionKey: true
@@ -114,6 +120,7 @@ tests:
       autoscaling.enabled: true
       autoscaling.minReplicas: 1
       autoscaling.maxReplicas: 1
+      muster.oauth.server.encryptionKey: false
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]

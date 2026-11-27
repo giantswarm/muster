@@ -1,0 +1,220 @@
+suite: external encryption key
+release:
+  name: muster
+  namespace: muster-test
+kubernetesProvider:
+  scheme:
+    v1/Secret:
+      gvr:
+        version: v1
+        resource: secrets
+      namespaced: true
+tests:
+  - it: generates a dedicated key when external OAuth credentials have none
+    template: templates/encryption-key-secret.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.existingSecret: credentials
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: credentials
+            namespace: muster-test
+          data:
+            dex-client-secret: cw==
+    asserts:
+      - equal:
+          path: metadata.name
+          value: muster-encryption-key
+      - matchRegex:
+          path: data.oauth-encryption-key
+          decodeBase64: true
+          pattern: '^[A-Za-z0-9+/]{43}=$'
+
+  - it: does not render external OAuth credentials
+    template: templates/oauth-secret.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.existingSecret: credentials
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: migrates an owned credentials key without changing its bytes
+    template: templates/encryption-key-secret.yaml
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-oauth
+            namespace: muster-test
+            annotations:
+              meta.helm.sh/release-name: muster
+              meta.helm.sh/release-namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - equal:
+          path: metadata.name
+          value: muster-encryption-key
+      - equal:
+          path: data.oauth-encryption-key
+          value: dGVzdC1rZXk=
+
+  - it: preserves an external credentials key without copying it
+    template: templates/encryption-key-secret.yaml
+    set:
+      muster.oauth.server.existingSecret: credentials
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: credentials
+            namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: mounts and hashes the external credentials key without enabling OAuth
+    template: templates/deployment.yaml
+    set:
+      muster.oauth.server.existingSecret: credentials
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: credentials
+            namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: encryption-key
+            secret:
+              secretName: credentials
+              defaultMode: 288
+              items:
+                - key: oauth-encryption-key
+                  path: oauth-encryption-key
+      - equal:
+          path: spec.template.metadata.annotations["checksum/encryption-key"]
+          value: 8795350930bbbe6a9974670f2f6fd92ccf2db5115aa7f5bac5abd6d36c12c176
+
+  - it: honors an explicit key Secret and data key ahead of inline values
+    template: templates/deployment.yaml
+    set:
+      muster.oauth.server.encryptionKeySecret:
+        name: supplied-key
+        key: aes-key
+        checksum: revision-2
+      muster.oauth.server.encryptionKeyValue: ignored
+      muster.oauth.server.existingSecret: credentials
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: encryption-key
+            secret:
+              secretName: supplied-key
+              defaultMode: 288
+              items:
+                - key: aes-key
+                  path: oauth-encryption-key
+      - equal:
+          path: spec.template.metadata.annotations["checksum/encryption-key"]
+          value: revision-2
+
+  - it: protects the explicit key Secret from MCPServer references
+    template: templates/configmap.yaml
+    set:
+      muster.oauth.server.encryptionKeySecret.name: supplied-key
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'protectedSecrets:\s+- supplied-key'
+
+  - it: refuses a configured key Secret with a missing data key
+    template: templates/encryption-key-secret.yaml
+    set:
+      muster.oauth.server.encryptionKeySecret.name: supplied-key
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: supplied-key
+            namespace: muster-test
+          data:
+            other-key: cw==
+    asserts:
+      - failedTemplate:
+          errorMessage: Secret muster-test/supplied-key must contain a non-empty oauth-encryption-key; restore the encryption key or rotate it explicitly
+
+  - it: preserves a generated key when the credentials Secret later gains a key
+    template: templates/encryption-key-secret.yaml
+    set:
+      muster.oauth.server.existingSecret: credentials
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-encryption-key
+            namespace: muster-test
+            annotations:
+              meta.helm.sh/release-name: muster
+              meta.helm.sh/release-namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: credentials
+            namespace: muster-test
+          data:
+            oauth-encryption-key: b3RoZXIta2V5
+    asserts:
+      - equal:
+          path: data.oauth-encryption-key
+          value: dGVzdC1rZXk=
+
+  - it: honors the existing credentials Secret's revision mark for its key
+    template: templates/deployment.yaml
+    set:
+      muster.oauth.server.existingSecret: credentials
+      muster.oauth.server.existingSecretChecksum: old-key-revision
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: credentials
+            namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/encryption-key"]
+          value: old-key-revision
+
+  - it: keeps encryption out of the rendered OAuth credentials
+    template: templates/oauth-secret.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.dex.clientSecret: s
+      muster.oauth.server.registrationToken: r
+    asserts:
+      - equal:
+          path: data
+          value:
+            dex-client-secret: cw==
+            registration-token: cg==

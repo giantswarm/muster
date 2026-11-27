@@ -94,7 +94,7 @@ data:
           enabled: {{ .Values.muster.oauth.server.enabled }}
           {{- /* Secret file paths - secrets are mounted from Kubernetes Secret */}}
           {{- if .Values.muster.oauth.server.encryptionKey }}
-          encryptionKeyFile: {{ printf "%s/oauth-encryption-key" $secretsPath | quote }}
+          encryptionKeyFile: "/etc/muster/encryption/oauth-encryption-key"
           {{- end }}
           {{- if .Values.muster.oauth.server.enabled }}
           baseUrl: {{ .Values.muster.oauth.server.baseUrl | quote }}
