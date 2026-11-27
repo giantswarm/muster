@@ -64,6 +64,8 @@ type ToolConfig struct {
 	// its decoded claims (sub, act, groups, aud, iss). Used to assert that a
 	// downstream backend accepts a broker-minted token end-to-end.
 	EchoToken bool `yaml:"echo_token,omitempty"`
+	// EchoAuthorization reports the verified identity without the bearer token.
+	EchoAuthorization bool `yaml:"echo_authorization,omitempty"`
 	// EchoHandshake makes the tool return the protocolVersion and client name
 	// the connecting MCP client sent in its initialize request, alongside the
 	// configured response. Used to assert the protocol revision muster's

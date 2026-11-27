@@ -208,8 +208,13 @@ func (h *ToolHandler) createMCPHandler() func(context.Context, mcp.CallToolReque
 		// request headers the backend saw, so scenarios can assert a
 		// definition's spec.headers reach it on a session's connection, and
 		// the claims of those that carry a JWT (whose token a header held).
-		if h.config.EchoToken || len(h.config.EchoHeaders) > 0 {
+		if h.config.EchoToken || h.config.EchoAuthorization || len(h.config.EchoHeaders) > 0 {
 			echo := map[string]interface{}{"response": result}
+			if h.config.EchoAuthorization {
+				if received := receivedTokenFrom(ctx); received != nil {
+					echo["authorization"] = received.Authorization
+				}
+			}
 			if h.config.EchoToken {
 				if tok := receivedTokenFrom(ctx); tok != nil {
 					echo["received_token"] = tok.Raw

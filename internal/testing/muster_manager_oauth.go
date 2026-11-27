@@ -608,6 +608,9 @@ func (m *musterInstanceManager) extractToolConfigs(config map[string]interface{}
 		if echo, ok := toolMap["echo_token"].(bool); ok {
 			tool.EchoToken = echo
 		}
+		if echo, ok := toolMap["echo_authorization"].(bool); ok {
+			tool.EchoAuthorization = echo
+		}
 		if echo, ok := toolMap["echo_handshake"].(bool); ok {
 			tool.EchoHandshake = echo
 		}
