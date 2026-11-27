@@ -59,7 +59,12 @@ func TestTrustedIssuerAcceptanceFailure(t *testing.T) {
 			defer stubAcceptTrustedIssuerToken(func(context.Context, string) (*oauthserver.ForwardedIDTokenAcceptance, error) {
 				return nil, testCase.err
 			})()
-			server := &OAuthHTTPServer{onAuthenticated: func(context.Context, string) { t.Error("unexpected authenticated callback") }}
+			server := &OAuthHTTPServer{
+				onAuthenticated: func(context.Context, string) { t.Error("unexpected authenticated callback") },
+				oauthServer: &oauthserver.Server{Config: &oauthserver.Config{
+					Issuer: "https://muster.example.com", ResourceIdentifier: "https://muster.example.com/mcp",
+				}},
+			}
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", nil)
 			request.Header.Set("Authorization", "Bearer resource-access-token")
 			info := &providers.UserInfo{ID: "person", TokenSource: providers.TokenSourceTrustedIssuer}
@@ -70,7 +75,8 @@ func TestTrustedIssuerAcceptanceFailure(t *testing.T) {
 			})).ServeHTTP(response, request)
 			require.Equal(t, testCase.status, response.Code)
 			if testCase.status == http.StatusUnauthorized {
-				require.Equal(t, `Bearer error="invalid_token"`, response.Header().Get("WWW-Authenticate"))
+				require.Contains(t, response.Header().Get("WWW-Authenticate"), `error="invalid_token"`)
+				require.Contains(t, response.Header().Get("WWW-Authenticate"), `resource_metadata="https://muster.example.com/.well-known/oauth-protected-resource/mcp"`)
 				require.Empty(t, response.Header().Get("Retry-After"))
 			} else {
 				require.Empty(t, response.Header().Get("WWW-Authenticate"))

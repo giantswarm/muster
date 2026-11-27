@@ -66,8 +66,8 @@ func (a *Adapter) applyMCPServerUpdate(existing *musterv1alpha1.MCPServer, req *
 	if req.HeadersFrom != nil {
 		existing.Spec.HeadersFrom = convertAPIHeadersFromToCRD(req.HeadersFrom)
 	}
-	if req.Meta != nil {
-		existing.Spec.Meta = req.Meta
+	if req.RequestMeta != nil || req.Meta != nil {
+		existing.Spec.RequestMeta, existing.Spec.Meta = requestedRequestMeta(req.RequestMeta, req.Meta) //nolint:staticcheck // SA1019: the deprecated field is cleared, or kept so validation refuses both
 	}
 	if req.Timeout > 0 {
 		existing.Spec.Timeout = req.Timeout

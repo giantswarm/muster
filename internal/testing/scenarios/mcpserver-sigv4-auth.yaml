@@ -1,5 +1,5 @@
 name: "mcpserver-sigv4-auth"
-description: "MCPServer accepts spec.auth.sigv4 for AWS-signed backends, and rejects the combinations that cannot work"
+description: "MCPServer accepts spec.auth.sigv4 for AWS-signed backends and spec.requestMeta for _meta entries, and rejects the combinations that cannot work"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "create", "sigv4", "aws", "authentication", "validation"]
@@ -20,13 +20,13 @@ steps:
       sigv4:
         region: "eu-central-1"
         roleArn: "arn:aws:iam::123456789012:role/ExampleReadOnlyRole"
-    meta:
+    requestMeta:
       AWS_REGION: "eu-central-1"
   expected:
     success: true
 
 - id: "verify-sigv4-roundtrips"
-  description: "Verify the sigv4 block and the meta map both survive a get"
+  description: "Verify the sigv4 block and the requestMeta map both survive a get"
   tool: "core_mcpserver_get"
   args:
     name: "aws-signed-server"
@@ -66,6 +66,8 @@ steps:
       type: "sigv4"
       sigv4:
         region: "eu-central-1"
+    requestMeta:
+      AWS_REGION: "eu-central-1"
   expected:
     success: false
     error_contains: ["streamable-http"]
@@ -83,6 +85,8 @@ steps:
       forwardToken: true
       sigv4:
         region: "eu-central-1"
+    requestMeta:
+      AWS_REGION: "eu-central-1"
   expected:
     success: false
     error_contains: ["forwardToken"]
@@ -101,6 +105,8 @@ steps:
         region: "eu-central-1"
       authorizationServer:
         issuer: "https://cf.mcp.example.com"
+    requestMeta:
+      AWS_REGION: "eu-central-1"
   expected:
     success: false
     error_contains: ["authorizationServer"]
@@ -121,32 +127,116 @@ steps:
     success: false
     error_contains: ["sigv4"]
 
-- id: "create-meta-on-plain-streamable-http"
-  description: "Accept meta without sigv4: injection is a shared HTTP transport, not a signing feature"
+- id: "create-sigv4-without-aws-region"
+  description: "Reject sigv4 without requestMeta.AWS_REGION: the AWS MCP server would run every call in us-east-1"
   tool: "core_mcpserver_create"
   args:
-    name: "plain-server-with-meta"
+    name: "sigv4-no-aws-region"
+    type: "streamable-http"
+    url: "https://aws-mcp.eu-central-1.api.aws/mcp"
+    autoStart: false
+    auth:
+      type: "sigv4"
+      sigv4:
+        region: "eu-central-1"
+  expected:
+    success: false
+    error_contains: ["requestMeta.AWS_REGION"]
+
+- id: "create-request-meta-on-plain-streamable-http"
+  description: "Accept requestMeta without sigv4: the entries are added by a shared HTTP transport, not by the signer"
+  tool: "core_mcpserver_create"
+  args:
+    name: "plain-server-with-request-meta"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    autoStart: false
+    requestMeta:
+      com.example/tenant-id: "giantswarm"
+  expected:
+    success: true
+
+- id: "create-with-deprecated-meta"
+  description: "Accept the deprecated meta name and store it as requestMeta"
+  tool: "core_mcpserver_create"
+  args:
+    name: "server-with-deprecated-meta"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"
     autoStart: false
     meta:
-      AWS_REGION: "eu-central-1"
+      com.example/tenant-id: "giantswarm"
   expected:
     success: true
 
-- id: "create-meta-on-stdio"
-  description: "Reject meta on a stdio server, which has no HTTP transport to inject it"
+- id: "verify-deprecated-meta-stored-as-request-meta"
+  description: "The deprecated name is written under the current one"
+  tool: "core_mcpserver_get"
+  args:
+    name: "server-with-deprecated-meta"
+  expected:
+    success: true
+    contains:
+      - "requestMeta"
+      - "com.example/tenant-id"
+
+- id: "create-with-both-names"
+  description: "Reject requestMeta and meta together instead of picking one"
   tool: "core_mcpserver_create"
   args:
-    name: "stdio-with-meta"
+    name: "server-with-both-names"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    autoStart: false
+    requestMeta:
+      com.example/tenant-id: "a"
+    meta:
+      com.example/tenant-id: "b"
+  expected:
+    success: false
+    error_contains: ["set requestMeta only"]
+
+- id: "create-with-reserved-key"
+  description: "Reject a key muster or OpenTelemetry sets on each request"
+  tool: "core_mcpserver_create"
+  args:
+    name: "server-with-reserved-key"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    autoStart: false
+    requestMeta:
+      progressToken: "fixed"
+  expected:
+    success: false
+    error_contains: ["progressToken", "muster or OpenTelemetry"]
+
+- id: "create-with-mcp-reserved-prefix"
+  description: "Reject a key under a prefix MCP reserves"
+  tool: "core_mcpserver_create"
+  args:
+    name: "server-with-mcp-prefix"
+    type: "streamable-http"
+    url: "https://mcp.example.com/mcp"
+    autoStart: false
+    requestMeta:
+      io.modelcontextprotocol/clientInfo: "x"
+  expected:
+    success: false
+    error_contains: ["reserved for MCP"]
+
+- id: "create-request-meta-on-stdio"
+  description: "Reject requestMeta on a stdio server, which has no HTTP transport to add it"
+  tool: "core_mcpserver_create"
+  args:
+    name: "stdio-with-request-meta"
     type: "stdio"
     command: "echo"
     autoStart: false
-    meta:
-      AWS_REGION: "eu-central-1"
+    requestMeta:
+      com.example/tenant-id: "giantswarm"
   expected:
     success: false
-    error_contains: ["meta", "stdio"]
+    error_contains: ["requestMeta", "stdio"]
 
 - id: "validate-sigv4-definition"
   description: "mcpserver_validate agrees with create, so a caller learns before writing the CR"
@@ -159,6 +249,8 @@ steps:
       type: "sigv4"
       sigv4:
         region: "eu-central-1"
+    requestMeta:
+      AWS_REGION: "eu-central-1"
   expected:
     success: false
     error_contains: ["streamable-http"]
@@ -172,10 +264,18 @@ cleanup:
   expected:
     success: true
 
-- id: "cleanup-plain-server-with-meta"
-  description: "Delete the plain server that carries meta"
+- id: "cleanup-plain-server-with-request-meta"
+  description: "Delete the plain server that carries requestMeta"
   tool: "core_mcpserver_delete"
   args:
-    name: "plain-server-with-meta"
+    name: "plain-server-with-request-meta"
+  expected:
+    success: true
+
+- id: "cleanup-server-with-deprecated-meta"
+  description: "Delete the server created with the deprecated meta name"
+  tool: "core_mcpserver_delete"
+  args:
+    name: "server-with-deprecated-meta"
   expected:
     success: true

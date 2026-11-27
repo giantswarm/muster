@@ -80,7 +80,7 @@ func (s *OAuthHTTPServer) serveDelegated(w http.ResponseWriter, r *http.Request,
 	}
 
 	if userInfo.TokenSource != providers.TokenSourceTrustedIssuer {
-		refuse(http.StatusUnauthorized, `Bearer error="invalid_token"`, "a token naming an actor is accepted only from a trusted issuer")
+		refuse(http.StatusUnauthorized, s.invalidTokenChallenge(), "a token naming an actor is accepted only from a trusted issuer")
 		return
 	}
 	selectors := toolset.FromScope(userInfo.Scopes)
@@ -121,5 +121,9 @@ func (s *OAuthHTTPServer) serveDelegated(w http.ResponseWriter, r *http.Request,
 // own, which muster cannot name.
 func (s *OAuthHTTPServer) insufficientScopeChallenge(description string) string {
 	return fmt.Sprintf(`Bearer error="insufficient_scope", error_description=%q, resource_metadata=%q`,
-		description, strings.TrimSuffix(s.config.BaseURL, "/")+"/.well-known/oauth-protected-resource")
+		description, s.oauthServer.Config.ProtectedResourceMetadataEndpoint())
+}
+
+func (s *OAuthHTTPServer) invalidTokenChallenge() string {
+	return fmt.Sprintf(`Bearer error="invalid_token", resource_metadata=%q`, s.oauthServer.Config.ProtectedResourceMetadataEndpoint())
 }

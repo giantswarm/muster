@@ -61,8 +61,13 @@ func parseOAuthTokenLifetimes(cfg config.OAuthServerConfig) (oauthTokenLifetimes
 }
 
 // newOAuthServerConfig maps the muster OAuth config onto the mcp-oauth Config.
-// Pure mapper: no I/O, no goroutines.
 func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLifetimes) *oauthserver.Config {
+	if cfg.RegistrationToken != "" {
+		slog.Warn("DEPRECATED: registrationToken is set; use initialAccessToken", "replacement", "initialAccessToken")
+		if cfg.InitialAccessToken == "" {
+			cfg.InitialAccessToken = cfg.RegistrationToken
+		}
+	}
 	result := &oauthserver.Config{
 		Issuer:                                cfg.BaseURL,
 		ResourceIdentifier:                    cfg.ResourceIdentifier,
@@ -73,7 +78,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		RequirePKCE:                           true,
 		AllowPKCEPlain:                        false,
 		AllowPublicClientRegistration:         cfg.AllowPublicClientRegistration,
-		RegistrationAccessToken:               cfg.RegistrationToken,
+		InitialAccessToken:                    cfg.InitialAccessToken,
 		EnableClientManagementEndpoint:        cfg.EnableClientManagementEndpoint,
 		MaxClientsPerIP:                       DefaultMaxClientsPerIP,
 		EnableClientIDMetadataDocuments:       cfg.EnableCIMD,
@@ -90,6 +95,7 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		RestrictClientMetadata:                cfg.RestrictClientMetadata,
 		ClientMetadataHosts:                   cfg.ClientMetadataHosts,
 		TrustedAudiences:                      cfg.TrustedAudiences,
+		DefaultChallengeScopes:                []string{"openid", "profile", "email"},
 		AllowPrivateIPJWKS:                    cfg.Dex.AllowPrivateIPJWKS || cfg.Dex.AllowPrivateIPOIDC, //nolint:staticcheck // SA1019: accepted until forward mode goes
 		// Per-client audience allowlist for brokered RFC 8693 token exchange.
 		// Only consulted when an Exchanger is registered (see
@@ -103,6 +109,9 @@ func newOAuthServerConfig(cfg config.OAuthServerConfig, lifetimes oauthTokenLife
 		// is still validated, and the session's mirrored ID token is
 		// replaced by the current one on each request.
 		ForwardedSessionIdentity: oauthserver.ForwardedSessionIdentityPrincipal,
+	}
+	result.ResourceMetadataByPath = map[string]oauthserver.ProtectedResourceConfig{
+		"/mcp": {ResourceIdentifier: result.GetResourceIdentifier(), ScopesSupported: []string{"openid", "profile", "email"}},
 	}
 	if cfg.AllowedOrigins != "" {
 		result.CORS.AllowedOrigins = strings.Split(cfg.AllowedOrigins, ",")

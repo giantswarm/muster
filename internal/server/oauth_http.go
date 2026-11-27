@@ -599,6 +599,7 @@ func (s *OAuthHTTPServer) withValidatedSubject(next http.Handler) http.Handler {
 
 		userInfo, ok := oauthhandler.UserInfoFromContext(ctx)
 		if !ok || userInfo == nil || userInfo.ID == "" {
+			w.Header().Set("WWW-Authenticate", s.invalidTokenChallenge())
 			http.Error(w, "Unauthorized: missing user identity", http.StatusUnauthorized)
 			return
 		}
@@ -790,6 +791,10 @@ func createOAuthServer(cfg config.OAuthServerConfig, opts []oauth.ServerOption) 
 			// validation during a Valkey restart answers 503 with
 			// Retry-After within it instead of mcp-oauth's 3 s default.
 			OperationTimeout: valkeyclient.OperationTimeout,
+			// Every muster release since v5.65.0 writes the family
+			// revocation marker first, so an unindexed namespace can be
+			// indexed while serving; an indexed one ignores the setting.
+			MigrateFamilyRevocationIndex: true,
 		}
 
 		if cfg.Storage.Valkey.TLSEnabled {

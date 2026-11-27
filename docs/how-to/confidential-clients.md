@@ -8,12 +8,15 @@ across replicas also requires the integration in
 includes that integration so enabling it cannot expose process-local replay
 protection on a replicated deployment.
 
-Before upgrading existing Valkey storage, stop OAuth traffic and all old writers,
-run the library's [family revocation index migration](https://github.com/giantswarm/mcp-oauth/blob/main/docs/client-management.md#valkey-revocation-index-migration),
-then restart every replica on the new release before restoring traffic. Existing
-namespaces keep the compatibility lookup until migration completes. Old binaries
-must not write to migrated storage; a rollback or snapshot restore requires the
-same stopped-traffic migration before the new release resumes serving.
+On standalone Valkey, muster indexes existing storage for the library's
+[family revocation index](https://github.com/giantswarm/mcp-oauth/blob/main/docs/client-management.md#valkey-revocation-index-migration)
+while it serves traffic; replicas switch to indexed lookups once one of them
+completes the walk. Every replica writing to the key prefix must run muster
+v5.65.0 or newer first. The Valkey user needs `INFO`, which ACLs place in
+`@dangerous`. On Valkey Cluster or Sentinel, or after a rollback or snapshot
+restore involving older releases, stop OAuth traffic and every replica, run the
+library's stopped-traffic migration, and restart every replica before restoring
+traffic.
 
 Register each integration as a separate client of muster's OAuth server. Its
 client ID identifies the integration; its access-token session identifies the
@@ -21,7 +24,7 @@ person and grant. Request shape, user agent and scope names do not authenticate
 an integration.
 
 Set `aggregator.oauth.server.allowPublicClientRegistration: false` and provide
-`registrationTokenFile`. Registration requires the provisioning bearer token
+`initialAccessTokenFile`. Registration requires the provisioning bearer token
 unless a configured trusted redirect URI or scheme authorizes the request.
 Use HTTPS redirects in production and PKCE S256 with authorization code grants.
 
@@ -84,3 +87,12 @@ alone does not guarantee that recent writes have been persisted.
 A complete Valkey wipe removes muster's opaque grants together with their
 storage records. After restoring a snapshot, close protected traffic until the
 restored registrations and grants have been checked against the intended state.
+
+The server-wide RFC 7591 secret is `oauth.server.initialAccessToken` or
+`initialAccessTokenFile` in config.yaml. `OAUTH_INITIAL_ACCESS_TOKEN` and
+`OAUTH_INITIAL_ACCESS_TOKEN_FILE` override those settings, with the file taking
+precedence. For one release, `registrationToken`, `registrationTokenFile` and
+`OAUTH_REGISTRATION_ACCESS_TOKEN` (including `_FILE`) remain deprecated fallbacks.
+Canonical names win over deprecated names; warnings name the replacement without
+logging the secret. The chart maps `muster.oauth.server.registrationToken` to
+`muster.oauth.server.initialAccessToken` and keeps the Secret key `registration-token`.

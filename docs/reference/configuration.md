@@ -460,7 +460,16 @@ dex (or their own IdP), never against muster.
 |-------|------|---------|-------------|
 | `resourceIdentifier` | `string` | `""` | RFC 8707 canonical URI for this muster instance as a resource server. Access tokens carry this value in their `aud` claim; tokens bound to a different resource are rejected, preventing replay across resource servers sharing the same IdP. Defaults to `baseUrl` when empty. |
 
+#### Browser Origins and MCP Discovery
+
+`oauth.server.allowedOrigins` is a comma-separated list of exact browser origins, for example `https://portal.example.com,https://client.example.com`. The Helm value is `muster.oauth.server.allowedOrigins`. Same-origin requests and clients without an `Origin` header are accepted. Unlisted, null, empty, repeated or malformed Origin values emit `DEPRECATED:` warnings on `/mcp`, `/sse` and `/message` without changing the response during the overlap. Entries have no path, credentials, query, fragment or wildcard. Configure legitimate browser origins before the enforcement release returns 403 for an invalid Origin. This field also configures the existing CORS headers.
+
+MCP authentication challenges point to the metadata endpoint for the configured `resourceIdentifier`. Default OAuth challenges advertise `openid profile email`, and `/mcp` protected-resource metadata lists those scopes. These defaults do not restrict the authorization server's accepted scopes or replace a delegated caller's toolset. A caller-specific insufficient-toolset challenge carries no fixed scope list.
+
+When discovering a backend, missing resources, same-origin aliases and cross-origin resource identifiers emit `DEPRECATED:` warnings. Valid cross-origin identifiers remain accepted for operator-managed backends whose private tunnel URL differs from their canonical identity. This compatibility exception does not satisfy RFC 9728 resource matching: verify the backend's ownership and the tunnel-to-resource mapping. Malformed cross-origin identifiers, cross-origin metadata pointers, tenant resource checks and discovered subject-scoped grant binding remain enforced; TLS verification is unchanged. Exact resource matching is deferred without a scheduled enforcement release, and this exception is excluded from the warning-free release gate. This release does not change an existing resource identifier or force re-authorization. The decision and review triggers are tracked in giantswarm/giantswarm#39505.
+
 #### DPoP and Trusted Proxies
+
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|

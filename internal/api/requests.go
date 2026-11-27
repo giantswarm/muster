@@ -97,8 +97,12 @@ type MCPServerCreateRequest struct {
 	// the server's own namespace when it connects.
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty"`
 
-	// Meta contains entries merged into the `params._meta` object of every
+	// RequestMeta contains entries added to the `params._meta` object of every
 	// outbound JSON-RPC request that carries `params`.
+	RequestMeta map[string]string `json:"requestMeta,omitempty"`
+
+	// Meta is the former name of RequestMeta, still accepted from callers and
+	// written as RequestMeta. Setting both is refused.
 	Meta map[string]string `json:"meta,omitempty"`
 
 	// Timeout bounds every operation on the server in seconds, a tool call
@@ -168,8 +172,12 @@ type MCPServerUpdateRequest struct {
 	// the server's own namespace when it connects.
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty"`
 
-	// Meta contains entries merged into the `params._meta` object of every
+	// RequestMeta contains entries added to the `params._meta` object of every
 	// outbound JSON-RPC request that carries `params`.
+	RequestMeta map[string]string `json:"requestMeta,omitempty"`
+
+	// Meta is the former name of RequestMeta, still accepted from callers and
+	// written as RequestMeta. Setting both is refused.
 	Meta map[string]string `json:"meta,omitempty"`
 
 	// Timeout bounds every operation on the server in seconds, a tool call
@@ -240,8 +248,12 @@ type MCPServerValidateRequest struct {
 	// the server's own namespace when it connects.
 	HeadersFrom []MCPServerHeaderFrom `json:"headersFrom,omitempty"`
 
-	// Meta contains entries merged into the `params._meta` object of every
+	// RequestMeta contains entries added to the `params._meta` object of every
 	// outbound JSON-RPC request that carries `params`.
+	RequestMeta map[string]string `json:"requestMeta,omitempty"`
+
+	// Meta is the former name of RequestMeta, still accepted from callers and
+	// written as RequestMeta. Setting both is refused.
 	Meta map[string]string `json:"meta,omitempty"`
 
 	// Timeout bounds every operation on the server in seconds, a tool call

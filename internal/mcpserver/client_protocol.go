@@ -7,6 +7,7 @@ import (
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
@@ -28,8 +29,9 @@ import (
 // declares on the call the elicitation capability of the client muster calls
 // for (WithCallerCapabilities), and attaches the inputResponses and
 // requestState of a retry (WithRoundTrip). A 2025-11-25 backend fixes the
-// capabilities at its handshake, where muster declares none: such a backend
-// asks nothing of the person through muster.
+// capabilities at its handshake, where muster declares no elicitation: such a
+// backend asks nothing of the person through muster. Application extension
+// declarations are relayed without interpreting their settings.
 
 // listChangedRetryMin and listChangedRetryMax bound the wait before a dropped
 // subscriptions/listen stream for list changes is opened again.
@@ -55,13 +57,13 @@ func callerCapabilitiesFrom(ctx context.Context) mcp.ClientCapabilities {
 }
 
 // ForwardedCapabilities is what muster declares to a backend of the
-// capabilities its caller declared: elicitation only, the one input request
-// muster passes through. Sampling and roots, deprecated in 2026-07-28
+// capabilities its caller declared: elicitation and application extensions.
+// Sampling and roots, deprecated in 2026-07-28
 // (SEP-2577), would let a backend run the caller's model or read its
-// workspace, and are not forwarded. Experimental capabilities and extensions
-// describe what the caller does with muster, not what muster relays.
+// workspace, and are not forwarded. Experimental capabilities are not
+// forwarded. Application extensions retain the caller's settings.
 func ForwardedCapabilities(capabilities mcp.ClientCapabilities) mcp.ClientCapabilities {
-	return mcp.ClientCapabilities{Elicitation: capabilities.Elicitation}
+	return mcp.ClientCapabilities{Elicitation: capabilities.Elicitation, Extensions: api.RelayedExtensions(capabilities.Extensions)}
 }
 
 type roundTripKey struct{}
@@ -86,7 +88,10 @@ func roundTripFrom(ctx context.Context) mcp.MultiRoundTripParams {
 // Caller holds b.mu for writing.
 func (b *baseMCPClient) initialize(ctx context.Context, mcpClient *client.Client, clientInfo mcp.Implementation) (*mcp.InitializeResult, error) {
 	client.WithManualInputRoundTrips()(mcpClient)
-	request := mcp.InitializeRequest{Params: mcp.InitializeParams{ClientInfo: clientInfo}}
+	request := mcp.InitializeRequest{Params: mcp.InitializeParams{
+		ClientInfo:   clientInfo,
+		Capabilities: mcp.ClientCapabilities{Extensions: clientExtensions(b.declaredExtensions)},
+	}}
 	if b.legacyBackend {
 		return b.initializeLegacy(ctx, mcpClient, request)
 	}
@@ -103,15 +108,23 @@ func (b *baseMCPClient) initializeLegacy(ctx context.Context, mcpClient *client.
 	return mcpClient.Initialize(ctx, request)
 }
 
-// fellBackToLegacy records that a backend answered the handshake on a
-// revision before 2026-07-28, and reports whether it was not known to before.
+// fellBackToLegacy records the legacy revision and extension declarations.
+// A fresh transport declares the discovered extensions in its handshake.
 // Caller holds b.mu for writing.
 func (b *baseMCPClient) fellBackToLegacy(result *mcp.InitializeResult) bool {
-	if mcp.IsModernProtocol(result.ProtocolVersion) || b.legacyBackend {
+	if mcp.IsModernProtocol(result.ProtocolVersion) {
 		return false
 	}
+	needsTransport := !b.legacyBackend
 	b.legacyBackend = true
-	return true
+	if b.declaredExtensions == nil {
+		b.declaredExtensions = clientExtensions(result.Capabilities.Extensions)
+		if b.declaredExtensions == nil {
+			b.declaredExtensions = map[string]any{}
+		}
+		return needsTransport || len(b.declaredExtensions) > 0
+	}
+	return needsTransport
 }
 
 // listChangedFilter opts in to the list changes the server declared it sends.

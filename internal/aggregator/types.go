@@ -131,9 +131,9 @@ type PendingAuthRegistration struct {
 	// AuthConfig describes how to forward or exchange tokens, when set.
 	AuthConfig *api.MCPServerAuth
 
-	// Meta carries MCPServer.Meta to the session-scoped clients. See
-	// api.PendingAuthRegistration.Meta.
-	Meta map[string]string
+	// RequestMeta carries MCPServer.RequestMeta to the session-scoped clients.
+	// See api.PendingAuthRegistration.RequestMeta.
+	RequestMeta map[string]string
 
 	// Headers carries MCPServer.Headers to the session-scoped clients. See
 	// api.PendingAuthRegistration.Headers.
@@ -201,10 +201,10 @@ type ServerInfo struct {
 	// and never modified, so RequiresSessionAuth() is safe without locking.
 	AuthConfig *api.MCPServerAuth
 
-	// Meta holds the MCPServer.Meta entries that every session-scoped client
-	// for this server merges into params._meta. Immutable after registration,
-	// like AuthConfig, so readers need no lock.
-	Meta map[string]string
+	// RequestMeta holds the MCPServer.RequestMeta entries that every
+	// session-scoped client for this server adds to params._meta. Immutable
+	// after registration, like AuthConfig, so readers need no lock.
+	RequestMeta map[string]string
 
 	// Headers holds the MCPServer.Headers entries every session-scoped client
 	// of this server sends with each request, next to the session's own

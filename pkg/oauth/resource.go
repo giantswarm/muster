@@ -158,18 +158,10 @@ func ValidateAdvertisedMetadataURL(candidate, serverURL string) error {
 	return nil
 }
 
-// ValidateAdvertisedResource reports whether a resource identifier declared in
-// a metadata document that an untrusted pointer named may be used for a given
-// MCP server. The declared value must be on the server's own origin.
-//
-// A document the well-known path reaches is bound to the server by the URL
-// construction. One an advertised pointer named is not, so the identifier it
-// declares is checked here. The rule is the origin and not the whole URI,
-// because a server legitimately declares an identifier whose path differs from
-// its MCP endpoint: an mcp-oauth backend serving at "<base>/mcp" declares
-// "<base>". What the check does refuse is an identifier belonging to another
-// party, which is the value that would turn muster's token into one minted for
-// a resource the backend does not own.
+// ValidateAdvertisedResource checks that a metadata document's declared
+// resource is on the MCP server's own origin, on both discovery paths.
+// Same-origin resource aliases pass this check; exact identifier matching
+// is separate from the origin boundary.
 func ValidateAdvertisedResource(declared, serverURL string) error {
 	if err := sameOrigin(declared, serverURL); err != nil {
 		return fmt.Errorf("declared resource: %w", err)
@@ -180,9 +172,8 @@ func ValidateAdvertisedResource(declared, serverURL string) error {
 // ProtectedResourceMetadataURLs returns the RFC 9728 well-known URLs to probe
 // for an MCP server, most specific first: the path-inserted form the MCP
 // specification mandates, then the root form for a server that serves one
-// document for every path. A document these URLs reach is bound to the server
-// by the URL construction, which is why its declared resource needs no further
-// origin check.
+// document for every path. A document reached at either URL still needs its
+// declared resource checked against the MCP server.
 func ProtectedResourceMetadataURLs(serverURL string) ([]string, error) {
 	parsed, err := parseResourceURI(serverURL)
 	if err != nil {

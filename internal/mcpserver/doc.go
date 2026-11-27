@@ -36,12 +36,15 @@
 //
 // # Request metadata
 //
-// A remote server may declare spec.meta, whose entries are merged into the
+// A remote server may declare spec.requestMeta, whose entries are added to the
 // params._meta object of every outbound JSON-RPC request that carries params.
 // The merge is an http.RoundTripper shared by every remote client here, so it
 // applies whatever the auth type is. For a SigV4 server it wraps the signing
 // transport, because the body has to be rewritten before it is signed. See
 // meta_transport.go.
+//
+// A tool call relays negotiated application extension metadata to its
+// backend without interpreting the payload or settings. See caller_meta.go.
 //
 // # Configuration Structure
 //

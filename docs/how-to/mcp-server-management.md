@@ -442,7 +442,7 @@ spec:
     type: sigv4
     sigv4:
       region: eu-central-1
-  meta:
+  requestMeta:
     AWS_REGION: eu-central-1
 ```
 
@@ -453,7 +453,7 @@ spec:
 | `auth.sigv4.region` | yes | The signing region. It must match the region in `url`, because the endpoint checks the credential scope of the signature. |
 | `auth.sigv4.service` | no | The signing service name. It defaults to the first hostname label of `url`, so `aws-mcp.eu-central-1.api.aws` signs as `aws-mcp`. |
 | `auth.sigv4.roleArn` | no | An IAM role that muster assumes before it signs. Leave it empty to sign as muster's own identity. |
-| `meta` | see below | Entries merged into `params._meta` of every request that carries `params`. It is not a SigV4 field: see [Request metadata](#request-metadata). |
+| `requestMeta.AWS_REGION` | yes | The region the AWS MCP server operates in. `requestMeta` is not a SigV4 field: see [Request metadata](#request-metadata). |
 
 muster gets its base credentials from the default AWS credential chain. In
 Kubernetes that means IRSA: the pod identity webhook injects `AWS_ROLE_ARN` and
@@ -462,26 +462,28 @@ credentials. Set `roleArn` to chain one more hop from there, which is how one
 muster reaches many accounts. Each account gets its own MCPServer, and a shared
 `family` puts them all behind one tool name with an account selector.
 
-**Set `meta` for the AWS-hosted server.** It takes the region that it operates
-in from `params._meta.AWS_REGION`. This region is a different value from the
-signing region, even when the two strings match: the signing region belongs to
-the endpoint, and the operating region belongs to the resources that the call
-reads. A value that a caller puts in `_meta` itself wins over the one in `meta`.
+The assumed role's session is named `muster-aggregator.<MCPServer name>`, so
+CloudTrail shows which server made a call.
 
-Set it even though calls succeed without it. The backend falls back to its own
-region rather than failing, so a missing entry does not raise an error — it
-returns a correct-looking answer about the wrong region. Measured against
-`aws-mcp.eu-central-1.api.aws`: the same query for CloudWatch log groups
-returned nothing with no `meta`, and the one log group that exists in the
-account with `meta: {AWS_REGION: eu-north-1}`. An agent reads the first result
-as "there are none".
+**A SigV4 server must set `requestMeta.AWS_REGION`.** The AWS MCP server takes
+the region it operates in from `params._meta.AWS_REGION`. None of its tools has
+a region argument. This region is a different value from the signing region,
+even when the two strings match: the signing region belongs to the endpoint,
+and the operating region belongs to the resources that the call reads.
+
+muster refuses a SigV4 server without it, because the backend does not fail
+without it: it runs the call in us-east-1 and returns a correct-looking answer
+about the wrong region. Measured against `aws-mcp.eu-central-1.api.aws`: the
+same query for CloudWatch log groups returned nothing without the entry, and
+the one log group that exists in the account with `AWS_REGION: eu-north-1`. An
+agent reads the first result as "there are none".
 
 ## Request metadata
 
-`meta` is a remote-server field, not a SigV4 field. muster merges its entries
-into the `params._meta` object of every outbound JSON-RPC request that carries
-`params`. Use it for a backend that reads call-scoped configuration from the MCP
-metadata field instead of from tool arguments.
+`requestMeta` is a remote-server field, not a SigV4 field. muster adds its
+entries to the `params._meta` object of every outbound JSON-RPC request that
+carries `params`. Use it for a backend that reads server-wide configuration from
+the MCP metadata field instead of from tool arguments.
 
 ```yaml
 apiVersion: muster.giantswarm.io/v1alpha1
@@ -491,8 +493,8 @@ metadata:
 spec:
   type: streamable-http
   url: "https://mcp.example.com/mcp"
-  meta:
-    AWS_REGION: eu-central-1
+  requestMeta:
+    com.example/tenant-id: giantswarm
 ```
 
 Rules:
@@ -500,13 +502,63 @@ Rules:
 - The merge applies to `type: streamable-http` and `type: sse`, with any auth
   type and with none. A server that needs a login keeps its entries after the
   login: the per-session connection carries them too.
-- An entry that the request already has in `_meta` wins, so a caller can
-  override one per call.
+- Keys follow the MCP `_meta` key format: an optional prefix of dot-separated
+  labels ending in `/`, then a name that begins and ends with a letter or
+  digit. Use a reverse-DNS prefix you own for your own keys, as the MCP
+  specification recommends; `AWS_REGION` is unprefixed because that is the key
+  AWS defined.
+- muster refuses keys it must not set: any prefix whose second label is
+  `modelcontextprotocol` or `mcp` (reserved for MCP), `progressToken` (set by
+  muster per call), and `traceparent`, `tracestate` and `baggage`
+  (OpenTelemetry).
+- Everyone who can read the MCPServer can read these values, so they hold no
+  secret.
+- muster relays negotiated application extension metadata (see
+  [Extension metadata](#extension-metadata)), so an entry here applies to every
+  call. It never replaces a key already set on the request (`progressToken`,
+  the protocol's own `io.modelcontextprotocol/` keys, and relayed extension
+  entries).
 - A request without `params` is left untouched. `initialize` does carry
   `params`, so the handshake gets the entries as well.
 - `type: stdio` rejects the field. A stdio server speaks over a pipe, so no HTTP
-  transport can inject the entries, and muster refuses the definition instead of
+  transport can add the entries, and muster refuses the definition instead of
   accepting the map and dropping it.
+- `meta` is the former name of `requestMeta` and is still read. muster writes
+  it as `requestMeta` when it creates or updates a server, and refuses a
+  definition that sets both. It will be removed in a later release.
+
+## Extension metadata
+
+muster relays application entries in each tool call's `params._meta` to its
+destination backend without requiring extension declarations. Values keep their
+identifiers and JSON shapes. For example, `_meta["com.example/context"]` and
+`_meta["org.example/request-id"]` reach any backend called by that request,
+including one that declares no extensions. No policy allowlist, accepted-key
+settings or nested-field filtering applies.
+
+The outgoing connection owns its protocol version, client information,
+capabilities, log level, server information, subscription IDs and progress token.
+These core fields are not copied from the caller.
+Tracing fields (`traceparent`, `tracestate`, `baggage`) are also owned by the
+outgoing hop. Other existing outbound metadata takes precedence without merging
+nested objects. Authentication continues to use each backend's credentials;
+metadata is never used as an inbound bearer token.
+
+Workflow steps receive the initiating call's metadata. A request without
+metadata inherits no values. Prompts, resources, lists, discovery and
+initialization do not carry the request's application values. Every backend
+called by a workflow can receive the full object, so callers must not use a
+metadata field as a confidentiality boundary. Values are untrusted application
+data, not credentials. Backends validate and authorize operations independently.
+
+Relaying metadata does not implement an extension or infer its client
+capabilities. The separate capability view contains the application extensions
+of visible, connected backends. Identical settings are preserved; conflicting
+settings appear as `{}`. On MCP 2026-07-28, client declarations travel with tool
+calls. Legacy connections retain their existing capability handshake behavior;
+extensions requiring specific client behavior need their own implementation.
+Initial discovery waits for session bootstrap only when a client declares
+application extensions. Ordinary metadata forwarding adds no discovery wait.
 
 ## Display name
 

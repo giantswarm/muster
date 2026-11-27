@@ -576,6 +576,12 @@ muster:
       # Required when OAuth server is enabled.
       baseUrl: ""
 
+      # -- Comma-separated browser origins allowed to call the MCP transports.
+      # Same-origin and requests without Origin are allowed. Other Origins log
+      # DEPRECATED without changing the response during the overlap.
+      # List exact origins with no path; wildcards and null are not allowed.
+      allowedOrigins: ""
+
       # OAuth provider: "dex" or "google"
       provider: "dex"
 
@@ -720,7 +726,7 @@ muster:
       # Exactly one of the four mechanisms below must satisfy the gate; they
       # are evaluated in the order listed.  Pick the one that fits the client:
       #
-      #   registrationToken            — shared secret; suits server-side or
+      #   initialAccessToken           — shared secret; suits server-side or
       #                                  managed clients that can store it
       #                                  (e.g. a CI runner, an operator)
       #   allowPublicClientRegistration — open to anyone; avoid in production,
@@ -736,10 +742,13 @@ muster:
       # the gate when any one of them matches.
       # ---------------------------------------------------------------------------
 
-      # Shared secret a client must present at the DCR endpoint to register.
+      # -- Shared secret a client must present at the DCR endpoint to register.
       # Supply via existingSecret (key: registration-token) in production so
       # the value never appears in Helm release history.
-      registrationToken: ""
+      initialAccessToken: ""
+
+      # -- Deprecated: use initialAccessToken. The new key wins when both are set.
+      registrationToken: ""  # @schema deprecated: true
 
       # Open registration: any client may register without a token.
       # Exposes the DCR endpoint to unauthenticated callers — rate-limited

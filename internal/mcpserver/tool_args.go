@@ -71,10 +71,15 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 			},
 			api.SchemaKeyDescription: "Secret references for header values, such as a shared token",
 		}},
-		{Name: "meta", Type: api.ArgTypeObject, Required: false, Description: "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)", Schema: map[string]interface{}{
+		{Name: "requestMeta", Type: api.ArgTypeObject, Required: false, Description: "Entries added to the params._meta object of every outbound JSON-RPC request that carries params (streamable-http and sse)", Schema: map[string]interface{}{
 			api.SchemaKeyType:                 string(api.ArgTypeObject),
 			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
-			api.SchemaKeyDescription:          "Request metadata passthrough, for backends that read call-scoped configuration from params._meta instead of from tool arguments. A value already present in a request wins. Injection happens in the sigv4 signing transport, so it takes effect only when auth.type is sigv4.",
+			api.SchemaKeyDescription:          "Server-wide configuration for backends that read it from params._meta instead of from tool arguments. Keys follow the MCP _meta key format; MCP-reserved keys, progressToken, traceparent, tracestate and baggage are refused. Values are readable by everyone who can read the server, so hold no secret. An auth.type sigv4 server must set AWS_REGION.",
+		}},
+		{Name: "meta", Type: api.ArgTypeObject, Required: false, Description: "Deprecated: use requestMeta. Written as requestMeta; setting both is refused", Schema: map[string]interface{}{
+			api.SchemaKeyType:                 string(api.ArgTypeObject),
+			api.SchemaKeyAdditionalProperties: map[string]interface{}{api.SchemaKeyType: string(api.ArgTypeString)},
+			api.SchemaKeyDescription:          "Deprecated name of requestMeta.",
 		}},
 		{Name: "timeout", Type: api.ArgTypeInteger, Required: false, Description: "Connection timeout in seconds"},
 		{Name: "progress", Type: api.ArgTypeObject, Required: false, Description: "How progress the server reports on a tool call affects that call's budget", Schema: map[string]interface{}{

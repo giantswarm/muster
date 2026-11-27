@@ -99,8 +99,8 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/fluxcd/cli-utils v1.4.0 h1:zlTiCWcVDQvvwZXILYeu5rpbnGt1sS+w32y3+rkOpig=
 github.com/fluxcd/cli-utils v1.4.0/go.mod h1:OupUOj2boEKTbiguMbGMz5Z/d59JUcb1c7pPESe8Pjw=
-github.com/fluxcd/helm-controller/api v1.7.1 h1:kARTcSBiS05mQsY7nVdL+XGaIGPZd/oC5owFTN6NIyk=
-github.com/fluxcd/helm-controller/api v1.7.1/go.mod h1:cCTRZcz/hjvI+3AxRGgsGe/AeEjZHHKUYxV/+6uidNM=
+github.com/fluxcd/helm-controller/api v1.7.2 h1:nQfiNCBWRjGI5q020On7kHQh77WCl54+sBA9FY6TBug=
+github.com/fluxcd/helm-controller/api v1.7.2/go.mod h1:cCTRZcz/hjvI+3AxRGgsGe/AeEjZHHKUYxV/+6uidNM=
 github.com/fluxcd/pkg/apis/acl v0.12.0 h1:UWpZDqKxpKDW38wdXIMHV8Uv3POPu2vUrra0JH1frH0=
 github.com/fluxcd/pkg/apis/acl v0.12.0/go.mod h1:PJrGIu5Bw/6/siO95uhS+pi5oKSU+gVJqHqsPHb8Kok=
 github.com/fluxcd/pkg/apis/kustomize v1.23.0 h1:tT/sUURyh6ixQG4+Y/ZoUu+hh5/DQLRraWBgy42ubqQ=
@@ -119,8 +119,8 @@ github.com/fxamacker/cbor/v2 v2.10.0 h1:HVF3T5vYwLqO81ebPirWEPNv2SMrUMD3HLnKgEr6
 github.com/fxamacker/cbor/v2 v2.10.0/go.mod h1:uSwlToFuT9BZAKRxxVm3qQC8DR4tlWl7D6pf20iRYH4=
 github.com/giantswarm/apiextensions-application v0.6.2 h1:XL86OrpprWl5Wp38EUvUXt3ztTo25+V63oDVlFwDpNg=
 github.com/giantswarm/apiextensions-application v0.6.2/go.mod h1:8ylqSmDSzFblCppRQTFo8v9s/F6MX6RTusVVoDDfWso=
-github.com/giantswarm/apptest-framework/v5 v5.4.5 h1:nxsiYWv38T9P07LiucUOTNAUhWSv8DMgjcaVcs7NaaI=
-github.com/giantswarm/apptest-framework/v5 v5.4.5/go.mod h1:ySfW+I1IdyJG4Oao3s/u5D96aVvsL26G5PqhVpbSRFs=
+github.com/giantswarm/apptest-framework/v5 v5.4.6 h1:VmqTv+gkrly/uaV90Cb0/AMGGaIDWK4bn0XfNyE9Px0=
+github.com/giantswarm/apptest-framework/v5 v5.4.6/go.mod h1:xy6CS9Kg7kYYN8/DP6+1YwNwlJAtwHgiS12mMErnGGU=
 github.com/giantswarm/cluster-standup-teardown/v6 v6.1.5 h1:Sko0uxEJK+icozYW+buO6EitUaORu6ncOgusPIZ9a9M=
 github.com/giantswarm/cluster-standup-teardown/v6 v6.1.5/go.mod h1:SFVVVlN1pl9prwGRfmKlYapcEKvT6z6RXyNnd/lW+u8=
 github.com/giantswarm/clustertest/v5 v5.6.7 h1:LYPNWzymlwBK+y1w5sFXRy8QucEboifwRDhnpfl84E0=

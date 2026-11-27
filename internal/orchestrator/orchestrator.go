@@ -359,7 +359,7 @@ func (o *Orchestrator) handleAuthRequiredServer(definition *api.MCPServer, authE
 		Family:          definition.Family,
 		AuthInfo:        authInfo,
 		AuthConfig:      definition.Auth,
-		Meta:            definition.Meta,
+		RequestMeta:     definition.RequestMeta,
 		Headers:         definition.Headers,
 		HeadersFrom:     definition.HeadersFrom,
 		Timeout:         operationTimeout,

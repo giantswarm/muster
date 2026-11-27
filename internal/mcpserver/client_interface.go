@@ -3,12 +3,15 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 // MCPClient defines the interface for MCP client implementations.
@@ -95,6 +98,9 @@ type baseMCPClient struct {
 	// records them here as it completes the handshake (recordHandshake).
 	negotiatedProtocolVersion string
 	serverCapabilities        mcp.ServerCapabilities
+	// nil means legacy extension probing is pending; an empty map means
+	// probing completed without declarations and must not be repeated.
+	declaredExtensions map[string]any
 
 	// Session recovery, see client_session_recovery.go. reconnect is set by
 	// the transports whose backend keeps an MCP session (streamable-http); it
@@ -248,12 +254,19 @@ func (b *baseMCPClient) closeClient() error {
 	return err
 }
 
-// recordHandshake keeps what the server answered the initialize with and
-// hands its serverInfo to the OnHandshake handler. Called by each transport
+// recordHandshake keeps the negotiated capabilities and hands the serverInfo
+// to the OnHandshake handler. Called by each transport
 // with mu held for writing, as it completes the handshake.
 func (b *baseMCPClient) recordHandshake(result *mcp.InitializeResult) {
 	b.negotiatedProtocolVersion = result.ProtocolVersion
 	b.serverCapabilities = result.Capabilities
+	if !mcp.IsModernProtocol(result.ProtocolVersion) {
+		b.serverCapabilities.Extensions = api.RelayedExtensions(result.Capabilities.Extensions)
+		maps.DeleteFunc(b.serverCapabilities.Extensions, func(identifier string, _ any) bool {
+			_, declared := b.declaredExtensions[identifier]
+			return !declared
+		})
+	}
 	b.notifMu.Lock()
 	handler := b.handshakeHandler
 	b.notifMu.Unlock()
@@ -271,6 +284,7 @@ func (b *baseMCPClient) clearHandshake() {
 	b.legacyBackend = false
 	b.negotiatedProtocolVersion = ""
 	b.serverCapabilities = mcp.ServerCapabilities{}
+	b.declaredExtensions = nil
 }
 
 // NegotiatedProtocolVersion returns the MCP revision the server answered with
@@ -285,8 +299,8 @@ func (b *baseMCPClient) NegotiatedProtocolVersion() string {
 	return b.negotiatedProtocolVersion
 }
 
-// ServerCapabilities returns the capabilities the server declared during the
-// handshake, or the zero value when the client is not connected.
+// ServerCapabilities returns the negotiated backend capabilities, or the zero
+// value when the client is not connected.
 func (b *baseMCPClient) ServerCapabilities() mcp.ServerCapabilities {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
@@ -346,8 +360,10 @@ func (b *baseMCPClient) callToolOnce(ctx context.Context, name string, args map[
 		defer done()
 		params.Meta = &mcp.Meta{ProgressToken: token}
 	}
+	params.Meta = withCallerMeta(ctx, params.Meta)
 
-	ctx = client.WithRequestClientCapabilities(ctx, callerCapabilitiesFrom(ctx))
+	capabilities := callerCapabilitiesFrom(ctx)
+	ctx = client.WithRequestClientCapabilities(ctx, capabilities)
 	result, err := b.callToolWithParamHeaders(ctx, mcp.CallToolRequest{Params: params})
 	if err != nil {
 		return nil, fmt.Errorf("failed to call tool: %w", err)

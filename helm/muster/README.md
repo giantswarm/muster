@@ -134,6 +134,7 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.enabled | bool | `false` |  |
 | muster.oauth.server.acknowledgeUnauthenticatedExposure | bool | `false` | Publish muster through ingress or gatewayAPI while enabled is false. Without OAuth every request is served as the synthetic default-user, so the chart refuses to render an Ingress or HTTPRoute unless this is set. Only for a deliberately unauthenticated install behind a trusted proxy that authenticates every request itself. |
 | muster.oauth.server.baseUrl | string | `""` |  |
+| muster.oauth.server.allowedOrigins | string | `""` | Comma-separated browser origins allowed to call the MCP transports. Same-origin and requests without Origin are allowed. Other Origins log DEPRECATED without changing the response during the overlap. List exact origins with no path; wildcards and null are not allowed. |
 | muster.oauth.server.provider | string | `"dex"` |  |
 | muster.oauth.server.dex.issuerUrl | string | `""` |  |
 | muster.oauth.server.dex.clientId | string | `""` |  |
@@ -155,7 +156,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.oauth.server.storage.valkey.existingSecret | string | `""` |  |
 | muster.oauth.server.storage.valkey.existingSecretChecksum | string | `""` |  |
 | muster.oauth.server.storage.valkey.secretKeyPassword | string | `"valkey-password"` |  |
-| muster.oauth.server.registrationToken | string | `""` | ------------------------------------------------------------------------- Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production so the value never appears in Helm release history. |
+| muster.oauth.server.initialAccessToken | string | `""` | Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production so the value never appears in Helm release history. |
+| muster.oauth.server.registrationToken | string | `""` | Deprecated: use initialAccessToken. The new key wins when both are set. |
 | muster.oauth.server.allowPublicClientRegistration | bool | `false` |  |
 | muster.oauth.server.enableClientManagementEndpoint | bool | `false` |  |
 | muster.oauth.server.encryptionKey | bool | `false` |  |

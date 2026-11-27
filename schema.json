@@ -414,7 +414,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)",
+              "description": "Deprecated: use requestMeta. Written as requestMeta; setting both is refused",
               "type": "object"
             },
             "name": {
@@ -429,6 +429,13 @@
                   "type": "integer"
                 }
               },
+              "type": "object"
+            },
+            "requestMeta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Entries added to the params._meta object of every outbound JSON-RPC request that carries params (streamable-http and sse)",
               "type": "object"
             },
             "tags": {
@@ -827,7 +834,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)",
+              "description": "Deprecated: use requestMeta. Written as requestMeta; setting both is refused",
               "type": "object"
             },
             "name": {
@@ -842,6 +849,13 @@
                   "type": "integer"
                 }
               },
+              "type": "object"
+            },
+            "requestMeta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Entries added to the params._meta object of every outbound JSON-RPC request that carries params (streamable-http and sse)",
               "type": "object"
             },
             "restartRequestedAt": {
@@ -1159,7 +1173,7 @@
               "additionalProperties": {
                 "type": "string"
               },
-              "description": "Entries merged into the params._meta object of every outbound JSON-RPC request that carries params (applied by the sigv4 transport only)",
+              "description": "Deprecated: use requestMeta. Written as requestMeta; setting both is refused",
               "type": "object"
             },
             "name": {
@@ -1174,6 +1188,13 @@
                   "type": "integer"
                 }
               },
+              "type": "object"
+            },
+            "requestMeta": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Entries added to the params._meta object of every outbound JSON-RPC request that carries params (streamable-http and sse)",
               "type": "object"
             },
             "tags": {

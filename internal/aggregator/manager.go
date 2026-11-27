@@ -942,7 +942,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 	namespace, _ := serviceData["namespace"].(string)
 	uid, _ := serviceData[api.ServiceDataUID].(string)
 	createdAt, _ := serviceData[api.ServiceDataCreatedAt].(time.Time)
-	meta, _ := serviceData["meta"].(map[string]string)
+	meta, _ := serviceData["requestMeta"].(map[string]string)
 	headers, _ := serviceData["headers"].(map[string]string)
 	headersFrom, _ := serviceData["headersFrom"].([]api.MCPServerHeaderFrom)
 	authConfig, _ := serviceData["auth"].(*api.MCPServerAuth)
@@ -968,7 +968,7 @@ func (am *AggregatorManager) registerPendingAuthFromService(service api.ServiceI
 		},
 		URL:         url,
 		AuthConfig:  authConfig,
-		Meta:        meta,
+		RequestMeta: meta,
 		Headers:     headers,
 		HeadersFrom: headersFrom,
 	})

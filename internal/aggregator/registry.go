@@ -1587,7 +1587,7 @@ func (r *ServerRegistry) RegisterPendingAuth(registration PendingAuthRegistratio
 		Family:          cloneFamily(registration.Family),
 		AuthInfo:        authInfo,
 		AuthConfig:      authConfig,
-		Meta:            registration.Meta,
+		RequestMeta:     registration.RequestMeta,
 		Headers:         registration.Headers,
 		HeadersFrom:     registration.HeadersFrom,
 		Timeout:         registration.Timeout,
