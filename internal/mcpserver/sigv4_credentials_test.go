@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/giantswarm/muster/v5/internal/api"
 )
 
 const (
@@ -101,7 +103,7 @@ func TestSigV4CredentialsBacksOffOnBothBranches(t *testing.T) {
 			name = "without a roleArn"
 		}
 		t.Run(name, func(t *testing.T) {
-			provider, err := sigV4Credentials(t.Context(), testSigV4Region, roleARN, "aws")
+			provider, err := sigV4Credentials(t.Context(), api.MCPServerSigV4{Region: testSigV4Region, RoleARN: roleARN}, "aws")
 			require.NoError(t, err)
 			assert.IsType(t, &backoffCredentialsProvider{}, provider)
 		})

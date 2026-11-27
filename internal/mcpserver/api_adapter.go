@@ -98,9 +98,10 @@ func convertCRDSigV4ToAPI(src *musterv1alpha1.MCPServerSigV4) *api.MCPServerSigV
 		return nil
 	}
 	return &api.MCPServerSigV4{
-		Region:  src.Region,
-		Service: src.Service,
-		RoleARN: src.RoleARN,
+		Region:         src.Region,
+		Service:        src.Service,
+		RoleARN:        src.RoleARN,
+		SourceIdentity: src.SourceIdentity,
 	}
 }
 
@@ -111,9 +112,10 @@ func convertAPISigV4ToCRD(src *api.MCPServerSigV4) *musterv1alpha1.MCPServerSigV
 		return nil
 	}
 	return &musterv1alpha1.MCPServerSigV4{
-		Region:  src.Region,
-		Service: src.Service,
-		RoleARN: src.RoleARN,
+		Region:         src.Region,
+		Service:        src.Service,
+		RoleARN:        src.RoleARN,
+		SourceIdentity: src.SourceIdentity,
 	}
 }
 

@@ -7,7 +7,8 @@ import (
 )
 
 const (
-	testSigV4Region = "eu-central-1"
+	testSigV4Region  = "eu-central-1"
+	testSigV4RoleARN = "arn:aws:iam::123456789012:role/ExampleReadOnlyRole"
 )
 
 func TestValidateSigV4(t *testing.T) {
@@ -74,6 +75,29 @@ func TestValidateSigV4(t *testing.T) {
 				TokenExchange: &TokenExchangeConfig{Enabled: true},
 			},
 			wantError: "auth.tokenExchange does not apply",
+		},
+		{
+			name:       "caller source identity with a role",
+			serverType: MCPServerTypeStreamableHTTP,
+			auth: &MCPServerAuth{Type: MCPServerAuthTypeSigV4, SigV4: &MCPServerSigV4{
+				Region: testSigV4Region, RoleARN: testSigV4RoleARN, SourceIdentity: SigV4SourceIdentityCaller,
+			}},
+		},
+		{
+			name:       "caller source identity without a role",
+			serverType: MCPServerTypeStreamableHTTP,
+			auth: &MCPServerAuth{Type: MCPServerAuthTypeSigV4, SigV4: &MCPServerSigV4{
+				Region: testSigV4Region, SourceIdentity: SigV4SourceIdentityCaller,
+			}},
+			wantError: "auth.sigv4.sourceIdentity needs auth.sigv4.roleArn",
+		},
+		{
+			name:       "unknown source identity",
+			serverType: MCPServerTypeStreamableHTTP,
+			auth: &MCPServerAuth{Type: MCPServerAuthTypeSigV4, SigV4: &MCPServerSigV4{
+				Region: testSigV4Region, RoleARN: testSigV4RoleARN, SourceIdentity: "email",
+			}},
+			wantError: `auth.sigv4.sourceIdentity must be "caller"`,
 		},
 		{
 			name:       "oauth is untouched",

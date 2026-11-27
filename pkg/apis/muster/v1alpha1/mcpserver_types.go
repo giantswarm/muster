@@ -447,11 +447,13 @@ type MCPServerAuth struct {
 // Everything here is AWS-specific because SigV4 is AWS. MCPServerAuth.Type is
 // an enum, so another provider's signing scheme gets its own sub-struct rather
 // than sharing these fields.
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.sourceIdentity) || has(self.roleArn)",message="sourceIdentity needs roleArn: STS sets a source identity only when a role is assumed"
 type MCPServerSigV4 struct {
 	// Region is the SigV4 signing region. It must match the region in URL,
 	// because the signature's credential scope is checked against the
 	// endpoint. This is not the region the backend operates in — that is
-	// MCPServerSpec.Meta.
+	// MCPServerSpec.RequestMeta.
 	// +kubebuilder:validation:Required
 	Region string `json:"region" yaml:"region"`
 
@@ -463,6 +465,16 @@ type MCPServerSigV4 struct {
 	// RoleARN, when set, is assumed from the pod's base credentials before
 	// signing. Leave empty to sign as the pod's own identity.
 	RoleARN string `json:"roleArn,omitempty" yaml:"roleArn,omitempty"`
+
+	// SourceIdentity "caller" assumes RoleARN once per caller and sets the
+	// caller's subject as the session's STS source identity, so CloudTrail
+	// records who made each call and a trust policy can require it through
+	// sts:SourceIdentity. A request with no caller, such as the initialize
+	// muster sends on connect, carries "muster-aggregator". Every caller still
+	// gets RoleARN's permissions. Both muster's identity policy and RoleARN's
+	// trust policy must allow sts:SetSourceIdentity, or AssumeRole fails.
+	// +kubebuilder:validation:Enum=caller
+	SourceIdentity string `json:"sourceIdentity,omitempty" yaml:"sourceIdentity,omitempty"`
 }
 
 // MCPServerAuthAuthorizationServer pins the OAuth authorization server for an

@@ -117,6 +117,11 @@ func mcpServerArgs(typeRequired bool) []api.ArgMetadata {
 							api.SchemaKeyType:        string(api.ArgTypeString),
 							api.SchemaKeyDescription: "IAM role assumed from the pod's base credentials before signing; empty signs as the pod's own identity",
 						},
+						"sourceIdentity": map[string]interface{}{
+							api.SchemaKeyType:        string(api.ArgTypeString),
+							api.SchemaKeyDescription: "caller assumes roleArn once per caller, with the caller's subject as the STS source identity; needs roleArn and sts:SetSourceIdentity on both sides",
+							api.SchemaKeyEnum:        []string{api.SigV4SourceIdentityCaller},
+						},
 					},
 					api.SchemaKeyRequired: []string{"region"},
 				},

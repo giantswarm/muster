@@ -41,7 +41,7 @@ func newSigV4Client(serverName, serverURL string, headers map[string]string, sig
 		url:     serverURL,
 		headers: headers,
 		httpClientFunc: func(ctx context.Context) (*http.Client, error) {
-			creds, err := sigV4Credentials(ctx, signing.Region, signing.RoleARN, serverName)
+			creds, err := sigV4Credentials(ctx, signing, serverName)
 			if err != nil {
 				return nil, err
 			}

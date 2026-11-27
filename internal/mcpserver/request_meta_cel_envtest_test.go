@@ -61,6 +61,19 @@ func TestRequestMetaCELEnvtest(t *testing.T) {
 			rejected: "a sigv4 server needs requestMeta.AWS_REGION",
 		},
 		{
+			name: "sigv4-caller-source-identity",
+			spec: musterv1alpha1.MCPServerSpec{RequestMeta: region, Auth: &musterv1alpha1.MCPServerAuth{Type: "sigv4", SigV4: &musterv1alpha1.MCPServerSigV4{
+				Region: "eu-central-1", RoleARN: "arn:aws:iam::123456789012:role/ExampleReadOnlyRole", SourceIdentity: "caller",
+			}}},
+		},
+		{
+			name: "sigv4-source-identity-without-a-role",
+			spec: musterv1alpha1.MCPServerSpec{RequestMeta: region, Auth: &musterv1alpha1.MCPServerAuth{Type: "sigv4", SigV4: &musterv1alpha1.MCPServerSigV4{
+				Region: "eu-central-1", SourceIdentity: "caller",
+			}}},
+			rejected: "sourceIdentity needs roleArn",
+		},
+		{
 			name:     "both-names",
 			spec:     musterv1alpha1.MCPServerSpec{RequestMeta: region, Meta: region}, //nolint:staticcheck // SA1019: covers the deprecated name
 			rejected: "set requestMeta only",
