@@ -124,10 +124,10 @@ func (v *Visibility) CallerVisibility(ctx context.Context) api.ServerVisibility 
 		token = exchanged
 	}
 	if token == "" {
-		return api.NoServerVisible(callerwrite.ReloginError("Your session carries no ID token, so muster cannot tell which MCP servers you may see."))
+		return api.NoServerVisibleWithError(callerwrite.ReloginError("Your session carries no ID token, so muster cannot tell which MCP servers you may see."))
 	}
 	if callerwrite.TokenMissingAudience(token, v.audience) {
-		return api.NoServerVisible(callerwrite.ReloginError(
+		return api.NoServerVisibleWithError(callerwrite.ReloginError(
 			"Your session token does not carry the \"" + v.audience + "\" audience the Kubernetes API needs to tell which MCP servers you may see."))
 	}
 
@@ -212,7 +212,7 @@ func (v *Visibility) listAsCaller(ctx context.Context, token string) (view api.S
 	wg.Wait()
 
 	if unauthorized.Load() {
-		return api.NoServerVisible(callerwrite.ReloginError("The Kubernetes API rejected your session token, so muster shows you no MCP server.")), true
+		return api.NoServerVisibleWithError(callerwrite.ReloginError("The Kubernetes API rejected your session token, so muster shows you no MCP server.")), true
 	}
 	var visible []string
 	for i, namespace := range namespaces {
