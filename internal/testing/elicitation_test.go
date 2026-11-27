@@ -73,7 +73,21 @@ func TestElicitationAnswerStopsAfterTheBound(t *testing.T) {
 
 	_, err := callWithElicitationAnswer(WithElicitationAnswer(t.Context(), mcp.ElicitationResponseActionAccept), call.call)
 	require.ErrorContains(t, err, "still asks for input")
-	require.Len(t, call.roundTrips, maxElicitationRoundTrips)
+	require.Len(t, call.roundTrips, maxElicitationRoundTrips+1)
+}
+
+func TestElicitationAnswerSendsTheLastAllowedAnswer(t *testing.T) {
+	done := mcp.NewToolResultText("done")
+	call := &scriptedCall{}
+	for range maxElicitationRoundTrips {
+		call.results = append(call.results, signInRequired("s"))
+	}
+	call.results = append(call.results, done)
+
+	result, err := callWithElicitationAnswer(WithElicitationAnswer(t.Context(), mcp.ElicitationResponseActionAccept), call.call)
+	require.NoError(t, err)
+	require.Same(t, done, result)
+	require.Len(t, call.roundTrips, maxElicitationRoundTrips+1)
 }
 
 func TestElicitationAnswerRefusesAFormElicitation(t *testing.T) {
@@ -111,9 +125,9 @@ func TestClientDeclaresURLElicitationOnlyForAStepThatAnswers(t *testing.T) {
 	require.NoError(t, legacy.Close())
 
 	c := NewMCPTestClient(false)
-	require.NoError(t, c.Connect(WithClientProtocolVersion(t.Context(), api.URLElicitationProtocolVersion), ts.URL+"/mcp"))
+	require.NoError(t, c.Connect(WithClientProtocolVersion(t.Context(), api.MultiRoundTripProtocolVersion), ts.URL+"/mcp"))
 	t.Cleanup(func() { _ = c.Close() })
-	require.Equal(t, api.URLElicitationProtocolVersion, c.InitializeResult().ProtocolVersion)
+	require.Equal(t, api.MultiRoundTripProtocolVersion, c.InitializeResult().ProtocolVersion)
 
 	result, err := c.CallTool(t.Context(), "x_github_list", nil)
 	require.NoError(t, err)
@@ -121,7 +135,7 @@ func TestClientDeclaresURLElicitationOnlyForAStepThatAnswers(t *testing.T) {
 
 	_, err = c.CallTool(WithElicitationAnswer(t.Context(), mcp.ElicitationResponseActionDecline), "x_github_list", nil)
 	require.ErrorContains(t, err, "the person answered decline to signing in to github")
-	require.Equal(t, []string{api.URLElicitationProtocolVersion, api.URLElicitationProtocolVersion, api.URLElicitationProtocolVersion}, versions)
+	require.Equal(t, []string{api.MultiRoundTripProtocolVersion, api.MultiRoundTripProtocolVersion, api.MultiRoundTripProtocolVersion}, versions)
 }
 
 func TestValidateStepElicitation(t *testing.T) {
@@ -143,7 +157,7 @@ func TestValidateScenarioProtocolVersion(t *testing.T) {
 	}}
 	require.ErrorContains(t, loader.validateScenario(scenario, "f.yaml"), "elicitation needs protocol_version")
 
-	scenario.ProtocolVersion = api.URLElicitationProtocolVersion
+	scenario.ProtocolVersion = api.MultiRoundTripProtocolVersion
 	require.NoError(t, loader.validateScenario(scenario, "f.yaml"))
 
 	scenario.ProtocolVersion = "2024-11-05"

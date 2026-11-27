@@ -168,9 +168,9 @@ func (l *scenarioLoader) validateScenario(scenario TestScenario, filePath string
 	}
 
 	switch scenario.ProtocolVersion {
-	case "", api.ClientProtocolVersion, api.URLElicitationProtocolVersion:
+	case "", api.ClientProtocolVersion, api.MultiRoundTripProtocolVersion:
 	default:
-		return fmt.Errorf("protocol_version must be %s or %s, got %q", api.ClientProtocolVersion, api.URLElicitationProtocolVersion, scenario.ProtocolVersion)
+		return fmt.Errorf("protocol_version must be %s or %s, got %q", api.ClientProtocolVersion, api.MultiRoundTripProtocolVersion, scenario.ProtocolVersion)
 	}
 
 	// Validate each step
@@ -178,8 +178,8 @@ func (l *scenarioLoader) validateScenario(scenario TestScenario, filePath string
 		if err := l.validateStep(step, i); err != nil {
 			return fmt.Errorf("step %d: %w", i+1, err)
 		}
-		if step.Elicitation != "" && scenario.ProtocolVersion != api.URLElicitationProtocolVersion {
-			return fmt.Errorf("step %d: elicitation needs protocol_version: %q, the revision that carries input_required answers", i+1, api.URLElicitationProtocolVersion)
+		if step.Elicitation != "" && scenario.ProtocolVersion != api.MultiRoundTripProtocolVersion {
+			return fmt.Errorf("step %d: elicitation needs protocol_version: %q, the revision that carries input_required answers", i+1, api.MultiRoundTripProtocolVersion)
 		}
 	}
 

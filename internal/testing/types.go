@@ -142,7 +142,7 @@ type TestScenario struct {
 	InstanceLogs *InstanceLogExpectation `yaml:"instance_logs,omitempty"`
 	// ProtocolVersion is the MCP revision the scenario's clients ask the
 	// muster instance for: api.ClientProtocolVersion when empty, or
-	// api.URLElicitationProtocolVersion, which a step answering elicitations
+	// api.MultiRoundTripProtocolVersion, which a step answering elicitations
 	// needs.
 	ProtocolVersion string `yaml:"protocol_version,omitempty"`
 }

@@ -107,8 +107,8 @@ When you are done on the page, press Enter to continue, or type d to decline or 
 
 Pressing Enter once you are done runs the call; muster waits for the sign-in to complete first
 and asks again with a new link when it did not. `d` declines and `c` (or Ctrl-C) cancels: the
-call does not run and the command fails with the server's answer. `--login` opens the browser
-without asking. A message from a server behind muster starts with the server's name in brackets,
+call does not run and the command fails with the server's answer. Opening an elicitation page
+always needs confirmation, including with `--login`. A message from a server behind muster starts with the server's name in brackets,
 `[github]`; muster's own sign-in message names the server to sign in to.
 
 The CLI only opens an `https` URL, or an `http` one on a loopback host (a muster running

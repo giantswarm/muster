@@ -44,7 +44,7 @@ var ErrUnanswerableInput = errors.New("the server asked for input this client ca
 
 // SetURLElicitationHandler makes the client answer URL mode elicitations with
 // handler. Set before Connect: over streamable HTTP the client then asks for
-// MCP api.URLElicitationProtocolVersion and declares elicitation.url on each
+// MCP api.MultiRoundTripProtocolVersion and declares elicitation.url on each
 // tool call; a server that does not speak that revision is spoken to on
 // api.ClientProtocolVersion without the capability, and keeps answering a
 // sign-in with its auth_required result.
@@ -70,7 +70,7 @@ func (c *Client) answersURLElicitations() bool {
 // requestedProtocolVersion is the revision initialize asks for.
 func (c *Client) requestedProtocolVersion() string {
 	if c.answersURLElicitations() {
-		return api.URLElicitationProtocolVersion
+		return api.MultiRoundTripProtocolVersion
 	}
 	return api.ClientProtocolVersion
 }
@@ -115,17 +115,19 @@ func (c *Client) negotiatedProtocolVersion() string {
 // call's.
 func (c *Client) callToolRoundTrips(ctx context.Context, name string, args map[string]any, timeout time.Duration) (*mcp.CallToolResult, error) {
 	var roundTrip mcp.MultiRoundTripParams
-	for range maxInputRoundTrips {
+	for round := 0; ; round++ {
 		result, err := c.callToolOnce(ctx, name, args, timeout, roundTrip)
 		if err != nil || !result.NeedsInput() {
 			return result, err
+		}
+		if round == maxInputRoundTrips {
+			return nil, fmt.Errorf("tool call %s: the server still asks for input after %d answers", name, maxInputRoundTrips)
 		}
 		roundTrip, err = c.answerInputRequests(ctx, result)
 		if err != nil {
 			return nil, fmt.Errorf("tool call %s: %w", name, err)
 		}
 	}
-	return nil, fmt.Errorf("tool call %s: the server still asks for input after %d answers", name, maxInputRoundTrips)
 }
 
 // answerInputRequests returns the retry parameters answering an input_required

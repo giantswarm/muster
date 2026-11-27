@@ -12,14 +12,11 @@ package api
 // dependency bump.
 const ClientProtocolVersion = "2025-11-25"
 
-// URLElicitationProtocolVersion is the MCP revision a client to a muster
-// instance asks for when it answers URL mode elicitations itself: the CLI's
-// commands, and the BDD test client in a scenario that sets protocol_version. On it, a tool call that needs the person
-// to open a page is answered with an input_required result, retried with the
-// person's answer and the echoed requestState. A server that does not speak
-// it is spoken to on ClientProtocolVersion, where muster keeps its
-// auth_required answer.
-const URLElicitationProtocolVersion = "2026-07-28"
+// MultiRoundTripProtocolVersion is the MCP revision supporting input_required
+// results and retries with inputResponses and requestState. Clients answering
+// URL elicitations request it and fall back to ClientProtocolVersion when
+// the server does not support multi round-trip requests.
+const MultiRoundTripProtocolVersion = "2026-07-28"
 
 // ServiceDataProtocolVersion is the GetServiceData key under which an MCP
 // server service reports the revision its backend answered with. Both

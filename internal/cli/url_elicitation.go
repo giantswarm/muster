@@ -126,9 +126,7 @@ func isLoopbackHost(host string) bool {
 type urlElicitor struct {
 	out         io.Writer
 	interactive bool
-	// autoOpen opens each page without asking first (--login).
-	autoOpen bool
-	open     func(url string) error
+	open        func(url string) error
 	// interrupted returns a context ended by Ctrl-C, and its stop function.
 	interrupted func(ctx context.Context) (context.Context, context.CancelFunc)
 
@@ -143,12 +141,11 @@ type urlElicitor struct {
 
 // newURLElicitor returns the elicitor of a CLI command: it asks on stdin and
 // writes to stderr, when both are terminals and the command allows it.
-func newURLElicitor(interactive, autoOpen bool) *urlElicitor {
+func newURLElicitor(interactive bool) *urlElicitor {
 	return &urlElicitor{
 		out:         os.Stderr,
 		in:          os.Stdin,
 		interactive: interactive,
-		autoOpen:    autoOpen,
 		open:        oauth.OpenBrowser,
 		interrupted: func(ctx context.Context) (context.Context, context.CancelFunc) {
 			return signal.NotifyContext(ctx, os.Interrupt)
@@ -212,8 +209,8 @@ func (u *urlElicitor) ask(ctx context.Context, elicitation agent.URLElicitation)
 		return mcp.ElicitationResponseActionDecline, nil
 	}
 
-	open := u.autoOpen
-	for !open {
+	open := false
+	for {
 		answer, err := u.prompt(ctx, "Open it in your browser? [Y/n] ")
 		if err != nil {
 			return "", err

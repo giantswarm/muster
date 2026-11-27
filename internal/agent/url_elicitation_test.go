@@ -140,7 +140,7 @@ func TestURLElicitationAcceptRetriesWithTheAnswerAndTheStateVerbatim(t *testing.
 	require.Equal(t, "ran", result.Content[0].(mcp.TextContent).Text)
 
 	require.Equal(t, [][]URLElicitation{{{Key: testSignInKey, Message: "Sign in to github to continue.", URL: testSignInURL}}}, elicitor.asked)
-	require.Equal(t, []string{api.URLElicitationProtocolVersion, api.URLElicitationProtocolVersion}, srv.versions)
+	require.Equal(t, []string{api.MultiRoundTripProtocolVersion, api.MultiRoundTripProtocolVersion}, srv.versions)
 	require.Equal(t, []bool{true, true}, srv.declared)
 	require.Len(t, srv.retries, 1)
 	require.Equal(t, testSignInState, srv.retries[0].RequestState)
@@ -202,6 +202,31 @@ func TestURLElicitationFormRequestIsUnanswerable(t *testing.T) {
 	_, err := c.CallTool(t.Context(), "call_tool", nil)
 	require.ErrorIs(t, err, ErrUnanswerableInput)
 	require.Empty(t, elicitor.asked)
+}
+
+func TestURLElicitationSendsTheLastAllowedAnswer(t *testing.T) {
+	answers := 0
+	mcpServer := server.NewMCPServer("muster", "1.0.0")
+	mcpServer.AddTool(mcp.NewTool("call_tool"), func(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if server.ElicitationResponse(request.Params.InputResponses, testSignInKey) != nil {
+			answers++
+		}
+		if answers == maxInputRoundTrips {
+			return mcp.NewToolResultText("ran"), nil
+		}
+		return server.NewInputRequestBuilder("s").Elicit(testSignInKey, mcp.ElicitationParams{
+			Mode: mcp.ElicitationModeURL, Message: "Continue", URL: testSignInURL,
+		}).ToolResult(), nil
+	})
+	testServer := httptest.NewServer(server.NewStreamableHTTPServer(mcpServer))
+	t.Cleanup(testServer.Close)
+	elicitor := &recordingElicitor{action: mcp.ElicitationResponseActionAccept}
+	client := connectedClient(t, testServer.URL+"/mcp", elicitor.answer)
+
+	result, err := client.CallTool(t.Context(), "call_tool", nil)
+	require.NoError(t, err)
+	require.Equal(t, "ran", result.Content[0].(mcp.TextContent).Text)
+	require.Len(t, elicitor.asked, maxInputRoundTrips)
 }
 
 func TestURLElicitationNotDeclaredWithoutAHandler(t *testing.T) {

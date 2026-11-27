@@ -116,9 +116,8 @@ func TestURLElicitorAnswers(t *testing.T) {
 	}
 }
 
-func TestURLElicitorAutoOpenDoesNotAsk(t *testing.T) {
-	u, out, opened := testElicitor(strings.NewReader("\n"), t.Context())
-	u.autoOpen = true
+func TestURLElicitorBrowserFailureStillRequiresConsent(t *testing.T) {
+	u, out, opened := testElicitor(strings.NewReader("y\n\n"), t.Context())
 	u.open = func(url string) error {
 		*opened = append(*opened, url)
 		return errors.New("no display")
@@ -128,8 +127,25 @@ func TestURLElicitorAutoOpenDoesNotAsk(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []mcp.ElicitationResponseAction{mcp.ElicitationResponseActionAccept}, actions)
 	require.Equal(t, []string{elicitationURL}, *opened)
-	require.NotContains(t, out.String(), "Open it in your browser?")
+	require.Contains(t, out.String(), "Open it in your browser?")
 	require.Contains(t, out.String(), "Could not open a browser (no display): open the URL yourself.")
+}
+
+func TestURLElicitorConfirmsEachURL(t *testing.T) {
+	u, out, opened := testElicitor(strings.NewReader("y\ndone\nn\nd\n"), t.Context())
+	second := agent.URLElicitation{Key: "payment", Message: "Approve payment", URL: "https://payments.example.com/approve"}
+	u.open = func(address string) error {
+		require.Contains(t, out.String(), address)
+		require.Contains(t, out.String(), "Open it in your browser?")
+		*opened = append(*opened, address)
+		return nil
+	}
+
+	actions, err := u.answer(t.Context(), []agent.URLElicitation{signIn, second})
+	require.NoError(t, err)
+	require.Equal(t, []mcp.ElicitationResponseAction{mcp.ElicitationResponseActionAccept, mcp.ElicitationResponseActionDecline}, actions)
+	require.Equal(t, []string{elicitationURL}, *opened)
+	require.Equal(t, 2, strings.Count(out.String(), "Open it in your browser?"))
 }
 
 func TestURLElicitorDeclinesARefusedURLWithoutAsking(t *testing.T) {
@@ -150,7 +166,6 @@ func TestURLElicitorInterruptCancelsEveryElicitation(t *testing.T) {
 	reader, writer := io.Pipe()
 	t.Cleanup(func() { _ = writer.Close() })
 	u, out, _ := testElicitor(reader, interrupt)
-	u.autoOpen = true
 	press()
 
 	actions, err := u.answer(t.Context(), []agent.URLElicitation{signIn, {Key: "b", Message: "b", URL: elicitationURL}})

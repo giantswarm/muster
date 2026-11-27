@@ -303,7 +303,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 		client.SetCallTimeout(options.CallTimeout)
 	}
 	interactive := !options.NonInteractive && term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
-	elicitor := newURLElicitor(interactive, options.AuthMode == AuthModeAuto)
+	elicitor := newURLElicitor(interactive)
 	client.SetURLElicitationHandler(elicitor.answer)
 
 	executor := &ToolExecutor{

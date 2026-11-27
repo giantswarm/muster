@@ -81,7 +81,7 @@ func callWithElicitationAnswer(ctx context.Context, call func(context.Context, m
 	action := elicitationAnswerFromContext(ctx)
 	ctx = withDeclaredElicitation(ctx)
 	var roundTrip mcp.MultiRoundTripParams
-	for round := range maxElicitationRoundTrips {
+	for round := 0; ; round++ {
 		result, err := call(ctx, roundTrip)
 		if err != nil {
 			return nil, err
@@ -95,6 +95,9 @@ func callWithElicitationAnswer(ctx context.Context, call func(context.Context, m
 		if action == "" {
 			return nil, fmt.Errorf("the call asked for input (%s); answer it with the step's elicitation field", describeInputRequests(result.InputRequests))
 		}
+		if round == maxElicitationRoundTrips {
+			return nil, fmt.Errorf("the call still asks for input after %d answers", maxElicitationRoundTrips)
+		}
 		roundTrip = mcp.MultiRoundTripParams{RequestState: result.RequestState, InputResponses: mcp.InputResponses{}}
 		for key, request := range result.InputRequests {
 			if request.Method != mcp.MethodElicitationCreate || request.Elicitation == nil || request.Elicitation.Mode != mcp.ElicitationModeURL {
@@ -105,7 +108,6 @@ func callWithElicitationAnswer(ctx context.Context, call func(context.Context, m
 			})
 		}
 	}
-	return nil, fmt.Errorf("the call still asks for input after %d answers", maxElicitationRoundTrips)
 }
 
 // describeInputRequests names each input request with its key, method, mode,
