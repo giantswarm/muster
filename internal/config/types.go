@@ -517,30 +517,14 @@ type OAuthServerConfig struct {
 	EnableClientManagementEndpoint bool `yaml:"enableClientManagementEndpoint,omitempty"`
 
 	// EncryptionKey is the AES-256 key for encrypting tokens at rest (32 bytes, base64-encoded).
-	// Required for production deployments.
+	// muster also derives the key that seals its requestState from it, so
+	// every replica needs the same one. Required for production deployments.
 	// For production, use EncryptionKeyFile instead to avoid secrets in config files.
 	EncryptionKey string `yaml:"encryptionKey,omitempty"`
 
 	// EncryptionKeyFile is the path to a file containing the encryption key.
 	// This is the recommended way to provide secrets in production deployments.
 	EncryptionKeyFile string `yaml:"encryptionKeyFile,omitempty"`
-
-	// RequestStateKey is the AES-256 key (32 bytes, base64-encoded) that seals
-	// the requestState muster answers a tool call with, so a client cannot
-	// forge or change it. Every replica needs the same key. Without one,
-	// muster seals with a key of its own process.
-	RequestStateKey string `yaml:"requestStateKey,omitempty"`
-
-	// RequestStateKeyFile is the path to a file containing RequestStateKey.
-	RequestStateKeyFile string `yaml:"requestStateKeyFile,omitempty"`
-
-	// RequestStatePreviousKey is the key RequestStateKey replaced, which
-	// still opens requestState sealed before a rotation.
-	RequestStatePreviousKey string `yaml:"requestStatePreviousKey,omitempty"`
-
-	// RequestStatePreviousKeyFile is the path to a file containing
-	// RequestStatePreviousKey.
-	RequestStatePreviousKeyFile string `yaml:"requestStatePreviousKeyFile,omitempty"`
 
 	// TrustedPublicRegistrationSchemes lists URI schemes allowed for unauthenticated
 	// client registration. Enables Cursor/VSCode without registration tokens.

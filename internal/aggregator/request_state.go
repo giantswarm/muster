@@ -2,7 +2,9 @@ package aggregator
 
 import (
 	"context"
+	"crypto/hkdf"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,52 +50,45 @@ type sealedRequestState struct {
 	Backend *backendInputState  `json:"backend,omitempty"`
 }
 
-// newRequestStateSealer returns the sealer of muster's requestState over the
-// configured keys. Without one it seals with a key of this process alone and
+// requestStateKeyLabel separates the requestState key derived from muster's
+// token encryption key from that key and from any other key derived from it.
+const requestStateKeyLabel = "muster requestState v1"
+
+// newRequestStateSealer returns the sealer of muster's requestState. Its key
+// is derived from the token encryption key (HKDF-SHA256), which every replica
+// shares, so a retry can reach any replica and no further secret is needed.
+// Without an encryption key it seals with a key of this process alone and
 // warns: a retry that reaches another replica is then refused.
 func newRequestStateSealer(oauthServer config.OAuthServerConfig) (*requeststate.Sealer, error) {
-	if oauthServer.RequestStateKey == "" {
-		if oauthServer.RequestStatePreviousKey != "" {
-			return nil, errors.New("requestStatePreviousKey is set without requestStateKey")
-		}
-		secret := make([]byte, 32)
-		if _, err := rand.Read(secret); err != nil {
-			return nil, fmt.Errorf("requestState key: %w", err)
-		}
-		logging.Warn("Aggregator", "No requestStateKey configured: sealing requestState with a key of this process; with more than one replica, a retry reaching another replica is refused")
-		return sealerOf(security.Key{ID: security.KeyID(secret), Secret: secret})
-	}
-	active, err := requestStateKey("requestStateKey", oauthServer.RequestStateKey)
+	secret, err := requestStateSecret(oauthServer.EncryptionKey)
 	if err != nil {
 		return nil, err
 	}
-	if oauthServer.RequestStatePreviousKey == "" {
-		return sealerOf(active)
-	}
-	previous, err := requestStateKey("requestStatePreviousKey", oauthServer.RequestStatePreviousKey)
-	if err != nil {
-		return nil, err
-	}
-	if previous.ID == active.ID {
-		return nil, errors.New("requestStatePreviousKey has the key ID of requestStateKey; generate a new key")
-	}
-	return sealerOf(active, previous)
-}
-
-func requestStateKey(name, encoded string) (security.Key, error) {
-	secret, err := security.DecodeKey(encoded)
-	if err != nil {
-		return security.Key{}, fmt.Errorf("%s: %w", name, err)
-	}
-	return security.Key{ID: security.KeyID(secret), Secret: secret}, nil
-}
-
-func sealerOf(active security.Key, previous ...security.Key) (*requeststate.Sealer, error) {
-	ring, err := security.NewKeyRing(active, previous...)
+	ring, err := security.NewKeyRing(security.Key{ID: security.KeyID(secret), Secret: secret})
 	if err != nil {
 		return nil, fmt.Errorf("requestState key: %w", err)
 	}
 	return requeststate.New(ring)
+}
+
+func requestStateSecret(encryptionKey string) ([]byte, error) {
+	if encryptionKey == "" {
+		secret := make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			return nil, fmt.Errorf("requestState key: %w", err)
+		}
+		logging.Warn("Aggregator", "No encryptionKey configured: sealing requestState with a key of this process; with more than one replica, a retry reaching another replica is refused")
+		return secret, nil
+	}
+	key, err := security.DecodeKey(encryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("encryption key: %w", err)
+	}
+	secret, err := hkdf.Key(sha256.New, key, nil, requestStateKeyLabel, 32)
+	if err != nil {
+		return nil, fmt.Errorf("requestState key: %w", err)
+	}
+	return secret, nil
 }
 
 // requestStateCaller returns the caller a requestState is bound to: the

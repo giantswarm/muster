@@ -70,18 +70,40 @@ func newKey(t *testing.T) string {
 }
 
 func TestNewRequestStateSealer(t *testing.T) {
-	t.Run("seals with the configured key and opens what the previous key sealed", func(t *testing.T) {
-		old, current := newKey(t), newKey(t)
-		before, err := newRequestStateSealer(config.OAuthServerConfig{RequestStateKey: old})
+	t.Run("replicas with one encryption key open each other's state", func(t *testing.T) {
+		key := newKey(t)
+		one, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: key})
 		require.NoError(t, err)
-		after, err := newRequestStateSealer(config.OAuthServerConfig{RequestStateKey: current, RequestStatePreviousKey: old})
+		two, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: key})
 		require.NoError(t, err)
 
-		sealed, err := before.Seal(testCaller(), "call", []byte("state"), requestStateTTL)
+		sealed, err := one.Seal(testCaller(), "call", []byte("state"), requestStateTTL)
 		require.NoError(t, err)
-		opened, err := after.Open(testCaller(), "call", sealed)
+		opened, err := two.Open(testCaller(), "call", sealed)
 		require.NoError(t, err)
 		require.Equal(t, "state", string(opened))
+	})
+
+	t.Run("the requestState key is not the encryption key", func(t *testing.T) {
+		key := newKey(t)
+		raw, err := base64.StdEncoding.DecodeString(key)
+		require.NoError(t, err)
+		derived, err := requestStateSecret(key)
+		require.NoError(t, err)
+		require.Len(t, derived, 32)
+		require.NotEqual(t, raw, derived)
+	})
+
+	t.Run("another encryption key does not open the state", func(t *testing.T) {
+		one, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: newKey(t)})
+		require.NoError(t, err)
+		two, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: newKey(t)})
+		require.NoError(t, err)
+
+		sealed, err := one.Seal(testCaller(), "call", []byte("state"), requestStateTTL)
+		require.NoError(t, err)
+		_, err = two.Open(testCaller(), "call", sealed)
+		require.ErrorIs(t, err, requeststate.ErrInvalid)
 	})
 
 	t.Run("two replicas without a key do not open each other's state", func(t *testing.T) {
@@ -93,18 +115,9 @@ func TestNewRequestStateSealer(t *testing.T) {
 		require.ErrorIs(t, err, requeststate.ErrInvalid)
 	})
 
-	t.Run("refuses a bad configuration", func(t *testing.T) {
-		key := newKey(t)
-		for name, cfg := range map[string]config.OAuthServerConfig{
-			"previous key without a key": {RequestStatePreviousKey: key},
-			"key that is not 32 bytes":   {RequestStateKey: base64.StdEncoding.EncodeToString([]byte("short"))},
-			"previous key equal to key":  {RequestStateKey: key, RequestStatePreviousKey: key},
-		} {
-			t.Run(name, func(t *testing.T) {
-				_, err := newRequestStateSealer(cfg)
-				require.Error(t, err)
-			})
-		}
+	t.Run("refuses an encryption key that is not 32 bytes", func(t *testing.T) {
+		_, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: base64.StdEncoding.EncodeToString([]byte("short"))})
+		require.Error(t, err)
 	})
 
 	t.Run("a requestState outlives the wait of a sign-in retry", func(t *testing.T) {
