@@ -518,6 +518,8 @@ Exposes muster's RFC 8693 token exchange to external confidential clients: a bro
 
 Policy enforced by the broker path (mcp-oauth): client authentication is mandatory and only confidential clients are accepted; audiences are gated by the per-client allowlist; no refresh tokens are issued (`expires_in` is bounded by the downstream token's expiry — clients re-exchange); DPoP is rejected.
 
+The broker reports the effective downstream scopes in its response. If Dex omits `scope`, the grant has the scopes Muster requested for that target. Replies granting different scopes retain their returned scope and are not cached; unchanged grants remain cached with their configured scope. Cache entries are isolated by the subject token, client credentials, requested scopes, issuer policy and any delegation actor or audience, so different exchange requests cannot reuse another grant's permissions.
+
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `clientAudiences` | `map[string][]string` | `{}` | Per-client audience allowlist: broker client ID → audiences it may request. A miss returns `invalid_target`. |
