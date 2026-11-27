@@ -3,6 +3,7 @@ package metatools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -153,7 +154,12 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 		result, err = handler.CallTool(ctx, name, toolArgs)
 	}
 	if err != nil {
-		return errorResult(fmt.Sprintf("Tool execution failed: %v", err)), nil
+		result := errorResult(fmt.Sprintf("Tool execution failed: %v", err))
+		var authentication *api.CallerAuthenticationError
+		if errors.As(err, &authentication) {
+			result.StructuredContent = map[string]any{"status": "unauthenticated"}
+		}
+		return result, nil
 	}
 	tool := newDispatchedTool(name, dispatch)
 

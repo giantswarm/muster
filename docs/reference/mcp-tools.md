@@ -146,6 +146,8 @@ Through `muster agent --mcp-server`, `call_tool` additionally takes `timeout` (s
 
 The Go agent client (`muster agent`, `internal/agent`) unwraps the envelope back into the wrapped tool's result and puts `tool` into its `_meta` under the same key; `metatools.DispatchedToolFromMeta` reads it.
 
+A `call_tool` refused because the caller's token cannot authenticate at the Kubernetes API returns `isError: true` and `structuredContent: {"status": "unauthenticated"}`. The existing text explains the refusal and how to sign in again; clients can classify it without parsing that text. No tool ran, so this answer has no wrapped tool envelope or dispatched `tool`. The status is muster's application data in MCP's `structuredContent`, distinct from a backend server asking the person to sign in.
+
 #### A call that needs a sign-in
 
 A call to a tool of a server the session has not signed in to is answered `auth_required`: `isError: true`, the sign-in link in the text and in `structuredContent.authUrl`, with `status: "auth_required"` and `server`. Through `call_tool` the same `structuredContent` is the result's own.

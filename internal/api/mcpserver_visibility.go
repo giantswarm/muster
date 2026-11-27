@@ -18,7 +18,8 @@ type ServerVisibility struct {
 	// Reason says why the caller sees no server at all (a session without a
 	// token, a token the API server does not accept), and that the person must
 	// sign in again. Empty when the caller sees what RBAC allows.
-	Reason string
+	Reason      string
+	reasonError error
 }
 
 // AllServersVisible is the view of a caller who sees every server.
@@ -29,6 +30,21 @@ func AllServersVisible() ServerVisibility {
 // NoServerVisible is the view of a caller who sees no server, for reason.
 func NoServerVisible(reason string) ServerVisibility {
 	return ServerVisibility{restricted: true, Reason: reason}
+}
+
+// NoServerVisibleWithError preserves a refusal's classification next to its text.
+func NoServerVisibleWithError(reason error) ServerVisibility {
+	if reason == nil {
+		return NoServerVisible("")
+	}
+	view := NoServerVisible(reason.Error())
+	view.reasonError = reason
+	return view
+}
+
+// Err is the cause of a view that cannot authorize the caller.
+func (v ServerVisibility) Err() error {
+	return v.reasonError
 }
 
 // ServersOfNamespacesVisible is the view of a caller who may list the
