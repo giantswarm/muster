@@ -11,6 +11,8 @@ set:
 tests:
   - it: renders one replica without the encryption key
     template: templates/configmap.yaml
+    set:
+      muster.oauth.server.encryptionKey: false
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]
@@ -20,6 +22,7 @@ tests:
     template: templates/deployment.yaml
     set:
       replicaCount: 2
+      muster.oauth.server.encryptionKey: false
     asserts:
       - failedTemplate:
           errorMessage: "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused"
@@ -28,6 +31,7 @@ tests:
     template: templates/deployment.yaml
     set:
       autoscaling.enabled: true
+      muster.oauth.server.encryptionKey: false
     asserts:
       - failedTemplate:
           errorMessage: "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused"
@@ -48,6 +52,7 @@ tests:
     set:
       muster.oauth.server.enabled: false
       replicaCount: 2
+      muster.oauth.server.encryptionKey: false
     asserts:
       - failedTemplate:
           errorMessage: "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused"
@@ -114,6 +119,7 @@ tests:
       autoscaling.enabled: true
       autoscaling.minReplicas: 1
       autoscaling.maxReplicas: 1
+      muster.oauth.server.encryptionKey: false
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]

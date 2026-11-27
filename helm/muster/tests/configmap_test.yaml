@@ -292,6 +292,7 @@ tests:
   - it: omits secretBinding without the admission policy and protected Secrets
     set:
       mcpServerSecretReferences.enabled: false
+      muster.oauth.server.encryptionKey: false
     asserts:
       - notMatchRegex:
           path: data["config.yaml"]

@@ -1,0 +1,237 @@
+suite: generated encryption key
+release:
+  name: muster
+  namespace: muster-test
+kubernetesProvider:
+  scheme:
+    v1/Secret:
+      gvr:
+        version: v1
+        resource: secrets
+      namespaced: true
+tests:
+  - it: generates a base64 encoded 32 byte key by default without OAuth
+    template: templates/oauth-secret.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: muster-oauth
+      - equal:
+          path: metadata.namespace
+          value: muster-test
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - notExists:
+          path: data.dex-client-secret
+      - notExists:
+          path: data.registration-token
+      - matchRegex:
+          path: data.oauth-encryption-key
+          decodeBase64: true
+          pattern: '^[A-Za-z0-9+/]{43}=$'
+
+  - it: generates a shared key for multiple replicas without extra values
+    template: templates/oauth-secret.yaml
+    set:
+      replicaCount: 2
+    asserts:
+      - matchRegex:
+          path: data.oauth-encryption-key
+          decodeBase64: true
+          pattern: '^[A-Za-z0-9+/]{43}=$'
+
+  - it: generates a shared key for autoscaling without extra values
+    template: templates/oauth-secret.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - exists:
+          path: data.oauth-encryption-key
+
+  - it: configures the key without enabling inbound OAuth
+    template: templates/configmap.yaml
+    set:
+      replicaCount: 2
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'enabled: false\s+encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'protectedSecrets:\s+- muster-oauth'
+
+  - it: mounts the generated key without enabling inbound OAuth
+    template: templates/deployment.yaml
+    set:
+      replicaCount: 2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: oauth-secrets
+            mountPath: /etc/muster/secrets
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: oauth-secrets
+            projected:
+              defaultMode: 288
+              sources:
+                - secret:
+                    name: muster-oauth
+      - exists:
+          path: spec.template.metadata.annotations["checksum/oauth-secret"]
+
+  - it: preserves the stored key across upgrades
+    template: templates/oauth-secret.yaml
+    release:
+      upgrade: true
+      revision: 2
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-oauth
+            namespace: muster-test
+            annotations:
+              meta.helm.sh/release-name: muster
+              meta.helm.sh/release-namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - equal:
+          path: data.oauth-encryption-key
+          value: dGVzdC1rZXk=
+
+  - it: adds a key to the owned credentials Secret when it has none
+    template: templates/oauth-secret.yaml
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-oauth
+            namespace: muster-test
+            annotations:
+              meta.helm.sh/release-name: muster
+              meta.helm.sh/release-namespace: muster-test
+          data:
+            dex-client-secret: cw==
+    asserts:
+      - matchRegex:
+          path: data.oauth-encryption-key
+          decodeBase64: true
+          pattern: '^[A-Za-z0-9+/]{43}=$'
+
+  - it: hashes the stored key in the pod checksum
+    template: templates/deployment.yaml
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-oauth
+            namespace: muster-test
+            annotations:
+              meta.helm.sh/release-name: muster
+              meta.helm.sh/release-namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["checksum/oauth-secret"]
+          value: f3ba1aa4405e69c5b81b331624baaf80b2ac3ac0877c5e710ef8837765eae550
+
+  - it: refuses an empty stored key instead of silently rotating it
+    template: templates/oauth-secret.yaml
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-oauth
+            namespace: muster-test
+            annotations:
+              meta.helm.sh/release-name: muster
+              meta.helm.sh/release-namespace: muster-test
+          data:
+            oauth-encryption-key: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: the stored oauth-encryption-key is empty; restore the encryption key or rotate it explicitly
+
+  - it: refuses another release's Secret
+    template: templates/oauth-secret.yaml
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-oauth
+            namespace: muster-test
+            annotations:
+              meta.helm.sh/release-name: another-release
+              meta.helm.sh/release-namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - failedTemplate:
+          errorMessage: Secret muster-test/muster-oauth is not owned by this release; set muster.oauth.server.existingSecret to use an externally managed Secret
+
+  - it: refuses a Secret without Helm ownership
+    template: templates/oauth-secret.yaml
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-oauth
+            namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - failedTemplate:
+          errorMessage: Secret muster-test/muster-oauth is not owned by this release; set muster.oauth.server.existingSecret to use an externally managed Secret
+
+  - it: lets an explicit key override the stored key
+    template: templates/oauth-secret.yaml
+    set:
+      muster.oauth.server.encryptionKeyValue: rotated-key
+    kubernetesProvider:
+      objects:
+        - apiVersion: v1
+          kind: Secret
+          metadata:
+            name: muster-oauth
+            namespace: muster-test
+            annotations:
+              meta.helm.sh/release-name: muster
+              meta.helm.sh/release-namespace: muster-test
+          data:
+            oauth-encryption-key: dGVzdC1rZXk=
+    asserts:
+      - equal:
+          path: data.oauth-encryption-key
+          decodeBase64: true
+          value: rotated-key
+
+  - it: leaves an externally managed Secret untouched
+    template: templates/oauth-secret.yaml
+    set:
+      replicaCount: 2
+      muster.oauth.server.existingSecret: supplied-key
+      muster.oauth.server.encryptionKeyValue: ignored
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: allows a single replica to opt out of encryption
+    template: templates/oauth-secret.yaml
+    set:
+      muster.oauth.server.encryptionKey: false
+    asserts:
+      - hasDocuments:
+          count: 0

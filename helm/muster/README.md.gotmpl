@@ -72,6 +72,18 @@ and bind the verbs yourself.
 
 ## Rolling on credential rotation
 
+Token encryption and a shared requestState sealing key are enabled by default, even with inbound OAuth
+disabled. Without `muster.oauth.server.existingSecret` or `encryptionKeyValue`, the chart generates a
+random 32-byte key in `<fullname>-oauth`, reuses it through Helm/Flux upgrades and retains the Secret on
+uninstall. An explicit `encryptionKeyValue` overrides the stored key. With `existingSecret`, supply the
+`oauth-encryption-key` entry yourself; the chart never modifies that Secret. Existing single-replica
+installations whose external Secret lacks the key must add it or explicitly set `encryptionKey: false`
+before upgrading. Multiple replicas and autoscaling above one replica require encryption.
+
+Key reuse uses Helm's cluster-connected `lookup`: offline `helm template` renders generate a fresh key.
+Use Helm install/upgrade or Flux helm-controller to preserve it; for render-and-apply deployment, supply
+an externally managed key. Restore the encryption key with any backup of encrypted token storage.
+
 muster reads its OAuth credentials (the Dex or Google client secret, the registration token, the token
 encryption key) and the Valkey password from Secrets projected into the pod at start and never again. The
 pod template carries a checksum over them beside `checksum/config`, so a rotated credential restarts muster:

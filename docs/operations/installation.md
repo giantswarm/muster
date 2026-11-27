@@ -191,15 +191,23 @@ identity token when their `MCPServer` sets `auth.forwardToken: true`.
 
 Sessions, grants and OAuth state live in memory by default. For more than one replica, or to
 survive a pod restart without every client logging in again, back them with Valkey. The chart also
-requires `encryptionKey: true` with more than one replica, including with inbound OAuth disabled: muster derives the key that seals a
-client's `requestState` from it, so a retry of a sign-in or a server's question can reach any replica:
+enables `encryptionKey` by default, including with inbound OAuth disabled: muster derives the key that seals a
+client's `requestState` from it, so a retry of a sign-in or a server's question can reach any replica.
+Without `existingSecret` or `encryptionKeyValue`, Helm generates a random 32-byte key in
+`<fullname>-oauth` and reuses it on upgrades, including when scaling down to one replica.
+The Secret is retained on uninstall so reinstalling the same release can decrypt stored tokens.
+If `existingSecret` is set, it must contain `oauth-encryption-key`, a base64-encoded 32-byte key;
+the chart does not generate or modify externally managed Secrets. Existing single-replica installs
+whose external Secret has no key must add one or explicitly set `encryptionKey: false` before upgrading.
+Disabling encryption is refused with multiple replicas or autoscaling above one replica.
+
+For example:
 
 ```yaml
 replicaCount: 2
 muster:
   oauth:
     server:
-      encryptionKey: true                # key oauth-encryption-key
       storage:
         type: valkey
         valkey:
@@ -209,6 +217,15 @@ muster:
 
 A muster whose configured Valkey is unreachable at startup waits for it and exits if it does not
 come; it never falls back to in-memory stores, because that would split sessions across replicas.
+
+The live key-lifecycle check installs into a disposable namespace, sends MCP requests to both
+replicas, and verifies upgrades, scale-down and reinstall without key rotation:
+
+```bash
+MUSTER_HELM_TEST_KUBECONFIG=/path/to/lab.kubeconfig \
+MUSTER_HELM_TEST_IMAGE_TAG=your-image-tag \
+  bash helm/muster/tests/encryption-key/run.sh
+```
 
 ### Toolsets, metrics and policies
 

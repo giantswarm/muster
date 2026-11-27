@@ -106,6 +106,35 @@ the effective exporter list. Distinguishes "prometheus" /
 {{- if has "prometheus" (splitList "," (include "muster.effectiveMetricsExporter" .)) -}}true{{- end -}}
 {{- end }}
 
+{{/* A render has one encryption key, even when several templates resolve it. */}}
+{{- define "muster.oauthEncryptionKey" -}}
+{{- $server := .Values.muster.oauth.server -}}
+{{- if $server.encryptionKeyValue -}}
+{{- $server.encryptionKeyValue | b64enc -}}
+{{- else if hasKey .Values "_musterOAuthEncryptionKey" -}}
+{{- get .Values "_musterOAuthEncryptionKey" -}}
+{{- else -}}
+{{- $name := printf "%s-oauth" (include "muster.fullname" .) -}}
+{{- $secret := lookup "v1" "Secret" .Release.Namespace $name | default dict -}}
+{{- if $secret -}}
+{{- $owner := dig "metadata" "annotations" "meta.helm.sh/release-name" "" $secret -}}
+{{- $namespace := dig "metadata" "annotations" "meta.helm.sh/release-namespace" "" $secret -}}
+{{- if or (ne $owner .Release.Name) (ne $namespace .Release.Namespace) -}}
+{{- fail (printf "Secret %s/%s is not owned by this release; set muster.oauth.server.existingSecret to use an externally managed Secret" .Release.Namespace $name) -}}
+{{- end -}}
+{{- end -}}
+{{- $data := $secret.data | default dict -}}
+{{- $key := "" -}}
+{{- if hasKey $data "oauth-encryption-key" -}}
+{{- $key = required "the stored oauth-encryption-key is empty; restore the encryption key or rotate it explicitly" (get $data "oauth-encryption-key") -}}
+{{- else -}}
+{{- $key = randBytes 32 | b64enc -}}
+{{- end -}}
+{{- $_ := set .Values "_musterOAuthEncryptionKey" $key -}}
+{{- $key -}}
+{{- end -}}
+{{- end -}}
+
 {{/*
 Data of the OAuth credentials Secret the chart renders (templates/oauth-secret.yaml),
 one "key: base64" line per entry: the provider's client secret (and Google's
@@ -144,11 +173,7 @@ cannot drift. The gates fail the render the way the Secret template did.
 {{- end -}}
 {{- end -}}
 {{- if $s.encryptionKey -}}
-{{- if $s.encryptionKeyValue -}}
-{{- $lines = append $lines (printf "oauth-encryption-key: %s" ($s.encryptionKeyValue | b64enc | quote)) -}}
-{{- else -}}
-{{- fail "muster.oauth.server.encryptionKeyValue is required when encryptionKey is true and existingSecret is not set" -}}
-{{- end -}}
+{{- $lines = append $lines (printf "oauth-encryption-key: %s" (include "muster.oauthEncryptionKey" . | quote)) -}}
 {{- end -}}
 {{- if and $s.enabled (eq $s.storage.type "valkey") (not $s.storage.valkey.existingSecret) $s.storage.valkey.password -}}
 {{- $lines = append $lines (printf "valkey-password: %s" ($s.storage.valkey.password | b64enc | quote)) -}}

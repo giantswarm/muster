@@ -65,6 +65,7 @@ tests:
           pattern: 'credentialProvider:\n\s+enabled: true'
   - it: refuses a ChatGPT App without the token encryption key
     set:
+      muster.oauth.server.encryptionKey: false
       muster.providerApps:
         - name: chatgpt
           flow: chatgptDeviceCode
