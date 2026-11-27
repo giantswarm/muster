@@ -20,6 +20,7 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"github.com/mark3labs/mcp-go/mcp"
+	"golang.org/x/term"
 	"gopkg.in/yaml.v3"
 )
 
@@ -183,6 +184,10 @@ type ExecutorOptions struct {
 	ContinuousListening bool
 	// CallTimeout bounds one tool call; zero keeps agent.DefaultCallTimeout.
 	CallTimeout time.Duration
+	// NonInteractive never asks the person anything: a call that needs a
+	// page opened fails with InputRequiredError. A command whose stdin or
+	// stderr is not a terminal is non-interactive whatever this says.
+	NonInteractive bool
 }
 
 // ToolExecutor provides high-level tool execution functionality with formatted output.
@@ -205,6 +210,8 @@ type ToolExecutor struct {
 	// notifyHandler, when set, receives every MCP notification from the server
 	// instead of the default debug-logging drain. Used by `events --follow`.
 	notifyHandler func(mcp.JSONRPCNotification)
+	// elicitor answers the URL elicitations of the client's tool calls.
+	elicitor *urlElicitor
 }
 
 // OnNotification registers a handler that receives every server notification.
@@ -295,6 +302,9 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 	if options.CallTimeout > 0 {
 		client.SetCallTimeout(options.CallTimeout)
 	}
+	interactive := !options.NonInteractive && term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stderr.Fd()))
+	elicitor := newURLElicitor(interactive)
+	client.SetURLElicitationHandler(elicitor.answer)
 
 	executor := &ToolExecutor{
 		client:    client,
@@ -302,6 +312,7 @@ func NewToolExecutor(options ExecutorOptions) (*ToolExecutor, error) {
 		formatter: NewTableFormatter(options),
 		endpoint:  endpoint,
 		isRemote:  isRemote,
+		elicitor:  elicitor,
 	}
 
 	// Pump MCP notifications: forward to a registered handler (e.g. for
@@ -507,6 +518,8 @@ func (e *ToolExecutor) Execute(ctx context.Context, toolName string, args map[st
 		// A tool that reports progress while it works shows it on stderr.
 		printer = &progressPrinter{w: os.Stderr, spinner: s}
 		e.client.SetProgressHandler(printer.print)
+		e.elicitor.setSpinner(s.Stop, s.Start)
+		defer e.elicitor.setSpinner(nil, nil)
 	}
 
 	result, err := e.client.CallTool(ctx, toolName, args)

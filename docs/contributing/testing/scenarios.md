@@ -908,6 +908,35 @@ steps:
 Regular tool steps (`tool: x_server_tool`) carry the headers too, since they go through
 `call_tool` on the same client.
 
+## Answering URL Elicitations
+
+The test client asks the muster instance for MCP 2025-11-25. A scenario with
+`protocol_version: "2026-07-28"` makes every client it connects ask for 2026-07-28 instead, the
+revision whose `input_required` answers carry elicitations. Its clients declare no elicitation
+capability, so muster answers a call that needs a sign-in with its `auth_required` result. A step
+with `elicitation:`, which needs that `protocol_version`, plays a person who is asked to open a
+page: its requests declare `elicitation: {url: {}}`, every URL mode elicitation of an
+`input_required` answer gets the step's action (`accept`, `decline` or `cancel`), and the call is
+retried with the answers and the `requestState`, echoed verbatim. The expectations judge the
+retry's result.
+
+A step with `elicitation:` fails when its call asks for no input, so it cannot pass vacuously; a
+step without it fails when its call asks for some. `accept` tells muster the person is done on the
+page: muster then waits for its sign-in to complete, so use it for a page that is already done.
+The field is not allowed on `test_*` steps, which the runner handles itself.
+
+```yaml
+protocol_version: "2026-07-28"
+steps:
+  - id: sign-in-declined
+    tool: x_gh_whoami
+    args: {}
+    elicitation: decline
+    expected:
+      success: false
+      error_contains: ["The tool did not run: the person answered decline to signing in to gh."]
+```
+
 ### MCPServer labels
 
 `pre_configuration.mcp_servers[].labels` writes `metadata.labels` on the server's MCPServer

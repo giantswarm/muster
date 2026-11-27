@@ -61,11 +61,12 @@ func RegisterCommonFlags(cmd *cobra.Command, flags *CommandFlags) {
 // --context and their environment variables pick it, not the default context.
 func (f *CommandFlags) CompletionOptions() ExecutorOptions {
 	return ExecutorOptions{
-		Format:     OutputFormatJSON,
-		Quiet:      true,
-		ConfigPath: f.ConfigPath,
-		Endpoint:   f.Endpoint,
-		Context:    f.Context,
+		Format:         OutputFormatJSON,
+		Quiet:          true,
+		ConfigPath:     f.ConfigPath,
+		Endpoint:       f.Endpoint,
+		Context:        f.Context,
+		NonInteractive: true,
 	}
 }
 

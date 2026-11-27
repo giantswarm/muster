@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/giantswarm/muster/v5/internal/api"
-
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -124,11 +122,18 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 	// are applied to that request only (mcp-go applies the header func last).
 	opts = append(opts, transport.WithHTTPHeaderFunc(requestHeadersFromContext))
 
-	// Create streamable HTTP client for muster aggregator
-	httpClient, err := client.NewStreamableHttpClient(endpoint, opts...)
+	// On 2026-07-28 (a scenario's protocol_version) the client answers input
+	// requests itself (a step's elicitation field), and server/discover is
+	// bounded by the initialize timeout only, so a slow discover is not read
+	// as a server older than 2026-07-28.
+	httpTransport, err := transport.NewStreamableHTTP(endpoint, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create streamable HTTP client: %w", err)
 	}
+	httpClient := client.NewClient(httpTransport,
+		client.WithManualInputRoundTrips(),
+		client.WithDiscoverTimeout(-1),
+	)
 
 	// Start the streamable HTTP transport
 	if err := httpClient.Start(ctx); err != nil {
@@ -139,7 +144,7 @@ func (c *mcpTestClient) connectWithOptions(ctx context.Context, endpoint, access
 	// Initialize the MCP protocol
 	initRequest := mcp.InitializeRequest{
 		Params: mcp.InitializeParams{
-			ProtocolVersion: api.ClientProtocolVersion,
+			ProtocolVersion: clientProtocolVersionFromContext(ctx),
 			ClientInfo: mcp.Implementation{
 				Name:    "muster-test-client",
 				Version: "1.0.0",
@@ -218,7 +223,10 @@ func (c *mcpTestClient) CallTool(ctx context.Context, toolName string, toolArgs 
 
 	// Make the tool call through call_tool meta-tool
 	defer watchCallOverrun(callCtx, c.endpoint)()
-	result, err := c.client.CallTool(callCtx, request)
+	result, err := callWithElicitationAnswer(callCtx, func(ctx context.Context, roundTrip mcp.MultiRoundTripParams) (*mcp.CallToolResult, error) {
+		request.Params.MultiRoundTripParams = roundTrip
+		return c.client.CallTool(ctx, request)
+	})
 	if err != nil {
 		if c.debug {
 			c.logger.Debug("❌ Tool call failed: %v\n", err)

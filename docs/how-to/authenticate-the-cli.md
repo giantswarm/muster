@@ -90,6 +90,37 @@ is waiting for a login. Within an agent session the same is done with the `core_
 tool, which returns the login URL for the server. `muster auth logout` and `core_auth_logout`
 revoke those grants.
 
+## Pages a command asks you to open
+
+A command whose call needs you to open a page (a sign-in to an MCP server behind muster, or a
+page an MCP server asks for) shows, on stderr, the server's message, the page's host and its
+full URL, then offers to open it in your browser:
+
+```text
+This call needs you to open a page:
+  Sign in to github to continue.
+  Destination: dex.example.com
+  URL:         https://dex.example.com/auth?client_id=...
+Open it in your browser? [Y/n]
+When you are done on the page, press Enter to continue, or type d to decline or c to cancel:
+```
+
+Pressing Enter once you are done runs the call; muster waits for the sign-in to complete first
+and asks again with a new link when it did not. `d` declines and `c` (or Ctrl-C) cancels: the
+call does not run and the command fails with the server's answer. Opening an elicitation page
+always needs confirmation, including with `--login`. A message from a server behind muster starts with the server's name in brackets,
+`[github]`; muster's own sign-in message names the server to sign in to.
+
+The CLI only opens an `https` URL, or an `http` one on a loopback host (a muster running
+locally), and never one with credentials in it (`https://user@host/`) or with spaces or invisible
+characters. It declines any other without asking and says why.
+
+Without a terminal on stdin and stderr, a command asks nothing: it fails with exit code 2 and an
+`input_required` error listing each page, which you open before running the command again.
+
+This needs a muster that speaks MCP 2026-07-28 over streamable HTTP. Over the SSE transport, and
+with an older muster, the call answers `auth_required` with the sign-in link instead, as before.
+
 ## Where tokens live
 
 Tokens are written to `~/.config/muster/tokens/`, one file per endpoint, with the file mode
@@ -110,7 +141,7 @@ the server accepts a localhost redirect to another port.
 |---|---|
 | `0` | Success |
 | `1` | Error: the command failed or its arguments were invalid |
-| `2` | Authentication required and not available (no usable token and no `--login`, or the token could not be refreshed) |
+| `2` | Authentication required and not available (no usable token and no `--login`, or the token could not be refreshed), or a call needs a page opened and there is no terminal to ask on (`input_required`) |
 | `3` | Authentication failed: the OAuth flow itself did not complete |
 | `125` | `self-update --check` only: a newer release exists |
 

@@ -347,6 +347,8 @@ func (r *testRunner) runScenario(ctx context.Context, scenario TestScenario, con
 		scenarioCtx, cancel = context.WithTimeout(ctx, scenario.Timeout)
 		defer cancel()
 	}
+	// Every client the scenario connects asks for its protocol version.
+	scenarioCtx = WithClientProtocolVersion(scenarioCtx, scenario.ProtocolVersion)
 
 	// Create and start muster instance for this scenario
 	var instance *MusterInstance
@@ -775,6 +777,7 @@ func (r *testRunner) runStep(ctx context.Context, step TestStep, config TestConf
 	// sends them on exactly this step's requests (wait_for_state polls
 	// included), so per-request evaluation can be proven on one session.
 	stepCtx = WithRequestHeaders(stepCtx, step.Headers)
+	stepCtx = WithElicitationAnswer(stepCtx, step.Elicitation)
 
 	// Resolve template variables in step arguments if scenario context is available
 	resolvedArgs := step.Args

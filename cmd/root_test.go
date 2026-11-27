@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 
+	"github.com/giantswarm/muster/v5/internal/cli"
 	"github.com/giantswarm/muster/v5/pkg/project"
 )
 
@@ -149,4 +152,9 @@ func TestRootCommandHelp(t *testing.T) {
 			t.Errorf("Help output still carries the stale phrase %q", stale)
 		}
 	}
+}
+
+func TestInputRequiredExitsWithTheAuthRequiredCode(t *testing.T) {
+	err := fmt.Errorf("failed to execute tool x: %w", &cli.InputRequiredError{})
+	require.Equal(t, ExitCodeAuthRequired, getExitCode(err))
 }
