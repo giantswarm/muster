@@ -193,8 +193,8 @@ identity token when their `MCPServer` sets `auth.forwardToken: true`.
 
 Sessions, grants and OAuth state live in memory by default. For more than one replica, or to
 survive a pod restart without every client logging in again, back them with Valkey, and give every
-replica the same requestState key (`requestStateKey: true` above), so a client's retry of a sign-in
-or a server's question can reach any replica:
+replica the same requestState key (`requestStateKey: true` above, which the chart requires with more
+than one replica), so a client's retry of a sign-in or a server's question can reach any replica:
 
 ```yaml
 replicaCount: 2

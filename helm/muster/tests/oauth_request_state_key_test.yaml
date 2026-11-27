@@ -79,3 +79,30 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'requestStateKeyFile: "/etc/muster/secrets/oauth-request-state-key"'
+
+  - it: refuses more than one replica without a shared key
+    template: templates/deployment.yaml
+    set:
+      replicaCount: 2
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.oauth.server.requestStateKey is required with more than one replica: without a shared key, a client's retry that reaches another replica is refused"
+
+  - it: refuses autoscaling without a shared key
+    template: templates/deployment.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.oauth.server.requestStateKey is required with more than one replica: without a shared key, a client's retry that reaches another replica is refused"
+
+  - it: renders more than one replica with a shared key
+    template: templates/configmap.yaml
+    set:
+      replicaCount: 2
+      muster.oauth.server.existingSecret: muster-oauth
+      muster.oauth.server.requestStateKey: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'requestStateKeyFile: "/etc/muster/secrets/oauth-request-state-key"'

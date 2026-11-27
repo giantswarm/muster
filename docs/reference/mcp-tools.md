@@ -170,7 +170,7 @@ Every `requestState` muster answers with is sealed with AES-256-GCM (mcp-oauth's
 
 A retry whose `requestState` was changed, was sealed for another caller or call, or was sealed by a muster with another key is refused with JSON-RPC `-32602` (invalid params) and runs nothing. A lapsed `requestState` is ignored: the call runs as a first call and asks again. A caller muster cannot bind a `requestState` to, without a validated identity or with a token that names no single OAuth client, gets an error instead of an answer that needs one.
 
-Every replica needs the same key: `muster.oauth.server.requestStateKey` in the chart (`oauth-request-state-key` in the OAuth Secret), and `requestStatePreviousKey` during a rotation. Without one, each muster process seals with a key of its own and warns at start: a retry that reaches another replica is refused.
+Every replica needs the same key: `muster.oauth.server.requestStateKey` in the chart (`oauth-request-state-key` in the OAuth Secret), and `requestStatePreviousKey` during a rotation. Without one, each muster process seals with a key of its own and warns at start: a retry that reaches another replica is refused. The chart therefore refuses more than one replica (`replicaCount` above 1, or autoscaling) without `requestStateKey`.
 
 #### A call a server answers with an input request
 

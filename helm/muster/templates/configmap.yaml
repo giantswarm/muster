@@ -88,6 +88,7 @@ data:
           {{- end }}
         {{- end }}
         {{- if .Values.muster.oauth.server.enabled }}
+        {{- if and (or .Values.autoscaling.enabled (gt (int .Values.replicaCount) 1)) (not .Values.muster.oauth.server.requestStateKey) }}{{ fail "muster.oauth.server.requestStateKey is required with more than one replica: without a shared key, a client's retry that reaches another replica is refused" }}{{- end }}
         {{- $secretsPath := "/etc/muster/secrets" }}
         server:
           enabled: true

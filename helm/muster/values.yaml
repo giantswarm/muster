@@ -773,7 +773,8 @@ muster:
       # with a key every replica shares. If "true", the key must be provided
       # in the secret (oauth-request-state-key). Without it, each pod seals
       # with a key of its own, and a retry that reaches another replica is
-      # refused: enable it whenever replicaCount is above 1.
+      # refused: the chart refuses more than one replica (replicaCount above 1
+      # or autoscaling) without it.
       requestStateKey: false
 
       # requestState key value (32 bytes, base64-encoded)
