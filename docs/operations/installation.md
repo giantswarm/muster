@@ -193,15 +193,45 @@ Sessions, grants and OAuth state live in memory by default. For more than one re
 survive a pod restart without every client logging in again, back them with Valkey. The chart also
 enables `encryptionKey` by default, including with inbound OAuth disabled: muster derives the key that seals a
 client's `requestState` from it, so a retry of a sign-in or a server's question can reach any replica.
-Without `existingSecret` or `encryptionKeyValue`, Helm generates a random 32-byte key in
-`<fullname>-oauth` and reuses it on upgrades, including when scaling down to one replica.
-The Secret is retained on uninstall so reinstalling the same release can decrypt stored tokens.
-If `existingSecret` is set, it must contain `oauth-encryption-key`, a base64-encoded 32-byte key;
-the chart does not generate or modify externally managed Secrets. Existing single-replica installs
-whose external Secret has no key must add one or explicitly set `encryptionKey: false` before upgrading.
+Helm generates a random 32-byte key in `<fullname>-encryption-key` and reuses it on upgrades,
+including when scaling down to one replica. The key has its own mount and checksum, independently
+of OAuth credentials. The Secret is retained when encryption is disabled and on uninstall so
+re-enabling encryption or reinstalling the same release can decrypt stored tokens.
+An OAuth `existingSecret` without `oauth-encryption-key` receives a separate generated key;
+the credentials Secret is never modified. A key already in that Secret remains in use. An existing
+chart-owned `<fullname>-oauth` key is copied unchanged into the dedicated Secret on upgrade.
+Once provisioned, a dedicated key remains authoritative even if the credentials Secret gains a key later.
+`encryptionKeyValue` supplies the chart-managed key; an existing external credentials key retains
+precedence until an explicit `encryptionKeySecret` is configured.
 Disabling encryption is refused with multiple replicas or autoscaling above one replica.
 
-For example:
+To provide a key independently of OAuth credentials, set an explicit Secret reference. It takes
+precedence over the generated key, `encryptionKeyValue` and the key in the credentials Secret:
+
+```yaml
+muster:
+  oauth:
+    server:
+      encryptionKeySecret:
+        name: muster-encryption
+        key: oauth-encryption-key
+```
+
+The referenced entry holds a base64-encoded 32-byte key. A live lookup hashes its content for
+`checksum/encryption-key`; `encryptionKeySecret.checksum` can supply a revision mark instead,
+including through Flux `valuesFrom`. Offline render-and-apply deployments must configure an
+explicit key reference because `helm template` cannot discover or preserve live key material.
+Back up the key with any encrypted token storage; a missing or empty entry in an existing dedicated
+Secret fails the render instead of rotating the key.
+
+When upgrading an installation that had `encryptionKey: false`, stored tokens cannot be read
+with the new key and users must sign in again. Actor bindings that cannot be decrypted are treated
+as absent: actors have no credential grants until a fresh bind. Bind and unbind can replace or
+remove the unreadable binding immediately without waiting for its TTL. Complete the rollout before
+rebinding so all replicas use the same encryption configuration. To defer this change on a
+single-replica installation, keep `encryptionKey: false` explicitly.
+
+For shared session storage:
 
 ```yaml
 replicaCount: 2
@@ -219,7 +249,9 @@ A muster whose configured Valkey is unreachable at startup waits for it and exit
 come; it never falls back to in-memory stores, because that would split sessions across replicas.
 
 The live key-lifecycle check installs into a disposable namespace, sends MCP requests to both
-replicas, and verifies upgrades, scale-down and reinstall without key rotation:
+replicas, and verifies upgrades, scale-down, disabling/re-enabling encryption, external keys and
+reinstall without key rotation. Set `MUSTER_HELM_TEST_PREVIOUS_CHART` to a prior unpacked chart
+to also verify migration of its chart-owned OAuth key:
 
 ```bash
 MUSTER_HELM_TEST_KUBECONFIG=/path/to/lab.kubeconfig \

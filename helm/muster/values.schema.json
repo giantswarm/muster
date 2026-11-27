@@ -529,6 +529,21 @@
                                 "encryptionKey": {
                                     "type": "boolean"
                                 },
+                                "encryptionKeySecret": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "properties": {
+                                        "checksum": {
+                                            "type": "string"
+                                        },
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "name": {
+                                            "type": "string"
+                                        }
+                                    }
+                                },
                                 "encryptionKeyValue": {
                                     "type": "string"
                                 },

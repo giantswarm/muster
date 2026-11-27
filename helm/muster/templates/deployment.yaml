@@ -23,6 +23,12 @@ spec:
         {{- with include "muster.oauthSecretChecksum" . }}
         checksum/oauth-secret: {{ . | quote }}
         {{- end }}
+        {{- if .Values.muster.oauth.server.encryptionKey }}
+        {{- $key := include "muster.encryptionKey" . | fromJson }}
+        {{- with $key.checksum }}
+        checksum/encryption-key: {{ . | quote }}
+        {{- end }}
+        {{- end }}
         {{- with include "muster.valkeySecretChecksum" . }}
         checksum/valkey-secret: {{ . | quote }}
         {{- end }}
@@ -164,9 +170,14 @@ spec:
             - name: config
               mountPath: /etc/muster
               readOnly: true
-            {{- if or .Values.muster.oauth.server.enabled .Values.muster.oauth.server.encryptionKey }}
+            {{- if .Values.muster.oauth.server.enabled }}
             - name: oauth-secrets
               mountPath: /etc/muster/secrets
+              readOnly: true
+            {{- end }}
+            {{- if .Values.muster.oauth.server.encryptionKey }}
+            - name: encryption-key
+              mountPath: /etc/muster/encryption
               readOnly: true
             {{- end }}
             {{- if and .Values.muster.oauth.server.enabled .Values.muster.oauth.server.delegation.actorToken.enabled }}
@@ -215,12 +226,22 @@ spec:
         - name: config
           configMap:
             name: {{ include "muster.fullname" . }}-config
-        {{- if or .Values.muster.oauth.server.enabled .Values.muster.oauth.server.encryptionKey }}
+        {{- if .Values.muster.oauth.server.encryptionKey }}
+        {{- $key := include "muster.encryptionKey" . | fromJson }}
+        - name: encryption-key
+          secret:
+            secretName: {{ $key.name }}
+            defaultMode: 0440
+            items:
+              - key: {{ $key.key }}
+                path: oauth-encryption-key
+        {{- end }}
+        {{- if .Values.muster.oauth.server.enabled }}
         - name: oauth-secrets
           projected:
             defaultMode: 0440
             sources:
-              # OAuth credentials (dex-client-secret, oauth-encryption-key, registration-token)
+              # OAuth credentials (dex-client-secret, registration-token)
               - secret:
                   name: {{ .Values.muster.oauth.server.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
               {{- if and .Values.muster.oauth.server.enabled (eq .Values.muster.oauth.server.storage.type "valkey") (or .Values.muster.oauth.server.storage.valkey.existingSecret .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.storage.valkey.password) }}

@@ -760,14 +760,22 @@ muster:
 
       # Enable token encryption at rest and share the requestState sealing key,
       # including with inbound OAuth disabled. Required with more than one replica.
-      # Without existingSecret or encryptionKeyValue, the chart generates a
-      # key in <fullname>-oauth and reuses it across Helm/Flux upgrades.
+      # Without a supplied key, the chart generates one in <fullname>-encryption-key
+      # and reuses it across Helm/Flux upgrades, independently of OAuth credentials.
       encryptionKey: true
 
       # Encryption key value (32 bytes, base64-encoded)
-      # Overrides key generation when encryption is enabled and existingSecret is not set.
-      # SECURITY: Use existingSecret for production deployments
+      # Overrides the chart-managed key. A key in existingSecret takes precedence
+      # when no dedicated key has been provisioned. Prefer encryptionKeySecret in production.
       encryptionKeyValue: ""
+
+      # An explicit encryption key Secret in the release namespace; overrides
+      # generation, encryptionKeyValue and the key in the OAuth credentials Secret.
+      encryptionKeySecret:
+        name: ""
+        key: oauth-encryption-key
+        # A revision mark for rotations; without one, a live lookup hashes the key.
+        checksum: ""
 
       # Custom URI schemes whose redirect URIs are accepted without a
       # registration token. Use for native desktop apps that register a

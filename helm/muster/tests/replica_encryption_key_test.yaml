@@ -45,7 +45,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"'
+          pattern: 'encryptionKeyFile: "/etc/muster/encryption/oauth-encryption-key"'
 
   - it: refuses multiple replicas without OAuth and without a shared key
     template: templates/deployment.yaml
@@ -62,12 +62,12 @@ tests:
     set:
       muster.oauth.server.enabled: false
       muster.oauth.server.encryptionKey: true
-      muster.oauth.server.existingSecret: shared-key
+      muster.oauth.server.encryptionKeySecret.name: shared-key
       replicaCount: 2
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'enabled: false\s+encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"'
+          pattern: 'enabled: false\s+encryptionKeyFile: "/etc/muster/encryption/oauth-encryption-key"'
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'protectedSecrets:\s+- shared-key'
@@ -77,28 +77,29 @@ tests:
     set:
       muster.oauth.server.enabled: false
       muster.oauth.server.encryptionKey: true
-      muster.oauth.server.existingSecret: shared-key
+      muster.oauth.server.encryptionKeySecret.name: shared-key
       muster.oauth.server.storage.type: valkey
       replicaCount: 2
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
-            name: oauth-secrets
-            mountPath: /etc/muster/secrets
+            name: encryption-key
+            mountPath: /etc/muster/encryption
             readOnly: true
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: oauth-secrets
-            projected:
+            name: encryption-key
+            secret:
+              secretName: shared-key
               defaultMode: 288
-              sources:
-                - secret:
-                    name: shared-key
+              items:
+                - key: oauth-encryption-key
+                  path: oauth-encryption-key
 
   - it: creates only the encryption key without OAuth credentials
-    template: templates/oauth-secret.yaml
+    template: templates/encryption-key-secret.yaml
     set:
       muster.oauth.server.enabled: false
       muster.oauth.server.encryptionKey: true

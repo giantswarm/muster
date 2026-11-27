@@ -322,7 +322,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "protectedSecrets:\n    - RELEASE-NAME-muster-oauth\n    - valkey-auth\n    - internal-ca\n    - mounted-extra\n    - muster-tls\n    - operator-listed\n"
+          pattern: "protectedSecrets:\n    - RELEASE-NAME-muster-oauth\n    - RELEASE-NAME-muster-encryption-key\n    - valkey-auth\n    - internal-ca\n    - mounted-extra\n    - muster-tls\n    - operator-listed\n"
 
   - it: omits toolsetPresets by default (only the built-in presets exist)
     asserts:

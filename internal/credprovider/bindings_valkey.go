@@ -55,7 +55,8 @@ func (s *ValkeyStore) open(stored string) (*Binding, error) {
 	if s.encryptor != nil && s.encryptor.IsEnabled() {
 		plain, err := s.encryptor.Decrypt(stored)
 		if err != nil {
-			return nil, fmt.Errorf("decrypt binding: %w", err)
+			// An unverifiable binding grants nothing and must not prevent a fresh bind.
+			return nil, nil
 		}
 		data = plain
 	}
@@ -103,7 +104,7 @@ func (s *ValkeyStore) Put(ctx context.Context, actor string, b Binding, ttl time
 		if err != nil {
 			return err
 		}
-		if existing.Subject != b.Subject {
+		if existing != nil && existing.Subject != b.Subject {
 			return ErrBoundToAnother
 		}
 	}
@@ -167,7 +168,7 @@ func (s *ValkeyStore) Delete(ctx context.Context, actor, subject string) error {
 	if err != nil {
 		return err
 	}
-	if existing.Subject != subject {
+	if existing != nil && existing.Subject != subject {
 		return ErrBoundToAnother
 	}
 	if err := deleteScript.Exec(ctx, s.client, []string{key}, []string{current}).Error(); err != nil {
