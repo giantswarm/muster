@@ -20,6 +20,8 @@ import (
 
 const testActorIssuer = "https://idp.substrate.svc"
 
+const testActorMetadataChallenge = `Bearer resource_metadata="https://muster.example.com/.well-known/oauth-protected-resource/mcp"`
+
 // fakeActorJWT carries iss and sub; the test verifier trusts it.
 func fakeActorJWT(iss, sub string) string {
 	enc := base64.RawURLEncoding.EncodeToString
@@ -64,7 +66,7 @@ func TestActorBearerHandler(t *testing.T) {
 	h := actorBearerHandler(ab, mcp, next, func(ctx context.Context, sessionID string) {
 		authenticated = sessionID
 		authenticatedIDToken, _ = server.GetIDTokenFromContext(ctx)
-	}, withPersonToken)
+	}, withPersonToken, testActorMetadataChallenge)
 
 	call := func(bearer string) int {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
@@ -113,7 +115,7 @@ func TestActorBearerHandlerBindsTheToolset(t *testing.T) {
 		bound, hasBound, header, hasHeader = b.Raw, okB, h.Raw, okH
 		w.WriteHeader(http.StatusOK)
 	})
-	h := actorBearerHandler(testActorBearer(t, store), mcp, http.NotFoundHandler(), nil, nil)
+	h := actorBearerHandler(testActorBearer(t, store), mcp, http.NotFoundHandler(), nil, nil, testActorMetadataChallenge)
 	call := func(headerValue string) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer "+fakeActorJWT(testActorIssuer, "actor/kagent/session-a"))
@@ -145,12 +147,22 @@ func TestActorBearerHandlerBindsTheToolset(t *testing.T) {
 }
 
 func TestActorBearerHandlerStoreOutage(t *testing.T) {
-	h := actorBearerHandler(testActorBearer(t, outageStore{credprovider.NewMemoryStore()}), http.NotFoundHandler(), http.NotFoundHandler(), nil, nil)
+	h := actorBearerHandler(testActorBearer(t, outageStore{credprovider.NewMemoryStore()}), http.NotFoundHandler(), http.NotFoundHandler(), nil, nil, testActorMetadataChallenge)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 	req.Header.Set("Authorization", "Bearer "+fakeActorJWT(testActorIssuer, "actor/kagent/session-a"))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestActorBearerRefusalAdvertisesMetadata(t *testing.T) {
+	handler := actorBearerHandler(testActorBearer(t, credprovider.NewMemoryStore()), http.NotFoundHandler(), http.NotFoundHandler(), nil, nil, testActorMetadataChallenge)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", nil)
+	request.Header.Set("Authorization", "Bearer "+fakeActorJWT(testActorIssuer, "actor/kagent/forged"))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	require.Equal(t, http.StatusUnauthorized, response.Code)
+	require.Contains(t, response.Header().Get("WWW-Authenticate"), `resource_metadata="https://muster.example.com/.well-known/oauth-protected-resource/mcp"`)
 }
 
 type outageStore struct{ credprovider.Store }
@@ -180,7 +192,7 @@ func TestNewActorBearerNeedsTheCredentialProvider(t *testing.T) {
 	assert.NotNil(t, ab)
 
 	mux := http.NewServeMux()
-	require.NoError(t, a.registerActorBearerRoutes(mux, http.NotFoundHandler(), http.NotFoundHandler(), nil))
+	require.NoError(t, a.registerActorBearerRoutes(mux, http.NotFoundHandler(), http.NotFoundHandler(), nil, testActorMetadataChallenge))
 	_, pattern := mux.Handler(httptest.NewRequest(http.MethodPost, "/mcp", nil))
 	assert.Equal(t, "/mcp", pattern)
 }

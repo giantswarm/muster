@@ -470,6 +470,10 @@
                                 "allowPublicClientRegistration": {
                                     "type": "boolean"
                                 },
+                                "allowedOrigins": {
+                                    "type": "string",
+                                    "description": "Comma-separated browser origins allowed to call the MCP transports. Same-origin and requests without Origin are allowed. Other Origins log DEPRECATED without changing the response during the overlap. List exact origins with no path; wildcards and null are not allowed."
+                                },
                                 "baseUrl": {
                                     "type": "string"
                                 },
@@ -569,6 +573,10 @@
                                             "type": "string"
                                         }
                                     }
+                                },
+                                "initialAccessToken": {
+                                    "type": "string",
+                                    "description": "Shared secret a client must present at the DCR endpoint to register. Supply via existingSecret (key: registration-token) in production so the value never appears in Helm release history."
                                 },
                                 "preRegisterPublicClients": {
                                     "type": "boolean",
@@ -719,7 +727,9 @@
                                     }
                                 },
                                 "registrationToken": {
-                                    "type": "string"
+                                    "type": "string",
+                                    "description": "Deprecated: use initialAccessToken. The new key wins when both are set.",
+                                    "deprecated": true
                                 },
                                 "resourceIdentifier": {
                                     "type": "string"

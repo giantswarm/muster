@@ -46,6 +46,7 @@ func serveInjector(t *testing.T, bearer string, userInfo *providers.UserInfo) (*
 			{Issuer: "https://obo.example.com"},
 		},
 	}}
+	s.oauthServer = &oauth.Server{Config: newOAuthServerConfig(s.config, oauthTokenLifetimes{})}
 	var captured context.Context
 	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { captured = r.Context() })
 	r := requestWithBearer(bearer)

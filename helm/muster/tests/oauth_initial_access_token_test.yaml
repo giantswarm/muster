@@ -1,0 +1,56 @@
+suite: Initial access token mounted secret
+templates:
+  - templates/deployment.yaml
+  - templates/configmap.yaml
+set:
+  muster.oauth.server.enabled: true
+  muster.oauth.server.baseUrl: https://muster.example.com
+  muster.oauth.server.dex.issuerUrl: https://dex.example.com
+  muster.oauth.server.dex.clientId: muster
+  muster.oauth.server.dex.clientSecret: provider-secret
+  muster.oauth.server.initialAccessToken: current
+tests:
+  - it: uses the canonical file env var and a restricted non-root pod
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_INITIAL_ACCESS_TOKEN_FILE
+            value: /etc/muster/secrets/registration-token
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: oauth-secrets
+            projected:
+              defaultMode: 0440
+              sources:
+                - secret:
+                    name: RELEASE-NAME-muster-oauth
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1000
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: maps a deprecated Helm value to the canonical file env var
+    template: templates/deployment.yaml
+    set:
+      muster.oauth.server.initialAccessToken: ""
+      muster.oauth.server.registrationToken: legacy
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OAUTH_INITIAL_ACCESS_TOKEN_FILE
+            value: /etc/muster/secrets/registration-token

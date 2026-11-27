@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -92,6 +93,9 @@ func LoadConfig(configPath string) (MusterConfig, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			logging.Info("ConfigLoader", "No config.yaml found at %s, using defaults", configFilePath)
+			if err := resolveSecretFiles(&config); err != nil {
+				return MusterConfig{}, fmt.Errorf("error resolving secret files: %w", err)
+			}
 			return config, nil
 		}
 		logging.Info("ConfigLoader", "Error loading config.yaml from %s: %s", configFilePath, err)
@@ -127,11 +131,12 @@ type secretMapping struct {
 // config files and environment variables (per MCP OAuth security recommendations).
 func resolveSecretFiles(config *MusterConfig) error {
 	oauthServer := &config.Aggregator.OAuth.Server
+	resolveInitialAccessToken(oauthServer)
 
 	secrets := []secretMapping{
 		{oauthServer.Dex.ClientSecretFile, &oauthServer.Dex.ClientSecret, "Dex client secret"},
 		{oauthServer.Google.ClientSecretFile, &oauthServer.Google.ClientSecret, "Google client secret"},
-		{oauthServer.RegistrationTokenFile, &oauthServer.RegistrationToken, "registration token"},
+		{oauthServer.InitialAccessTokenFile, &oauthServer.InitialAccessToken, "initial access token"},
 		{oauthServer.EncryptionKeyFile, &oauthServer.EncryptionKey, "encryption key"},
 		{oauthServer.Storage.Valkey.PasswordFile, &oauthServer.Storage.Valkey.Password, "Valkey password"},
 	}
@@ -148,6 +153,37 @@ func resolveSecretFiles(config *MusterConfig) error {
 	}
 
 	return nil
+}
+
+func resolveInitialAccessToken(server *OAuthServerConfig) {
+	for _, option := range []struct {
+		name, replacement string
+		set               bool
+	}{
+		{"registrationToken", "initialAccessToken", server.RegistrationToken != ""},
+		{"registrationTokenFile", "initialAccessTokenFile", server.RegistrationTokenFile != ""},
+		{"OAUTH_REGISTRATION_ACCESS_TOKEN", "OAUTH_INITIAL_ACCESS_TOKEN", os.Getenv("OAUTH_REGISTRATION_ACCESS_TOKEN") != ""},
+		{"OAUTH_REGISTRATION_ACCESS_TOKEN_FILE", "OAUTH_INITIAL_ACCESS_TOKEN_FILE", os.Getenv("OAUTH_REGISTRATION_ACCESS_TOKEN_FILE") != ""},
+	} {
+		if option.set {
+			slog.Warn("DEPRECATED: "+option.name+" is set; use "+option.replacement, "replacement", option.replacement)
+		}
+	}
+	if token, file := os.Getenv("OAUTH_INITIAL_ACCESS_TOKEN"), os.Getenv("OAUTH_INITIAL_ACCESS_TOKEN_FILE"); token != "" || file != "" {
+		if file != "" {
+			token = ""
+		}
+		server.InitialAccessToken, server.InitialAccessTokenFile = token, file
+	} else if server.InitialAccessToken == "" && server.InitialAccessTokenFile == "" {
+		server.InitialAccessToken, server.InitialAccessTokenFile = os.Getenv("OAUTH_REGISTRATION_ACCESS_TOKEN"), os.Getenv("OAUTH_REGISTRATION_ACCESS_TOKEN_FILE")
+		if server.InitialAccessTokenFile != "" {
+			server.InitialAccessToken = ""
+		}
+		if server.InitialAccessToken == "" && server.InitialAccessTokenFile == "" {
+			server.InitialAccessToken, server.InitialAccessTokenFile = server.RegistrationToken, server.RegistrationTokenFile
+		}
+	}
+	server.RegistrationToken, server.RegistrationTokenFile = "", ""
 }
 
 // readSecretFile reads a secret from a file, trimming any trailing whitespace.

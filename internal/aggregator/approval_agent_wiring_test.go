@@ -34,7 +34,7 @@ func TestActorBearerHandlerCarriesTheAgentsSettings(t *testing.T) {
 		_, callErr = rig.server.CallToolInternal(reqCtx, "x_github_get_issue", map[string]any{})
 		w.WriteHeader(http.StatusOK)
 	})
-	h := actorBearerHandler(testActorBearer(t, store), mcpHandler, http.NotFoundHandler(), nil, nil)
+	h := actorBearerHandler(testActorBearer(t, store), mcpHandler, http.NotFoundHandler(), nil, nil, testActorMetadataChallenge)
 	call := func(header string) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
 		req.Header.Set("Authorization", "Bearer "+fakeActorJWT(testActorIssuer, "actor/kagent/session-a"))
@@ -62,7 +62,7 @@ func TestActorBearerHandlerCarriesTheAgentsSettings(t *testing.T) {
 	// A fresh store: the actor's seal keeps a bind without the sender
 	// out of the first one.
 	store = credprovider.NewMemoryStore()
-	h = actorBearerHandler(testActorBearer(t, store), mcpHandler, http.NotFoundHandler(), nil, nil)
+	h = actorBearerHandler(testActorBearer(t, store), mcpHandler, http.NotFoundHandler(), nil, nil, testActorMetadataChallenge)
 	require.NoError(t, store.Put(context.Background(), actor, credprovider.Binding{Subject: "alice", Session: "kagent/s1",
 		Providers: []string{credprovider.MusterProvider}, Agent: "kagent/alert-review", Approval: settings}, time.Hour))
 	call("")

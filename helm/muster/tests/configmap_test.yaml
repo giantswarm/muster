@@ -3,6 +3,19 @@ templates:
   - templates/configmap.yaml
 
 tests:
+  - it: renders allowed browser origins into config.yaml
+    set:
+      muster.oauth.server.enabled: true
+      muster.oauth.server.baseUrl: "https://muster.example.com"
+      muster.oauth.server.existingSecret: "muster-oauth"
+      muster.oauth.server.dex.issuerUrl: "https://dex.example.com"
+      muster.oauth.server.dex.clientId: "muster"
+      muster.oauth.server.allowedOrigins: "https://portal.example.com,https://client.example.com"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'allowedOrigins: "https://portal.example.com,https://client.example.com"'
+
   - it: renders opt-in RFC 7592 client management
     set:
       muster.oauth.server.enabled: true

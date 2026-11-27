@@ -513,9 +513,11 @@ Rules:
   (OpenTelemetry).
 - Everyone who can read the MCPServer can read these values, so they hold no
   secret.
-- muster does not forward a caller's `_meta` to the backend, so an entry here
-  applies to every call. It never replaces a key muster has already set on the
-  request.
+- muster relays negotiated application extension metadata (see
+  [Extension metadata](#extension-metadata)), so an entry here applies to every
+  call. It never replaces a key already set on the request (`progressToken`,
+  the protocol's own `io.modelcontextprotocol/` keys, and relayed extension
+  entries).
 - A request without `params` is left untouched. `initialize` does carry
   `params`, so the handshake gets the entries as well.
 - `type: stdio` rejects the field. A stdio server speaks over a pipe, so no HTTP
@@ -829,6 +831,39 @@ any safe list, the removed `servers` shape, or any key other than `mode`,
 - `core_config_update_aggregator`, `_save` and `_reload` now ask every caller; in
   filesystem mode (no Valkey, no browser sign-in) edit the configuration file and
   restart instead.
+
+## Extension metadata
+
+muster relays application entries in each tool call's `params._meta` to its
+destination backend without requiring extension declarations. Values keep their
+identifiers and JSON shapes. For example, `_meta["com.example/context"]` and
+`_meta["org.example/request-id"]` reach any backend called by that request,
+including one that declares no extensions. No policy allowlist, accepted-key
+settings or nested-field filtering applies.
+
+The outgoing connection owns its protocol version, client information,
+capabilities, log level, server information, subscription IDs and progress token.
+These core fields are not copied from the caller.
+Tracing fields (`traceparent`, `tracestate`, `baggage`) are also owned by the
+outgoing hop. Other existing outbound metadata takes precedence without merging
+nested objects. Authentication continues to use each backend's credentials;
+metadata is never used as an inbound bearer token.
+
+Workflow steps receive the initiating call's metadata. A request without
+metadata inherits no values. Prompts, resources, lists, discovery and
+initialization do not carry the request's application values. Every backend
+called by a workflow can receive the full object, so callers must not use a
+metadata field as a confidentiality boundary. Values are untrusted application
+data, not credentials. Backends validate and authorize operations independently.
+
+Relaying metadata does not implement an extension or infer its client
+capabilities. The separate capability view contains the application extensions
+of visible, connected backends. Identical settings are preserved; conflicting
+settings appear as `{}`. On MCP 2026-07-28, client declarations travel with tool
+calls. Legacy connections retain their existing capability handshake behavior;
+extensions requiring specific client behavior need their own implementation.
+Initial discovery waits for session bootstrap only when a client declares
+application extensions. Ordinary metadata forwarding adds no discovery wait.
 
 ## Display name
 

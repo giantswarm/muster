@@ -26,8 +26,8 @@ func TestClientManagementRoutes(t *testing.T) {
 		t.Run(map[bool]string{false: "disabled", true: "enabled"}[enabled], func(t *testing.T) {
 			server, err := NewOAuthHTTPServer(config.OAuthServerConfig{
 				Enabled: true, BaseURL: "https://muster.example.com", Provider: OAuthProviderGoogle,
-				Google:            config.GoogleConfig{ClientID: "muster", ClientSecret: "fixture-secret"},
-				RegistrationToken: "fixture-registration", EnableClientManagementEndpoint: enabled,
+				Google:             config.GoogleConfig{ClientID: "muster", ClientSecret: "fixture-secret"},
+				InitialAccessToken: "fixture-registration", EnableClientManagementEndpoint: enabled,
 			}, http.NotFoundHandler(), false)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, server.Shutdown(context.WithoutCancel(t.Context()))) })

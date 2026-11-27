@@ -68,6 +68,10 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 	if c.connected {
 		return nil
 	}
+	return c.connectLocked(ctx)
+}
+
+func (c *SSEClient) connectLocked(ctx context.Context) error {
 
 	logging.Debug("SSEClient", "Creating SSE client for URL: %s", c.url)
 
@@ -113,10 +117,14 @@ func (c *SSEClient) Initialize(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize MCP protocol: %w", err)
 	}
 
+	if c.fellBackToLegacy(initResult) && len(c.declaredExtensions) > 0 {
+		_ = mcpClient.Close()
+		return c.connectLocked(ctx)
+	}
+
 	c.client = mcpClient
 	c.connected = true
 	c.recordHandshake(initResult)
-	c.fellBackToLegacy(initResult)
 	c.wireNotificationHandler()
 	c.startListChangedStream(mcpClient, c.url)
 

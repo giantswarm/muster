@@ -99,7 +99,7 @@ func TestBackendInput_SessionPaths(t *testing.T) {
 			result, err := call(sessionModernContext(mcp.ClientCapabilities{}), mcp.CallToolRequest{})
 			require.NoError(t, err)
 			require.Equal(t, "not asked", mcpText(result), "a client that declares nothing is not asked")
-			require.Equal(t, mcp.ClientCapabilities{}, *declared.Load())
+			require.Nil(t, declared.Load().Elicitation)
 		})
 	}
 }

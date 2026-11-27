@@ -91,3 +91,7 @@ Tool approval
   }
 
 For more information, visit: https://github.com/giantswarm/muster
+
+{{- if .Values.muster.oauth.server.registrationToken }}
+DEPRECATED: muster.oauth.server.registrationToken is set; use muster.oauth.server.initialAccessToken. The new key takes precedence.
+{{- end }}

@@ -19,7 +19,7 @@ func (s *OAuthHTTPServer) serveTrustedIssuer(w http.ResponseWriter, r *http.Requ
 			writeUnavailable(w)
 			return
 		}
-		w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+		w.Header().Set("WWW-Authenticate", s.invalidTokenChallenge())
 		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}

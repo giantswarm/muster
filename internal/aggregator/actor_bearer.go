@@ -57,12 +57,12 @@ func (a *AggregatorServer) newActorBearer() (*credprovider.ActorBearer, error) {
 // MCP endpoints: a request whose bearer names the actor-JWT issuer is served
 // as the bound person, every other request goes to next unchanged. A
 // disabled actor bearer registers nothing.
-func (a *AggregatorServer) registerActorBearerRoutes(mux *http.ServeMux, mcpHandler, next http.Handler, onAuthenticated func(context.Context, string)) error {
+func (a *AggregatorServer) registerActorBearerRoutes(mux *http.ServeMux, mcpHandler, next http.Handler, onAuthenticated func(context.Context, string), challenge string) error {
 	ab, err := a.newActorBearer()
 	if err != nil || ab == nil {
 		return err
 	}
-	handler := actorBearerHandler(ab, mcpHandler, next, onAuthenticated, a.withPersonIDToken)
+	handler := actorBearerHandler(ab, mcpHandler, next, onAuthenticated, a.withPersonIDToken, challenge)
 	for _, path := range actorBearerPaths {
 		mux.Handle(path, handler)
 	}
@@ -80,7 +80,7 @@ func (a *AggregatorServer) registerActorBearerRoutes(mux *http.ServeMux, mcpHand
 // muster's downstream servers never see it. withPersonToken, when set, puts
 // the bound person's own login ID token there instead, for the servers that
 // forward or exchange it.
-func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Handler, onAuthenticated func(context.Context, string), withPersonToken func(context.Context, *credprovider.ActorCaller) context.Context) http.Handler {
+func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Handler, onAuthenticated func(context.Context, string), withPersonToken func(context.Context, *credprovider.ActorCaller) context.Context, challenge string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer := bearerFromHeader(r.Header.Get("Authorization"))
 		if bearer == "" || !ab.Claims(bearer) {
@@ -93,11 +93,11 @@ func actorBearerHandler(ab *credprovider.ActorBearer, mcpHandler, next http.Hand
 			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		case errors.Is(err, credprovider.ErrActorNotAllowed):
-			w.Header().Set("WWW-Authenticate", `Bearer error="insufficient_scope"`)
+			w.Header().Set("WWW-Authenticate", challenge+`, error="insufficient_scope"`)
 			http.Error(w, "forbidden: the actor may not call muster", http.StatusForbidden)
 			return
 		case err != nil:
-			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
+			w.Header().Set("WWW-Authenticate", challenge+`, error="invalid_token"`)
 			http.Error(w, "unauthorized: invalid actor token", http.StatusUnauthorized)
 			return
 		}
