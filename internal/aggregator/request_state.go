@@ -3,8 +3,6 @@ package aggregator
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +11,7 @@ import (
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/requeststate"
 	"github.com/giantswarm/mcp-oauth/security"
+	"github.com/giantswarm/mcp-toolkit/urlelicitation"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -115,18 +114,6 @@ func requestStateCaller(ctx context.Context) *providers.UserInfo {
 	return &providers.UserInfo{Issuer: localCaller, ID: sessionID, ClientID: localCaller}
 }
 
-// requestBinding names the call a requestState is bound to: the method, the
-// client's tool and a digest of its arguments, as mcp-toolkit's urlelicitation
-// does. encoding/json orders map keys, so equal arguments bind alike.
-func requestBinding(req mcp.CallToolRequest) (string, error) {
-	args, err := json.Marshal(req.Params.Arguments)
-	if err != nil {
-		return "", fmt.Errorf("arguments: %w", err)
-	}
-	digest := sha256.Sum256(args)
-	return string(mcp.MethodToolsCall) + "\x00" + req.Params.Name + "\x00" + hex.EncodeToString(digest[:]), nil
-}
-
 // sealRequestState seals state for the caller and call. A caller it cannot
 // be bound to (requeststate.ErrIncompleteIdentity, ErrMissingClientID) fails
 // the call, as does a failure of the sealer: muster never answers a call
@@ -135,7 +122,7 @@ func (a *AggregatorServer) sealRequestState(ctx context.Context, req mcp.CallToo
 	if a.requestStates == nil {
 		return "", errors.New("no requestState sealer")
 	}
-	request, err := requestBinding(req)
+	request, err := urlelicitation.RequestBinding(req)
 	if err != nil {
 		return "", err
 	}
@@ -162,7 +149,7 @@ func (a *AggregatorServer) openRequestState(ctx context.Context, req mcp.CallToo
 	if a.requestStates == nil {
 		return nil, refuseRequestState(errInvalidRequestState)
 	}
-	request, err := requestBinding(req)
+	request, err := urlelicitation.RequestBinding(req)
 	if err != nil {
 		return nil, refuseRequestState(fmt.Errorf("%w: %w", errInvalidRequestState, err))
 	}

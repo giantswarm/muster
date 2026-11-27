@@ -10,6 +10,7 @@ import (
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/requeststate"
+	"github.com/giantswarm/mcp-toolkit/urlelicitation"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
@@ -199,7 +200,7 @@ func TestRequestStateBinding(t *testing.T) {
 
 func mustBinding(t *testing.T, req mcp.CallToolRequest) string {
 	t.Helper()
-	binding, err := requestBinding(req)
+	binding, err := urlelicitation.RequestBinding(req)
 	require.NoError(t, err)
 	return binding
 }
