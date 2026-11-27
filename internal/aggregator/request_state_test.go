@@ -13,7 +13,6 @@ import (
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
 	"github.com/giantswarm/mcp-oauth/requeststate"
-	"github.com/giantswarm/mcp-toolkit/urlelicitation"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
@@ -143,14 +142,17 @@ func TestNewRequestStateSealer(t *testing.T) {
 }
 
 func TestRequestStateCaller(t *testing.T) {
-	t.Run("the subject and session muster resolved", func(t *testing.T) {
-		ctx := api.WithSessionID(api.WithSubject(t.Context(), "jane"), "family-1")
-		require.Equal(t, &providers.UserInfo{Issuer: requestStateIssuer, ID: "jane", ClientID: "family-1"}, requestStateCaller(ctx))
+	t.Run("validated OAuth identity keeps its issuer and client", func(t *testing.T) {
+		require.Equal(t, testCaller(), requestStateCaller(withTestCaller(t.Context())))
+	})
+	t.Run("subject and session alone do not establish OAuth identity", func(t *testing.T) {
+		require.Nil(t, requestStateCaller(api.WithSessionID(api.WithSubject(t.Context(), "jane"), "family-1")))
 	})
 
 	t.Run("an agent's actor bearer: the bound person and Session, without a validated user", func(t *testing.T) {
-		ctx := api.WithSessionID(api.WithSubject(t.Context(), "jane"), "agent-session-7")
-		require.Equal(t, &providers.UserInfo{Issuer: requestStateIssuer, ID: "jane", ClientID: "agent-session-7"}, requestStateCaller(ctx))
+		sessionID := api.ActorSessionPrefix + "session-7"
+		ctx := api.WithSessionID(api.WithSubject(t.Context(), "jane"), sessionID)
+		require.Equal(t, &providers.UserInfo{Issuer: requestStateIssuer, ID: "jane", ClientID: sessionID}, requestStateCaller(ctx))
 	})
 
 	t.Run("a delegated token's current actor", func(t *testing.T) {
@@ -201,9 +203,13 @@ func TestRequestStateBinding(t *testing.T) {
 		ctx    context.Context
 		mutate func(*mcp.CallToolRequest)
 	}{
-		"another person":                 {ctx: api.WithSessionID(api.WithSubject(t.Context(), "john"), "session-1")},
-		"another session":                {ctx: api.WithSessionID(api.WithSubject(t.Context(), "jane"), "session-2")},
+		"another person":                 {ctx: oauthhandler.ContextWithUserInfo(withTestCaller(t.Context()), &providers.UserInfo{Issuer: testCaller().Issuer, ID: "john", ClientID: testCaller().ClientID})},
+		"another client":                 {ctx: oauthhandler.ContextWithUserInfo(withTestCaller(t.Context()), &providers.UserInfo{Issuer: testCaller().Issuer, ID: testCaller().ID, ClientID: "client-2"})},
+		"another session":                {ctx: api.WithSessionID(withTestCaller(t.Context()), "session-2")},
+		"another resolved subject":       {ctx: api.WithSubject(withTestCaller(t.Context()), "other-subject")},
 		"a caller it cannot be bound to": {ctx: t.Context()},
+		"another issuer":                 {ctx: oauthhandler.ContextWithUserInfo(withTestCaller(t.Context()), &providers.UserInfo{Issuer: "https://other.example", ID: testCaller().ID, ClientID: testCaller().ClientID})},
+		"another actor":                  {ctx: oauthhandler.ContextWithUserInfo(withTestCaller(t.Context()), &providers.UserInfo{Issuer: testCaller().Issuer, ID: testCaller().ID, ClientID: testCaller().ClientID, ActorIssuer: "https://actor.example", ActorSubject: "other-actor"})},
 		"another tool": {ctx: ctx, mutate: func(req *mcp.CallToolRequest) {
 			req.Params.Name = "x_github_merge_pull_request"
 		}},
@@ -225,7 +231,7 @@ func TestRequestStateBinding(t *testing.T) {
 	}
 
 	t.Run("a lapsed state is a first call", func(t *testing.T) {
-		lapsed, err := a.requestStates.Seal(requestStateCaller(ctx), mustBinding(t, call), []byte(`{"kind":"signIn","signIn":{}}`), 1)
+		lapsed, err := a.requestStates.Seal(requestStateCaller(ctx), mustBinding(t, ctx, call), []byte(`{"kind":"signIn","signIn":{}}`), 1)
 		require.NoError(t, err)
 		opened, err := retry(ctx, func(req *mcp.CallToolRequest) { req.Params.RequestState = lapsed })
 		require.NoError(t, err)
@@ -237,16 +243,16 @@ func TestRequestStateBinding(t *testing.T) {
 		require.ErrorIs(t, err, requeststate.ErrIncompleteIdentity)
 	})
 
-	t.Run("a token naming no single client is bound to its muster session", func(t *testing.T) {
+	t.Run("a session does not replace a missing OAuth client", func(t *testing.T) {
 		forwarded := oauthhandler.ContextWithUserInfo(api.WithSessionID(t.Context(), "family-9"), &providers.UserInfo{Issuer: "https://dex.example", ID: "jane"})
 		_, err := a.sealRequestState(forwarded, call, state)
-		require.NoError(t, err)
+		require.ErrorIs(t, err, requeststate.ErrMissingClientID)
 	})
 }
 
-func mustBinding(t *testing.T, req mcp.CallToolRequest) string {
+func mustBinding(t *testing.T, ctx context.Context, request mcp.CallToolRequest) string {
 	t.Helper()
-	binding, err := urlelicitation.RequestBinding(req)
+	binding, err := requestStateBinding(ctx, request)
 	require.NoError(t, err)
 	return binding
 }
@@ -272,8 +278,26 @@ func TestRejectedRequestStateIsAuditedWithoutState(t *testing.T) {
 	require.Contains(t, logs.String(), "event=request_state_rejected")
 	require.Contains(t, logs.String(), "reason=verification_failed")
 	require.Contains(t, logs.String(), "tool=create")
-	require.Contains(t, logs.String(), "caller.issuer="+requestStateIssuer)
+	require.Contains(t, logs.String(), "caller.issuer="+testCaller().Issuer)
 	require.Contains(t, logs.String(), "caller.subject="+testCaller().ID)
 	require.NotContains(t, logs.String(), "session-1", "the session ID stays out of the log")
 	require.NotContains(t, logs.String(), request.Params.RequestState)
+}
+
+func TestActorRequestStateIsBoundToItsSession(t *testing.T) {
+	aggregator := elicitingAggregator(t)
+	actorContext := func(session string) context.Context {
+		return api.WithSessionID(api.WithSubject(t.Context(), "owner"), api.ActorSessionPrefix+session)
+	}
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "call_tool"
+	request.Params.Arguments = map[string]any{"name": "backend_read"}
+	request.Params.RequestState = sealedFor(t, aggregator, actorContext("one"), request, sealedRequestState{
+		Kind: stateKindSignIn, SignIn: &signInRequestState{Server: "backend", Link: testAuthURL},
+	})
+	state, err := aggregator.openRequestState(actorContext("one"), request)
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	_, err = aggregator.openRequestState(actorContext("two"), request)
+	requireInvalidParams(t, err)
 }

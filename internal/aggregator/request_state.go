@@ -18,6 +18,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -26,9 +27,8 @@ import (
 // valid: the sign-in link's OAuth state lives as long (signInElicitationTTL).
 const requestStateTTL = signInElicitationTTL
 
-// requestStateIssuer names muster's own resolution of a caller in the binding
-// of its requestState: the subject and session every authentication path of
-// muster resolves, not the claims of one kind of token.
+// requestStateIssuer names the local authority for actor and local callers
+// whose authentication does not produce an OAuth UserInfo.
 const requestStateIssuer = "urn:muster:caller"
 
 // Kinds of state muster seals into a requestState.
@@ -94,24 +94,32 @@ func requestStateSecret(encryptionKey string) ([]byte, error) {
 	return secret, nil
 }
 
-// requestStateCaller returns the caller a requestState is bound to, as muster
-// resolved it on every authentication path (its own OAuth, a forwarded or
-// trusted issuer's token, a delegated bearer, an agent's actor bearer, or the
-// one local person of a muster without inbound OAuth): the subject, and the
-// session muster keeps the caller's state in, which stands for the client: one
-// client's login of one person, or one bound agent Session. A delegated token's
-// current actor is bound as well. It returns nil when muster resolved no
-// subject or no session.
+// requestStateCaller preserves validated OAuth identity fields. Authenticated
+// actor sessions and local callers use a server-owned principal tuple.
 func requestStateCaller(ctx context.Context) *providers.UserInfo {
+	if user, ok := oauthhandler.UserInfoFromContext(ctx); ok && user != nil {
+		return user
+	}
 	subject, sessionID := getUserSubjectFromContext(ctx), getSessionIDFromContext(ctx)
-	if subject == "" || sessionID == "" {
+	if subject == "" || sessionID == "" || (subject != stdioDefaultUser && !api.IsActorSession(sessionID)) {
 		return nil
 	}
-	caller := &providers.UserInfo{Issuer: requestStateIssuer, ID: subject, ClientID: sessionID}
-	if user, ok := oauthhandler.UserInfoFromContext(ctx); ok && user != nil {
-		caller.ActorIssuer, caller.ActorSubject = user.ActorIssuer, user.ActorSubject
+	return &providers.UserInfo{Issuer: requestStateIssuer, ID: subject, ClientID: sessionID}
+}
+
+// requestStateBinding includes the scope of muster's grants and visibility:
+// the resolved subject and session, in addition to the originating call.
+func requestStateBinding(ctx context.Context, request mcp.CallToolRequest) (string, error) {
+	binding, err := urlelicitation.RequestBinding(request)
+	if err != nil {
+		return "", err
 	}
-	return caller
+	subject, sessionID := getUserSubjectFromContext(ctx), getSessionIDFromContext(ctx)
+	if subject == "" || sessionID == "" {
+		return "", requeststate.ErrIncompleteIdentity
+	}
+	scope, err := json.Marshal([]string{binding, subject, sessionID})
+	return string(scope), err
 }
 
 // sealRequestState seals state for the caller and call. A caller it cannot
@@ -122,7 +130,7 @@ func (a *AggregatorServer) sealRequestState(ctx context.Context, request mcp.Cal
 	if a.requestStates == nil {
 		return "", errors.New("no requestState sealer")
 	}
-	binding, err := urlelicitation.RequestBinding(request)
+	binding, err := requestStateBinding(ctx, request)
 	if err != nil {
 		return "", err
 	}
@@ -157,7 +165,7 @@ func (a *AggregatorServer) openRequestState(ctx context.Context, request mcp.Cal
 	if a.requestStates == nil {
 		return reject("sealer_unavailable", errInvalidRequestState)
 	}
-	binding, err := urlelicitation.RequestBinding(request)
+	binding, err := requestStateBinding(ctx, request)
 	if err != nil {
 		return reject("invalid_request", fmt.Errorf("%w: %w", errInvalidRequestState, err))
 	}

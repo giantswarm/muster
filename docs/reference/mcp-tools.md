@@ -164,11 +164,12 @@ Only the sign-in answers muster issues are elicited: a backend result that has t
 
 Every `requestState` muster answers with is sealed with AES-256-GCM (mcp-oauth's `requeststate`) and bound to:
 
-- the caller as muster resolved it, whatever the kind of token: the subject, the session muster keeps the caller's state in (one client's login of one person, or the agent Session an actor bearer is bound to), and the current actor of a delegated token; on a muster without inbound OAuth, the one local person, in their session;
+- the validated OAuth identity: issuer, subject, client and current actor; authenticated actor bearers and local callers use a separate Muster-owned identity;
+- the subject and session muster resolved for grants and visibility, in addition to that identity;
 - the call the client retries: `tools/call`, the tool it called (`call_tool` when it went through `call_tool`) and a digest of its arguments;
 - an expiry of 10 minutes.
 
-A retry whose `requestState` was changed, was sealed for another caller or call, or was sealed by a muster with another key is refused with JSON-RPC `-32602` (invalid params) and runs nothing. A lapsed `requestState` is ignored: the call runs as a first call and asks again. A caller muster resolved no subject or session for gets an error instead of an answer that needs a `requestState`.
+A retry whose `requestState` was changed, was sealed for another caller or call, or was sealed by a muster with another key is refused with JSON-RPC `-32602` (invalid params) and runs nothing. A lapsed `requestState` is ignored: the call runs as a first call and asks again. A caller without a resolved subject or session, or an OAuth caller naming no single client, gets an error instead of an answer that needs a `requestState`.
 
 The sealing key is derived (HKDF-SHA256) from muster's token encryption key (`muster.oauth.server.encryptionKey`, `oauth-encryption-key` in the OAuth Secret), which every replica shares; it is a key of its own, not the encryption key. Rotating the encryption key voids the `requestState` in flight, which lives 10 minutes. Without an encryption key, each muster process seals with a key of its own and warns at start: a retry that reaches another replica is refused. The chart therefore requires `encryptionKey` for more than one replica (`replicaCount` above 1, or autoscaling with `maxReplicas` above 1), including when the OAuth server is disabled. The shared key is mounted independently of inbound OAuth. Invalid state is logged with a rejection reason and caller identity, without the sealed value or its payload.
 
