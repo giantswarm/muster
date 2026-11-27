@@ -200,4 +200,5 @@ nav:
           - Writing scenarios: contributing/testing/scenarios.md
           - Testing via MCP: contributing/testing/testing-via-mcp.md
           - OAuth testing: contributing/testing/oauth-testing.md
+          - Backend OAuth proof: contributing/external-app-backend-proof.md
           - API schema validation: contributing/testing/api-schema-validation.md
