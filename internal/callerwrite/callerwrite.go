@@ -24,6 +24,7 @@ import (
 
 	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/server"
 )
 
@@ -99,8 +100,8 @@ func TokenMissingAudience(token, want string) bool {
 
 // ReloginError is the actionable error for sessions whose token cannot
 // authenticate at the apiserver (missing audience, or rejected outright).
-func ReloginError(reason string) string {
-	return fmt.Sprintf("%s A re-login is required: sign in again to get a fresh session token, then retry.", reason)
+func ReloginError(reason string) error {
+	return &api.CallerAuthenticationError{Message: fmt.Sprintf("%s A re-login is required: sign in again to get a fresh session token, then retry.", reason)}
 }
 
 // Gate resolves the per-call caller-identity client a session-initiated CR
@@ -153,11 +154,11 @@ func (g *Gate) Resolve(ctx context.Context) (ctrlclient.Client, string) {
 	token := TokenFromContext(ctx)
 	if token == "" {
 		return nil, ReloginError(fmt.Sprintf(
-			"This installation writes %s with your own identity, but your session carries no token.", g.subject))
+			"This installation writes %s with your own identity, but your session carries no token.", g.subject)).Error()
 	}
 	if TokenMissingAudience(token, g.audience) {
 		return nil, ReloginError(fmt.Sprintf(
-			"Your session token does not carry the %q audience required by the Kubernetes API.", g.audience))
+			"Your session token does not carry the %q audience required by the Kubernetes API.", g.audience)).Error()
 	}
 	if g.factory == nil {
 		return nil, "writes-as-caller is enabled but muster has no Kubernetes API access to perform the write with — check the muster deployment configuration"
@@ -183,7 +184,7 @@ func DescribeWriteAuthError(err error, verb, kind, resource, name, namespace, ed
 				"Ask a platform admin to grant you the %s role. API server response: %v",
 			verb, kind, name, resource, namespace, editorRole, err)
 	case errors.IsUnauthorized(err):
-		return ReloginError("The Kubernetes API rejected your session token.")
+		return ReloginError("The Kubernetes API rejected your session token.").Error()
 	}
 	return ""
 }

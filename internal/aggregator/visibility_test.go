@@ -113,7 +113,7 @@ func TestVisibility_ServerTheCallerMayNotSeeIsAbsent(t *testing.T) {
 
 	t.Run("a token the API server does not accept sees no server and is told to sign in again", func(t *testing.T) {
 		a := visibilityTestServer(t)
-		useVisibility(t, api.NoServerVisible("A re-login is required: sign in again."))
+		useVisibility(t, api.NoServerVisibleWithError(&api.CallerAuthenticationError{Message: "A re-login is required: sign in again."}))
 
 		assert.Empty(t, a.GetToolsForSession(ctx, "test-session"))
 		assert.Empty(t, a.GetResourcesForSession(ctx, "test-session"))
@@ -124,6 +124,8 @@ func TestVisibility_ServerTheCallerMayNotSeeIsAbsent(t *testing.T) {
 		_, err := a.CallToolInternal(ctx, "x_github_create_issue", nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "sign in again")
+		var authentication *api.CallerAuthenticationError
+		require.ErrorAs(t, err, &authentication)
 	})
 }
 

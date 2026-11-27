@@ -34,6 +34,9 @@ func seesFunc(view api.ServerVisibility) func(string) bool {
 // the caller sees no server at all -- why, and that the person must sign in
 // again.
 func unseenError(view api.ServerVisibility, what string) error {
+	if cause := view.Err(); cause != nil {
+		return fmt.Errorf("%s. %w", what, cause)
+	}
 	if view.Reason != "" {
 		return fmt.Errorf("%s. %s", what, view.Reason)
 	}

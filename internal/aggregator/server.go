@@ -1693,6 +1693,7 @@ func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) (http.Handler,
 	}
 
 	// Standard mux without OAuth server protection
+	warnUnauthenticatedListener(a.config.Host)
 	return security.RequestIDMiddleware(a.warnUntrustedOrigins(a.createStandardMux(mcpHandler))), nil
 }
 
@@ -1700,8 +1701,8 @@ func (a *AggregatorServer) createHTTPMux(mcpHandler http.Handler) (http.Handler,
 // This is used when OAuth server protection is disabled.
 //
 // Since there is no OAuth middleware to set session/subject in context, this
-// injects stdioDefaultUser as the subject (same as stdio transport). Session
-// scoping still happens per client connection — see getSessionIDFromContext.
+// injects stdioDefaultUser as the subject (same as stdio transport). Such a
+// muster serves one person: see getSessionIDFromContext.
 func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 
@@ -1749,10 +1750,9 @@ func (a *AggregatorServer) createStandardMux(mcpHandler http.Handler) http.Handl
 
 	// Without OAuth, there is no ValidateToken middleware to set session/subject.
 	// Inject stdioDefaultUser as the subject so downstream-auth flows
-	// (core_auth_login) have a user key, and as a last-resort session key for
-	// contexts that carry no MCP transport session. Actual MCP requests are
-	// keyed by their transport session instead (see getSessionIDFromContext),
-	// so two clients of an unauthenticated muster do not share session state.
+	// (core_auth_login) have a user key, and as the session key of requests
+	// that carry no MCP transport session (2026-07-28). See
+	// getSessionIDFromContext.
 	// Servers that don't require session auth never use this — they go through the global client.
 	defaultUserMCPHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := api.WithSubject(r.Context(), stdioDefaultUser)
@@ -2962,11 +2962,10 @@ func fetchProtectedResourceMetadata(ctx context.Context, httpClient *http.Client
 // servers (e.g. core_auth_login to an OAuth-protected MCP server). In production
 // (OAuth-protected muster), the real subject from the bearer token is used instead.
 //
-// It is also injected as a session ID so that contexts carrying no MCP transport
-// session at all (background work derived from a request) still have a key, but
-// it is NOT the session key for actual MCP requests: getSessionIDFromContext
-// prefers the per-connection transport session so unauthenticated clients do not
-// share session-scoped state. See the SECURITY note there.
+// It is also injected as a session ID: the key of a request that carries no MCP
+// transport session (MCP 2026-07-28, background work derived from a request).
+// On earlier revisions over HTTP, getSessionIDFromContext prefers the
+// per-connection transport session. See the SECURITY note there.
 //
 // Injected explicitly into context at the transport layer (SetContextFunc for
 // stdio, middleware wrapper for unauthenticated HTTP). Never used as a silent
@@ -3007,20 +3006,20 @@ func getTransportSessionID(ctx context.Context) string {
 //  2. oauth.sessionIDKey (set by mcp-oauth ValidateToken — survives middleware early-exit)
 //  3. the MCP transport session ID, when the only identity in context is the
 //     stdioDefaultUser placeholder (i.e. muster itself is not OAuth-protected)
-//  4. "" (no session — caller must handle)
+//  4. stdioDefaultUser, or "" when nothing was injected
 //
-// SECURITY: step 3 exists because the session ID keys every piece of per-user
-// state — OAuth tokens, the capability store that backs session-scoped tool
-// visibility (ADR 006), and the session connection pool. When muster is not
-// OAuth-protected there is no bearer token to derive a token family from, and
-// the transport layer injects the stdioDefaultUser constant. Using that constant
-// as the session key collapses every concurrent client onto one session, so a
-// backend that one client authenticated to via core_auth_login becomes visible
-// and callable in every other client's session. Falling back to the MCP
-// transport session ID instead gives one key per client connection, which is the
-// finest identity available without inbound auth, and matches ADR 006 §4.1.
-// The stdio transport reports a constant session ID, so stdio — inherently
-// single-user — keeps a single stable session.
+// SECURITY: the session ID keys every piece of per-user state: OAuth tokens,
+// the capability store behind session-scoped tool visibility (ADR 006) and the
+// session connection pool. Only muster's inbound OAuth tells people apart: a
+// server must verify every request and must not take a session or state
+// handle for authentication (MCP 2026-07-28). A muster without inbound OAuth
+// therefore serves one person. On MCP 2025-11-25 and earlier over HTTP its
+// state is still kept per transport session (step 3), so two connections do
+// not see each other's sign-ins, which ADR 006 section 4.1 asks for. MCP
+// 2026-07-28 has no transport session: every request of such a muster is the
+// one person (step 4), as on stdio, whose transport reports one constant
+// session ID. warnUnauthenticatedListener warns when such a muster listens
+// beyond loopback.
 func getSessionIDFromContext(ctx context.Context) string {
 	sessionID := api.GetSessionIDFromContext(ctx)
 	if sessionID != "" && sessionID != stdioDefaultUser {
