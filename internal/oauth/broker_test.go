@@ -143,6 +143,7 @@ func TestBrokerExchanger_Exchange(t *testing.T) {
 	// Result propagation.
 	assert.Equal(t, "downstream-token", result.AccessToken)
 	assert.Equal(t, "urn:ietf:params:oauth:token-type:access_token", result.IssuedTokenType)
+	assert.Equal(t, scopes, result.Scope)
 	assert.WithinDuration(t, time.Now().Add(1800*time.Second), result.ExpiresAt, 30*time.Second)
 
 	// Downstream request: subject token forwarded verbatim, operator-configured
@@ -173,6 +174,7 @@ func TestBrokerExchanger_Exchange(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "downstream-token", cached.AccessToken)
+	assert.Equal(t, scopes, cached.Scope)
 	assert.True(t, cached.ExpiresAt.After(time.Now()))
 	stats := broker.exchanger.GetCacheStats()
 	assert.Equal(t, 1, stats.CurrentEntries)

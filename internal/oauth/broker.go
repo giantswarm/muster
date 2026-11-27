@@ -126,6 +126,7 @@ func (b *BrokerExchanger) Exchange(ctx context.Context, req *oauthserver.Exchang
 	return &oauthserver.ExchangerResult{
 		AccessToken:     result.AccessToken,
 		IssuedTokenType: result.IssuedTokenType,
+		Scope:           result.Scope,
 		ExpiresAt:       result.ExpiresAt,
 	}, nil
 }
