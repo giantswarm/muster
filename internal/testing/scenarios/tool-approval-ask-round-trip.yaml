@@ -1,0 +1,205 @@
+name: "tool-approval-ask-round-trip"
+description: "A call whose effective approval is Ask runs only after its person approved that exact call on muster's approval page, once: asking runs nothing, the page shows the call to its person only, approve then retry runs it once, a replay asks again, other arguments ask anew, decline answers declined, an approval expires, and without the shared store the call is refused"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["approval", "security", "oauth", "valkey", "mcpserver"]
+timeout: "5m"
+
+# Given: muster runs its own OAuth server (the browser sign-in) on Valkey
+#        storage; github's merge_pull_request asks (rule Ask), get_issue is
+#        Allow. alice is signed in.
+# When:  alice's client calls merge_pull_request, decides on the page in her
+#        browser, and calls again.
+# Then:  the first call returns the approval link and runs nothing; the
+#        page shows the call to alice and to nobody else; after approving,
+#        the identical retry runs once and the next one asks again; other
+#        arguments are not covered; a declined call answers declined; an
+#        approval older than approval.ttl asks again; with Valkey down the
+#        call is refused.
+
+pre_configuration:
+  storage:
+    type: "valkey"
+
+  main_config:
+    config:
+      approval:
+        ttl: "2m"
+
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "github"
+      config:
+        approval:
+          rule: "Ask"
+          tools:
+            get_issue: "Allow"
+        tools:
+          - name: "get_issue"
+            description: "Get an issue"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { issue: 1 } }]
+          - name: "merge_pull_request"
+            description: "Merge a pull request"
+            annotations: { read_only_hint: false }
+            responses: [{ response: { merged: true } }]
+
+steps:
+  - id: "login-alice"
+    tool: "test_muster_auth_login"
+    args: { subject: "alice" }
+    expected:
+      success: true
+
+  - id: "open-alice-session"
+    tool: "test_create_user"
+    args: { name: "alice" }
+    expected:
+      success: true
+
+  - id: "allow-runs"
+    tool: "x_github_get_issue"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["issue"]
+
+  - id: "ask-returns-the-link-and-runs-nothing"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 1 }
+    expected:
+      success: false
+      contains: ["approval_required", "Confirm Merge pull request in github.", "/approvals/", "then run the tool again"]
+      not_contains: ["merged"]
+
+  - id: "the-page-shows-the-call-to-its-person"
+    description: "The identical call reuses the pending approval; alice's browser sees the call and the buttons"
+    tool: "test_decide_approval"
+    args: { tool: "x_github_merge_pull_request", arguments: { pr: 1 } }
+    expected:
+      success: true
+      json_path:
+        page_status: 200
+        buttons: true
+      contains: ["Approve this action?", "Merge pull request", "Changes data", "merge_pull_request"]
+
+  - id: "another-person-sees-whose-it-is"
+    tool: "test_decide_approval"
+    args: { tool: "x_github_merge_pull_request", arguments: { pr: 1 }, signed_in_as: "bob" }
+    expected:
+      success: true
+      json_path:
+        page_status: 403
+        buttons: false
+      # The requester is named by the email in their token (the mock
+      # identity provider gives every subject test@example.com).
+      contains: ["someone else", "It was made for test@example.com"]
+      not_contains: ["Changes data"]
+
+  - id: "still-not-run"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 1 }
+    expected:
+      success: false
+      contains: ["approval_required"]
+      not_contains: ["merged"]
+
+  - id: "alice-approves"
+    tool: "test_decide_approval"
+    args: { tool: "x_github_merge_pull_request", arguments: { pr: 1 }, decision: "approve" }
+    expected:
+      success: true
+      json_path:
+        decision_status: 200
+      contains: ["You approved this request"]
+
+  - id: "other-arguments-ask-anew"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 2 }
+    expected:
+      success: false
+      contains: ["approval_required"]
+      not_contains: ["merged"]
+
+  - id: "retry-runs-once"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 1 }
+    expected:
+      success: true
+      contains: ["merged"]
+
+  - id: "replay-asks-again"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 1 }
+    expected:
+      success: false
+      contains: ["approval_required"]
+      not_contains: ["merged"]
+
+  - id: "alice-declines"
+    tool: "test_decide_approval"
+    args: { tool: "x_github_merge_pull_request", arguments: { pr: 3 }, decision: "decline" }
+    expected:
+      success: true
+      json_path:
+        decision_status: 200
+      contains: ["You declined this request", "It will not run"]
+
+  - id: "declined-answers-declined"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 3 }
+    expected:
+      success: false
+      contains: ["declined: the person declined x_github_merge_pull_request"]
+      not_contains: ["merged"]
+
+  - id: "alice-approves-one-she-will-not-use-in-time"
+    tool: "test_decide_approval"
+    args: { tool: "x_github_merge_pull_request", arguments: { pr: 4 }, decision: "approve" }
+    expected:
+      success: true
+      json_path:
+        decision_status: 200
+
+  - id: "time-passes-the-ttl"
+    tool: "test_advance_clock"
+    args: { duration: "3m" }
+    expected:
+      success: true
+
+  - id: "an-expired-approval-asks-again"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 4 }
+    expected:
+      success: false
+      contains: ["approval_required"]
+      not_contains: ["merged"]
+
+  - id: "valkey-goes-away"
+    tool: "test_stop_valkey"
+    args: {}
+    expected:
+      success: true
+
+  - id: "store-unavailable-fails-closed"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 5 }
+    expected:
+      success: false
+      not_contains: ["merged"]
+
+  - id: "valkey-comes-back"
+    tool: "test_start_valkey"
+    args: {}
+    expected:
+      success: true

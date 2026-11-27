@@ -70,7 +70,7 @@ func TestReadCheck_GeneratedClientSecret(t *testing.T) {
 			creds, err := adapter.LoadMCPServerClientCredentials(context.Background(), tt.owner, field, &api.ClientCredentialsSecretRef{Name: tt.secret.Name})
 			if tt.refused != nil {
 				require.ErrorIs(t, err, tt.refused)
-				assert.Contains(t, err.Error(), "core_mcpserver_update clientCredentials")
+				assert.Contains(t, err.Error(), "core_mcpserver_connect clientCredentials")
 				assert.Nil(t, creds)
 				return
 			}

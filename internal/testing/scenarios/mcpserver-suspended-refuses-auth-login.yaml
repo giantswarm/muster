@@ -80,7 +80,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "suspend-oauth-server"
-      type: "streamable-http"
       autoStart: true
       suspended: true
     expected:
@@ -169,7 +168,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "suspend-oauth-server"
-      type: "streamable-http"
       autoStart: true
       suspended: false
     expected:
@@ -221,7 +219,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "suspend-oauth-server"
-      type: "streamable-http"
       autoStart: true
       suspended: true
     expected:
@@ -275,7 +272,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "suspend-oauth-server"
-      type: "streamable-http"
       autoStart: true
       suspended: false
     expected:

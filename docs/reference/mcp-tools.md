@@ -63,7 +63,8 @@ Use `list_tools` for a bounded look at what is there; use `filter_tools` to *fin
 `server`, `kind` and `annotations`, and an `invocation` line naming the call that runs it.
 The downstream tool's `title` (its own, else its annotations' title) and `outputSchema`, the
 contract of the `structuredContent` it returns, are forwarded as well. `title`,
-`annotations` and `outputSchema` are omitted when the tool does not set them.
+`annotations` and `outputSchema` are omitted when the tool does not set them. `approval` and
+`connectorAdmin` are as in [Tool approval](#tool-approval).
 Every tool it can describe lives **inside** muster, where an MCP client sees only the
 meta-tools: issuing an aggregated tool's name as a tool call fails. Such a tool is reached
 through `call_tool`, and only through `call_tool`.
@@ -99,7 +100,7 @@ through `call_tool`, and only through `call_tool`.
 | `toolset` | string[] | — | Inline toolset selectors (`preset:<name>`, `server:<name>`, `workflow:<name>`, `tool:<name>`, at most 32) to resolve against the caller's catalogue. The response adds `toolset` (echo of the argument; without the argument, of the request's `X-muster-Toolset`, so a scoped caller can learn what bounds it), `toolset_unmatched` (selectors that selected nothing for the caller) and `presets` (with the argument or `include_presets`). With `X-muster-Toolset` also on the request, the argument resolves within the header's toolset and never widens it. See [Toolsets](toolsets.md). |
 | `include_presets` | bool | `false` | Add the known toolset presets (`name`, `description`, `icon`, `built_in`) to the response. |
 
-The response carries `total` (matches across the caller's catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present), the owning `server` (omitted for workflows and core tools), the `kind` (`tool` | `workflow` | `core`) and the tool's `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` as the server declared them; for a workflow the derived `readOnlyHint` when every step tool is read-only; omitted when none). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it — it carries the same `server`, `kind` and `annotations`.
+The response carries `total` (matches across the caller's catalogue), `truncated` (more matches exist beyond this page), and per-tool a one-line `summary` (plus `score` when ranked and `labels` when present), the owning `server` (omitted for workflows and core tools), the `kind` (`tool` | `workflow` | `core`) and the tool's `annotations` (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint` as the server declared them; for a workflow the derived `readOnlyHint` when every step tool is read-only; omitted when none). Each tool also carries its `approval` and, for a server tool, `connectorAdmin` ([Tool approval](#tool-approval)). Get the authoritative full schema of a chosen tool with `describe_tool` before executing it — it carries the same `server`, `kind`, `annotations`, `approval` and `connectorAdmin`.
 
 It also carries `servers_requiring_auth` when a sign-in would unlock a server whose tools the `pattern` could match once they are listed — every such server without a pattern; with `x_slack_*`, the `slack` server alone — each with `name`, `status`, `auth_tool` (`core_auth_login`, or `error` instead when the sign-in cannot pass for this session), `tool_prefix` and, for a family member, `family`, as `list_tools` reports them. Neither the toolset (`toolset_requiring_auth`, see [Toolsets](toolsets.md)) nor the other filters narrow it, and it is not paged. A tool you cannot find may be one of theirs: an agent that filters for `*slack*` before the person has signed in to Slack gets no tool and `servers_requiring_auth: [{"name": "slack", "auth_tool": "core_auth_login", …}]`, and calls `core_auth_login` with `server: slack`.
 
@@ -119,11 +120,87 @@ filter_tools(pattern="*workflow*", limit=25, offset=25)
 filter_tools(pattern="x_slack_*")   # tools: [], servers_requiring_auth: [{"name": "slack", "auth_tool": "core_auth_login", …}]
 ```
 
+#### Tool approval
+
+`list_tools`, `filter_tools` and `describe_tool` report each tool's effective approval for
+the caller as `approval`, from its server's `spec.approval`
+([Tool approval](../how-to/mcp-server-management.md#tool-approval)):
+
+| Field | Meaning |
+|---|---|
+| `setting` | `allow`, `ask` or `block`. A `block` tool is never listed or described; `call_tool` refuses it as `tool not found`. A family tool drops the members that block it from its instance argument. |
+| `source` | `tool` (the tool's own entry), `connector` (the server's rule), `unreviewed` (no approval settings, or a core tool: `allow`), `builtin` (`core_config_update_aggregator`, `_save` and `_reload`, which always ask; for an agent caller, a floor), `governance` (agent caller on a governed platform: a tool outside the safe list, or a core tool that is not a read), `unavailable` (settings unreadable, MCPServer missing or CRD without `spec.approval`: reported `ask`, calls refused). During an API server outage listing and call use the last observed settings, else `unavailable`. |
+| `new` | `true` for a tool without its own entry on a server that has settings; it follows the rule. |
+| `unavailable` | On an `ask` tool, why muster cannot ask (no Valkey store, sign-in, public URL or person on the request, or a CRD without `spec.approval`); calls are refused until fixed. Omitted when muster can ask. |
+
+`ask` asks the person on muster's approval page ([When a call
+asks](../how-to/mcp-server-management.md#when-a-call-asks)). A client that got the page as a
+`-32042` URL elicitation (it declared `elicitation.url` at `initialize`, 2025-11-25) is sent
+`notifications/elicitation/complete` with its `elicitationId` when the request is decided,
+without the decision; retry the call then. A workflow reports its strictest step (called
+workflows included) and asks once, up front. The report is evaluated for the caller: an agent
+sees floors and, on a governed platform, the governed default. `filter_tools` and
+`core_mcpserver_list` also return `governance: trusted|governed`.
+
+A server tool also carries `connectorAdmin`: whether the caller may `update` MCPServers in the
+server's namespace (for a family tool, of every member), checked with a SelfSubjectAccessReview
+as the caller; in filesystem mode every caller is one.
+
+```json
+{"name": "x_github_merge_pull_request", "server": "github", "kind": "tool",
+ "approval": {"setting": "ask", "source": "connector", "new": true}, "connectorAdmin": true}
+```
+
+#### An agent's approval settings
+
+An agent's tool list can carry `Allow`, `Ask` or `Block` per entry and a `default` (agent
+chart `tools` and `default`). agent-manager binds them to each Session it starts
+(`PUT /session-bindings`, accepted only from an approval sender, [API](api.md)). Every request
+of the Session resolves in this order:
+
+1. The connector's setting (the tool's entry, else the rule, else `Allow`).
+2. The agent's setting: the most specific entry selecting the tool (`tool:` before
+   `workflow:` before `server:` before `preset:`; the strictest of equals), else `default`.
+   `tool:` matches any alias of the tool; a family tool resolves per member.
+3. The stricter of the two. Exception: an agent `Allow` over the connector's `Ask` runs when
+   the binding carries a **grant** for that entry, server and MCPServer UID naming the tool,
+   which a connector admin gives through agent-manager's `set_agent_approval`. A tool that
+   starts asking later is not covered; an `Allow` without a grant changes nothing; a
+   connector's `Block` always holds.
+4. Floors and the governed default on top; a grant never lifts them.
+
+An agent's `Block` hides the tool from that Session. `approval` then also carries `admin` (the
+connector's own setting) and `entry` (the deciding entry), and `source` can be `agent` or
+`agent-exception` (a granted `Allow`, audited as `call_allowed_by_exception`).
+
+A request without bound settings (a Session agent-manager did not start) takes them from
+`X-Muster-Tool-Approval: <selector>=<Setting>,...[,default=<Setting>]`, rendered by the agent
+chart. It carries no grants, so it only makes tools stricter; an unparsable value makes every
+tool ask. The client asserts it: a runtime that omits it (or a process in the sandbox calling
+muster itself) runs without the agent's `Ask` and `Block`. Only the settings agent-manager
+binds are authoritative.
+
+`filter_tools` and `describe_tool` take `agentTools` (`{"tools": [<selector> |
+{<selector>: "Allow"|"Ask"|"Block"}], "default", "grants": [{"entry", "server", "uid",
+"tools"}]}`) to report what that agent would see. It changes nothing that runs and agent
+callers are refused it. Its selectors narrow the listing like `toolset` (both is refused);
+tools the agent's entries block are listed with `{"setting": "block", "source": "agent"}`; each
+server tool carries `connectors` (`{"server", "namespace", "name", "uid", "tool"}`) for
+agent-manager's connector-admin check and grant records.
+
+```json
+{"name": "x_github_merge_pull_request", "server": "github", "kind": "tool",
+ "approval": {"setting": "allow", "source": "agent-exception", "entry": "tool:x_github_merge_pull_request",
+              "admin": {"setting": "ask", "source": "tool"}},
+ "connectorAdmin": false,
+ "connectors": [{"server": "github", "namespace": "muster", "name": "github", "uid": "…"}]}
+```
+
 ### Tool Execution
 
 | Meta-Tool | Description | Arguments |
 |-----------|-------------|-----------|
-| `call_tool` | Execute any tool by name. With `X-muster-Toolset` on the request, only tools inside the toolset can be called; others are refused naming the toolset (see [Toolsets](toolsets.md)) | `{"name": "tool_name", "arguments": {...}}` |
+| `call_tool` | Execute any tool by name. With `X-muster-Toolset` on the request, only tools inside the toolset can be called; others are refused naming the toolset (see [Toolsets](toolsets.md)). `reason` (at most 500 characters) is shown to the person as *Agent says* when an agent's call asks for approval; it is never bound into the approval or used to decide | `{"name": "tool_name", "arguments": {...}, "reason": "..."}` |
 
 Through `muster agent --mcp-server`, `call_tool` additionally takes `timeout` (seconds): how long the agent waits for this one call instead of its `--timeout` (default 5 minutes). The agent consumes the argument; the aggregator never sees it.
 
@@ -155,8 +232,10 @@ A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked 
 | Client's protocol version | Answer |
 |---|---|
 | 2026-07-28 or later, `elicitation.url` in the request's client capabilities | `resultType: "input_required"` with one `elicitation/create` input request (`mode: "url"`, `url`, `message`, and an `elicitationId`, the same for every answer with one link, which the 2026-07-28 schema does not define and rmcp requires) under the key `muster_sign_in`, and a `requestState` naming the server and the link. Retry the call, echoing `requestState`, once the person agreed to open the link: a retry whose `inputResponses` accept `muster_sign_in` waits until the sign-in's OAuth callback has run, on any replica, then runs the call. When the callback did not sign the session in (the person was refused, the server was suspended meanwhile, the connection failed), or did not run within 5 minutes, the retry gets the same answer with a new link. A retry whose `inputResponses` decline or cancel `muster_sign_in` runs nothing and gets a tool error without the link instead. |
-| 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitation and its `elicitationId`, the same one for every call of that session answered with the same link. When the sign-in completes on the replica that answered, the session is sent `notifications/elicitation/complete` with that `elicitationId`; retry the call then. A retry before the sign-in completed gets the same error again: this protocol tells muster neither that the person accepted nor that they declined, so muster cannot hold the retry until the sign-in completes. |
+| 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitation and its `elicitationId`, the same one for every call of that session answered with the same link. When the sign-in completes, on any replica, the session is sent `notifications/elicitation/complete` with that `elicitationId`; retry the call then. A retry before the sign-in completed gets the same error again: this protocol tells muster neither that the person accepted nor that they declined, so muster cannot hold the retry until the sign-in completes. |
 | Any other | The `auth_required` answer. |
+
+An agent's `filter_tools` search (actor JWT or delegated token, client declared `elicitation.url`) that names exactly one server awaiting sign-in (its `pattern` under the server's tool prefix such as `x_miro_*`, or its `query` or `description_filter` has the server's name as a word) is answered with that server's `auth_required` elicitation above and lists nothing; the retry after sign-in lists the server's tools. Any other search, a person's own client and a client without URL elicitation get the listing with `servers_requiring_auth`. A grant the person already holds (`grantScope: subject`) connects the session instead.
 
 Only the sign-in answers muster issues are elicited: a backend result that has the same shape is returned unchanged. A server muster connects with the person's muster sign-in (token forwarding, token exchange) has no link to open, and keeps the `auth_required` answer.
 
@@ -236,7 +315,9 @@ workflow whose steps call only read-only tools stays read-only when one of them 
 | `core_mcpserver_list`, `core_mcpserver_get`, `core_mcpserver_validate` | true | false | true | false | Read or validate. |
 | `core_mcpserver_detect` | true | false | true | **true** | Probes a remote URL for its transport; reads only, but reaches beyond muster. |
 | `core_mcpserver_create` | false | false | false | false | Adds a definition. |
-| `core_mcpserver_update` | false | true | true | false | Replaces a definition. |
+| `core_mcpserver_update` | false | true | true | false | Changes description, display name, tags, lifecycle. |
+| `core_mcpserver_connect` | false | true | true | false | Changes where a server is and how muster reaches it. |
+| `core_mcpserver_set_approval` | false | false | true | false | Replaces a server's approval settings. |
 | `core_mcpserver_delete` | false | true | false | false | Removes a definition. |
 | `core_events` | true | false | true | false | Read. |
 | `core_auth_login` | **true** | false | true | **true** | Issues a sign-in link for the caller and changes nothing on the platform; the grant that follows lands in the caller's own session. Reaches the server's authorization server. A read-only agent keeps the ability to connect SSO-protected servers as the person. |
@@ -540,6 +621,7 @@ Create a new MCP server definition that can be started as a service.
 - `progress` (object, optional) - `maxDuration` (integer): seconds a tool call that reports progress may run in all; each progress notification restarts `timeout` up to it (at least `timeout`, at most 3600, default 3600)
 - `autoStart` (boolean, optional) - Whether to start automatically on system startup
 - `auth` (object, optional) - Authentication for remote servers. An `authorizationServer` that another MCPServer describes differently under the same issuer (another client or endpoints) is refused, naming that server: one issuer, one client
+- `preset` (string) or `approval` (object) - **one is required.** `preset` is `recommended`, `allow-all` or `ask-all`, expanded from the tools the server lists now (none yet on create: the preset's rule); `approval` is `{"rule": "Allow"|"Ask", "tools": {"<tool>": "Allow"|"Ask"|"Block"}}`. Without either the call fails, listing the presets
 - `clientCredentials` (object, optional, write-only) - `{"clientId": "...", "clientSecret": "..."}`, the client of `auth.authorizationServer` (required with it). Not with `auth.authorizationServer.clientCredentialsSecretRef`. Refused for an issuer a provider App owns: the App's client signs in there. muster creates the server, then, as the caller, the Secret `<name>-muster-client-<10 random>` (`client-id`, `client-secret`) owned by the server, then names it in the reference. The caller needs `create` on `secrets`; when that fails, the server is removed again and the error names the permission. Values are never returned or logged; the schema marks it `writeOnly`, and a workflow execution record keeps `[redacted]` for an input passed into it
 
 **Returns:** Created MCP server definition
@@ -558,7 +640,8 @@ Create a new MCP server definition that can be started as a service.
       "API_KEY": "abc123",
       "LOG_LEVEL": "debug"
     },
-    "autoStart": true
+    "autoStart": true,
+    "preset": "recommended"
   }
 }
 ```
@@ -574,7 +657,7 @@ Get detailed information about a specific MCP server definition.
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to retrieve
 
-**Returns:** Complete MCP server definition object. `displayName`, `tags` (array), `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server
+**Returns:** Complete MCP server definition object. `displayName`, `tags` (array), `registeredBy` and `registeredByEmail` carry the server's `ui.giantswarm.io/` annotations and are omitted when unset; `core_mcpserver_list` returns the same fields per server; `approval` is the server's `spec.approval`, omitted when unset
 
 **Example Request:**
 ```json
@@ -604,19 +687,25 @@ Get detailed information about a specific MCP server definition.
 ```
 
 ### `core_mcpserver_update`
-Update an existing MCP server definition. Only provided fields are updated.
+Update an existing MCP server definition. Only provided fields are updated. Where the server is and how muster reaches it change with [`core_mcpserver_connect`](#core_mcpserver_connect), its approval settings with [`core_mcpserver_set_approval`](#core_mcpserver_set_approval); an argument of those is refused, naming the tool.
 
 **Arguments:**
 - `name` (string, required) - Name of the MCP server to update
-- `type` (string, optional) - Server type
 - `displayName` (string, optional) - Sets the `ui.giantswarm.io/display-name` annotation, trimmed; an empty or blank string removes it, and omitting it keeps the current one
 - `tags` (array of strings, optional) - Replaces the tags; `[]` removes them, and omitting it keeps the current ones. More than 50 only when none of them is new, so a longer hand-set list can be sent back
 - `description` (string, optional) - Updated description
-- `command` (array of strings, optional) - New command and arguments
-- `env` (object, optional) - Updated environment variables (replaces existing)
 - `autoStart` (boolean, optional) - Auto-start setting; omitting it keeps the current one
-- `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` (or omitted) resumes it
+- `timeout` (integer, optional) - Connection timeout in seconds
+- `progress` (object, optional) - As on create
+- `suspended` (boolean, optional) - Desired lifecycle state: `true` stops the server's service and keeps it stopped; `false` resumes it; omitted keeps it
 - `restartRequestedAt` (string, optional) - RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler
+
+### `core_mcpserver_connect`
+Change where an existing MCP server is and how muster reaches it. A floor: an agent caller is always asked first ([Governance and floors](../how-to/mcp-server-management.md#governance-and-floors)).
+
+**Arguments:**
+- `name` (string, required) - Name of the MCP server
+- `type`, `url`, `command`, `args`, `env`, `headers`, `headersFrom`, `requestMeta`, `family`, `toolPrefix` (optional) - As on create; a given field replaces the current one
 - `auth` (object, optional) - Replaces the server's auth. An `authorizationServer` without `clientCredentialsSecretRef` keeps a client stored with `clientCredentials`; one without `authorizationServer` drops it. Changing its `issuer`, `authorizationEndpoint`, `tokenEndpoint` or `revocationEndpoint` away from those the client was entered for, while keeping that client, is refused: send `clientCredentials` again, or `clearClientCredentials`. A changed `authorizationServer` that another MCPServer describes differently under the same issuer is refused, as on create
 - `clearClientCredentials` (boolean, optional) - Drops the client stored with `clientCredentials` and keeps `auth.authorizationServer`. Not with `clientCredentials` or `clientCredentialsSecretRef`
 - `clientCredentials` (object, optional, write-only) - Replaces the client: a new Secret owned by the server, then the reference switches to it. The previous Secret stays until the server is deleted. Same rules as on create
@@ -626,23 +715,31 @@ Update an existing MCP server definition. Only provided fields are updated.
 **Example Request:**
 ```json
 {
-  "name": "core_mcpserver_update",
+  "name": "core_mcpserver_connect",
   "arguments": {
     "name": "my-tools",
-    "description": "Updated: Custom tool server with monitoring",
     "env": {
       "API_KEY": "new-key-456",
-      "LOG_LEVEL": "info",
-      "METRICS_ENABLED": "true"
+      "LOG_LEVEL": "info"
     }
   }
 }
 ```
 
-**Use Cases:**
-- Update server configurations without recreating
-- Modify environment variables or command arguments
-- Change auto-start behavior
+### `core_mcpserver_set_approval`
+Replace a server's `spec.approval`, as the caller. A floor for agent callers.
+
+**Arguments:**
+- `name` (string, required) - Name of the MCP server
+- `approval` (object) or `preset` (string) - exactly one. `approval` is `{"rule": "Allow"|"Ask"|"Block", "tools": {"<tool>": "Allow"|"Ask"|"Block"}}` (not empty; `rule: Block` hides every tool without its own entry); `preset` (`recommended`, `allow-all`, `ask-all`) is expanded, once, from the tools the server lists now into explicit settings. When the call asks, the person approves the expansion and that is what is written.
+- `expectedGeneration` (integer, optional) - the `generation` `core_mcpserver_get` or `_list` returned; the write is refused with `conflict: MCP server '<name>' changed since it was read (generation N now, expectedGeneration M): read it again ...` when the server changed since
+
+**Returns:** `{"name", "approval", "message"}`; the message says when a preset found no tools and only wrote its rule. A write the API server did not store (a CRD older than `spec.approval`) is refused.
+
+```json
+{"name": "core_mcpserver_set_approval",
+ "arguments": {"name": "github", "approval": {"rule": "Ask", "tools": {"get_issue": "Allow", "delete_repository": "Block"}}}}
+```
 
 ### `core_mcpserver_delete`
 Delete an MCP server definition. Server must be stopped before deletion.

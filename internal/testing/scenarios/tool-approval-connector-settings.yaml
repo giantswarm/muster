@@ -1,0 +1,146 @@
+name: "tool-approval-connector-settings"
+description: "An MCPServer's spec.approval sets Allow, Ask or Block per tool with a rule for the rest: list_tools, filter_tools and describe_tool report each tool's effective approval and whether the caller is a connector admin, a Block tool is hidden and refused by call_tool, and a server without approval is Allow, not reviewed, and a call that asks is refused where muster cannot ask"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["approval", "metatools", "mcpserver"]
+timeout: "5m"
+
+# Given: github has approval {rule: Ask, tools: {get_issue: Allow, delete_repository: Block}};
+#        pagerduty has none.
+# When:  the meta-tools list, describe and call their tools.
+# Then:  get_issue is allow (tool), merge_pull_request ask (connector, new),
+#        delete_repository is hidden and refused as not found, pagerduty's
+#        tool is allow (unreviewed), muster's configuration tools ask (builtin),
+#        and merge_pull_request, which asks, is refused here: this
+#        instance has no shared store or browser sign-in to ask with.
+
+pre_configuration:
+  mcp_servers:
+    - name: "github"
+      config:
+        approval:
+          rule: "Ask"
+          tools:
+            get_issue: "Allow"
+            delete_repository: "Block"
+        tools:
+          - name: "get_issue"
+            description: "Get an issue"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { issue: 1 } }]
+          - name: "merge_pull_request"
+            description: "Merge a pull request"
+            annotations: { read_only_hint: false }
+            responses: [{ response: { merged: true } }]
+          - name: "delete_repository"
+            description: "Delete a repository"
+            annotations: { read_only_hint: false, destructive_hint: true }
+            responses: [{ response: { deleted: true } }]
+    - name: "pagerduty"
+      config:
+        tools:
+          - name: "ack"
+            description: "Acknowledge an incident"
+            responses: [{ response: { acked: true } }]
+
+steps:
+  - id: "wait-for-servers"
+    tool: "core_mcpserver_list"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+      contains: ["github", "pagerduty"]
+
+  - id: "describe-allowed-tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_github_get_issue" } }
+    expected:
+      success: true
+      wait_for_state: "20s"
+      json_path:
+        name: "x_github_get_issue"
+        approval.setting: "allow"
+        approval.source: "tool"
+        connectorAdmin: true
+      not_contains: ["\"new\""]
+
+  - id: "describe-tool-following-the-rule"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_github_merge_pull_request" } }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "ask"
+        approval.source: "connector"
+        approval.new: true
+
+  - id: "describe-unreviewed-tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_pagerduty_ack" } }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "allow"
+        approval.source: "unreviewed"
+
+  - id: "describe-builtin-config-tool"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "core_config_save" } }
+    expected:
+      success: true
+      json_path:
+        approval.setting: "ask"
+        approval.source: "builtin"
+      not_contains: ["connectorAdmin"]
+
+  - id: "blocked-tool-not-described"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_github_delete_repository" } }
+    expected:
+      success: false
+      error_contains: ["Tool not found: x_github_delete_repository"]
+
+  - id: "blocked-tool-not-listed"
+    tool: "test_call_meta_tool"
+    args: { tool: "filter_tools", arguments: { pattern: "x_github_*" } }
+    expected:
+      success: true
+      contains: ["x_github_get_issue", "x_github_merge_pull_request"]
+      not_contains: ["x_github_delete_repository"]
+
+  - id: "blocked-tool-refused"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "call_tool"
+      arguments: { name: "x_github_delete_repository", arguments: {} }
+    expected:
+      success: false
+      error_contains: ["tool not found: x_github_delete_repository"]
+
+  - id: "ask-without-prerequisites-is-refused"
+    description: "This instance runs no shared store on Valkey and no browser sign-in: a call that asks is refused with the reason, never run"
+    tool: "test_call_meta_tool"
+    args:
+      tool: "call_tool"
+      arguments: { name: "x_github_merge_pull_request", arguments: {} }
+    expected:
+      success: false
+      error_contains: ["approval_unavailable", "asks before it runs (ask from connector)"]
+      not_contains: ["merged"]
+
+  - id: "unavailable-is-reported"
+    tool: "test_call_meta_tool"
+    args: { tool: "describe_tool", arguments: { name: "x_github_merge_pull_request" } }
+    expected:
+      success: true
+      contains: ["not on Valkey"]
+
+  - id: "server-reports-its-approval"
+    tool: "core_mcpserver_get"
+    args: { name: "github" }
+    expected:
+      success: true
+      json_path:
+        approval.rule: "Ask"
+        approval.tools.delete_repository: "Block"

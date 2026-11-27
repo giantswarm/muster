@@ -1,5 +1,5 @@
 name: "mcpserver-auth-schema-advertised"
-description: "core_mcpserver create/update/validate advertise the full auth schema including authorizationServer and tokenExchange (issue #1018)"
+description: "core_mcpserver create/connect/validate advertise the full auth schema including authorizationServer and tokenExchange (issue #1018)"
 category: "behavioral"
 concept: "mcpserver"
 tags: ["mcpserver", "metatools", "describe_tool", "oauth", "authentication", "issue-1018"]
@@ -7,7 +7,7 @@ timeout: "1m"
 
 # Schema-advertisement acceptance for #1018:
 #
-# Given: The core_mcpserver_create/update/validate handlers accept the full
+# Given: The core_mcpserver_create/connect/validate handlers accept the full
 #        auth block (authorizationServer override and tokenExchange).
 # When:  A client inspects the advertised tool schema via describe_tool.
 # Then:  The auth argument schema exposes authorizationServer and
@@ -33,13 +33,13 @@ steps:
       - "clientCredentialsSecretRef"
       - "issuer"
 
-- id: "describe-update-advertises-full-auth"
-  description: "core_mcpserver_update advertises authorizationServer and tokenExchange in the auth schema"
+- id: "describe-connect-advertises-full-auth"
+  description: "core_mcpserver_connect, which changes a server's auth, advertises authorizationServer and tokenExchange in the auth schema"
   tool: "test_call_meta_tool"
   args:
     tool: "describe_tool"
     arguments:
-      name: "core_mcpserver_update"
+      name: "core_mcpserver_connect"
   expected:
     success: true
     contains:

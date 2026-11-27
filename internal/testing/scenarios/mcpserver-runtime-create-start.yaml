@@ -53,6 +53,7 @@ steps:
     description: "Create a new MCPServer definition after muster has booted"
     tool: "core_mcpserver_create"
     args:
+      preset: "allow-all"
       name: "runtime-created-server"
       type: "streamable-http"
       autoStart: true

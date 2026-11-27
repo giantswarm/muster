@@ -323,6 +323,84 @@ tests:
           path: data["config.yaml"]
           pattern: "protectedSecrets:\n    - RELEASE-NAME-muster-oauth\n    - valkey-auth\n    - internal-ca\n    - mounted-extra\n    - muster-tls\n    - operator-listed\n"
 
+  - it: omits governance and approval by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^(governance|approval):"
+
+  - it: renders muster.governance and muster.approval at the top level of config.yaml
+    set:
+      muster.governance:
+        mode: trusted
+        roleFloors:
+          exampleManager: [approve_change]
+        governedServers:
+          - server: example-manager
+            role: exampleManager
+      muster.approval:
+        ttl: 5m
+        installation: example
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\ngovernance:\n  governedServers:\n  - role: exampleManager\n    server: example-manager\n  mode: trusted\n  roleFloors:\n    exampleManager:\n    - approve_change\n"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "\napproval:\n  installation: example\n  ttl: 5m\n"
+
+  - it: fails on a governance key muster does not read
+    set:
+      muster.governance:
+        mode: governed
+        rolefloors:
+          exampleManager: [approve_change]
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.rolefloors is not a governance key (mode, roleFloors, governedServers): muster would ignore it"
+
+  - it: fails on a role neither built in nor declared
+    set:
+      muster.governance:
+        mode: governed
+        governedServers:
+          - {server: example-manager, role: exampleManager}
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.governance.governedServers[0] (example-manager) has unknown role "exampleManager": use a built-in role or declare it in muster.governance.roleFloors'
+
+  - it: fails on a floor of any role on a safe list
+    set:
+      muster.governance:
+        mode: governed
+        roleFloors:
+          exampleManager: [approve_change]
+        governedServers:
+          - {server: agent-manager, role: agentManager, safe: [list_agents, approve_change]}
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.governedServers[0] (agent-manager) lists approve_change as safe, but it is a floor of role exampleManager: a floor asks agents and cannot be on a safe list"
+
+  - it: fails on a declared role without floors
+    set:
+      muster.governance:
+        mode: governed
+        roleFloors:
+          exampleManager: []
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.roleFloors.exampleManager lists no tools: name the role's floors, or remove the entry"
+
+  - it: fails on the removed governance servers shape
+    set:
+      muster.governance:
+        mode: governed
+        servers:
+          agentManager: [agent-manager]
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.servers is no longer read: name each server in muster.governance.governedServers ({server, role, safe}) and declare roles muster does not build in with muster.governance.roleFloors"
+
   - it: omits toolsetPresets by default (only the built-in presets exist)
     asserts:
       - notMatchRegex:
@@ -360,3 +438,69 @@ tests:
       - notMatchRegex:
           path: data["config.yaml"]
           pattern: "allowLocalhostRedirectURIs"
+
+  - it: renders governed servers with roles and safe lists
+    set:
+      muster.governance:
+        mode: governed
+        governedServers:
+          - server: agent-manager
+            role: agentManager
+            safe: [list_agents]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "governance:\n  governedServers:\n  - role: agentManager\n    safe:\n    - list_agents\n    server: agent-manager\n  mode: governed"
+
+  - it: fails on a governance mode muster does not know
+    set:
+      muster.governance.mode: Governed
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.governance.mode must be trusted or governed, not "Governed" (muster would apply the governed default)'
+
+  - it: fails on the removed governance servers shape, alone or beside governedServers
+    set:
+      muster.governance:
+        mode: governed
+        servers: {agentManager: [a]}
+        governedServers: [{server: b}]
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.governance.servers is no longer read: name each server in muster.governance.governedServers ({server, role, safe}) and declare roles muster does not build in with muster.governance.roleFloors"
+
+  - it: fails on an approval ttl that is no duration in s or m
+    set:
+      muster.approval.ttl: 2h
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.approval.ttl must be a duration in m and s (e.g. 5m, 1m30s, 90s), above 0 and at most 30m, not "2h"'
+
+  - it: fails on an approval ttl above 30m
+    set:
+      muster.approval.ttl: 45m
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.approval.ttl must be above 0 and at most 30m, not "45m" (muster would not start)'
+
+  - it: fails on a compound approval ttl above 30m
+    set:
+      muster.approval.ttl: 29m120s
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.approval.ttl must be above 0 and at most 30m, not "29m120s" (muster would not start)'
+
+  - it: fails on a zero approval ttl
+    set:
+      muster.approval.ttl: 0m
+    asserts:
+      - failedTemplate:
+          errorMessage: 'muster.approval.ttl must be above 0 and at most 30m, not "0m" (muster would not start)'
+
+  - it: renders a compound approval ttl within 30m
+    set:
+      muster.approval.ttl: 1m30s
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "ttl: 1m30s"

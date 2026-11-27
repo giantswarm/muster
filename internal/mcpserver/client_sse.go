@@ -82,6 +82,8 @@ func (c *SSEClient) connectLocked(ctx context.Context) error {
 		logging.Debug("SSEClient", "Configured %d custom headers", len(c.headers))
 	}
 
+	opts = append(opts, transport.WithHeaderFunc(withCallHeaders(nil)))
+
 	if httpClient := metaHTTPClient(c.meta); httpClient != nil {
 		opts = append(opts, transport.WithHTTPClient(httpClient))
 		logging.Debug("SSEClient", "Configured %d meta entries", len(c.meta))

@@ -85,7 +85,19 @@ type ToolInfo struct {
 	// Annotations are the tool's MCP annotations as its server declared them
 	// (for a workflow, the derived readOnlyHint); omitted when it has none.
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
-	InputSchema any              `json:"inputSchema,omitempty"`
+	// Approval is the tool's effective approval for the caller: allow, ask
+	// or block (a blocked tool is not listed), where it comes from, and
+	// whether the tool is new to its server's settings. Omitted for
+	// workflows.
+	Approval *api.ToolApproval `json:"approval,omitempty"`
+	// ConnectorAdmin reports, for a server tool, whether the caller may
+	// change its server's approval settings (for a family tool, every
+	// member's). Omitted for workflows and core tools.
+	ConnectorAdmin *bool `json:"connectorAdmin,omitempty"`
+	// Connectors names the MCPServers behind a server tool, reported only
+	// with agentTools.
+	Connectors  []ConnectorRef `json:"connectors,omitempty"`
+	InputSchema any            `json:"inputSchema,omitempty"`
 }
 
 // Text returns the human-readable line for the tool: the full description
@@ -152,8 +164,12 @@ type ListToolsResponse = FilterToolsResponse
 // it now equals len(Tools), i.e. the page size capped by limit. New callers
 // should prefer Total for the match count and Truncated to detect more pages.
 type FilterToolsResponse struct {
-	Filters    FilterCriteria `json:"filters"`
-	TotalTools int            `json:"total_tools"`
+	// AgentTools echoes the agentTools argument the tools were evaluated
+	// with, so a caller can tell a muster that evaluated it from one that
+	// ignored it.
+	AgentTools *AgentToolsEcho `json:"agentTools,omitempty"`
+	Filters    FilterCriteria  `json:"filters"`
+	TotalTools int             `json:"total_tools"`
 	// FilteredCount equals len(Tools) (the current page size). Deprecated: use
 	// Total for the number of matches across the catalogue.
 	FilteredCount int        `json:"filtered_count"`
@@ -195,6 +211,12 @@ type FilterToolsResponse struct {
 	// person must sign in again (a session whose token the Kubernetes API
 	// does not accept, when muster lists servers as the caller).
 	Notice string `json:"notice,omitempty"`
+	// Governance is the governance mode muster runs in, trusted or governed
+	// (also when muster started without a readable configuration, which
+	// applies the governed entries), so a client can show it and pick the
+	// connector wizard's preset. The configuration's server lists are not
+	// reported.
+	Governance string `json:"governance"`
 }
 
 // FilterCriteria describes the filter parameters applied.
@@ -317,7 +339,11 @@ type DescribeToolResponse struct {
 	Server      string           `json:"server,omitempty"`
 	Kind        string           `json:"kind,omitempty"`
 	Annotations *ToolAnnotations `json:"annotations,omitempty"`
-	InputSchema any              `json:"inputSchema,omitempty"`
+	// Approval and ConnectorAdmin are as in ToolInfo.
+	Approval       *api.ToolApproval `json:"approval,omitempty"`
+	ConnectorAdmin *bool             `json:"connectorAdmin,omitempty"`
+	Connectors     []ConnectorRef    `json:"connectors,omitempty"`
+	InputSchema    any               `json:"inputSchema,omitempty"`
 	// Invocation states how the described tool is called: through call_tool,
 	// never by its own name.
 	Invocation string `json:"invocation,omitempty"`

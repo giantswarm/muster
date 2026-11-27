@@ -10,6 +10,7 @@ steps:
   description: "Try to create stdio MCP server without command"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "missing-command-server"
     type: "stdio"
     autoStart: false
@@ -21,6 +22,7 @@ steps:
   description: "Try to create stdio MCP server with empty command"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "empty-command-server"
     type: "stdio"
     command: ""

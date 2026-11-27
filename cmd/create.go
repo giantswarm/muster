@@ -33,12 +33,20 @@ Available resource types:
   workflow      - Create a Workflow definition
   mcpserver     - Create an MCP server definition (stdio, streamable-http, or sse)
 
+An MCP server is created with its approval settings: --preset is required.
+  --preset recommended                 Read-only tools run, the rest ask (rule Ask)
+  --preset allow-all                   Everything runs (rule Allow)
+  --preset ask-all                     Everything asks (rule Ask)
+A server not connected yet lists no tools, so the preset writes its rule
+only; set per-tool settings afterwards with core_mcpserver_set_approval
+(explicit approval settings are not available on the command line).
+
 Examples:
   muster create workflow example-workflow
-  muster create mcpserver my-stdio-server --type=stdio --command=npx --args="@modelcontextprotocol/server-git" --autoStart=true
-  muster create mcpserver my-http-server --type=streamable-http --url=https://api.example.com/mcp --timeout=30
-  muster create mcpserver my-sse-server --type=sse --url=https://sse.example.com/mcp --timeout=60
-  muster create mcpserver kagi-search --type=streamable-http --url=https://mcp.example.com/kagi --display-name="Kagi Search" --description="Web search"
+  muster create mcpserver my-stdio-server --type=stdio --command=npx --args="@modelcontextprotocol/server-git" --autoStart=true --preset=allow-all
+  muster create mcpserver my-http-server --type=streamable-http --url=https://api.example.com/mcp --timeout=30 --preset=recommended
+  muster create mcpserver my-sse-server --type=sse --url=https://sse.example.com/mcp --timeout=60 --preset=ask-all
+  muster create mcpserver kagi-search --type=streamable-http --url=https://mcp.example.com/kagi --display-name="Kagi Search" --description="Web search" --preset=recommended
 
 Authentication (remote server types only):
   --auth-type oauth                    Enable OAuth 2.0/OIDC authentication
@@ -50,10 +58,10 @@ Authentication (remote server types only):
                                        next to the pinned grant (requires --auth-issuer)
   --required-audiences <a1,a2>         Extra audiences to request for the forwarded token
 
-  muster create mcpserver my-oauth-server --type=streamable-http --url=https://api.example.com/mcp --auth-type=oauth
-  muster create mcpserver my-pinned-server --type=streamable-http --url=https://api.example.com/mcp --auth-type=oauth --auth-issuer=https://auth.example.com --auth-scopes="openid profile"
-  muster create mcpserver my-sso-server --type=streamable-http --url=https://mcp.example.com/mcp --forward-token --required-audiences=dex-k8s-authenticator
-  muster create mcpserver my-two-hats-server --type=streamable-http --url=https://mcp.example.com/mcp --auth-type=oauth --auth-issuer=https://github.com/login/oauth --forward-identity --required-audiences=dex-k8s-authenticator
+  muster create mcpserver my-oauth-server --type=streamable-http --url=https://api.example.com/mcp --auth-type=oauth --preset=recommended
+  muster create mcpserver my-pinned-server --type=streamable-http --url=https://api.example.com/mcp --auth-type=oauth --auth-issuer=https://auth.example.com --auth-scopes="openid profile" --preset=recommended
+  muster create mcpserver my-sso-server --type=streamable-http --url=https://mcp.example.com/mcp --forward-token --required-audiences=dex-k8s-authenticator --preset=recommended
+  muster create mcpserver my-two-hats-server --type=streamable-http --url=https://mcp.example.com/mcp --auth-type=oauth --auth-issuer=https://github.com/login/oauth --forward-identity --required-audiences=dex-k8s-authenticator --preset=recommended
 
 Note: The aggregator server must be running (use 'muster serve') before using these commands.`,
 	Args: cobra.MinimumNArgs(2),
@@ -158,6 +166,10 @@ func getOrCreateStringMap(args map[string]interface{}, key string) map[string]st
 // processMCPServerFlag handles individual flag processing for MCPServer parameters
 func processMCPServerFlag(args map[string]interface{}, flagName, flagValue string, hasValue bool) {
 	switch flagName {
+	case "preset":
+		if hasValue {
+			args["preset"] = flagValue
+		}
 	case "type":
 		if hasValue {
 			args["type"] = flagValue

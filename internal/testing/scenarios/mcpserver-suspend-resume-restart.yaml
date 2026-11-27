@@ -53,7 +53,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "suspend-test-server"
-      type: "streamable-http"
       autoStart: true
       suspended: true
     expected:
@@ -86,7 +85,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "suspend-test-server"
-      type: "streamable-http"
       autoStart: true
       suspended: false
     expected:
@@ -109,7 +107,6 @@ steps:
     tool: "core_mcpserver_update"
     args:
       name: "suspend-test-server"
-      type: "streamable-http"
       autoStart: true
       restartRequestedAt: "2026-01-02T15:04:05Z"
     expected:

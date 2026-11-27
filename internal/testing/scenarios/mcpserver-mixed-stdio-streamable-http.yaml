@@ -10,6 +10,7 @@ steps:
   description: "Create a stdio MCP server"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "mixed-stdio-server"
     type: "stdio"
     command: "echo"
@@ -22,6 +23,7 @@ steps:
   description: "Create a streamable HTTP MCP server"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "mixed-http-server"
     type: "streamable-http"
     url: "http://localhost:8080/mcp"

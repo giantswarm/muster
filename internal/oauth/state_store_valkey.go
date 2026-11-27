@@ -36,6 +36,9 @@ type valkeyStateEntry struct {
 	SignInIssuer     string    `json:"sii,omitempty"`
 	SignInSubject    string    `json:"sis,omitempty"`
 	BrowserBinding   string    `json:"bb,omitempty"`
+	HandoffBinding   string    `json:"hb,omitempty"`
+	HandoffToken     string    `json:"ht,omitempty"`
+	HandoffName      string    `json:"hn,omitempty"`
 }
 
 func (e *valkeyStateEntry) toState() *OAuthState {
@@ -54,6 +57,9 @@ func (e *valkeyStateEntry) toState() *OAuthState {
 		PinDigest:        e.PinDigest,
 		SignIn:           api.SignInIdentity{Issuer: e.SignInIssuer, Subject: e.SignInSubject},
 		BrowserBinding:   e.BrowserBinding,
+		HandoffBinding:   e.HandoffBinding,
+		HandoffToken:     e.HandoffToken,
+		HandoffName:      e.HandoffName,
 	}
 }
 
@@ -74,6 +80,9 @@ func stateToEntry(s *OAuthState) *valkeyStateEntry {
 		SignInIssuer:     s.SignIn.Issuer,
 		SignInSubject:    s.SignIn.Subject,
 		BrowserBinding:   s.BrowserBinding,
+		HandoffBinding:   s.HandoffBinding,
+		HandoffToken:     s.HandoffToken,
+		HandoffName:      s.HandoffName,
 	}
 }
 

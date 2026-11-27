@@ -182,9 +182,7 @@ func (c *DynamicAuthClient) connectLocked(ctx context.Context) error {
 		opts = append(opts, transport.WithHTTPHeaders(c.headers))
 		logging.Debug("DynamicAuthClient", "Configured %d definition headers", len(c.headers))
 	}
-	if c.headerFunc != nil {
-		opts = append(opts, transport.WithHTTPHeaderFunc(c.headerFunc))
-	}
+	opts = append(opts, transport.WithHTTPHeaderFunc(withCallHeaders(c.headerFunc)))
 
 	// The OAuth handler is separate from the transport's HTTP client, so a
 	// metadata-injecting client composes with bearer injection instead of

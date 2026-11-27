@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,15 @@ func convertCRDProgressToAPI(src *musterv1alpha1.MCPServerProgress) *api.MCPServ
 		return nil
 	}
 	return &api.MCPServerProgress{MaxDuration: src.MaxDuration}
+}
+
+// convertCRDApprovalToAPI converts a CRD MCPServerApproval to an API
+// MCPServerApproval, values as written. Returns nil if the input is nil.
+func convertCRDApprovalToAPI(src *musterv1alpha1.MCPServerApproval) *api.MCPServerApproval {
+	if src == nil {
+		return nil
+	}
+	return &api.MCPServerApproval{Rule: src.Rule, Tools: maps.Clone(src.Tools)}
 }
 
 // convertAPIProgressToCRD converts an API MCPServerProgress to a CRD
@@ -231,6 +241,14 @@ type Adapter struct {
 	// mode; filesystem mode keeps the local client. Reads, validation, and
 	// muster's own controller writes are unaffected.
 	gate callerwrite.Gate
+
+	// approvalSchema remembers whether the API server's MCPServer CRD knows
+	// spec.approval (approval_schema.go).
+	approvalSchema approvalSchemaCache
+
+	// observed remembers the last definition read of each server
+	// (last_observed.go).
+	observed observedServers
 }
 
 // mcpServerWriter is the write surface the mutation handlers go through. The
@@ -397,6 +415,7 @@ func (a *Adapter) Close() error {
 
 // ListMCPServers returns all MCP server definitions
 func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, error) {
+	startedAt := a.observed.clockNow()
 	servers, err := a.listServed(ctx)
 	if err != nil {
 		return nil, err
@@ -405,6 +424,7 @@ func (a *Adapter) ListMCPServers(ctx context.Context) ([]api.MCPServerInfo, erro
 	for i := range servers {
 		result = append(result, a.toInfo(&servers[i]))
 	}
+	a.observed.replaceAll(result, startedAt)
 	return result, nil
 }
 
@@ -484,12 +504,14 @@ func (a *Adapter) GetMCPServer(ctx context.Context, key string) (*api.MCPServerI
 	server, err := a.getServed(ctx, key)
 	if err != nil {
 		if api.IsNotFound(err) {
+			a.observed.forget(key)
 			return nil, err
 		}
 		return nil, fmt.Errorf("failed to get MCPServer %s: %w", key, err)
 	}
 
 	info := a.toInfo(server)
+	a.observed.record(key, info)
 	return &info, nil
 }
 
@@ -500,6 +522,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		Namespace:             server.Namespace,
 		UID:                   string(server.UID),
 		CreatedAt:             server.CreationTimestamp.Time,
+		Generation:            server.Generation,
 		Labels:                server.Labels,
 		Type:                  server.Spec.Type,
 		Description:           server.Spec.Description,
@@ -516,6 +539,7 @@ func convertCRDToInfo(server *musterv1alpha1.MCPServer) api.MCPServerInfo {
 		RequestMeta:           crdRequestMeta(server.Spec),
 		Timeout:               server.Spec.Timeout,
 		Progress:              convertCRDProgressToAPI(server.Spec.Progress),
+		Approval:              convertCRDApprovalToAPI(server.Spec.Approval),
 		Error:                 server.Status.LastError,
 		State:                 string(server.Status.State),
 		ConsecutiveFailures:   server.Status.ConsecutiveFailures,
@@ -705,7 +729,7 @@ func (a *Adapter) convertRequestToCRD(req *api.MCPServerCreateRequest) *musterv1
 
 // GetTools returns all tools this provider offers
 func (a *Adapter) GetTools() []api.ToolMetadata {
-	return []api.ToolMetadata{
+	return append([]api.ToolMetadata{
 		{
 			Name:        "mcpserver_list",
 			Annotations: api.ReadOnlyAnnotations(),
@@ -746,21 +770,8 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 		{
 			Name:        "mcpserver_create",
 			Annotations: api.WriteAnnotations(false, false),
-			Description: "Create a new MCP server definition",
-			Args:        append(mcpServerArgs(true), clientCredentialsArg("Write-only OAuth client for auth.authorizationServer; muster stores it in a Secret owned by the server, as you")), // type is required for creation
-		},
-		{
-			Name:        "mcpserver_update",
-			Annotations: api.WriteAnnotations(true, true),
-			Description: "Update an existing MCP server definition.\n\nauth replaces the server's auth, but an authorizationServer without clientCredentialsSecretRef keeps a client stored with clientCredentials; clearClientCredentials drops it. Changing its issuer or an endpoint while keeping that client is refused: send clientCredentials again.",
-			// type is optional for update; suspended/restartRequestedAt are the
-			// CR-driven lifecycle fields (issue #1055) and only settable here.
-			Args: append(mcpServerArgs(false),
-				clientCredentialsArg("Write-only: replaces the client of auth.authorizationServer with a new Secret owned by the server, written as you"),
-				api.ArgMetadata{Name: "clearClientCredentials", Type: api.ArgTypeBoolean, Required: false, Description: "Drops the client stored with clientCredentials and keeps auth.authorizationServer; not with clientCredentials or clientCredentialsSecretRef"},
-				api.ArgMetadata{Name: "suspended", Type: api.ArgTypeBoolean, Required: false, Description: "Desired lifecycle state: true stops the server's service and keeps it stopped; false resumes it; omitted keeps the current value"},
-				api.ArgMetadata{Name: "restartRequestedAt", Type: api.ArgTypeString, Required: false, Description: "RFC 3339 timestamp requesting a one-shot restart; processed once by the reconciler"},
-			),
+			Description: "Create a new MCP server definition with its approval settings.\n\nPass preset (recommended, allow-all or ask-all; a server not listed yet gets the preset's rule, so set the preset again with core_mcpserver_set_approval once it lists its tools) or approval {rule, tools}.",
+			Args:        append(mcpServerArgs(true), clientCredentialsArg("Write-only OAuth client for auth.authorizationServer; muster stores it in a Secret owned by the server, as you"), presetArg(), approvalArg()), // type is required for creation
 		},
 		{
 			Name:        "mcpserver_delete",
@@ -770,7 +781,7 @@ func (a *Adapter) GetTools() []api.ToolMetadata {
 				{Name: "name", Type: api.ArgTypeString, Required: true, Description: "Name of the MCP server to delete"},
 			},
 		},
-	}
+	}, connectorWriteTools()...)
 }
 
 // ExecuteTool executes a tool by name
@@ -785,11 +796,21 @@ func (a *Adapter) ExecuteTool(ctx context.Context, toolName string, args map[str
 	case "mcpserver_detect":
 		return a.handleMCPServerDetect(ctx, args)
 	case "mcpserver_create":
-		return a.handleMCPServerCreate(ctx, args)
+		return audited(ctx, "core_mcpserver_create", args, func() (*api.CallToolResult, error) { return a.handleMCPServerCreate(ctx, args) })
 	case "mcpserver_update":
-		return a.handleMCPServerUpdate(ctx, args)
+		if refused := refuseOtherFields("core_mcpserver_update", args, updateFields, "core_mcpserver_connect or core_mcpserver_set_approval"); refused != nil {
+			return refused, nil
+		}
+		return audited(ctx, "core_mcpserver_update", args, func() (*api.CallToolResult, error) { return a.handleMCPServerUpdate(ctx, args) })
+	case "mcpserver_connect":
+		if refused := refuseOtherFields("core_mcpserver_connect", args, connectFields, "core_mcpserver_update or core_mcpserver_set_approval"); refused != nil {
+			return refused, nil
+		}
+		return audited(ctx, "core_mcpserver_connect", args, func() (*api.CallToolResult, error) { return a.handleMCPServerUpdate(ctx, args) })
+	case "mcpserver_set_approval":
+		return a.handleMCPServerSetApproval(ctx, args)
 	case "mcpserver_delete":
-		return a.handleMCPServerDelete(ctx, args)
+		return audited(ctx, "core_mcpserver_delete", args, func() (*api.CallToolResult, error) { return a.handleMCPServerDelete(ctx, args) })
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", toolName)
 	}
@@ -823,6 +844,7 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 	// A server outside the toolsets bounding the request is absent too, and
 	// a toolset that cannot be resolved admits none.
 	shows, _ := api.ToolsetShows(ctx)
+	admins := a.connectorAdmins(ctx)
 	for _, server := range allServers {
 		// A server the caller may not list in its namespace is absent.
 		if !view.Sees(server.ServerKey()) || !shows(server.ServerKey()) {
@@ -830,6 +852,9 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 		}
 		// Adjust server for display (hide raw errors in non-verbose mode)
 		server = adjustServerForDisplay(server, verbose)
+		if server.Approval != nil {
+			server = withoutBlockedNames(server, admins(server.ServerKey()))
+		}
 
 		if server.State == "Failed" {
 			failedCount++
@@ -845,6 +870,9 @@ func (a *Adapter) handleMCPServerList(ctx context.Context, args map[string]inter
 		"mcpServers": filteredServers,
 		"total":      len(filteredServers),
 		"mode":       getClientMode(a.client),
+		// The governance mode, for a client choosing the connector wizard's
+		// preset; the configuration's server lists are not reported.
+		"governance": api.GetGovernance().ModeName(),
 	}
 	if view.Reason != "" {
 		result["notice"] = view.Reason
@@ -897,6 +925,10 @@ func (a *Adapter) handleMCPServerGet(ctx context.Context, args map[string]interf
 	mcpServer, err := a.GetMCPServer(ctx, name)
 	if err != nil {
 		return api.HandleErrorWithPrefix(err, "Failed to get MCP server"), nil
+	}
+	if mcpServer.Approval != nil {
+		shown := withoutBlockedNames(*mcpServer, a.connectorAdmins(ctx)(name))
+		mcpServer = &shown
 	}
 
 	return &api.CallToolResult{
@@ -982,6 +1014,18 @@ func (a *Adapter) handleMCPServerDetect(ctx context.Context, args map[string]int
 }
 
 func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {
+	// A connector is created with its approval settings, in every mode: a
+	// preset expands from the tools listed now, and a server not created yet
+	// lists none, so it gets the preset's rule.
+	args = maps.Clone(args)
+	_, hasPreset := args["preset"]
+	approval, refused := approvalFromArgs(args, true, noTools)
+	if refused != nil {
+		return refused, nil
+	}
+	if problem := a.ApprovalSchemaProblem(ctx); problem != "" {
+		return simpleError("core_mcpserver_create cannot store the server's approval settings: " + problem)
+	}
 	var req api.MCPServerCreateRequest
 	if err := api.ParseRequest(args, &req); err != nil {
 		return &api.CallToolResult{
@@ -1000,6 +1044,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 
 	// Convert request to CRD once for reuse
 	serverCRD := a.convertRequestToCRD(&req)
+	serverCRD.Spec.Approval = approval
 
 	// Stamp the authenticated subject so registration is attributable even for
 	// clients that don't stamp it themselves (issue #1021). Update preserves it
@@ -1044,6 +1089,11 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		return simpleError(fmt.Sprintf("Failed to create MCP server: %v", err))
 	}
 
+	if refused := a.verifyApprovalStored(ctx, req.Name, approval); refused != nil {
+		return refused, nil
+	}
+	auditApprovalChange(ctx, "core_mcpserver_create", req.Name, nil, approval)
+
 	var secretName string
 	if secrets != nil {
 		var msg string
@@ -1057,7 +1107,7 @@ func (a *Adapter) handleMCPServerCreate(ctx context.Context, args map[string]int
 		Operation: "create",
 	})
 
-	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name) + storedInSecret(secretName))
+	return simpleOK(fmt.Sprintf("MCP server '%s' created successfully", req.Name) + presetNote(hasPreset, approval) + storedInSecret(secretName))
 }
 
 func (a *Adapter) handleMCPServerUpdate(ctx context.Context, args map[string]interface{}) (*api.CallToolResult, error) {

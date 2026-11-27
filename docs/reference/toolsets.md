@@ -45,6 +45,11 @@ toolset at the Session's start. It applies to every such request, with or withou
 - `preset:none` resolves to nothing; an unknown preset in a binding fails every meta-tool call
   of the Session with the error naming it, as in a header.
 
+A binding an approval sender (agent-manager) wrote can also carry the agent and its approval
+settings per entry (`Allow`, `Ask`, `Block`, a `default`, grant marks): they decide with the
+connectors' settings on every request of the Session, see
+[an agent's approval settings](mcp-tools.md#an-agents-approval-settings).
+
 A refusal of a name outside the bound toolset names it, for example `tool "x_k8s_delete" is
 outside the toolset [preset:read-only] bound to the session`; `filter_tools` echoes it as
 `toolset_bound`, and the actor bearer's audit line carries it (`toolset=[...]`). When a header

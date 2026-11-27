@@ -79,6 +79,9 @@ spec:
             - name: credprovider
               containerPort: {{ .Values.muster.credentialProvider.port }}
               protocol: TCP
+            - name: bindings
+              containerPort: {{ .Values.muster.credentialProvider.sessionBindings.port }}
+              protocol: TCP
             {{- end }}
             {{- if eq (include "muster.prometheusExporterEnabled" .) "true" }}
             - name: metrics

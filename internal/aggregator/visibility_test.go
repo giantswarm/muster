@@ -41,7 +41,10 @@ func visibilityTestServer(t *testing.T) *AggregatorServer {
 		}
 		require.NoError(t, a.registry.Register(ctx, ServerRegistration{Name: name}, client))
 	}
-	registerSuspendableServer(t, a.registry, "org-b/hubspot", false, api.StateAuthRequired)
+	manager, _ := registerSuspendableServer(t, a.registry, "org-b/hubspot", false, api.StateAuthRequired)
+	for _, name := range []string{"github", "org-a/github", "org-b/github"} {
+		manager.servers[name] = api.MCPServerInfo{Name: name, Type: "streamable-http"}
+	}
 	// The global catalogue (updateCapabilities) knows every exposed name, so
 	// a call names a server's tool that resolves; only visibility refuses it.
 	a.registry.GetAllTools()

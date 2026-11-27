@@ -13,7 +13,7 @@ import (
 	"github.com/giantswarm/muster/v5/internal/api"
 )
 
-// The client side of core_mcpserver_update: clientCredentials replace the
+// The client side of core_mcpserver_connect: clientCredentials replace the
 // client, clearClientCredentials drop it, and an auth without a reference
 // keeps it.
 

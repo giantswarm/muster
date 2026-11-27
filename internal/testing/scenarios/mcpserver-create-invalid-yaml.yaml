@@ -10,6 +10,7 @@ steps:
   description: "Create MCP server with invalid type arg"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "invalid-yaml-server"
     type: "invalidType"
     command: "echo"

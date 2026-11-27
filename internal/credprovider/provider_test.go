@@ -243,7 +243,7 @@ func TestFetchSecretRefusals(t *testing.T) {
 	t.Run("an unbound Session after unbind", func(t *testing.T) {
 		_, err := client.FetchSecret(ctx, &credproviderpb.FetchSecretRequest{Uri: testGitURI, ActorSpiffeId: testActor})
 		require.NoError(t, err)
-		require.NoError(t, store.Delete(ctx, testActor, "alice"))
+		require.NoError(t, store.Delete(ctx, testActor, "alice", ""))
 		_, err = client.FetchSecret(ctx, &credproviderpb.FetchSecretRequest{Uri: testGitURI, ActorSpiffeId: testActor})
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})

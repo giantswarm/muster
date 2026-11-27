@@ -34,9 +34,13 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | rbac.create | bool | `true` |  |
 | rbac.additionalSecretNamespaces | list | `[]` |  |
 | rbac.mcpServerEditor.create | bool | `true` |  |
-| rbac.mcpServerEditor.subjects[0].apiGroup | string | `"rbac.authorization.k8s.io"` |  |
-| rbac.mcpServerEditor.subjects[0].kind | string | `"Group"` |  |
-| rbac.mcpServerEditor.subjects[0].name | string | `"system:authenticated"` |  |
+| rbac.mcpServerEditor.subjects | list | `[]` |  |
+| rbac.mcpServerEditor.allowRemovingBinding | bool | `false` |  |
+| rbac.approvalBinder.create | bool | `true` |  |
+| rbac.approvalBinder.reviews | bool | `true` |  |
+| rbac.approvalBinder.subjects | list | `[]` |  |
+| rbac.approvalDecider.create | bool | `true` |  |
+| rbac.approvalDecider.subjects | list | `[]` |  |
 | rbac.workflowEditor.create | bool | `true` |  |
 | rbac.workflowEditor.subjects[0].apiGroup | string | `"rbac.authorization.k8s.io"` |  |
 | rbac.workflowEditor.subjects[0].kind | string | `"Group"` |  |
@@ -105,6 +109,8 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.mcpServerNamespaceSelector | string | `nil` |  |
 | muster.mcpServerSelector | string | `nil` |  |
 | muster.secretBinding.protectedSecrets | list | `[]` |  |
+| muster.governance | object | `{}` |  |
+| muster.approval | object | `{}` |  |
 | muster.toolsetPresets | object | `{}` |  |
 | muster.providerApps | list | `[]` |  |
 | muster.credentialProvider.enabled | bool | `false` |  |
@@ -119,6 +125,9 @@ muster, the aggregating MCP server - one authenticated endpoint for every MCP se
 | muster.credentialProvider.actorBearer.jwksUrl | string | `""` |  |
 | muster.credentialProvider.actorBearer.audience | string | `""` |  |
 | muster.credentialProvider.actorBearer.allowPrivateIPJWKSHosts | list | `[]` |  |
+| muster.credentialProvider.sessionBindings.port | int | `8091` |  |
+| muster.credentialProvider.sessionBindings.onMainPort | bool | `true` |  |
+| muster.credentialProvider.sessionBindings.allowedFrom | list | `[]` |  |
 | muster.extraCaFile.path | string | `"/etc/muster/ca/extra-ca.pem"` |  |
 | muster.extraCaFile.secret.name | string | `""` |  |
 | muster.extraCaFile.secret.key | string | `"ca.pem"` |  |
@@ -264,20 +273,47 @@ a registered MCP server is visible to every user of the instance, and other
 users' sessions are routed through it. A workflow authored by one user is
 listed for and runnable by others.
 
-Pick the binding's subjects to match how the instance is used:
+Pick the bindings' subjects to match how the instance is used:
 
 * **Shared / multi-team installs** should narrow `subjects` to an admin group,
   so only platform administrators curate what everyone else is exposed to.
 * **Single-team installs**, where every authenticated SSO user is trusted to
-  register servers and author workflows, may keep the default
-  `system:authenticated` binding.
+  register servers and author workflows, may bind `system:authenticated`.
 
-The default binds `system:authenticated` — a deliberate choice that keeps
-single-team installs and upgrades working out of the box. Setting `subjects`
-to an empty list **fails the render**: a RoleBinding bound to nobody looks
-enforced while granting nothing. To manage the grants entirely out of band,
-set `rbac.mcpServerEditor.create: false` / `rbac.workflowEditor.create: false`
-and bind the verbs yourself.
+Whoever holds `mcpserver-editor` is a **connector admin**: they set a connector's
+tool approval (`spec.approval`) and may let an agent skip a tool's `Ask` (see
+[tool approval](../../docs/how-to/mcp-server-management.md#tool-approval)).
+`rbac.mcpServerEditor.subjects` therefore binds **nobody by default**: the Role
+ships, the RoleBinding renders only for a non-empty list. Name the connector
+admins there (an admin group, or `system:authenticated` for the chart's earlier
+"everyone registers" behaviour).
+
+- **Upgrading** from a chart that bound `system:authenticated`: with `subjects`
+  empty the render fails while the cluster still holds the old RoleBinding. Set
+  `subjects`, or `rbac.mcpServerEditor.allowRemovingBinding: true` to drop it.
+- `workflow-editor` still defaults to `system:authenticated`; an empty
+  `rbac.workflowEditor.subjects` fails the render.
+- To manage the grants out of band, set `rbac.mcpServerEditor.create: false` /
+  `rbac.workflowEditor.create: false` and bind the verbs yourself.
+
+## Approval permissions (muster-approval-binder, muster-approval-decider)
+
+Both Roles are bound to nobody by default, live in muster's namespace
+(`muster.namespace`, default the release namespace) and are checked by muster with
+a `TokenReview` of the caller's projected ServiceAccount token (audience `muster`)
+and a `LocalSubjectAccessReview`. The chart grants muster's ServiceAccount `create`
+on `localsubjectaccessreviews` in that namespace and on `tokenreviews` (a
+ClusterRole `<fullname>-<release namespace>-token-reviewer`, the API is
+cluster-scoped), controlled by `rbac.approvalBinder.reviews`.
+
+| Role | Verb on `toolapprovals` (group `muster.giantswarm.io`) | Allows | Bind |
+|---|---|---|---|
+| `muster-approval-binder` (`rbac.approvalBinder.subjects`) | `bind` | sending an agent's per-entry settings, `default` and grant marks with a Session binding | agent-manager's ServiceAccount only |
+| `muster-approval-decider` (`rbac.approvalDecider.subjects`) | `decide` | a trusted client (`approval.trustedClients`) deciding a person's approvals and requesting sign-in handoff tickets, with the person's bearer plus the `X-Muster-Approval-Client` token | the trusted client backend's ServiceAccount only (the portal) |
+
+Every subject bound to the binder is trusted to send grant marks, and every subject
+bound to the decider can approve for any person whose token it holds. Never bind a
+group "to make it work".
 
 ## Rolling on credential rotation
 

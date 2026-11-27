@@ -270,6 +270,7 @@ steps:
       name: "test-server"
       type: "stdio"
       command: ["mcp-test"]
+      preset: "allow-all"   # required: preset or approval
     expect:
       status: "success"
 

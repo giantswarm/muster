@@ -2293,6 +2293,11 @@ func (m *musterInstanceManager) extractExpectedToolsWithHTTPMocks(config *Muster
 				for _, tool := range toolsList {
 					if toolMap, ok := tool.(map[string]interface{}); ok {
 						if name, ok := toolMap["name"].(string); ok {
+							// A tool the server's approval blocks is never
+							// listed, so readiness must not wait for it.
+							if mockApprovalBlocks(mcpServer.Config, name) {
+								continue
+							}
 							var prefixedName string
 							// instanceArg colliding with a declared tool
 							// property causes the aggregator to fall back to
@@ -2386,8 +2391,9 @@ func mockServerSuspended(cfg map[string]interface{}) bool {
 }
 
 // applyMockSpecOptions copies the optional MCPServer spec fields a mock
-// server's config may carry -- toolPrefix, family, headers and suspended --
-// onto the spec the harness writes for it (HTTP and stdio mocks alike).
+// server's config may carry -- toolPrefix, family, headers, suspended and
+// approval -- onto the spec the harness writes for it (HTTP and stdio mocks
+// alike).
 func applyMockSpecOptions(spec map[string]interface{}, cfg map[string]interface{}) {
 	if toolPrefix, ok := cfg["toolPrefix"].(string); ok && toolPrefix != "" {
 		spec["toolPrefix"] = toolPrefix
@@ -2401,6 +2407,21 @@ func applyMockSpecOptions(spec map[string]interface{}, cfg map[string]interface{
 	if mockServerSuspended(cfg) {
 		spec["suspended"] = true
 	}
+	if approval, ok := cfg["approval"].(map[string]interface{}); ok {
+		spec["approval"] = approval
+	}
+}
+
+// mockApprovalBlocks reports whether a pre-configured mock server's
+// spec.approval blocks its tool named tool: its own entry, else the rule.
+func mockApprovalBlocks(cfg map[string]interface{}, tool string) bool {
+	approval, _ := cfg["approval"].(map[string]interface{})
+	tools, _ := approval["tools"].(map[string]interface{})
+	if setting, ok := tools[tool].(string); ok {
+		return setting == "Block"
+	}
+	rule, _ := approval["rule"].(string)
+	return rule == "Block"
 }
 
 // extractExpectedMCPServers extracts all MCP server names from the configuration.

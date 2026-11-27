@@ -200,6 +200,19 @@ func (r *ServerRegistry) buildExposedNameLocked(serverName, name string) string 
 	return r.musterPrefix + "_" + name
 }
 
+// ToolNames returns the names a server's own tool is exposed under: the
+// family-grouped name when the server's family groups its tools, and the
+// per-server name. Unlike ExposedToolName it records nothing.
+func (r *ServerRegistry) ToolNames(serverName, toolName string) []string {
+	r.nameMu.RLock()
+	defer r.nameMu.RUnlock()
+	names := []string{r.buildExposedNameLocked(serverName, toolName)}
+	if family := r.groupedFamilyLocked(serverName, r.familyFallbackStatusLocked()); family != "" {
+		names = append([]string{r.familyExposedName(family, toolName)}, names...)
+	}
+	return names
+}
+
 // ExposedToolPrefix returns the prefix every exposed tool of the server
 // carries: {musterPrefix}_{family}_ for a member of a family whose tools are
 // grouped, else {musterPrefix}_{serverPrefix}_. It needs no tool to have been
@@ -765,7 +778,7 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 			for _, tool := range c.tools {
 				exposedTool := tool
 				exposedTool.Name = r.ExposedToolName(c.serverName, tool.Name)
-				toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: c.serverName})
+				toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: c.serverName, Tool: tool.Name})
 				soloTools = append(soloTools, exposedTool)
 			}
 			continue
@@ -830,7 +843,7 @@ func (r *ServerRegistry) assembleExposedTools(contributions []serverToolContribu
 		// The exposed name carries the family, so the family is the owning
 		// server; the members are recorded so server:<member> selects it on that
 		// member.
-		toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: key.family, Servers: sortedServers, InstanceArg: entry.instanceArg})
+		toolset.SetToolOrigin(&exposedTool, toolset.ToolOrigin{Kind: toolset.OriginKindTool, Server: key.family, Servers: sortedServers, InstanceArg: entry.instanceArg, Tool: key.toolName})
 
 		soloTools = append(soloTools, exposedTool)
 		for _, sn := range sortedServers {

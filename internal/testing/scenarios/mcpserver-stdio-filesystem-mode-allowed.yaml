@@ -42,6 +42,7 @@ steps:
   description: "Create the stdio MCP server"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "stdio-fs-server"
     type: "stdio"
     command: "echo"
@@ -65,16 +66,22 @@ steps:
 
 - id: "update-stdio-definition"
   description: "Updating a stdio definition is accepted too"
-  tool: "core_mcpserver_update"
+  tool: "core_mcpserver_connect"
   args:
     name: "stdio-fs-server"
-    type: "stdio"
     command: "echo"
     args: ["stdio-filesystem-mode-updated"]
-    autoStart: false
   expected:
     success: true
     not_contains: ["not supported in Kubernetes mode"]
+
+- id: "update-stdio-definition-update-fields"
+  tool: "core_mcpserver_update"
+  args:
+    name: "stdio-fs-server"
+    autoStart: false
+  expected:
+    success: true
 
 - id: "list-includes-stdio-definition"
   description: "The stdio server is listed like any other"

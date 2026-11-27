@@ -10,6 +10,7 @@ steps:
   description: "Create a stdio MCP server for list testing"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "list-test-server"
     type: "stdio"
     command: "echo"

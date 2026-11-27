@@ -257,3 +257,53 @@ its binding.
 {{- define "muster.mcpServerClientSecretsName" -}}
 {{- printf "%s-mcpserver-client-secrets" (include "muster.fullname" .) -}}
 {{- end }}
+
+{{/*
+muster's built-in governance roles and their floors, as JSON, so the chart
+refuses at render what muster would refuse at start (an unknown role, a floor
+on a safe list) instead of muster crash-looping. Kept equal to
+internal/api/governance.go by TestChartBuiltinRoleFloorsMatch.
+*/}}
+{{- define "muster.governance.builtinRoleFloors" -}}
+{"agentManager":["set_agent_approval","set_organization_connector","add_organization_member","set_organization_model","set_organization_egress_policy","replace_organization_credential"],"clusterManager":[],"connectorManager":["mcpserver_create","mcpserver_connect","mcpserver_set_approval"],"infrastructure":[],"modelManager":["add_backend"],"sessionManager":[],"skillManager":[],"toolchainManager":["approve_source"],"vmManager":[],"workspaceManager":[]}
+{{- end -}}
+
+{{/*
+Checks muster.governance as muster checks it at start: only mode, roleFloors
+and governedServers; each roleFloors entry a non-empty list of tool names;
+each governed server's role built in or declared in roleFloors; no floor of
+any role on any safe list. Prints nothing.
+*/}}
+{{- define "muster.governance.validate" -}}
+{{- $g := . -}}
+{{- range $key, $_ := $g -}}
+{{- if eq $key "servers" -}}
+{{- fail "muster.governance.servers is no longer read: name each server in muster.governance.governedServers ({server, role, safe}) and declare roles muster does not build in with muster.governance.roleFloors" -}}
+{{- end -}}
+{{- if not (has $key (list "mode" "roleFloors" "governedServers")) -}}
+{{- fail (printf "muster.governance.%s is not a governance key (mode, roleFloors, governedServers): muster would ignore it" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- $floors := include "muster.governance.builtinRoleFloors" . | fromJson -}}
+{{- range $role, $tools := ($g.roleFloors | default dict) -}}
+{{- if not (kindIs "slice" $tools) -}}
+{{- fail (printf "muster.governance.roleFloors.%s must be a list of tool names" $role) -}}
+{{- end -}}
+{{- if not $tools -}}
+{{- fail (printf "muster.governance.roleFloors.%s lists no tools: name the role's floors, or remove the entry" $role) -}}
+{{- end -}}
+{{- $_ := set $floors $role (concat (get $floors $role | default list) $tools) -}}
+{{- end -}}
+{{- range $i, $s := ($g.governedServers | default list) -}}
+{{- if and $s.role (not (hasKey $floors $s.role)) -}}
+{{- fail (printf "muster.governance.governedServers[%d] (%s) has unknown role %q: use a built-in role or declare it in muster.governance.roleFloors" $i $s.server $s.role) -}}
+{{- end -}}
+{{- range $tool := ($s.safe | default list) -}}
+{{- range $role, $tools := $floors -}}
+{{- if has $tool $tools -}}
+{{- fail (printf "muster.governance.governedServers[%d] (%s) lists %s as safe, but it is a floor of role %s: a floor asks agents and cannot be on a safe list" $i $s.server $tool $role) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}

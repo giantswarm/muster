@@ -108,6 +108,22 @@ type OAuthState struct {
 	// person signed in to muster's identity provider as SignIn. Stored
 	// server-side only.
 	BrowserBinding string `json:"-"`
+
+	// HandoffBinding is the hash of the browser cookie of a browser that
+	// redeemed a sign-in handoff ticket for this flow and has not yet
+	// confirmed, on muster's own page naming the person and the connector,
+	// that it signs in for that person. Confirmed, it becomes
+	// BrowserBinding. Stored server-side only.
+	HandoffBinding string `json:"-"`
+
+	// HandoffToken is the anti-forgery token of that confirmation. Stored
+	// server-side only.
+	HandoffToken string `json:"-"`
+
+	// HandoffName names the person the ticket was issued to (verified email,
+	// else subject at issuer), shown on the confirmation. Stored server-side
+	// only.
+	HandoffName string `json:"-"`
 }
 
 // AuthRequiredResponse represents an authentication challenge returned when

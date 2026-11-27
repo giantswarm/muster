@@ -2,12 +2,18 @@ package aggregator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
+
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/approval"
 	"github.com/giantswarm/muster/v5/internal/credprovider"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -50,7 +56,55 @@ func (a *AggregatorServer) newCredentialProvider() (*credprovider.Provider, erro
 		BindingTTL:      ttl,
 		Store:           store,
 		Grants:          releaseSubjectGrant,
+		Senders:         approvalSenderReviewer(a.config.MusterNamespace),
 	})
+}
+
+// approvalSenderReviewer reviews the senders of approval settings with the
+// Kubernetes API as muster's ServiceAccount; nil (every bind carrying a
+// sender token refused) without a cluster to ask.
+func approvalSenderReviewer(namespace string) credprovider.SenderReviewer {
+	cfg, err := ctrlconfig.GetConfig()
+	if err != nil {
+		logging.Warn("Aggregator", "No Kubernetes API to review senders of approval settings: binds that carry one are refused: %v", err)
+		return nil
+	}
+	client, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		logging.Warn("Aggregator", "No Kubernetes client to review senders of approval settings: binds that carry one are refused: %v", err)
+		return nil
+	}
+	return credprovider.KubernetesSenderReviewer{Client: client, Namespace: namespace}
+}
+
+// approvalDeciderReviewer reviews a trusted client's own workload token (the
+// portal backend's projected ServiceAccount token, audience muster) for verb
+// decide on toolapprovals in muster's namespace; nil (every decision and
+// handoff of a trusted client refused) without a cluster to ask.
+func approvalDeciderReviewer(namespace string) approval.WorkloadReviewer {
+	cfg, err := ctrlconfig.GetConfig()
+	if err != nil {
+		logging.Warn("Aggregator", "No Kubernetes API to review trusted clients' workloads: inline decisions and sign-in handoffs are refused: %v", err)
+		return nil
+	}
+	client, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		logging.Warn("Aggregator", "No Kubernetes client to review trusted clients' workloads: inline decisions and sign-in handoffs are refused: %v", err)
+		return nil
+	}
+	return deciderReview(credprovider.KubernetesSenderReviewer{Client: client, Namespace: namespace, Verb: credprovider.ApprovalDeciderVerb})
+}
+
+// deciderReview adapts a sender review to the approval package's workload
+// review: a token that does not pass is approval.ErrWorkloadNotAllowed.
+func deciderReview(reviewer credprovider.SenderReviewer) approval.WorkloadReviewer {
+	return func(ctx context.Context, token string) (string, error) {
+		identity, err := reviewer.Review(ctx, token)
+		if errors.Is(err, credprovider.ErrSenderNotAllowed) {
+			return "", fmt.Errorf("%w: %w", approval.ErrWorkloadNotAllowed, err)
+		}
+		return identity, err
+	}
 }
 
 // releaseSubjectGrant is the provider's GrantSource: the person's grant held
@@ -67,17 +121,63 @@ func releaseSubjectGrant(ctx context.Context, subject, issuer string) *api.OAuth
 	return releaser.SubjectGrantForRelease(ctx, subject, issuer)
 }
 
-// registerSessionBindingRoutes builds the credential provider and puts its
-// binding endpoints on the authenticated mux. A disabled provider registers
-// nothing.
+// registerSessionBindingRoutes builds the credential provider and its
+// session bindings API: on a listener of its own (startCredentialProvider)
+// and, while sessionBindings.onMainPort is on (deprecated), on the
+// aggregator's mux too. A disabled provider registers nothing.
 func (a *AggregatorServer) registerSessionBindingRoutes(mux *http.ServeMux, authenticate func(http.Handler) http.Handler) error {
 	provider, err := a.newCredentialProvider()
 	if err != nil || provider == nil {
 		return err
 	}
+	a.sessionBindings = sessionBindingsHandler(provider, authenticate)
+	if a.config.CredentialProvider.SessionBindings.MainPort() {
+		logging.Warn("Aggregator", "The session bindings API is also served on the aggregator's port (credentialProvider.sessionBindings.onMainPort, deprecated): point agent-manager at the session bindings port and turn it off, so a network policy can admit agent-manager alone")
+		registerSessionBindingsOn(mux, provider, authenticate)
+	}
+	a.credProvider = provider
+	return nil
+}
+
+// sessionBindingsHandler is the session bindings API alone.
+func sessionBindingsHandler(provider *credprovider.Provider, authenticate func(http.Handler) http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	registerSessionBindingsOn(mux, provider, authenticate)
+	return mux
+}
+
+func registerSessionBindingsOn(mux *http.ServeMux, provider *credprovider.Provider, authenticate func(http.Handler) http.Handler) {
 	mux.Handle("PUT "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleBind)))
 	mux.Handle("DELETE "+credprovider.BindingsPath, authenticate(http.HandlerFunc(provider.HandleUnbind)))
-	a.credProvider = provider
+	// Authorized by the approval sender's token alone (no person's bearer):
+	// it only removes grant marks.
+	mux.Handle("PATCH "+credprovider.GrantsPath, http.HandlerFunc(provider.HandleDropGrants))
+}
+
+// sessionBindingsReadTimeout bounds reading a request on the bindings
+// listener (headers and the body, at most 256 KiB).
+const sessionBindingsReadTimeout = 30 * time.Second
+
+// startSessionBindings starts the session bindings API's own listener.
+func (a *AggregatorServer) startSessionBindings() error {
+	addr := a.config.CredentialProvider.SessionBindings.Address()
+	if addr == "" || a.sessionBindings == nil {
+		return nil
+	}
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("session bindings: listen on %s: %w", addr, err)
+	}
+	srv := &http.Server{Handler: a.sessionBindings, ReadHeaderTimeout: sessionBindingsReadTimeout, ReadTimeout: sessionBindingsReadTimeout}
+	a.mu.Lock()
+	a.bindingsServer, a.bindingsAddr = srv, listener.Addr().String()
+	a.mu.Unlock()
+	go func() {
+		if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logging.Error("Aggregator", err, "Session bindings listener stopped")
+		}
+	}()
+	logging.InfoWithAttrs("Aggregator", "Session bindings API listening", slog.String("addr", listener.Addr().String()))
 	return nil
 }
 
@@ -91,6 +191,9 @@ func (a *AggregatorServer) startCredentialProvider(ctx context.Context) error {
 	}
 	if a.credProvider == nil {
 		return fmt.Errorf("credential provider: needs the OAuth server (aggregator.oauth.server.enabled), whose identity the session binding endpoints authenticate")
+	}
+	if err := a.startSessionBindings(); err != nil {
+		return err
 	}
 	srv, err := credprovider.Listen(ctx, cfg.ListenAddress, credprovider.TLSFiles{
 		ServerCredBundle: cfg.ServerCredBundle,
@@ -108,12 +211,20 @@ func (a *AggregatorServer) startCredentialProvider(ctx context.Context) error {
 	return nil
 }
 
-// stopCredentialProvider drains and stops the FetchSecret listener.
+// stopCredentialProvider drains and stops the FetchSecret and session
+// bindings listeners.
 func (a *AggregatorServer) stopCredentialProvider(ctx context.Context) {
 	a.mu.Lock()
 	srv := a.credProviderServer
 	a.credProviderServer = nil
+	bindings := a.bindingsServer
+	a.bindingsServer = nil
 	a.mu.Unlock()
+	if bindings != nil {
+		shutdownCtx, cancel := context.WithTimeout(ctx, credentialProviderStopTimeout)
+		_ = bindings.Shutdown(shutdownCtx)
+		cancel()
+	}
 	if srv == nil {
 		return
 	}

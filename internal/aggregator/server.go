@@ -17,6 +17,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/admin"
 	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/approval"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/internal/credprovider"
 	"github.com/giantswarm/muster/v5/internal/listenfds"
@@ -150,6 +151,16 @@ type AggregatorServer struct {
 	// awaiting notifications/elicitation/complete (url_elicitation.go).
 	signInElicitations signInElicitations
 
+	// approvalElicitations are the approval-page URL elicitations sent per
+	// transport session, completed when the request is decided
+	// (approval_elicitation.go).
+	approvalElicitations approvalElicitations
+
+	// completions carries elicitation-complete notices between the replicas
+	// (approval_completion.go): Valkey pub/sub when the shared store is on
+	// Valkey, in-process otherwise. Nil: this replica's own sessions only.
+	completions approval.Completions
+
 	// Per-backend tool dispatch metrics. May be nil when instrument
 	// creation failed; record() is nil-safe.
 	downstreamMetrics *downstreamMetrics
@@ -273,6 +284,22 @@ type AggregatorServer struct {
 	// bindings; nil when disabled. credProviderServer is its gRPC listener.
 	credProvider       *credprovider.Provider
 	credProviderServer *credprovider.Server
+	// sessionBindings serves the session bindings API; bindingsServer is
+	// its own listener (nil without one).
+	sessionBindings http.Handler
+	bindingsServer  *http.Server
+	bindingsAddr    string
+
+	// approval is how calls that ask are asked (approval_gate.go).
+	approval approvalSettings
+
+	// workflowReports caches workflow definitions read to report a
+	// workflow's strictest step in listings (approval_workflow.go).
+	workflowReports reportedWorkflows
+
+	// safeLists records the governed servers' safe-list entries that name
+	// no tool they list (governance_safe_lists.go).
+	safeLists safeListReport
 }
 
 // getValkeyClient returns the shared Valkey client if one was configured,
@@ -872,6 +899,8 @@ func NewAggregatorServer(ctx context.Context, aggConfig AggregatorConfig, errorC
 		valkeyKeyPrefix:   stores.keyPrefix,
 		valkeyEncryptor:   stores.encryptor,
 		core:              newCoreCatalogue(),
+		approval:          newApprovalSettings(aggConfig, stores),
+		completions:       newCompletions(stores),
 	}, nil
 }
 
@@ -1023,6 +1052,14 @@ func (a *AggregatorServer) Start(ctx context.Context) error {
 	// Start periodic cleanup for SSO failure entries
 	a.wg.Add(1)
 	go a.runSSOTrackerCleanup()
+
+	// Keep the approval pending gauge, the expired count and the store gauge.
+	a.wg.Add(1)
+	go a.runApprovalMetrics()
+
+	// Deliver the completion notices the other replicas publish.
+	a.wg.Add(1)
+	go a.runCompletions()
 
 	// Re-list every connected server's capabilities on an interval: a backend
 	// redeployed with another tool set sends no list_changed to a session it
@@ -1821,6 +1858,7 @@ func (a *AggregatorServer) createOAuthProtectedMux(mcpHandler http.Handler) (htt
 	if err := a.registerSubjectRoutes(outerMux, oauthHTTPServer); err != nil {
 		return nil, err
 	}
+	a.registerApprovalPage(outerMux, cfg.BaseURL, oauthHTTPServer.ValidateTokenWithSubject)
 	metadataConfiguration := oauth.ServerConfig{Issuer: cfg.BaseURL, ResourceIdentifier: cfg.ResourceIdentifier}
 	challenge := fmt.Sprintf(`Bearer resource_metadata=%q`, metadataConfiguration.ProtectedResourceMetadataEndpoint())
 	if err := a.registerActorBearerRoutes(outerMux, mcpHandler, oauthMux, onAuthenticated, challenge); err != nil {
@@ -2087,6 +2125,10 @@ func (a *AggregatorServer) CallToolInternal(ctx context.Context, toolName string
 			return nil, unseenError(view, "tool not found: "+toolName)
 		}
 		if sessionErr == nil {
+			args, answer, gateErr := a.gateServerTool(ctx, toolName, sessionServerName, originalName, args)
+			if gateErr != nil || answer != nil {
+				return answer, gateErr
+			}
 			logging.DebugWithAttrs("Aggregator", "Tool found in capability cache",
 				slog.String("tool", toolName), slog.String("server", sessionServerName))
 			start := time.Now()
@@ -2225,6 +2267,10 @@ func (a *AggregatorServer) dispatchResolvedTool(ctx context.Context, toolName, s
 	if view := api.CallerVisibility(ctx); !view.Sees(serverName) {
 		return nil, unseenError(view, "tool not found: "+toolName)
 	}
+	args, answer, err := a.gateServerTool(ctx, toolName, serverName, originalName, args)
+	if err != nil || answer != nil {
+		return answer, err
+	}
 	start := time.Now()
 	defer func() { a.finishDispatch(ctx, serverName, toolName, start, res, err) }()
 	// Runs before finishDispatch: a backend's input request is passed on
@@ -2333,6 +2379,16 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 	logging.DebugWithAttrs("Aggregator", "callCoreToolDirectly called",
 		slog.String("tool", toolName))
 
+	var answer *mcp.CallToolResult
+	if isWorkflowRun(toolName) {
+		ctx, args, answer, err = a.gateWorkflow(ctx, toolName, args)
+	} else {
+		args, answer, err = a.gateCoreTool(ctx, toolName, args)
+	}
+	if err != nil || answer != nil {
+		return answer, err
+	}
+
 	// Remove the core_ prefix to get the original tool name for routing
 	originalToolName := strings.TrimPrefix(toolName, "core_")
 	logging.DebugWithAttrs("Aggregator", "Original tool name after prefix removal",
@@ -2348,11 +2404,7 @@ func (a *AggregatorServer) callCoreToolDirectly(ctx context.Context, toolName st
 		}
 		if provider, ok := handler.(api.ToolProvider); ok {
 			// Check if this is a workflow management tool or a workflow execution tool
-			managementTools := []string{"workflow_list", "workflow_get", "workflow_create",
-				"workflow_update", "workflow_delete", "workflow_validate", "workflow_available",
-				"workflow_execution_list", "workflow_execution_get"}
-
-			isManagementTool := slices.Contains(managementTools, originalToolName)
+			isManagementTool := slices.Contains(workflowManagementTools, originalToolName)
 
 			if isManagementTool {
 				// Use the original tool name for workflow management tools
@@ -3568,7 +3620,7 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	if sessionID == "" {
 		logging.Warn("Aggregator", "ListToolsForContext: no session ID in context — returning core tools only")
 		coreTools, _ := a.coreTools()
-		return coreTools
+		return a.applyApprovals(ctx, coreTools)
 	}
 	start := time.Now()
 
@@ -3586,6 +3638,10 @@ func (a *AggregatorServer) ListToolsForContext(ctx context.Context) []mcp.Tool {
 	allTools = append(allTools, mcpServerTools...)
 	allTools = append(allTools, coreTools...)
 	deriveWorkflowReadOnlyHints(allTools, workflowSteps)
+	// The approval settings come last: a blocked tool leaves the catalogue,
+	// after a workflow's read-only hint was derived from the tools its steps
+	// call (a workflow with a blocked step is refused at that step).
+	allTools = a.applyApprovals(ctx, allTools)
 
 	logging.DebugWithAttrs("Aggregator", "ListToolsForContext: returning tools",
 		slog.Int("total", len(allTools)),

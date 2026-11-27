@@ -3,17 +3,26 @@ mcpserver-editor: who may register and manage MCPServer resources.
 
 Session-initiated MCPServer mutations — create/update/delete and CR-driven
 lifecycle (start/stop/restart) — are written against the Kubernetes API with
-the caller's own identity, so k8s RBAC authorizes each write. The default
-binding grants the Role to all authenticated users, preserving the
-pre-enforcement "any user can register" behavior. Installations wanting
-admin-only registration narrow rbac.mcpServerEditor.subjects to an admin
-group. An empty subjects list fails the render: a RoleBinding bound to
-nobody looks enforced while granting nothing, so the chart forces the
-choice to be explicit.
+the caller's own identity, so k8s RBAC authorizes each write. Whoever holds
+the Role is a connector admin (tool approval: spec.approval, and letting an
+agent skip a tool's Ask). The chart binds nobody by default: the Role always
+ships, the RoleBinding only for a non-empty rbac.mcpServerEditor.subjects
+(an admin group; system:authenticated lets every authenticated user
+register MCP servers).
 */}}
 {{- if and .Values.rbac.create .Values.rbac.mcpServerEditor.create -}}
-{{- if not .Values.rbac.mcpServerEditor.subjects }}
-{{- fail "rbac.mcpServerEditor.subjects must not be empty while the mcpserver-editor RoleBinding is created. Bind an admin group for admin-only registration, bind group system:authenticated to deliberately let every authenticated user register MCP servers, or set rbac.mcpServerEditor.create=false to manage access out of band." }}
+{{- /*
+Upgrade guard: charts before tool approval bound the Role to
+system:authenticated by default. An upgrade with no subjects would delete
+that RoleBinding and lock every person out of registering MCP servers, with
+no other sign. When the cluster still holds the binding, the render fails
+and says how to keep or drop it. `helm template` (no cluster) never fails.
+*/}}
+{{- if and (not .Values.rbac.mcpServerEditor.subjects) (not .Values.rbac.mcpServerEditor.allowRemovingBinding) }}
+{{- $existing := lookup "rbac.authorization.k8s.io/v1" "RoleBinding" (include "muster.namespace" .) "mcpserver-editor" }}
+{{- if $existing }}
+{{- fail (printf "rbac.mcpServerEditor.subjects is empty, so this upgrade would delete the RoleBinding mcpserver-editor in %s (today bound to %s) and nobody could register or edit MCP servers as themselves any more. The chart no longer binds system:authenticated by default (tool approval: whoever holds this Role is a connector admin). Either name who may (e.g. rbac.mcpServerEditor.subjects: [{kind: Group, apiGroup: rbac.authorization.k8s.io, name: <admin group>}], or system:authenticated to keep the old behaviour), or set rbac.mcpServerEditor.allowRemovingBinding=true to drop it." (include "muster.namespace" .) (toJson $existing.subjects)) }}
+{{- end }}
 {{- end }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -27,7 +36,7 @@ rules:
     resources: ["mcpservers"]
     verbs: ["create", "update", "patch", "delete"]
   # A connector's client entered in the portal is written as the editor to a
-  # Secret owned by the MCPServer (giantswarm/giantswarm#38849). create only:
+  # Secret owned by the MCPServer. create only:
   # get, update or delete would reach every Secret of the namespace, muster's
   # own included; mcpserver-client-secrets.yaml holds the create to such
   # client Secrets.
@@ -35,18 +44,20 @@ rules:
     resources: ["secrets"]
     verbs: ["create"]
 
+{{- with .Values.rbac.mcpServerEditor.subjects }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: mcpserver-editor
-  namespace: {{ include "muster.namespace" . }}
+  namespace: {{ include "muster.namespace" $ }}
   labels:
-    {{- include "muster.labels" . | nindent 4 }}
+    {{- include "muster.labels" $ | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
   name: mcpserver-editor
 subjects:
-  {{- toYaml .Values.rbac.mcpServerEditor.subjects | nindent 2 }}
+  {{- toYaml . | nindent 2 }}
+{{- end }}
 {{- end }}

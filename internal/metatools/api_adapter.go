@@ -69,6 +69,7 @@ func NewAdapter(opts ...AdapterOption) *Adapter {
 // the aggregator has been set up.
 func (a *Adapter) Register() {
 	api.RegisterMetaTools(a)
+	api.RegisterPresetSelector(a.provider.presetSelects)
 	logging.Debug("metatools", "Adapter registered with API layer")
 }
 
@@ -273,4 +274,34 @@ func (a *Adapter) AnswerSignIn(ctx context.Context, server string) (*mcp.CallToo
 		return nil, false, err
 	}
 	return provider.AnswerSignIn(ctx, server)
+}
+
+// presetSelects resolves an agent's preset: entry against one target, with
+// the installation's presets and the request's MCPServer labels: includes
+// minus excludes, as a toolset resolves it.
+func (p *Provider) presetSelects(ctx context.Context, preset string, t api.AgentTarget) bool {
+	ts := toolset.Toolset{Raw: []string{toolset.KindPreset + ":" + preset}, Selectors: []toolset.Selector{{Kind: toolset.KindPreset, Name: preset}}}
+	entry := toolset.Entry{Name: t.Exposed}
+	switch t.Kind {
+	case api.AgentTargetWorkflow:
+		entry.Kind = toolset.KindEntryWorkflow
+	case api.AgentTargetCore:
+		entry.Kind = toolset.KindEntryCore
+	default:
+		entry.Kind = toolset.KindEntryTool
+		entry.Server = t.Server
+		if t.Family != "" {
+			entry.Server, entry.Servers = t.Family, []string{t.Server}
+		}
+	}
+	if t.Tool != nil && t.Tool.Annotations.ReadOnlyHint != nil {
+		entry.ReadOnly = *t.Tool.Annotations.ReadOnlyHint
+	}
+	res, err := p.presets.ResolveWith(ts, []toolset.Entry{entry}, p.labelsFor(ctx))
+	if err != nil {
+		// An unknown preset selects nothing; the entry then decides nothing
+		// and the connector's setting (or the default) holds.
+		return false
+	}
+	return res.Contains(t.Exposed)
 }

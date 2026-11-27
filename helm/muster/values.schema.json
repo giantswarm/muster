@@ -260,6 +260,10 @@
                         }
                     }
                 },
+                "approval": {
+                    "type": "object",
+                    "additionalProperties": true
+                },
                 "credentialProvider": {
                     "type": "object",
                     "additionalProperties": false,
@@ -307,6 +311,21 @@
                         "releasable": {
                             "type": "object",
                             "additionalProperties": true
+                        },
+                        "sessionBindings": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "allowedFrom": {
+                                    "type": "array"
+                                },
+                                "onMainPort": {
+                                    "type": "boolean"
+                                },
+                                "port": {
+                                    "type": "integer"
+                                }
+                            }
                         }
                     }
                 },
@@ -333,6 +352,10 @@
                             }
                         }
                     }
+                },
+                "governance": {
+                    "type": "object",
+                    "additionalProperties": true
                 },
                 "mcpServerNamespaceSelector": {
                     "type": [
@@ -1072,6 +1095,69 @@
                 "additionalSecretNamespaces": {
                     "type": "array"
                 },
+                "approvalBinder": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "create": {
+                            "type": "boolean"
+                        },
+                        "reviews": {
+                            "type": "boolean"
+                        },
+                        "subjects": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "apiGroup": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "namespace": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "approvalDecider": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                        "create": {
+                            "type": "boolean"
+                        },
+                        "subjects": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "properties": {
+                                    "apiGroup": {
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "type": "string"
+                                    },
+                                    "namespace": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
                 "create": {
                     "type": "boolean"
                 },
@@ -1079,6 +1165,9 @@
                     "type": "object",
                     "additionalProperties": false,
                     "properties": {
+                        "allowRemovingBinding": {
+                            "type": "boolean"
+                        },
                         "create": {
                             "type": "boolean"
                         },

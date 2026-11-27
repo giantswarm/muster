@@ -110,6 +110,13 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Required:    true,
 					Description: "Name of the tool to describe",
 				},
+				{
+					Name:        ArgAgentTools,
+					Type:        api.ArgTypeObject,
+					Required:    false,
+					Description: "Report only: an agent's {tools, default, grants}; approval as that agent sees it, plus connectors",
+					Schema:      agentToolsSchema,
+				},
 			},
 		},
 		{
@@ -131,7 +138,7 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 			Description: toolDescription(
 				"Find tools by name pattern, description, labels or a ranked natural-language query, as a small summarised page.",
 				"A tool you cannot find may sit behind a sign-in: servers_requiring_auth names each server whose tools the pattern could match, "+
-					"and its auth_tool with that server's name starts the sign-in. describe_tool gives a chosen tool's full description and schema. "+
+					"and its auth_tool with that server's name starts the sign-in: when needed, start it yourself, as the person's client prompts them. describe_tool gives a chosen tool's full description and schema. "+
 					"The response's toolset names the toolset bounding you: the toolset argument, else X-Muster-Toolset."),
 			Annotations: readOnlyMetaTool,
 			Args: []api.ArgMetadata{
@@ -143,8 +150,15 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Schema: map[string]any{
 						"type":     "array",
 						"maxItems": toolset.MaxInlineSelectors,
-						"items":    map[string]any{"type": "string"},
+						"items":    map[string]any{"type": schemaTypeString},
 					},
+				},
+				{
+					Name:        ArgAgentTools,
+					Type:        api.ArgTypeObject,
+					Required:    false,
+					Description: "Report only: an agent's {tools, default, grants}; approvals as that agent sees them, plus connectors; replaces toolset",
+					Schema:      agentToolsSchema,
 				},
 				{
 					Name:        "include_presets",
@@ -226,6 +240,12 @@ func (p *Provider) GetTools() []api.ToolMetadata {
 					Type:        api.ArgTypeObject,
 					Required:    false,
 					Description: "Arguments to pass to the tool (as JSON object)",
+				},
+				{
+					Name:        "reason",
+					Type:        api.ArgTypeString,
+					Required:    false,
+					Description: "Why you call it, shown to the person if the call asks for approval (max 500 chars)",
 				},
 			},
 		},

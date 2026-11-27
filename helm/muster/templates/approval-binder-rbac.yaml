@@ -1,0 +1,103 @@
+{{/*
+muster-approval-binder: who may send approval settings with a Session binding.
+
+agent-manager binds a Session's agent tool list (per-entry Allow/Ask/Block,
+`default`, grant marks) by sending its own projected ServiceAccount token
+(audience muster) beside the person's. muster reviews that token
+(TokenReview) and asks Kubernetes whether its identity may `bind`
+`toolapprovals` in group muster.giantswarm.io in muster's namespace
+(LocalSubjectAccessReview) — a permission on no real resource. This Role is
+that permission and nothing else; the chart binds it to nobody by default
+(the platform binds agent-manager's ServiceAccount).
+
+The Role, its RoleBinding and muster's own review rights live in muster's
+namespace (muster.namespace, default the release namespace), the namespace
+the review asks in. muster's ServiceAccount gets `create` on tokenreviews (a
+ClusterRole: the API is cluster-scoped) and on localsubjectaccessreviews in
+that namespace only, never the cluster-wide system:auth-delegator.
+*/}}
+{{- if and .Values.rbac.create .Values.rbac.approvalBinder.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: muster-approval-binder
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["muster.giantswarm.io"]
+    resources: ["toolapprovals"]
+    verbs: ["bind"]
+{{- with .Values.rbac.approvalBinder.subjects }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: muster-approval-binder
+  namespace: {{ include "muster.namespace" $ }}
+  labels:
+    {{- include "muster.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: muster-approval-binder
+subjects:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+{{- if and .Values.rbac.create .Values.rbac.approvalBinder.reviews }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "muster.fullname" . }}-{{ .Release.Namespace }}-token-reviewer
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "muster.fullname" . }}-{{ .Release.Namespace }}-token-reviewer
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "muster.fullname" . }}-{{ .Release.Namespace }}-token-reviewer
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "muster.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "muster.fullname" . }}-access-reviewer
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["localsubjectaccessreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "muster.fullname" . }}-access-reviewer
+  namespace: {{ include "muster.namespace" . }}
+  labels:
+    {{- include "muster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "muster.fullname" . }}-access-reviewer
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "muster.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

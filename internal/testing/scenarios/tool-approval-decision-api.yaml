@@ -1,0 +1,98 @@
+name: "tool-approval-decision-api"
+description: "muster's decision API (GET /approvals/{id} with a bearer, POST /approvals/{id}/decision) refuses a client that is not on approval.trustedClients, for viewing and deciding, decides nothing, and leaves the approval page working"
+category: "behavioral"
+concept: "mcpserver"
+tags: ["approval", "security", "oauth", "valkey", "mcpserver"]
+timeout: "5m"
+
+# Given: muster runs its own OAuth server on Valkey storage, trusts only the
+#        OAuth client "portal" (approval.trustedClients), and github's
+#        merge_pull_request asks. alice signs in through the test client,
+#        which is not trusted.
+# When:  alice's client asks muster's decision API to show and approve her
+#        pending request with her own bearer.
+# Then:  both are refused (untrusted_client), the call still asks, and the
+#        approval page still decides it; the retry runs once. The trusted
+#        path (portal's client) is covered by the unit tests of
+#        internal/approval/decision_api_test.go: the runner's sign-in
+#        registers a client with a random id, which no configuration can
+#        name in advance.
+
+pre_configuration:
+  storage:
+    type: "valkey"
+
+  main_config:
+    config:
+      approval:
+        ttl: "2m"
+        trustedClients: ["portal"]
+
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "github"
+      config:
+        approval:
+          rule: "Ask"
+        tools:
+          - name: "merge_pull_request"
+            description: "Merge a pull request"
+            annotations: { read_only_hint: false }
+            responses: [{ response: { merged: true } }]
+
+steps:
+  - id: "login-alice"
+    tool: "test_muster_auth_login"
+    args: { subject: "alice" }
+    expected:
+      success: true
+
+  - id: "open-alice-session"
+    tool: "test_create_user"
+    args: { name: "alice" }
+    expected:
+      success: true
+
+  - id: "untrusted-client-cannot-view-or-decide"
+    tool: "test_approval_api"
+    args: { tool: "x_github_merge_pull_request", arguments: { pr: 1 }, decision: "approve" }
+    expected:
+      success: true
+      wait_for_state: "30s"
+      json_path:
+        view_status: 403
+        view_error: "untrusted_client"
+        decision_status: 403
+        decision_error: "untrusted_client"
+
+  - id: "nothing-was-decided"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 1 }
+    expected:
+      success: false
+      contains: ["approval_required"]
+      not_contains: ["merged"]
+
+  - id: "the-page-still-decides"
+    tool: "test_decide_approval"
+    args: { tool: "x_github_merge_pull_request", arguments: { pr: 1 }, decision: "approve" }
+    expected:
+      success: true
+      json_path:
+        decision_status: 200
+
+  - id: "retry-runs-once"
+    tool: "x_github_merge_pull_request"
+    args: { pr: 1 }
+    expected:
+      success: true
+      contains: ["merged"]

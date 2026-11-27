@@ -30,4 +30,6 @@ metadata:
 data:
   muster.json: |-
 {{ .Files.Get "dashboards/muster.json" | indent 4 }}
+  muster-approval.json: |-
+{{ .Files.Get "dashboards/muster-approval.json" | indent 4 }}
 {{- end }}

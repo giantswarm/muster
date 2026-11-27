@@ -249,7 +249,7 @@ func TestFilesystemModeKeepsBareNames(t *testing.T) {
 func TestCoreWritesRefuseATenantKey(t *testing.T) {
 	adapter := NewAdapterWithClient(twoGitHubs(), "agent-platform")
 	for _, tool := range []string{"mcpserver_update", "mcpserver_delete"} {
-		result, err := adapter.ExecuteTool(t.Context(), tool, map[string]interface{}{"name": "org-a/github", "type": "streamable-http", "url": "https://mcp.example.com/mcp"})
+		result, err := legacyExecute(adapter, t.Context(), tool, map[string]interface{}{"name": "org-a/github", "type": "streamable-http", "url": "https://mcp.example.com/mcp"})
 		require.NoError(t, err)
 		require.True(t, result.IsError, tool)
 		assert.Contains(t, fmt.Sprint(result.Content...), "writes servers of muster's namespace only", tool)

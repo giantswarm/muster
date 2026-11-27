@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -120,6 +121,26 @@ func TestProcessMCPServerFlagAuth(t *testing.T) {
 				t.Errorf("got %#v, want %#v", args, tt.expected)
 			}
 		})
+	}
+}
+
+// --preset is passed to core_mcpserver_create as preset, which requires
+// one (or explicit settings, which the CLI does not offer).
+func TestProcessMCPServerFlagPreset(t *testing.T) {
+	for _, form := range [][3]string{{"preset", "recommended", "1"}} {
+		args := map[string]interface{}{}
+		processMCPServerFlag(args, form[0], form[1], form[2] == "1")
+		if args["preset"] != "recommended" {
+			t.Fatalf("preset not passed: %v", args)
+		}
+	}
+	args := map[string]interface{}{}
+	processMCPServerFlag(args, "preset", "", false)
+	if _, ok := args["preset"]; ok {
+		t.Fatalf("a preset flag without a value sends nothing: %v", args)
+	}
+	if !strings.Contains(createCmd.Long, "--preset recommended") || !strings.Contains(createCmd.Long, "--preset=recommended") {
+		t.Fatal("the help names --preset and uses it in the examples")
 	}
 }
 

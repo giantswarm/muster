@@ -10,6 +10,7 @@ steps:
   description: "Create an MCPServer whose authorization server is described by pinned endpoints, a pre-registered client, subject-scoped grants and an expectedIssuer apart from the pinned identity"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "github-style-server"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"
@@ -50,6 +51,7 @@ steps:
   description: "expectedIssuer without authorizationEndpoint and tokenEndpoint is refused"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "discovered-with-expected-issuer"
     type: "streamable-http"
     url: "https://mcp.example.com/mcp"

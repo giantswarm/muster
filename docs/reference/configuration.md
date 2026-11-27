@@ -69,6 +69,8 @@ namespace: "default"            # Kubernetes namespace for CR discovery (default
 | `auth` | `AuthConfig` | see below | Authentication settings for CLI |
 | `toolsetPresets` | `map[string]Preset` | `{}` | Toolset presets an agent's `X-muster-Toolset` header can name as `preset:<name>`; `read-only`, `none` and `full` are built in and cannot be redefined. See [Toolsets](toolsets.md). |
 | `secretBinding` | `SecretBindingConfig` | `{}` | The admission policy muster requires before it reads a Secret for an MCPServer, and the Secrets it never reads for one. See [Protected Secrets](#protected-secrets). |
+| `approval` | `ApprovalConfig` | `{}` | The round trip of calls that ask ([Tool approval](../how-to/mcp-server-management.md#when-a-call-asks)): `ttl` (pending approval lifetime, default `5m`, max `30m`), `lastObservedMaxAge` (how old a server's last observed settings may be to decide a call during an API server outage, default `30m`, max `1h`; older: refused as `approval settings unavailable`), `installation` (name shown on the approval page) and `trustedClients` (OAuth client ids trusted with a person's approvals: [deciding inline](../how-to/mcp-server-management.md#deciding-inline-from-a-trusted-client) and [sign-in handoff](../how-to/mcp-server-management.md#sign-in-handoff-from-a-trusted-client); default none, list only the portal's own client). `handoffClients` is the earlier name, still read. muster refuses to start on an invalid duration. Read once at start, outside `aggregator`. Helm: `muster.approval`. |
+| `governance` | `GovernanceConfig` | unset | `mode` (`trusted` or `governed`), `governedServers` (`server` key, optional `role`, `safe` tool names agents call unasked) and `roleFloors` (role to tool names added to the built-in floors) of [governance](../how-to/mcp-server-management.md#governance-and-floors). Invalid roles, duplicate servers, floors on a safe list and the removed `servers` shape fail startup. Read once at start, outside `aggregator`. Unset or another `mode`: the governed default. Helm: `muster.governance`. |
 
 ### Protected Secrets
 
@@ -194,8 +196,13 @@ gateway: a sandbox's git and gh requests to a provider's hosts are sent with the
 token of the person who started the Session, without the token ever reaching the sandbox.
 The data path stays the gateway's; muster only answers whose token, and only to the gateway.
 
-- **Session bindings.** The component that starts a Session calls muster as the person
-  (their bearer, validated like every request on the aggregator port):
+- **Session bindings.** The component that starts a Session (agent-manager) calls muster as
+  the person (their bearer, validated as on the aggregator port) on the session bindings
+  API's own plain-HTTP listener, `credentialProvider.sessionBindings.listenAddress` (default
+  `:8091`; `-` for none), so a network policy can admit agent-manager alone (chart
+  `muster.credentialProvider.sessionBindings.{port, allowedFrom}`).
+  `credentialProvider.sessionBindings.onMainPort` (default `true`, deprecated) also serves it
+  on the aggregator port; turn it off once agent-manager uses the new port.
   `PUT /session-bindings` with `{"actor": "spiffe://substrate-actor.local/actor/<atespace>/<actor>",
   "session": "<namespace>/<name>", "providers": ["github"], "toolset": ["preset:read-only"]}`
   binds the Session's sandbox actor to the caller (`204`; `403` when the actor is bound to

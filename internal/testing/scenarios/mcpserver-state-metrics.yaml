@@ -60,6 +60,7 @@ steps:
     description: "Add a server whose endpoint cannot be reached"
     tool: "core_mcpserver_create"
     args:
+      preset: "allow-all"
       name: "metrics-broken-server"
       type: "streamable-http"
       url: "http://127.0.0.1:1/mcp"

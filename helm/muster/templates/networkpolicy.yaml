@@ -34,6 +34,23 @@ spec:
         - port: {{ .Values.muster.observability.metrics.prometheus.port }}
           protocol: TCP
         {{- end }}
+    {{- if and .Values.muster.credentialProvider.enabled .Values.muster.credentialProvider.sessionBindings.allowedFrom }}
+    # The session bindings API: the listed callers (agent-manager) alone.
+    - from:
+        {{- range .Values.muster.credentialProvider.sessionBindings.allowedFrom }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ required "muster.credentialProvider.sessionBindings.allowedFrom[].namespace is required" .namespace | quote }}
+          {{- with .podLabels }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+        {{- end }}
+      ports:
+        - port: {{ .Values.muster.credentialProvider.sessionBindings.port }}
+          protocol: TCP
+    {{- end }}
   egress:
     # DNS resolution
     - to:

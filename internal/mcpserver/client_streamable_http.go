@@ -125,9 +125,9 @@ func (c *StreamableHTTPClient) connectLocked(ctx context.Context) error {
 		logging.Debug("StreamableHTTPClient", "Configured %d custom headers", len(c.headers))
 	}
 	if c.headerFunc != nil {
-		opts = append(opts, transport.WithHTTPHeaderFunc(c.headerFunc))
 		logging.Debug("StreamableHTTPClient", "Configured dynamic header function")
 	}
+	opts = append(opts, transport.WithHTTPHeaderFunc(withCallHeaders(c.headerFunc)))
 
 	var httpClient *http.Client
 	if c.httpClientFunc != nil {

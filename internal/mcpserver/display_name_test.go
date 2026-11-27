@@ -25,11 +25,13 @@ type recordingClient struct {
 
 func (r *recordingClient) CreateMCPServer(_ context.Context, obj *musterv1alpha1.MCPServer) error {
 	r.createdObjs = append(r.createdObjs, obj.DeepCopy())
+	r.store(obj)
 	return nil
 }
 
 func (r *recordingClient) UpdateMCPServer(_ context.Context, obj *musterv1alpha1.MCPServer) error {
 	r.updatedObjs = append(r.updatedObjs, obj.DeepCopy())
+	r.store(obj)
 	return nil
 }
 
@@ -43,7 +45,7 @@ func remoteServerArgs(extra map[string]interface{}) map[string]interface{} {
 
 func executeOK(t *testing.T, adapter *Adapter, ctx context.Context, tool string, args map[string]interface{}) {
 	t.Helper()
-	result, err := adapter.ExecuteTool(ctx, tool, args)
+	result, err := legacyExecute(adapter, ctx, tool, args)
 	require.NoError(t, err)
 	require.False(t, result.IsError, resultText(t, result))
 }

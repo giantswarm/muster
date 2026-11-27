@@ -1,0 +1,159 @@
+package mcpserver
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/client"
+	musterv1alpha1 "github.com/giantswarm/muster/v5/pkg/apis/muster/v1alpha1"
+)
+
+// flakyClient answers GetMCPServer with server, or with err when set.
+type flakyClient struct {
+	client.MusterClient
+	server *musterv1alpha1.MCPServer
+	err    error
+}
+
+func (c *flakyClient) IsKubernetesMode() bool { return true }
+
+func (c *flakyClient) GetMCPServer(context.Context, string, string) (*musterv1alpha1.MCPServer, error) {
+	if c.err != nil {
+		return nil, c.err
+	}
+	return c.server, nil
+}
+
+// A successful read is remembered, a failed one keeps it, and a read that
+// finds the server deleted forgets it.
+func TestAdapter_RemembersTheLastObservedDefinition(t *testing.T) {
+	fake := &flakyClient{server: &musterv1alpha1.MCPServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: "muster", UID: "uid-1"},
+		Spec:       musterv1alpha1.MCPServerSpec{Type: "streamable-http", Approval: &musterv1alpha1.MCPServerApproval{Rule: api.ApprovalAsk}},
+	}}
+	adapter := NewAdapterWithClient(fake, "muster")
+
+	_, _, ok := adapter.LastObservedMCPServer("github")
+	assert.False(t, ok, "never read")
+
+	_, err := adapter.GetMCPServer(context.Background(), "github")
+	require.NoError(t, err)
+
+	fake.err = errors.New("dial tcp: connection refused")
+	_, err = adapter.GetMCPServer(context.Background(), "github")
+	require.Error(t, err)
+	info, observedAt, ok := adapter.LastObservedMCPServer("github")
+	require.True(t, ok, "a failed read keeps the last definition")
+	assert.False(t, observedAt.IsZero())
+	assert.Equal(t, "uid-1", info.UID)
+	require.NotNil(t, info.Approval)
+	assert.Equal(t, api.ApprovalAsk, info.Approval.Rule)
+
+	fake.err = apierrors.NewNotFound(schema.GroupResource{Resource: "mcpservers"}, "github")
+	_, err = adapter.GetMCPServer(context.Background(), "github")
+	require.True(t, api.IsNotFound(err))
+	_, _, ok = adapter.LastObservedMCPServer("github")
+	assert.False(t, ok, "a deleted server is forgotten")
+
+	api.RegisterMCPServerManager(adapter)
+	t.Cleanup(func() { api.RegisterMCPServerManager(nil) })
+	_, _, ok = api.LastObservedMCPServer("github")
+	assert.False(t, ok)
+}
+
+// A successful listing remembers every server it returns and forgets the
+// ones it no longer returns, so a listing during an outage reports the
+// servers that existed at the last read and no deleted one.
+func TestAdapter_ListingRemembersAndForgetsLastObserved(t *testing.T) {
+	fake := &kubeListingClient{listingClient: listingClient{servers: []musterv1alpha1.MCPServer{
+		{ObjectMeta: metav1.ObjectMeta{Name: "github", Namespace: "muster", UID: "uid-1"}, Spec: musterv1alpha1.MCPServerSpec{Type: "streamable-http"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "gitlab", Namespace: "muster", UID: "uid-2"}, Spec: musterv1alpha1.MCPServerSpec{Type: "streamable-http"}},
+	}}}
+	adapter := NewAdapterWithClient(fake, "muster")
+
+	_, _, ok := adapter.LastObservedMCPServers()
+	assert.False(t, ok, "nothing read yet")
+
+	_, err := adapter.ListMCPServers(context.Background())
+	require.NoError(t, err)
+	infos, oldest, ok := adapter.LastObservedMCPServers()
+	require.True(t, ok)
+	assert.False(t, oldest.IsZero())
+	assert.ElementsMatch(t, []string{"github", "gitlab"}, []string{infos[0].ServerKey(), infos[1].ServerKey()})
+
+	fake.servers = fake.servers[:1]
+	_, err = adapter.ListMCPServers(context.Background())
+	require.NoError(t, err)
+	infos, _, ok = adapter.LastObservedMCPServers()
+	require.True(t, ok)
+	require.Len(t, infos, 1)
+	assert.Equal(t, "github", infos[0].ServerKey(), "a server the listing no longer returns is forgotten")
+
+	fake.err = errors.New("dial tcp: connection refused")
+	_, err = adapter.ListMCPServers(context.Background())
+	require.Error(t, err)
+	infos, _, _ = adapter.LastObservedMCPServers()
+	assert.Len(t, infos, 1, "a failed listing keeps what was observed")
+}
+
+// kubeListingClient is a listingClient that runs in Kubernetes mode.
+type kubeListingClient struct{ listingClient }
+
+func (*kubeListingClient) IsKubernetesMode() bool { return true }
+
+// A listing that began before a single read finished does not overwrite the
+// newer single read, and does not forget a server that read created.
+func TestObservedServers_ReplaceAllKeepsAReadNewerThanTheListing(t *testing.T) {
+	at := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	o := &observedServers{now: func() time.Time { return at }}
+	listingStarted := at
+
+	at = at.Add(time.Second)
+	o.record("github", api.MCPServerInfo{Name: "github", UID: "single-read"})
+	o.record("created-meanwhile", api.MCPServerInfo{Name: "created-meanwhile"})
+
+	at = at.Add(time.Second)
+	o.replaceAll([]api.MCPServerInfo{{Name: "github", UID: "listing"}, {Name: "other"}}, listingStarted)
+
+	info, _, ok := o.get("github")
+	require.True(t, ok)
+	assert.Equal(t, "single-read", info.UID, "the newer of the two reads stays")
+	_, _, ok = o.get("created-meanwhile")
+	assert.True(t, ok)
+	_, _, ok = o.get("other")
+	assert.True(t, ok)
+
+	at = at.Add(time.Second)
+	o.replaceAll([]api.MCPServerInfo{{Name: "github", UID: "later-listing"}}, at.Add(-time.Millisecond))
+	info, _, _ = o.get("github")
+	assert.Equal(t, "later-listing", info.UID, "a listing that began after the read replaces it")
+	_, _, ok = o.get("created-meanwhile")
+	assert.False(t, ok, "a server a later listing does not return is forgotten")
+}
+
+// all reports the oldest read, so a listing is judged by its stalest
+// definition and not its newest (D-GO-40).
+func TestObservedServers_AllReportsTheOldestRead(t *testing.T) {
+	at := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	o := &observedServers{now: func() time.Time { return at }}
+	oldest := at
+	o.record("github", api.MCPServerInfo{Name: "github"})
+	at = at.Add(5 * time.Minute)
+	o.record("kagent", api.MCPServerInfo{Name: "kagent"})
+	at = at.Add(5 * time.Minute)
+	o.record("agent-manager", api.MCPServerInfo{Name: "agent-manager"})
+
+	infos, got, ok := o.all()
+	require.True(t, ok)
+	assert.Len(t, infos, 3)
+	assert.Equal(t, oldest, got)
+}

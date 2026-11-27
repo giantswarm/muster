@@ -1,6 +1,7 @@
 package config
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/giantswarm/muster/v5/internal/toolset"
@@ -33,6 +34,97 @@ type MusterConfig struct {
 	// SecretBinding names the Secrets muster never reads for an MCPServer
 	// (spec.headersFrom and the clientCredentialsSecretRef of its auth).
 	SecretBinding SecretBindingConfig `yaml:"secretBinding,omitempty"`
+
+	// Approval configures the round trip of calls whose effective approval
+	// is Ask. It lives outside the aggregator section, so
+	// core_config_update_aggregator cannot change it.
+	Approval ApprovalConfig `yaml:"approval,omitempty"`
+
+	// Governance is the governance configuration: the mode and the servers
+	// whose tools the floors and governed entries name. muster reads it once
+	// at start; without it the governed entries apply. It lives outside the
+	// aggregator section, so core_config_update_aggregator cannot change it.
+	Governance *GovernanceConfig `yaml:"governance,omitempty"`
+}
+
+// ApprovalConfig configures the approval round trip.
+type ApprovalConfig struct {
+	// TTL is how long a pending approval can be decided and used, a Go
+	// duration (default "5m", at most "30m").
+	TTL string `yaml:"ttl,omitempty"`
+	// LastObservedMaxAge is the oldest a server's last observed definition
+	// may be and still decide a call while the API server cannot be reached,
+	// a Go duration (default "30m", at most "1h"). Older, the call is
+	// refused as "approval settings unavailable".
+	LastObservedMaxAge string `yaml:"lastObservedMaxAge,omitempty"`
+	// Installation names the installation on the approval page.
+	Installation string `yaml:"installation,omitempty"`
+	// TrustedClients are the OAuth client ids (a token's azp, else its single
+	// audience) muster trusts to act on a person's approvals with the
+	// person's own bearer: ask for sign-in handoff tickets (POST
+	// /handoff-tickets) and show and decide the person's pending approvals
+	// inline (GET /approvals/{id} with a bearer, POST
+	// /approvals/{id}/decision). The portal's own client only. Empty (the
+	// default): muster trusts none, and approvals are decided on its page
+	// only. Never list a client an agent or a CLI signs in through: holding
+	// the person's bearer would then be enough to approve.
+	TrustedClients []string `yaml:"trustedClients,omitempty"`
+	// HandoffClients is the earlier name of TrustedClients, still read:
+	// its ids are trusted too.
+	//
+	// Deprecated: use TrustedClients.
+	HandoffClients []string `yaml:"handoffClients,omitempty"`
+}
+
+// TrustedClientIDs returns the trusted clients: trustedClients and the
+// deprecated handoffClients, each id once.
+func (c ApprovalConfig) TrustedClientIDs() []string {
+	var ids []string
+	for _, id := range append(append([]string{}, c.TrustedClients...), c.HandoffClients...) {
+		if id != "" && !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+// GovernanceConfig is muster's governance configuration, rendered by the
+// platform chart from its governance value.
+type GovernanceConfig struct {
+	// Mode is "trusted" or "governed". Governed asks agent callers before
+	// every tool of a governed server that is not on its safe list, and
+	// before every core tool that is not one of muster's reads. Any other
+	// value counts as governed.
+	Mode string `yaml:"mode"`
+	// GovernedServers names the governed servers: each by its server key,
+	// with an optional role (which floors hold on it, in both modes) and a
+	// safe list (the tools agents call on it unasked on Governed).
+	GovernedServers []GovernedServerConfig `yaml:"governedServers,omitempty"`
+	// RoleFloors adds floors: role name -> tool names that ask agents in
+	// both modes on a governed server of that role (and, on Governed, on
+	// every governed server). Added to muster's built-in roles and floors,
+	// never in place of them; a role named here that is not built in is a
+	// role a governed server may have.
+	RoleFloors map[string][]string `yaml:"roleFloors,omitempty"`
+	// Servers is a removed shape (server keys per role). muster refuses to
+	// start when it is set, so a configuration written for it is not
+	// silently ungoverned.
+	Servers any `yaml:"servers,omitempty"`
+}
+
+// GovernedServerConfig is one governed server.
+type GovernedServerConfig struct {
+	// Server is the server key (name, or namespace/name outside muster's
+	// namespace).
+	Server string `yaml:"server"`
+	// Role is a built-in role (agentManager, connectorManager,
+	// sessionManager, modelManager, clusterManager, vmManager,
+	// workspaceManager, toolchainManager, skillManager, infrastructure) or
+	// one declared in RoleFloors; empty for a server without floors.
+	Role string `yaml:"role,omitempty"`
+	// Safe lists the server's own tool names agents call unasked on
+	// Governed: reads only.
+	Safe []string `yaml:"safe,omitempty"`
 }
 
 // SecretBindingConfig names the Secrets an MCPServer may never have muster
@@ -230,6 +322,45 @@ type CredentialProviderConfig struct {
 	// ActorBearer lets a bound Session's sandbox call muster itself as its
 	// person, with no credential in the sandbox. Disabled by default.
 	ActorBearer ActorBearerConfig `yaml:"actorBearer,omitempty"`
+
+	// SessionBindings places the session bindings API (PUT and DELETE
+	// /session-bindings, PATCH /session-bindings/grants): everything only
+	// agent-manager calls, on a listener of its own so a network policy can
+	// admit agent-manager alone.
+	SessionBindings SessionBindingsConfig `yaml:"sessionBindings,omitempty"`
+}
+
+// DefaultSessionBindingsAddress is where the session bindings API listens
+// unless configured.
+const DefaultSessionBindingsAddress = ":8091"
+
+// SessionBindingsConfig places the session bindings API.
+type SessionBindingsConfig struct {
+	// ListenAddress is the HTTP listen address of the session bindings API
+	// (default ":8091"); "-" serves it on no listener of its own.
+	ListenAddress string `yaml:"listenAddress,omitempty"`
+
+	// OnMainPort also serves it on the aggregator's port, where it was
+	// before it had its own listener. Deprecated: a network policy cannot
+	// tell it from /mcp there. Default: true, so an upgrade keeps working
+	// until the caller moves to the new port.
+	OnMainPort *bool `yaml:"onMainPort,omitempty"`
+}
+
+// Address returns the listen address, "" for none.
+func (c SessionBindingsConfig) Address() string {
+	switch c.ListenAddress {
+	case "":
+		return DefaultSessionBindingsAddress
+	case "-":
+		return ""
+	}
+	return c.ListenAddress
+}
+
+// MainPort reports whether the API is also served on the aggregator's port.
+func (c SessionBindingsConfig) MainPort() bool {
+	return c.OnMainPort == nil || *c.OnMainPort
 }
 
 // ActorBearerConfig accepts Substrate's actor JWT, which the egress gateway

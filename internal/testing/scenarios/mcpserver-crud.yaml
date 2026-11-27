@@ -10,6 +10,7 @@ steps:
   description: "Create a new stdio command MCP server"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "stdio-command-server"
     type: "stdio"
     command: "echo"
@@ -37,12 +38,18 @@ steps:
 
 - id: "update-mcpserver"
   description: "Update the MCP server configuration"
+  tool: "core_mcpserver_connect"
+  args:
+    name: "stdio-command-server"
+    command: "echo"
+    args: ["updated-test-server"]
+  expected:
+    success: true
+
+- id: "update-mcpserver-update-fields"
   tool: "core_mcpserver_update"
   args:
     name: "stdio-command-server"
-    type: "stdio"
-    command: "echo"
-    args: ["updated-test-server"]
     autoStart: true
   expected:
     success: true

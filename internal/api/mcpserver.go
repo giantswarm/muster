@@ -741,6 +741,13 @@ type MCPServerInfo struct {
 	// MCPServer.UID). Empty in filesystem mode.
 	UID string `json:"-"`
 
+	// Generation is the MCPServer resource's metadata.generation: an approval
+	// binds it, so a connector changed since asks again, and
+	// core_mcpserver_set_approval takes it as expectedGeneration to refuse a
+	// write over a change made since the caller read it. Zero in filesystem
+	// mode.
+	Generation int64 `json:"generation,omitempty"`
+
 	// CreatedAt is the creation time of the MCPServer resource (see
 	// MCPServer.CreatedAt). Zero in filesystem mode.
 	CreatedAt time.Time `json:"-"`
@@ -814,6 +821,11 @@ type MCPServerInfo struct {
 	// Progress configures how progress the server reports on a tool call
 	// affects that call's budget.
 	Progress *MCPServerProgress `json:"progress,omitempty"`
+
+	// Approval is the server's spec.approval: per tool, whether a call runs,
+	// asks first or is refused. Nil when the server has none (every tool
+	// Allow, not reviewed).
+	Approval *MCPServerApproval `json:"approval,omitempty"`
 
 	// ToolPrefix is an optional prefix for tool names.
 	ToolPrefix string `json:"toolPrefix,omitempty"`

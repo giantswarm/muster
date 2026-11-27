@@ -153,6 +153,12 @@ func invocationNote(name string) string {
 //
 // title, annotations and outputSchema are present only when the tool sets them.
 func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
+	return f.formatToolDetailJSON(tool, nil, nil)
+}
+
+// formatToolDetailJSON is FormatToolDetailJSON with whether the caller is a
+// connector admin of the tool's server, when that is known.
+func (f *Formatters) formatToolDetailJSON(tool mcp.Tool, connectorAdmin *bool, connectors []ConnectorRef) (string, error) {
 	toolInfo := map[string]interface{}{
 		api.FieldName:            tool.Name,
 		api.SchemaKeyDescription: tool.Description,
@@ -169,6 +175,17 @@ func (f *Formatters) FormatToolDetailJSON(tool mcp.Tool) (string, error) {
 	toolInfo["kind"] = kind
 	if annotations := annotationsOf(tool); annotations != nil {
 		toolInfo["annotations"] = annotations
+	}
+	// The effective approval for the caller, and whether the caller may
+	// change it on the tool's server.
+	if approval := approvalOf(tool); approval != nil {
+		toolInfo["approval"] = approval
+	}
+	if connectorAdmin != nil {
+		toolInfo["connectorAdmin"] = *connectorAdmin
+	}
+	if len(connectors) > 0 {
+		toolInfo["connectors"] = connectors
 	}
 	// Title and output schema: the display name (the annotations' title is
 	// the MCP fallback for it) and the contract of the tool's

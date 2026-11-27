@@ -70,3 +70,17 @@ tests:
       - equal:
           path: metadata.annotations["example.com/team"]
           value: platform
+
+  - it: ships the tool approval dashboard next to the gateway dashboard
+    set:
+      muster.observability.grafanaDashboard.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["muster-approval.json"]
+          pattern: '"uid": "muster-approval"'
+      - matchRegex:
+          path: data["muster-approval.json"]
+          pattern: 'muster_approval_requests_total'
+      - matchRegex:
+          path: data["muster-approval.json"]
+          pattern: 'muster_approval_time_to_decision_seconds_bucket'

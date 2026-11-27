@@ -107,7 +107,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	}
 
 	t.Run("allowed user create-update-delete", func(t *testing.T) {
-		result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("allowed-server"))
+		result, err := legacyExecute(adapter, allowedCtx, "mcpserver_create", createArgs("allowed-server"))
 		if err != nil || result.IsError {
 			t.Fatalf("create: err=%v result=%s", err, resultText(t, result))
 		}
@@ -119,17 +119,30 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 			t.Fatalf("unexpected spec: %+v", created.Spec)
 		}
 
-		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_update",
+		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_connect",
 			map[string]interface{}{"name": "allowed-server", "url": "http://example.com/mcp2"})
 		if err != nil || result.IsError {
+			t.Fatalf("connect: err=%v result=%s", err, resultText(t, result))
+		}
+		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_update",
+			map[string]interface{}{"name": "allowed-server", "description": "updated"})
+		if err != nil || result.IsError {
 			t.Fatalf("update: err=%v result=%s", err, resultText(t, result))
+		}
+		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_set_approval",
+			map[string]interface{}{"name": "allowed-server", "approval": map[string]interface{}{"rule": "Ask", "tools": map[string]interface{}{"read": "Allow"}}})
+		if err != nil || result.IsError {
+			t.Fatalf("set_approval: err=%v result=%s", err, resultText(t, result))
 		}
 		updated, err := saClient.GetMCPServer(ctx, "allowed-server", "default")
 		if err != nil {
 			t.Fatalf("get after update: %v", err)
 		}
-		if updated.Spec.URL != "http://example.com/mcp2" {
-			t.Fatalf("update did not land: %+v", updated.Spec)
+		if updated.Spec.URL != "http://example.com/mcp2" || updated.Spec.Description != "updated" {
+			t.Fatalf("connect or update did not land: %+v", updated.Spec)
+		}
+		if updated.Spec.Approval == nil || updated.Spec.Approval.Rule != "Ask" || updated.Spec.Approval.Tools["read"] != "Allow" {
+			t.Fatalf("set_approval did not land: %+v", updated.Spec.Approval)
 		}
 
 		// Muster's SA still reconciles status on the user-created CR: the
@@ -163,7 +176,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 
 		// create fails the tool call for a user who *is* allowed to write
 		// mcpservers, and leaves no CR behind.
-		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_create", stdioArgs)
+		result, err = legacyExecute(adapter, allowedCtx, "mcpserver_create", stdioArgs)
 		if err != nil {
 			t.Fatalf("create: %v", err)
 		}
@@ -182,13 +195,13 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 
 		// An update that switches an accepted server over to stdio is refused
 		// the same way — the gate is on the resulting spec, not on the request.
-		if result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("switch-server")); err != nil || result.IsError {
+		if result, err := legacyExecute(adapter, allowedCtx, "mcpserver_create", createArgs("switch-server")); err != nil || result.IsError {
 			t.Fatalf("setup create: err=%v result=%s", err, resultText(t, result))
 		}
 		t.Cleanup(func() {
 			_, _ = adapter.ExecuteTool(allowedCtx, "mcpserver_delete", map[string]interface{}{"name": "switch-server"})
 		})
-		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_update",
+		result, err = adapter.ExecuteTool(allowedCtx, "mcpserver_connect",
 			map[string]interface{}{"name": "switch-server", "type": "stdio", "command": "echo"})
 		if err != nil {
 			t.Fatalf("update: %v", err)
@@ -206,7 +219,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	})
 
 	t.Run("denied user create", func(t *testing.T) {
-		result, err := adapter.ExecuteTool(deniedCtx, "mcpserver_create", createArgs("denied-server"))
+		result, err := legacyExecute(adapter, deniedCtx, "mcpserver_create", createArgs("denied-server"))
 		if err != nil {
 			t.Fatalf("ExecuteTool: %v", err)
 		}
@@ -225,7 +238,7 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 	})
 
 	t.Run("lifecycle allowed user suspend-resume-restart", func(t *testing.T) {
-		result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("lifecycle-server"))
+		result, err := legacyExecute(adapter, allowedCtx, "mcpserver_create", createArgs("lifecycle-server"))
 		if err != nil || result.IsError {
 			t.Fatalf("setup create: err=%v result=%s", err, resultText(t, result))
 		}
@@ -313,25 +326,34 @@ func TestWritesAsCallerEnvtest(t *testing.T) {
 
 	t.Run("denied user update and delete", func(t *testing.T) {
 		// A CR the denied user did not create and may not touch.
-		result, err := adapter.ExecuteTool(allowedCtx, "mcpserver_create", createArgs("victim-server"))
+		result, err := legacyExecute(adapter, allowedCtx, "mcpserver_create", createArgs("victim-server"))
 		if err != nil || result.IsError {
 			t.Fatalf("setup create: err=%v result=%s", err, resultText(t, result))
 		}
 
-		result, err = adapter.ExecuteTool(deniedCtx, "mcpserver_update",
-			map[string]interface{}{"name": "victim-server", "url": "http://evil.example.com/mcp"})
-		if err != nil {
-			t.Fatalf("ExecuteTool: %v", err)
-		}
-		if !result.IsError || !strings.Contains(resultText(t, result), "Permission denied") {
-			t.Fatalf("expected permission error on update, got: %s", resultText(t, result))
+		for _, call := range []struct {
+			tool string
+			args map[string]interface{}
+		}{
+			{"mcpserver_update", map[string]interface{}{"name": "victim-server", "description": "evil"}},
+			{"mcpserver_connect", map[string]interface{}{"name": "victim-server", "url": "http://evil.example.com/mcp"}},
+			{"mcpserver_set_approval", map[string]interface{}{"name": "victim-server", "approval": map[string]interface{}{"rule": "Ask"}}},
+		} {
+			result, err = adapter.ExecuteTool(deniedCtx, call.tool, call.args)
+			if err != nil {
+				t.Fatalf("%s: %v", call.tool, err)
+			}
+			if !result.IsError || !strings.Contains(resultText(t, result), "Permission denied") {
+				t.Fatalf("expected permission error on %s, got: %s", call.tool, resultText(t, result))
+			}
 		}
 		after, err := saClient.GetMCPServer(ctx, "victim-server", "default")
 		if err != nil {
 			t.Fatalf("get victim: %v", err)
 		}
-		if after.Spec.URL != "http://example.com/mcp" {
-			t.Fatalf("denied update still changed the spec: %+v", after.Spec)
+		if after.Spec.URL != "http://example.com/mcp" || after.Spec.Description == "evil" ||
+			(after.Spec.Approval != nil && after.Spec.Approval.Rule == "Ask") {
+			t.Fatalf("denied update, connect or set_approval still changed the spec: %+v", after.Spec)
 		}
 
 		result, err = adapter.ExecuteTool(deniedCtx, "mcpserver_delete",

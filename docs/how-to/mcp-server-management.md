@@ -527,6 +527,311 @@ Rules:
   it as `requestMeta` when it creates or updates a server, and refuses a
   definition that sets both. It will be removed in a later release.
 
+## Tool approval
+
+`spec.approval` sets, per tool of a server, whether a call runs (`Allow`), asks a
+person to confirm the exact call first (`Ask`) or is hidden and refused
+(`Block`). Whoever may `update` MCPServers in the server's namespace (a
+connector admin) sets it.
+
+```yaml
+apiVersion: muster.giantswarm.io/v1alpha1
+kind: MCPServer
+metadata:
+  name: github
+spec:
+  type: streamable-http
+  url: "https://mcp.example.com/mcp"
+  approval:
+    rule: Ask                    # every tool without its own entry, new ones too
+    tools:
+      get_issue: Allow
+      merge_pull_request: Ask
+      delete_repository: Block
+```
+
+- `tools` keys are the server's own tool names (no `toolPrefix`, family name or
+  `x_` prefix). An entry wins over `rule`. Values are case-sensitive; at most 512
+  entries.
+- `rule: Block` hides and refuses every tool without its own entry, new tools
+  included.
+- No `approval` means `Allow` for every tool, reported as not reviewed. There is
+  no default, so upgrading changes no existing server.
+- Unknown values count as `Ask`. Changes apply to the next listing or call.
+- A blocked tool is absent from `list_tools`, `filter_tools` and `describe_tool`,
+  and `call_tool` (a workflow step too) refuses it as not found. Non-admins do
+  not see a server's `Block` entries in `core_mcpserver_get` and `_list`. The
+  meta-tools report each tool's setting and its source
+  ([Tool approval](../reference/mcp-tools.md#tool-approval)).
+- Fails closed: a registered server whose MCPServer object is gone is refused.
+- Keep secrets out of a connector's URL (use `headersFrom`); the audit line
+  redacts userinfo, query and token-like path segments, but not a short secret in
+  the path.
+
+**The CRD must know `spec.approval`.** An older CRD prunes the field. While the
+served CRD lacks it, every server tool call is refused (`approval_unavailable`)
+and the write tools refuse to store settings. Upgrade the CRDs with the chart
+([upgrading](#upgrading-to-tool-approval)).
+
+**API server outage.** Nobody can change settings then, so a call is decided by
+the server's last definition muster read, if at most `approval.lastObservedMaxAge`
+old (default `30m`, max `1h`; Helm `muster.approval.lastObservedMaxAge`). Listings
+use the same definitions. Otherwise the call is refused as `approval settings
+unavailable` (reasons `last_observed_too_old`, `never_observed`, `throttled`
+for HTTP 429, or any other failed read), and listings report `unavailable`.
+Agent settings and governance floors apply unchanged. Fallbacks and refusals
+are logged and counted ([metrics](../explanation/observability.md#approval-metrics)).
+
+**Setting it.** `core_mcpserver_set_approval` takes `approval` (`{rule, tools}`) or
+a `preset`, which muster expands once from the tools the server lists now:
+
+| Preset | Result |
+|---|---|
+| `recommended` | rule `Ask`; tools with `readOnlyHint: true` `Allow` |
+| `allow-all` | everything runs |
+| `ask-all` | everything asks |
+
+`core_mcpserver_create` requires `preset` or `approval`. A server that lists no
+tools yet gets only the preset's rule (every tool reported `new`): set the
+preset again once it lists them. `expectedGeneration` (from `core_mcpserver_get`)
+refuses a write when the server changed since. Every settings change is audited
+old to new with who made it, and a write the API server dropped is refused.
+
+The connector write tools are split so each can be governed on its own:
+`core_mcpserver_create`, `_update` (description, display name, tags, `autoStart`,
+`timeout`, `progress`, `suspended`, `restartRequestedAt`), `_connect` (type, URL,
+command, args, env, headers, `headersFrom`, `requestMeta`, auth,
+`clientCredentials`, family, `toolPrefix`), `_set_approval` and `_delete`. Each
+refuses an argument another one takes and names that tool.
+
+### When a call asks
+
+An `Ask` call runs only after its person approved that exact call:
+
+1. `call_tool` records a pending approval bound to the person (issuer and `sub`),
+   the muster session (OAuth client `azp` and acting party, or the agent's
+   Session; not the transport session), the target (server, UID, generation and
+   tool; or workflow and definition) and the RFC 8785 canonical arguments. It
+   answers with a link `https://<publicUrl>/approvals/<id>`: as a URL elicitation
+   for a client that declares it (`input_required` on protocol 2026-07-28,
+   `-32042` before), else as a tool error `approval_required`.
+2. The person opens the link and signs in to muster's identity provider; only
+   that person sees the call. The page shows the tool, connector, whether it
+   changes data and every argument in full. After the decision, the session that
+   got the `-32042` elicitation receives `notifications/elicitation/complete`
+   with the `elicitationId` only, via the shared Valkey store, whichever replica
+   serves the page. If the store does not take the notice the decision still
+   stands and the client retries on its own.
+3. The client calls again with the same arguments. muster finds the decision
+   itself (the client's own "accept" counts for nothing): approved runs once with
+   the arguments the person saw, declined answers `declined`, and an identical
+   call before a decision gets the same link.
+
+For an agent's call the page names the agent (display name plus technical name,
+`Alert Review (kagent/alert-review)`), the approval is bound to it, and the
+`reason` the agent passed to `call_tool` is shown as *Agent says*, never used to
+decide. Agents' own settings and grants:
+[an agent's approval settings](../reference/mcp-tools.md#an-agents-approval-settings).
+
+- An approval expires after `approval.ttl` (5 minutes) and is used up by one run.
+- Caps: 10 pending per person, 3 per client; the refusal names the cap. Arguments
+  at most 64 KiB. Resources and prompts are not gated.
+- A workflow asks once, up front, for its definition, inputs and called
+  workflows, if any step asks. A blocked step refuses the run before anything
+  runs; a step that resolves to `Block`, to an unseen tool or to an unapproved
+  `ask` fails the run there.
+- Prerequisites: Valkey shared store (`aggregator.oauth.server.storage.type:
+  valkey`), muster's own OAuth server and a public URL
+  (`aggregator.oauth.mcpClient.publicUrl`, on the OAuth server's origin).
+  Without them, or when the store does not answer, every asking call is refused
+  and the meta-tools report `approval.unavailable`.
+- The page returns the browser to the client's `redirect` if
+  `postLoginRedirectAllowlist` admits it, with `elicitationId`, never the decision.
+- Security: an agent that drives the person's signed-in browser acts as the
+  person and can approve.
+- Every request, decision, use and refusal is an `[AUDIT]` log line with issuer,
+  full subject, caller kind and approval id.
+
+#### Trusted clients
+
+`approval.trustedClients` lists the OAuth client ids (token `azp`, else its single
+audience) muster trusts with a person's approvals: the portal's own client and
+nothing else. Such a client can decide approvals in its own UI and skip muster's
+browser sign-in (handoff). `approval.handoffClients`, the earlier name, is still
+read. Default empty: approvals are decided on muster's page only.
+
+Both calls below need the person's bearer and the client backend's own projected
+ServiceAccount token (audience `muster`) in `X-Muster-Approval-Client`. muster
+accepts it only if a `TokenReview` passes and a `LocalSubjectAccessReview` allows
+the identity verb `decide` on `toolapprovals` (group `muster.giantswarm.io`) in
+muster's namespace. The chart ships that as the Role `muster-approval-decider`
+(`rbac.approvalDecider.subjects`, bound to nobody by default). Without a
+Kubernetes API neither call works.
+
+The backend must present only the token of the person signed in to it; a
+backend that relays any token it is handed lets its users decide for others.
+
+#### Deciding inline from a trusted client
+
+```
+GET /approvals/<id>
+Authorization: Bearer <the person's token>
+X-Muster-Approval-Client: <backend ServiceAccount token, audience muster>
+-> 200 {"id", "status", "heading", "message", "tool", "connector", "changesData",
+        "arguments": [{"key", "label", "value", "type"}], "agentSays", "agent",
+        "why", "actsFor", "callerKind", "expiresAt", "digest", ...}
+
+POST /approvals/<id>/decision        (same headers)
+{"decision": "approve" | "decline", "digest": "<digest from the GET>"}
+-> 200 {"status": "approved" | "declined"}
+```
+
+The view is what the page shows. Invisible, bidi and blank look-alike characters
+are marked `⟨U+XXXX⟩`; render it as text, never markup. A decision with another
+`digest` is refused (409 `changed`), so a client cannot approve something it did
+not show.
+
+| Refusal | Cause |
+|---|---|
+| 403 `acting_party` | token names an acting party (`act`), is delegated, or is any credential of an agent's Session: agents never decide, not even their own |
+| 403 `untrusted_client` | client not in `approval.trustedClients` |
+| 403 `untrusted_workload` | workload token fails the `decide` review (503 `unavailable` while the review cannot be made) |
+| 403 `foreign` | not the person the request was made for (issuer and subject) |
+| 404 `not_found`, 409 `decided`, 410 `expired` | not pending: unknown, used, decided or expired |
+
+A decision is audited as `approval_decision` with `path=api` and the `client`
+(the page's carry `path=page`); refusals too, with `outcome=refused`, `reason` and
+the caller's truncated subject. Metrics:
+[Approval metrics](../explanation/observability.md#approval-metrics).
+
+Security: the trusted client's backend can approve without muster's sign-in, so it
+must decide only on the person's click, never from message content. XSS in its UI
+can ask the backend to approve the person's pending requests, as with the handoff.
+Never list a client an agent, a CLI or kubectl signs in through, and bind
+`muster-approval-decider` to the portal backend's ServiceAccount only.
+
+#### Sign-in handoff from a trusted client
+
+A trusted client can spare a signed-in person muster's browser sign-in on one page:
+
+```
+POST /handoff-tickets
+Authorization: Bearer <the person's token>
+X-Muster-Approval-Client: <backend ServiceAccount token, audience muster>
+{"url": "https://<publicUrl>/approvals/<id>"}
+-> 201 {"ticket": "<one-time ticket>", "expiresIn": 60}
+```
+
+The client opens the link with `&handoff=<ticket>`. The page redeems the ticket,
+treats the browser as signed in as that person for that request and redirects
+(303) to the address without it. A connector sign-in start
+(`/oauth/proxy/start?state=...`) takes a ticket too but still shows muster's
+confirmation *Connect <connector> as <person>?* (verified email, else subject at
+its issuer); only *Continue*, posted from the same browser with the anti-forgery
+token and `Origin`, binds the flow. Without it a person could pass a link to
+someone else's browser and file that browser's connector account under their own
+session.
+
+- Issued only for a listed client's bearer without an acting party, with the
+  workload token, for the person the approval is bound to (another's or unknown:
+  403 alike), and only for muster's approval page or sign-in start on its public
+  URL (else 400).
+- 130 random bits, used once, 60 seconds, bound to page and person; muster stores
+  only its SHA-256 and never logs it.
+- An unknown, expired, used or mismatched ticket changes nothing: the page signs
+  the browser in itself.
+- The decision keeps every other check (anti-forgery token, `Origin`, bound
+  person).
+- Never list a client an agent or CLI signs in through.
+
+Metrics: `muster_approval_handoffs_total{outcome, page, reason}`.
+
+### Governance and floors
+
+Agent callers (a Session's actor JWT, a delegated token) are asked before some
+calls whatever the connector's settings say. A person acting directly is not:
+the person is the approval.
+
+`governance` in muster's configuration (Helm `muster.governance`) sets the mode,
+the governed servers and optional floors:
+
+```yaml
+governance:
+  mode: governed                  # or trusted
+  roleFloors:                     # optional: floors added to the built-in ones
+    exampleManager: [approve_change, publish_change]
+  governedServers:
+    - server: agent-manager       # server key
+      role: agentManager          # which floors hold on it
+      safe: [get_info, list_agents, get_agent]   # tools agents call unasked
+    - server: example-manager
+      role: exampleManager        # a role roleFloors declares
+      safe: [list_changes]
+```
+
+Built-in roles: `agentManager`, `connectorManager`, `sessionManager`,
+`modelManager`, `clusterManager`, `vmManager`, `workspaceManager`,
+`toolchainManager`, `skillManager`, `infrastructure`. `roleFloors` only adds:
+nothing removes a built-in floor. muster (and the chart, at render) refuses to
+start on an unknown role, an entry without tools, a server named twice, a floor on
+any safe list, the removed `servers` shape, or any key other than `mode`,
+`roleFloors` and `governedServers`.
+
+| Mode | Agents are asked |
+|---|---|
+| both | before every floor: muster's `core_mcpserver_create`, `_connect`, `_set_approval`, `core_workflow_create`, `_update`, `_delete`; per role, agentManager `set_agent_approval`, `set_organization_connector`, `add_organization_member`, `set_organization_model`, `set_organization_egress_policy`, `replace_organization_credential`; connectorManager `mcpserver_create`, `_connect`, `_set_approval`; toolchainManager `approve_source`; modelManager `add_backend`; plus `roleFloors`. A floor name asks on every governed server whatever its role. |
+| `governed` (default, also with no readable configuration) | additionally before every tool of a governed server not on its safe list (new or renamed tools included) and every core tool except muster's reads (`core_*_list`, `_get`, `_validate`, `_detect`, `_status`, `_available`, `_execution_*`, `core_events`, `core_auth_*`). Workflow steps resolve the same way. |
+| `trusted` | floors only |
+
+- A `Block` still wins. `core_config_update_aggregator`, `_save` and `_reload` ask
+  every caller.
+- A floor name on a non-governed server is refused to agents while no governed
+  server holds that role; once one does, it asks on governed (an unnamed second
+  instance fails closed) and follows the server's own settings on trusted.
+- A safe-list entry matching none of the server's tools is logged and counted in
+  `muster_governance_safe_list_unmatched{server}`; that tool keeps asking.
+- `filter_tools`, `describe_tool` and `list_tools` report what a call will do for
+  the caller (source `governance` or `builtin`); `filter_tools` and
+  `core_mcpserver_list` also report `governance: trusted|governed`.
+- Requests of agent callers to a governed server carry `X-Muster-Caller-Kind:
+  agent` on HTTP connections; agents are refused on a governed stdio server.
+
+#### What governed mode does not cover
+
+- A client holding a person's own token (Claude Code, a script) is a person
+  caller: only connector settings apply.
+- Servers the configuration does not name follow connector settings only; name
+  every server that can change the platform.
+- Calls that never reach muster (kagent `RemoteMCPServer`s, sub-agent and A2A
+  calls).
+- Whoever can write muster's ConfigMap or HelmRelease changes mode and safe lists.
+
+### Upgrading to tool approval
+
+- **CRDs first.** `helm upgrade` does not update `crds/`: `helm show crds
+  giantswarm/muster | kubectl apply --server-side -f -`, or Flux `upgrade.crds:
+  CreateReplace`. Until the CRD knows `spec.approval`, every server tool call is
+  refused.
+- **Connector write tools are split.** `core_mcpserver_update` no longer takes
+  `url`, `type`, `command`, `args`, `env`, `headers`, `headersFrom`,
+  `requestMeta`/`meta`, `auth`, `clientCredentials`, `family` or `toolPrefix`
+  (use `_connect`) or approval settings (use `_set_approval`).
+  `core_mcpserver_create` and `muster create mcpserver` need `preset` or
+  `approval`.
+- **`mcpserver-editor` is bound to nobody by default** (it was
+  `system:authenticated`). Set `rbac.mcpServerEditor.subjects` (to keep the old
+  behaviour `[{kind: Group, apiGroup: rbac.authorization.k8s.io, name:
+  system:authenticated}]`) or `rbac.mcpServerEditor.allowRemovingBinding: true`;
+  otherwise the upgrade fails while the old RoleBinding exists, which breaks
+  unattended upgrades (Flux, Renovate). `helm template`-only pipelines (Argo CD)
+  are not protected: set the value first. `workflowEditor` keeps
+  `system:authenticated`.
+- **Governance.** Without `muster.governance`, agents get the governed default;
+  set it before agents use the platform's management servers.
+- `core_config_update_aggregator`, `_save` and `_reload` now ask every caller; in
+  filesystem mode (no Valkey, no browser sign-in) edit the configuration file and
+  restart instead.
+
 ## Extension metadata
 
 muster relays application entries in each tool call's `params._meta` to its
@@ -597,7 +902,8 @@ muster create mcpserver filesystem-tools \
   --args "@modelcontextprotocol/server-filesystem,/workspace" \
   --auto-start \
   --tool-prefix fs \
-  --description "File system operations"
+  --description "File system operations" \
+  --preset allow-all
 ```
 
 Create a streamable HTTP server:
@@ -608,7 +914,8 @@ muster create mcpserver remote-api \
   --timeout 60 \
   --tool-prefix api \
   --display-name "Remote API" \
-  --description "Remote API tools"
+  --description "Remote API tools" \
+  --preset recommended
 ```
 
 Create an SSE server:
@@ -618,7 +925,8 @@ muster create mcpserver sse-server \
   --url "https://sse.example.com/mcp" \
   --timeout 90 \
   --tool-prefix sse \
-  --description "SSE MCP server"
+  --description "SSE MCP server" \
+  --preset ask-all
 ```
 
 ### Listing Servers

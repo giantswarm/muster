@@ -38,7 +38,7 @@ tests:
     asserts:
       - lengthEqual:
           path: spec.groups
-          count: 1
+          count: 2
       - equal:
           path: spec.groups[0].name
           value: muster
@@ -254,3 +254,78 @@ tests:
       - equal:
           path: metadata.labels["application.giantswarm.io/team"]
           value: bumblebee
+
+  # The approval alerts: their own group, behind the same toggle. The
+  # expressions are the contract with internal/approval (metric names,
+  # outcome and reason values) and must not carry pod-level labels.
+  - it: defines the approval alerts in a group of their own
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[1].name
+          value: muster-approval
+      - lengthEqual:
+          path: spec.groups[1].rules
+          count: 4
+      - equal:
+          path: spec.groups[1].rules[0].alert
+          value: MusterApprovalUnavailable
+      - equal:
+          path: spec.groups[1].rules[1].alert
+          value: MusterApprovalStoreDown
+      - equal:
+          path: spec.groups[1].rules[2].alert
+          value: MusterApprovalHighDeclineOrExpiryRatio
+      - equal:
+          path: spec.groups[1].rules[3].alert
+          value: MusterApprovalOutageFallbackInUse
+
+  - it: alerts on approval being unavailable and on the store being down
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - equal:
+          path: spec.groups[1].rules[0].expr
+          value: 'sum by (cluster_id, installation, pipeline, provider, namespace, reason) (increase(muster_approval_refusals_total{reason=~"unavailable|store_unavailable|settings_unavailable"}[10m])) > 0'
+      - equal:
+          path: spec.groups[1].rules[0].for
+          value: 10m
+      - equal:
+          path: spec.groups[1].rules[1].expr
+          value: 'min by (cluster_id, installation, pipeline, provider, namespace) (muster_approval_store_up) == 0'
+      - equal:
+          path: spec.groups[1].rules[1].for
+          value: 5m
+
+  - it: alerts on a high decline and expiry ratio and on a long outage fallback
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - matchRegex:
+          path: spec.groups[1].rules[2].expr
+          pattern: 'muster_approval_decisions_total\{outcome=~"declined\|expired"\}'
+      - equal:
+          path: spec.groups[1].rules[2].for
+          value: 30m
+      - equal:
+          path: spec.groups[1].rules[3].expr
+          value: 'sum by (cluster_id, installation, pipeline, provider, namespace) (increase(muster_approval_last_observed_fallbacks_total[5m])) > 0'
+      - equal:
+          path: spec.groups[1].rules[3].for
+          value: 10m
+
+  - it: keeps the approval alerts free of routing labels, pod labels and runbook links
+    set:
+      muster.observability.metrics.prometheus.prometheusRule.enabled: true
+    asserts:
+      - notExists:
+          path: spec.groups[1].rules[0].labels.team
+      - notExists:
+          path: spec.groups[1].rules[0].annotations.runbook_url
+      - notMatchRegex:
+          path: spec.groups[1].rules[0].expr
+          pattern: '\b(pod|instance|container|endpoint|service|job|otel_scope_name)\b'
+      - notMatchRegex:
+          path: spec.groups[1].rules[2].expr
+          pattern: '\b(pod|instance|container|endpoint|service|job|otel_scope_name)\b'

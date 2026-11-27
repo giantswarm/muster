@@ -10,6 +10,7 @@ steps:
   description: "Create a new streamable HTTP MCP server"
   tool: "core_mcpserver_create"
   args:
+    preset: "allow-all"
     name: "streamable-http-crud-server"
     type: "streamable-http"
     url: "https://api.example.com/mcp"
@@ -37,11 +38,17 @@ steps:
 
 - id: "update-streamable-http-mcpserver"
   description: "Update the streamable HTTP MCP server configuration"
+  tool: "core_mcpserver_connect"
+  args:
+    name: "streamable-http-crud-server"
+    url: "https://updated.example.com/mcp"
+  expected:
+    success: true
+
+- id: "update-streamable-http-mcpserver-update-fields"
   tool: "core_mcpserver_update"
   args:
     name: "streamable-http-crud-server"
-    type: "streamable-http"
-    url: "https://updated.example.com/mcp"
     timeout: 90
   expected:
     success: true

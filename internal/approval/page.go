@@ -1,0 +1,475 @@
+package approval
+
+import (
+	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/giantswarm/muster/v5/internal/api"
+	"github.com/giantswarm/muster/v5/internal/clock"
+	"github.com/giantswarm/muster/v5/pkg/logging"
+)
+
+// PathPrefix is the path of the approval pages on muster's public URL.
+const PathPrefix = "/approvals/"
+
+// flowTTL bounds a browser's flow on one approval: the identity sign-in and
+// the decision after it.
+const flowTTL = 10 * time.Minute
+
+// maxFormBytes caps the decision form.
+const maxFormBytes = 4 << 10
+
+// The browser cookie of the approval page. Over https the __Host- prefix keeps
+// a sibling subdomain from planting it.
+const (
+	cookieName       = "muster_approval_browser"
+	secureCookieName = "__Host-" + cookieName
+)
+
+// Page serves the approval page: GET shows a request (after signing the
+// browser in to muster's identity provider), POST records the decision. No
+// GET changes a decision. On the page only muster's browser sign-in decides:
+// a bearer or actor token on the request is never read by the page (a GET
+// with a bearer goes to the decision API, see Bearer and DecisionAPI).
+type Page struct {
+	// PublicURL is muster's public origin (https://muster.example.com); every
+	// link and the identity sign-in's return are built from it.
+	PublicURL string
+	// Installation names the installation on the page.
+	Installation string
+	// Store returns the approval store, nil when approval is unavailable.
+	Store func() api.ApprovalStore
+	// Identity returns the browser identity check, nil without one.
+	Identity func() api.BrowserIdentity
+	// RedirectAllowed checks a client's return against the allowlist.
+	RedirectAllowed func(string) bool
+	// Now is the page's clock.
+	Now func() time.Time
+	// Handoffs redeems sign-in handoffs; nil: a link's ticket is dropped and
+	// the browser signs in itself.
+	Handoffs *Handoffs
+	// OnDecided is called once for the request a POST decided (approved or
+	// declined), after the decision is recorded and before the browser is
+	// answered; nil: nothing. The aggregator uses it to send the asked
+	// client session notifications/elicitation/complete.
+	OnDecided func(*api.ApprovalRequest)
+	// Bearer serves a GET that carries an Authorization bearer: the decision
+	// API's view for a trusted client, behind the OAuth server's bearer
+	// check. nil: such a GET is served as the page, its bearer never read.
+	Bearer http.Handler
+}
+
+// Register mounts the page on mux.
+func (p *Page) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET "+PathPrefix+"{id}", p.handleView)
+	mux.HandleFunc("POST "+PathPrefix+"{id}", p.handleDecision)
+}
+
+// URL returns the page of an approval request.
+func (p *Page) URL(id string) string {
+	return strings.TrimSuffix(p.PublicURL, "/") + PathPrefix + url.PathEscape(id)
+}
+
+func (p *Page) now() time.Time {
+	if p.Now != nil {
+		return p.Now()
+	}
+	return clock.Now()
+}
+
+func (p *Page) secure() bool {
+	return strings.HasPrefix(p.PublicURL, "https://")
+}
+
+func (p *Page) cookieName() string {
+	if p.secure() {
+		return secureCookieName
+	}
+	return cookieName
+}
+
+func (p *Page) cookieValue(r *http.Request) string {
+	c, err := r.Cookie(p.cookieName())
+	if err != nil {
+		return ""
+	}
+	return c.Value
+}
+
+// ensureCookie returns the browser's cookie, issuing one when it has none.
+func (p *Page) ensureCookie(w http.ResponseWriter, r *http.Request) string {
+	if value := p.cookieValue(r); value != "" {
+		return value
+	}
+	value := rand.Text()
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure whenever muster is served over https
+		Name:     p.cookieName(),
+		Value:    value,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   p.secure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+	return value
+}
+
+// flowKey binds a flow to one browser and one request.
+func flowKey(cookie, id string) string {
+	sum := sha256.Sum256([]byte(cookie + "\x00" + id))
+	return hex.EncodeToString(sum[:])
+}
+
+// identityVerifier is the PKCE verifier of the identity sign-in, derived from
+// the browser's cookie: only the browser that was sent to the sign-in can
+// redeem the code it brings back.
+func identityVerifier(cookie, nonce string) string {
+	sum := sha256.Sum256([]byte("approval\x00" + cookie + "\x00" + nonce))
+	return hex.EncodeToString(sum[:])
+}
+
+// securityHeaders sets the page's headers. returnOrigin is the origin the
+// decision's 303 sends the browser to: Chromium applies form-action to every
+// redirect of a form submission, under the policy of the page that holds the
+// form, so that page names exactly that origin besides its own (and nothing
+// when there is no return). Verified in Chromium: with form-action 'self'
+// alone the redirect after the decision POST is blocked.
+func securityHeaders(w http.ResponseWriter, scriptNonce, returnOrigin string) {
+	h := w.Header()
+	h.Set("Cache-Control", "no-store")
+	h.Set("Referrer-Policy", "no-referrer")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "DENY")
+	formAction := "'self'"
+	if returnOrigin != "" {
+		formAction += " " + returnOrigin
+	}
+	csp := "default-src 'none'; style-src 'unsafe-inline'; form-action " + formAction + "; frame-ancestors 'none'; base-uri 'none'"
+	if scriptNonce != "" {
+		csp += "; script-src 'nonce-" + scriptNonce + "'"
+	}
+	h.Set("Content-Security-Policy", csp)
+}
+
+// handleView shows a request, after the browser signed in, or finishes that
+// sign-in when the identity provider sent the browser back with a code.
+func (p *Page) handleView(w http.ResponseWriter, r *http.Request) {
+	if p.Bearer != nil && HasBearer(r) {
+		p.Bearer.ServeHTTP(w, r)
+		return
+	}
+	id := r.PathValue("id")
+	store, identity := p.Store(), p.Identity()
+	if store == nil || identity == nil {
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing can be decided here", "Nothing was approved or declined: muster cannot take decisions here, because its shared store or its browser sign-in is not set up. Tell the platform's operators; the tool that asked cannot run until then.")
+		return
+	}
+	if r.URL.Query().Has(HandoffParam) && !r.URL.Query().Has("code") {
+		p.redeemHandoff(w, r, store, id)
+		return
+	}
+	request, err := store.Get(r.Context(), id)
+	if errors.Is(err, api.ErrApprovalNotFound) && !r.URL.Query().Has("code") {
+		// An unknown, expired or used id answers like a live one before
+		// sign-in: the browser is sent to sign in, and only a signed-in
+		// browser learns that nothing is there. Nothing is
+		// stored for it.
+		p.sendUnknownToSignIn(w, r, identity, id)
+		return
+	}
+	if err != nil {
+		p.renderStoreError(w, err)
+		return
+	}
+	if r.URL.Query().Has("code") {
+		p.finishSignIn(w, r, store, identity, request)
+		return
+	}
+
+	cookie := p.ensureCookie(w, r)
+	key := flowKey(cookie, id)
+	flow, err := store.GetFlow(r.Context(), key)
+	if errors.Is(err, api.ErrApprovalNotFound) {
+		flow, err = &api.ApprovalPageFlow{Token: rand.Text()}, nil
+	}
+	if err != nil {
+		p.renderStoreError(w, err)
+		return
+	}
+	p.keepRedirect(r, flow, id)
+
+	if flow.Identity == (api.SignInIdentity{}) {
+		p.sendToSignIn(w, r, store, identity, request, cookie, key, flow)
+		return
+	}
+	if err := store.PutFlow(r.Context(), key, *flow, flowTTL); err != nil {
+		p.renderStoreError(w, err)
+		return
+	}
+	p.renderRequest(w, request, flow)
+}
+
+// sendToSignIn sends the browser to muster's identity provider to learn who
+// is in it, expecting the person the request is bound to.
+func (p *Page) sendToSignIn(w http.ResponseWriter, r *http.Request, store api.ApprovalStore, identity api.BrowserIdentity, request *api.ApprovalRequest, cookie, key string, flow *api.ApprovalPageFlow) {
+	if err := identity.CheckRefusal(request.Identity); err != nil {
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: muster cannot confirm who you are", "Nothing was approved or declined. muster cannot check sign-ins for the account this request was made for, so it cannot be decided on this page. Ask the platform's operators to enable the sign-in check for your identity provider (dex.identityCheckConnectors).")
+		return
+	}
+	flow.Nonce = rand.Text()
+	if err := store.PutFlow(r.Context(), key, *flow, flowTTL); err != nil {
+		p.renderStoreError(w, err)
+		return
+	}
+	returnURL, err := url.Parse(p.URL(request.ID))
+	if err != nil {
+		p.renderMessage(w, http.StatusInternalServerError, "Nothing was decided: the approval page is misconfigured", "Nothing was approved or declined. Tell the platform's operators.")
+		return
+	}
+	sum := sha256.Sum256([]byte(identityVerifier(cookie, flow.Nonce)))
+	challenge := base64.RawURLEncoding.EncodeToString(sum[:])
+	signIn, err := identity.SignInURL(r.Context(), returnURL, flow.Nonce, challenge, request.Identity)
+	if err != nil {
+		logging.Warn("Approval", "Cannot start the sign-in for approval %s: %v", logging.TruncateIdentifier(request.ID), err)
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing was decided yet: the sign-in could not be started", "Nothing was approved or declined. Open the approval link again in a moment.")
+		return
+	}
+	http.Redirect(w, r, signIn, http.StatusFound) //nolint:gosec // G710: built by muster's own OAuth server
+}
+
+// sendUnknownToSignIn sends the browser to sign in for an id muster does not
+// hold, as for a live one; its return finds no request and answers 404.
+func (p *Page) sendUnknownToSignIn(w http.ResponseWriter, r *http.Request, identity api.BrowserIdentity, id string) {
+	p.ensureCookie(w, r)
+	returnURL, err := url.Parse(p.URL(id))
+	if err != nil {
+		p.renderMessage(w, http.StatusInternalServerError, "Nothing was decided: the approval page is misconfigured", "Nothing was approved or declined. Tell the platform's operators.")
+		return
+	}
+	sum := sha256.Sum256([]byte(rand.Text()))
+	signIn, err := identity.SignInURL(r.Context(), returnURL, rand.Text(), base64.RawURLEncoding.EncodeToString(sum[:]), api.SignInIdentity{})
+	if err != nil {
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing was decided yet: the sign-in could not be started", "Nothing was approved or declined. Open the approval link again in a moment.")
+		return
+	}
+	http.Redirect(w, r, signIn, http.StatusFound) //nolint:gosec // G710: built by muster's own OAuth server
+}
+
+// finishSignIn records who signed in in this browser and shows the page again.
+func (p *Page) finishSignIn(w http.ResponseWriter, r *http.Request, store api.ApprovalStore, identity api.BrowserIdentity, request *api.ApprovalRequest) {
+	cookie := p.cookieValue(r)
+	if cookie == "" {
+		p.renderMessage(w, http.StatusBadRequest, "Nothing was decided: the sign-in came back to another browser", "Nothing was approved or declined. Open the approval link again in the browser you want to decide in.")
+		return
+	}
+	key := flowKey(cookie, request.ID)
+	flow, err := store.GetFlow(r.Context(), key)
+	if err != nil {
+		p.renderStoreError(w, err)
+		return
+	}
+	state := r.URL.Query().Get("state")
+	if flow.Nonce == "" || subtle.ConstantTimeCompare([]byte(state), []byte(flow.Nonce)) != 1 {
+		p.renderMessage(w, http.StatusBadRequest, "Nothing was decided: the sign-in does not belong to this page", "Nothing was approved or declined. The sign-in expired or was started from another tab. Open the approval link again.")
+		return
+	}
+	returnURL, err := url.Parse(p.URL(request.ID))
+	if err != nil {
+		p.renderMessage(w, http.StatusInternalServerError, "Nothing was decided: the approval page is misconfigured", "Nothing was approved or declined. Tell the platform's operators.")
+		return
+	}
+	signedIn, err := identity.Identity(r.Context(), returnURL, r.URL.Query().Get("code"), identityVerifier(cookie, flow.Nonce))
+	if err != nil {
+		logging.Warn("Approval", "Sign-in for approval %s failed: %v", logging.TruncateIdentifier(request.ID), err)
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: the sign-in could not be completed", "Nothing was approved or declined. Open the approval link again.")
+		return
+	}
+	flow.Identity, flow.Nonce = signedIn, ""
+	if err := store.PutFlow(r.Context(), key, *flow, flowTTL); err != nil {
+		p.renderStoreError(w, err)
+		return
+	}
+	http.Redirect(w, r, p.URL(request.ID), http.StatusSeeOther) //nolint:gosec // G710: muster's own page, from its public URL and the stored request's id
+}
+
+// handleDecision records a decision: only from the browser signed in as the
+// person the request is bound to, with the form's anti-forgery token, once.
+// The browser then goes back to its client's return, never told the decision.
+func (p *Page) handleDecision(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	store := p.Store()
+	if store == nil || p.Identity() == nil {
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing can be decided here", "Nothing was approved or declined: muster cannot take decisions here right now. Tell the platform's operators.")
+		return
+	}
+	// Every refusal of a decision answers the browser alike and logs which
+	// check refused it (no secrets): nothing was approved or declined.
+	refuse := func(reason, body string) {
+		DefaultMetrics().DecisionRefused(r.Context(), ReasonPageCheck, "", PathPage)
+		logging.WarnWithAttrs("Approval", "decision refused: nothing was decided",
+			slog.String("approval", logging.TruncateIdentifier(id)), slog.String("reason", reason))
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided", "Nothing was approved or declined: "+body)
+	}
+	// A browser sends Origin: null on a same-origin POST from a page with
+	// Referrer-Policy: no-referrer (Fetch, "serializing a request origin";
+	// verified in Chromium): that carries no origin, like a missing header.
+	// The anti-forgery token bound to this browser's flow is the check.
+	if origin := r.Header.Get("Origin"); origin != "" && origin != "null" && !sameOrigin(origin, p.PublicURL) {
+		refuse("the Origin header names another origin", "the answer did not come from this approval page. Open the approval link and decide on its page.")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+	if err := r.ParseForm(); err != nil {
+		p.renderMessage(w, http.StatusBadRequest, "Nothing was decided: the answer could not be read", "Nothing was approved or declined. Open the approval link again and choose Approve or Decline.")
+		return
+	}
+	cookie := p.cookieValue(r)
+	if cookie == "" {
+		refuse("the browser sent no approval cookie", "this browser sent no approval session (cookies blocked, or the page was opened in another browser). Open the approval link again in this browser.")
+		return
+	}
+	key := flowKey(cookie, id)
+	flow, err := store.GetFlow(r.Context(), key)
+	if err != nil {
+		if errors.Is(err, api.ErrApprovalNotFound) {
+			refuse("no flow for this browser and request (expired, or another browser)", "this page expired (a page stays valid for 10 minutes after sign-in) or was opened in another browser. Open the approval link again.")
+			return
+		}
+		p.renderStoreError(w, err)
+		return
+	}
+	if flow.Token == "" || subtle.ConstantTimeCompare([]byte(r.PostForm.Get("token")), []byte(flow.Token)) != 1 {
+		refuse("the anti-forgery token does not match this browser's flow", "this page is out of date: the approval link was opened again, in another tab, after it. Use the newest tab, or open the approval link again.")
+		return
+	}
+	request, err := store.Get(r.Context(), id)
+	if err != nil {
+		p.renderStoreError(w, err)
+		return
+	}
+	if flow.Identity == (api.SignInIdentity{}) || flow.Identity != request.Identity {
+		logging.WarnWithAttrs("Approval", "decision refused: the signed-in person is not the requester",
+			slog.String("approval", logging.TruncateIdentifier(id)))
+		DefaultMetrics().DecisionRefused(r.Context(), ReasonForeign, request.CallerKind, PathPage)
+		p.renderMessage(w, http.StatusForbidden, "Nothing was decided: only the person who asked can decide", "Nothing was approved or declined. This request was made for someone else; only they can decide it.")
+		return
+	}
+	var approve bool
+	switch r.PostForm.Get("decision") {
+	case "approve":
+		approve = true
+	case "decline":
+	default:
+		p.renderMessage(w, http.StatusBadRequest, "Nothing was decided: the answer could not be read", "Nothing was approved or declined. Open the approval link again and choose Approve or Decline.")
+		return
+	}
+	if err := store.Decide(r.Context(), id, approve, flow.Identity); err != nil {
+		if errors.Is(err, api.ErrApprovalDecided) {
+			// Answered meanwhile (another tab): say what stands.
+			if current, getErr := store.Get(r.Context(), id); getErr == nil {
+				p.renderAnswered(w, current)
+				return
+			}
+		}
+		p.renderStoreError(w, err)
+		return
+	}
+	// The flow stays until it expires: a repeated submit of the same form (a
+	// double click) reaches Decide, which answers with what stands.
+	auditDecision(r.Context(), request, approve, flow.Identity, PathPage, "")
+	recordDecision(r.Context(), request, approve, p.now(), PathPage)
+	if p.OnDecided != nil {
+		p.OnDecided(request)
+	}
+
+	if flow.Redirect != "" {
+		if target, err := url.Parse(flow.Redirect); err == nil {
+			query := target.Query()
+			query.Set("elicitationId", request.ElicitationID)
+			target.RawQuery = query.Encode()
+			securityHeaders(w, "", "")
+			http.Redirect(w, r, target.String(), http.StatusSeeOther) //nolint:gosec // G710: allowlist-checked when the page stored it
+			return
+		}
+	}
+	if approve {
+		p.renderMessage(w, http.StatusOK, "You approved this request", "It runs once when the tool is called again. Go back to where the request came from and continue there.")
+		return
+	}
+	p.renderMessage(w, http.StatusOK, "You declined this request", "It will not run. Go back to where the request came from and continue there.")
+}
+
+// originOf returns the scheme and host of raw, "" when it has none.
+func originOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+func sameOrigin(origin, publicURL string) bool {
+	o, err1 := url.Parse(origin)
+	pu, err2 := url.Parse(publicURL)
+	return err1 == nil && err2 == nil && o.Scheme == pu.Scheme && o.Host == pu.Host
+}
+
+func (p *Page) renderStoreError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, api.ErrApprovalNotFound):
+		p.renderMessage(w, http.StatusNotFound, "Nothing to decide: this request expired or was already used", "Nothing was approved or declined now. If the tool still needs to run, run it again; it will ask anew.")
+	case errors.Is(err, api.ErrApprovalDecided):
+		p.renderMessage(w, http.StatusConflict, "This request was already answered", "Your answer now changes nothing. Go back to where the request came from and continue there.")
+	default:
+		logging.Warn("Approval", "Approval store unavailable: %v", err)
+		p.renderMessage(w, http.StatusServiceUnavailable, "Nothing was decided: approval is unavailable right now", "Nothing was approved or declined. Open the approval link again in a moment.")
+	}
+}
+
+// auditDecision records who decided what, for whom, on which target. The
+// approver is the person signed in on the page, or the person whose bearer a
+// trusted client posted the decision with (path api, client named); the
+// request's own caller is named as requester.
+func auditDecision(ctx context.Context, request *api.ApprovalRequest, approve bool, approver api.SignInIdentity, path, client string) {
+	outcome := "declined"
+	if approve {
+		outcome = "approved"
+	}
+	ctx = api.WithSignInIdentity(ctx, approver)
+	api.AuditApproval(ctx, "approval_decision",
+		slog.String("outcome", outcome),
+		slog.String("approval", request.ID),
+		slog.String("requesterIssuer", request.Identity.Issuer),
+		slog.String("requesterSubject", request.Identity.Subject),
+		slog.String("requesterCallerKind", request.CallerKind),
+		slog.String("session", request.SessionID),
+		slog.String("targetKind", request.Target.Kind),
+		slog.String("server", request.Target.Server),
+		slog.String("target", request.Target.Name),
+		slog.String("argumentsHash", request.ArgumentsHash),
+		slog.String("setting", request.Display.Setting),
+		slog.String("source", request.Display.Source),
+		slog.String("path", path),
+		slog.String("client", client))
+}
+
+// recordDecision counts a decision and how long the request waited for it.
+func recordDecision(ctx context.Context, request *api.ApprovalRequest, approve bool, now time.Time, path string) {
+	outcome := OutcomeDeclined
+	if approve {
+		outcome = OutcomeApproved
+	}
+	m := DefaultMetrics()
+	m.DecidedOn(ctx, outcome, path)
+	m.TimeToDecision(ctx, outcome, path, now.Sub(request.CreatedAt).Seconds())
+	m.Pending().Done(request.ID)
+}

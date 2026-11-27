@@ -1,0 +1,148 @@
+name: "tool-approval-workflow-asks-up-front"
+description: "A workflow with a step that asks asks once, up front, for the whole run: the page shows the workflow, its inputs and its steps with the asking one marked; after approval every step runs once with no further asks; the approval is single use; a workflow with a blocked step refuses before anything runs"
+category: "behavioral"
+concept: "workflow"
+tags: ["approval", "workflow", "security", "oauth", "valkey"]
+timeout: "5m"
+
+# Given: github's get_issue is Allow, merge_pull_request asks, delete_branch
+#        is blocked. Workflow release reads an issue and merges a pull
+#        request; workflow cleanup deletes a branch.
+# When:  alice runs release, approves it on the page and runs it again.
+# Then:  the first run asks once and runs no step; the page shows the
+#        workflow's steps, the merge marked; the approved run runs both steps
+#        once; the next run asks again. cleanup is refused up front.
+
+pre_configuration:
+  storage:
+    type: "valkey"
+
+  mock_oauth_servers:
+    - name: "muster-idp"
+      scopes: ["openid", "profile", "email"]
+      auto_approve: true
+      pkce_required: false
+      token_lifetime: "1h"
+      client_id: "test-client"
+      client_secret: "test-secret"
+      use_as_muster_oauth_server: true
+
+  mcp_servers:
+    - name: "github"
+      config:
+        approval:
+          rule: "Ask"
+          tools:
+            get_issue: "Allow"
+            delete_branch: "Block"
+        tools:
+          - name: "get_issue"
+            description: "Get an issue"
+            annotations: { read_only_hint: true }
+            responses: [{ response: { issue: 1 } }]
+          - name: "merge_pull_request"
+            description: "Merge a pull request"
+            responses: [{ response: { merged: true } }]
+          - name: "delete_branch"
+            description: "Delete a branch"
+            responses: [{ response: { deleted: true } }]
+
+  workflows:
+    - name: "release"
+      config:
+        name: "release"
+        description: "Find the release PR and merge it."
+        args:
+          pr:
+            type: "number"
+            required: true
+        steps:
+          - id: "find"
+            tool: "x_github_get_issue"
+            args: {}
+            output: true
+          - id: "merge"
+            description: "Merge pull request"
+            tool: "x_github_merge_pull_request"
+            args:
+              pr: "{{ .input.pr }}"
+            output: true
+    - name: "cleanup"
+      config:
+        name: "cleanup"
+        description: "Delete the release branch."
+        steps:
+          - id: "delete"
+            tool: "x_github_delete_branch"
+            args: {}
+
+steps:
+  - id: "login-alice"
+    tool: "test_muster_auth_login"
+    args: { subject: "alice" }
+    expected:
+      success: true
+
+  - id: "open-alice-session"
+    tool: "test_create_user"
+    args: { name: "alice" }
+    expected:
+      success: true
+
+  - id: "wait-for-github"
+    tool: "x_github_get_issue"
+    args: {}
+    expected:
+      success: true
+      wait_for_state: "30s"
+
+  - id: "the-run-asks-once-and-runs-nothing"
+    tool: "workflow_release"
+    args: { pr: 7 }
+    expected:
+      success: false
+      wait_for_state: "20s"
+      contains: ["approval_required", "Confirm workflow release.", "/approvals/"]
+      not_contains: ["merged", "issue"]
+
+  - id: "the-page-shows-the-steps"
+    tool: "test_decide_approval"
+    args: { tool: "workflow_release", arguments: { pr: 7 } }
+    expected:
+      success: true
+      json_path:
+        page_status: 200
+        buttons: true
+      contains: ["Approve this workflow?", "Merge pull request", "x_github_merge_pull_request", "x_github_get_issue", "{{ .input.pr }}"]
+
+  - id: "alice-approves-the-run"
+    tool: "test_decide_approval"
+    args: { tool: "workflow_release", arguments: { pr: 7 }, decision: "approve" }
+    expected:
+      success: true
+      json_path:
+        decision_status: 200
+
+  - id: "the-approved-run-runs-every-step"
+    tool: "workflow_release"
+    args: { pr: 7 }
+    expected:
+      success: true
+      contains: ["merged", "issue"]
+      not_contains: ["approval_required"]
+
+  - id: "the-next-run-asks-again"
+    tool: "workflow_release"
+    args: { pr: 7 }
+    expected:
+      success: false
+      contains: ["approval_required"]
+      not_contains: ["merged"]
+
+  - id: "a-blocked-step-refuses-up-front"
+    tool: "workflow_cleanup"
+    args: {}
+    expected:
+      success: false
+      contains: ["cannot run", "x_github_delete_branch"]
+      not_contains: ["deleted"]

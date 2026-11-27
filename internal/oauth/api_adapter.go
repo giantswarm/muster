@@ -386,3 +386,10 @@ var _ api.OAuthHandler = (*Adapter)(nil)
 // Ensure Adapter can probe a token exchange's token endpoint
 var _ api.TokenEndpointProber = (*Adapter)(nil)
 var _ api.TenantIssuerForgetter = (*Adapter)(nil)
+var _ api.PostLoginRedirects = (*Adapter)(nil)
+
+// PostLoginRedirectAllowed implements api.PostLoginRedirects with the start
+// endpoint's own allowlist check.
+func (a *Adapter) PostLoginRedirectAllowed(raw string) bool {
+	return a.manager.handler.redirectAllowed(raw)
+}

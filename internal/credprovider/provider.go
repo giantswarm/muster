@@ -58,6 +58,9 @@ type Provider struct {
 	ttl          time.Duration
 	store        Store
 	grants       GrantSource
+	// senders reviews the sender of a bind that carries approval settings;
+	// nil refuses every such bind.
+	senders SenderReviewer
 }
 
 // Options configure a Provider.
@@ -85,6 +88,9 @@ type Options struct {
 	BindingTTL time.Duration
 	Store      Store
 	Grants     GrantSource
+	// Senders reviews a bind's ApprovalSenderHeader token; nil refuses
+	// every bind that carries one.
+	Senders SenderReviewer
 }
 
 // NewProvider returns a Provider, or an error for an incomplete configuration.
@@ -138,6 +144,7 @@ func NewProvider(o Options) (*Provider, error) {
 		ttl:          o.BindingTTL,
 		store:        o.Store,
 		grants:       o.Grants,
+		senders:      o.Senders,
 	}
 	if p.authority == "" {
 		p.authority = DefaultAuthority
@@ -201,7 +208,7 @@ func (p *Provider) FetchSecret(ctx context.Context, req *credproviderpb.FetchSec
 	if token == nil || token.AccessToken == "" {
 		return nil, refuse(codes.NotFound, p.noGrantReason(provider), who...)
 	}
-	if err := p.store.Touch(ctx, actor, p.ttl); err != nil {
+	if err := p.store.Touch(ctx, actor, binding.Agent, p.ttl); err != nil {
 		logging.WarnWithAttrs(logSubsystem, "binding_touch_failed", slog.String("actor", actor), slog.String("error", err.Error()))
 	}
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
 )
 
@@ -42,7 +43,10 @@ func withRequestDuration(ctx context.Context, attrs []slog.Attr) []slog.Attr {
 }
 
 // httpRequestContext is the per-request context func of the HTTP transports:
-// the request's toolset source (X-Muster-Toolset) and its arrival time.
+// the request's toolset source (X-Muster-Toolset), its agent approval
+// settings where no binding carries them (X-Muster-Tool-Approval) and its
+// arrival time.
 func httpRequestContext(ctx context.Context, r *http.Request) context.Context {
+	ctx = api.ContextWithToolApprovalHeader(ctx, r.Header.Get(api.ToolApprovalHeader))
 	return withRequestStart(toolset.HTTPContextFunc(ctx, r))
 }

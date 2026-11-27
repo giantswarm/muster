@@ -245,6 +245,7 @@ func withBackendRoundTrip(ctx context.Context, state backendInputState, response
 // goes.
 func prepareBackendCall(ctx context.Context, serverName, tool string) (context.Context, error) {
 	ctx = internalmcp.WithCallerCapabilities(ctx, callerCapabilities(ctx))
+	ctx = withCallerKind(ctx, serverName)
 	pending, ok := ctx.Value(backendRoundTripKey{}).(*pendingBackendRoundTrip)
 	if !ok || !pending.taken.CompareAndSwap(false, true) {
 		return ctx, nil

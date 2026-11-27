@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/toolset"
@@ -120,6 +121,17 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 		}
 	}
 
+	if raw, present := args["reason"]; present && raw != nil {
+		reason, isString := raw.(string)
+		if !isString {
+			return errorResult("reason must be a string"), nil
+		}
+		if utf8.RuneCountInString(reason) > api.MaxAgentReasonRunes {
+			return errorResult(fmt.Sprintf("reason is longer than %d characters", api.MaxAgentReasonRunes)), nil
+		}
+		ctx = api.WithAgentReason(ctx, reason)
+	}
+
 	handler, errResult := p.getHandler()
 	if errResult != nil {
 		return errResult, nil
@@ -138,7 +150,8 @@ func (p *Provider) handleCallTool(ctx context.Context, args map[string]any) (*ap
 	}
 
 	// Execute the tool via the handler, learning where the aggregator
-	// dispatched it.
+	// dispatched it. Its target's effective approval applies at dispatch
+	// (always, unless muster marks a call its own).
 	ctx, dispatch := observability.ContextWithDispatchRecord(ctx, name)
 	result, connected, err := p.answerSignIn(ctx, handler, cat, name, toolArgs)
 	if connected {

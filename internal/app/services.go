@@ -277,16 +277,37 @@ func InitializeServices(cfg *Config) (*Services, error) {
 		mergedOAuthMCPClientConfig.ExtraCAFile = cfg.ExtraCAFile
 		mergedOAuthMCPClientConfig.ServesOtherNamespaces = mcpServersInAllNamespaces
 
+		if err := registerGovernance(cfg.MusterConfig.Governance); err != nil {
+			return nil, err
+		}
+		ttl, err := approvalTTL(cfg.MusterConfig.Approval)
+		if err != nil {
+			return nil, err
+		}
+
+		maxAge, err := approvalLastObservedMaxAge(cfg.MusterConfig.Approval)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(cfg.MusterConfig.Approval.HandoffClients) > 0 { //nolint:staticcheck // SA1019: read to warn about the deprecated name
+			logging.Warn("Services", "approval.handoffClients is deprecated: name the clients in approval.trustedClients (both are read)")
+		}
+
 		// Convert config types
 		aggConfig := aggregator.AggregatorConfig{
-			Port:         cfg.MusterConfig.Aggregator.Port,
-			Host:         cfg.MusterConfig.Aggregator.Host,
-			Transport:    cfg.MusterConfig.Aggregator.Transport,
-			MusterPrefix: cfg.MusterConfig.Aggregator.MusterPrefix,
-			Version:      cfg.Version,
-			ConfigDir:    cfg.ConfigPath,
-			Debug:        cfg.Debug,
-			OAuth:        mergedOAuthMCPClientConfig,
+			ApprovalTTL:                ttl,
+			ApprovalLastObservedMaxAge: maxAge,
+			ApprovalInstallation:       cfg.MusterConfig.Approval.Installation,
+			ApprovalTrustedClients:     cfg.MusterConfig.Approval.TrustedClientIDs(),
+			Port:                       cfg.MusterConfig.Aggregator.Port,
+			Host:                       cfg.MusterConfig.Aggregator.Host,
+			Transport:                  cfg.MusterConfig.Aggregator.Transport,
+			MusterPrefix:               cfg.MusterConfig.Aggregator.MusterPrefix,
+			Version:                    cfg.Version,
+			ConfigDir:                  cfg.ConfigPath,
+			Debug:                      cfg.Debug,
+			OAuth:                      mergedOAuthMCPClientConfig,
 			OAuthServer: aggregator.OAuthServerConfig{
 				// serve command flag overrides config file if enabled
 				Enabled: cfg.OAuthServerEnabled || cfg.MusterConfig.Aggregator.OAuth.Server.Enabled,

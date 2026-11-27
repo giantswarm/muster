@@ -65,7 +65,7 @@ func TestMutationsRejectInvalidTags(t *testing.T) {
 				c := &recordingClient{stubMusterClient: stubMusterClient{existing: existing}}
 				adapter := NewAdapterWithClient(c, "test-ns")
 
-				result, err := adapter.ExecuteTool(t.Context(), tool, remoteServerArgs(map[string]interface{}{"tags": tags}))
+				result, err := legacyExecute(adapter, t.Context(), tool, remoteServerArgs(map[string]interface{}{"tags": tags}))
 
 				require.NoError(t, err)
 				require.True(t, result.IsError)
@@ -210,7 +210,7 @@ func TestUpdateTagsPastTheLimit(t *testing.T) {
 		c := &recordingClient{stubMusterClient: stubMusterClient{existing: existing()}}
 		adapter := NewAdapterWithClient(c, "test-ns")
 
-		result, err := adapter.ExecuteTool(t.Context(), "mcpserver_update", map[string]interface{}{"name": "kagi-search", "tags": tagstest.Arg(append(stored, "new"))})
+		result, err := legacyExecute(adapter, t.Context(), "mcpserver_update", map[string]interface{}{"name": "kagi-search", "tags": tagstest.Arg(append(stored, "new"))})
 
 		require.NoError(t, err)
 		require.True(t, result.IsError)
