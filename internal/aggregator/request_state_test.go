@@ -1,10 +1,13 @@
 package aggregator
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"os"
 	"testing"
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
+	"github.com/giantswarm/muster/v5/pkg/logging"
 )
 
 func testCaller() *providers.UserInfo {
@@ -70,6 +74,13 @@ func newKey(t *testing.T) string {
 }
 
 func TestNewRequestStateSealer(t *testing.T) {
+	for _, value := range []byte{0, 'a'} {
+		t.Run(fmt.Sprintf("rejects repeated root byte %d", value), func(t *testing.T) {
+			key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{value}, 32))
+			_, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: key})
+			require.Error(t, err)
+		})
+	}
 	t.Run("replicas with one encryption key open each other's state", func(t *testing.T) {
 		key := newKey(t)
 		one, err := newRequestStateSealer(config.OAuthServerConfig{EncryptionKey: key})
@@ -224,4 +235,21 @@ func requireInvalidParams(t *testing.T, err error) {
 	var provider mcpserver.JSONRPCErrorProvider
 	require.True(t, errors.As(err, &provider))
 	require.Equal(t, mcp.INVALID_PARAMS, provider.JSONRPCError().Error.Code)
+}
+
+func TestRejectedRequestStateIsAuditedWithoutState(t *testing.T) {
+	var logs bytes.Buffer
+	logging.InitForCLI(logging.LevelWarn, &logs)
+	t.Cleanup(func() { logging.InitForCLI(logging.LevelInfo, os.Stderr) })
+	aggregator := elicitingAggregator(t)
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "create"
+	request.Params.RequestState = "opaque-secret-not-to-log"
+	_, err := aggregator.openRequestState(withTestCaller(t.Context()), request)
+	require.ErrorIs(t, err, errInvalidRequestState)
+	require.Contains(t, logs.String(), "event=request_state_rejected")
+	require.Contains(t, logs.String(), "reason=verification_failed")
+	require.Contains(t, logs.String(), "tool=create")
+	require.Contains(t, logs.String(), "caller.issuer=https://muster.example")
+	require.NotContains(t, logs.String(), request.Params.RequestState)
 }

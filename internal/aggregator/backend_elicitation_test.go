@@ -31,6 +31,23 @@ const (
 	testBackendInputKey   = "model_key"
 )
 
+func TestBackendURLMustBeSafeHTTPS(t *testing.T) {
+	for _, location := range []string{"http://example.com/credentials", "javascript:alert(1)", "/relative", "https:///missing-host", "https://user:password@example.com/form", "https://example.com/\nspoof", "https://example.com/has space"} {
+		t.Run(location, func(t *testing.T) {
+			ctx := sessionModernContext(urlElicitationCapabilities())
+			input := mcpserver.NewInputRequestBuilder("backend-secret-state").Elicit("credentials", mcp.ElicitationParams{
+				Mode: mcp.ElicitationModeURL, URL: location, Message: "Add credentials.",
+			}).ToolResult()
+			result := answerBackendInput(ctx, "backend", "create", input)
+			require.True(t, result.IsError)
+			require.False(t, result.NeedsInput())
+			require.Empty(t, backendInputMarker(result))
+			require.NotContains(t, textOf(t, result), location)
+			require.NotContains(t, textOf(t, result), "backend-secret-state")
+		})
+	}
+}
+
 // inputBackend is a backend MCP server, served over streamable HTTP, whose
 // tools ask the person for input the way a backend following the protocol
 // does, only of a client that declared it can be asked: "create" a URL

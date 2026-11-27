@@ -164,7 +164,7 @@ spec:
             - name: config
               mountPath: /etc/muster
               readOnly: true
-            {{- if .Values.muster.oauth.server.enabled }}
+            {{- if or .Values.muster.oauth.server.enabled .Values.muster.oauth.server.encryptionKey }}
             - name: oauth-secrets
               mountPath: /etc/muster/secrets
               readOnly: true
@@ -215,7 +215,7 @@ spec:
         - name: config
           configMap:
             name: {{ include "muster.fullname" . }}-config
-        {{- if .Values.muster.oauth.server.enabled }}
+        {{- if or .Values.muster.oauth.server.enabled .Values.muster.oauth.server.encryptionKey }}
         - name: oauth-secrets
           projected:
             defaultMode: 0440
@@ -223,7 +223,7 @@ spec:
               # OAuth credentials (dex-client-secret, oauth-encryption-key, registration-token)
               - secret:
                   name: {{ .Values.muster.oauth.server.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}
-              {{- if and (eq .Values.muster.oauth.server.storage.type "valkey") (or .Values.muster.oauth.server.storage.valkey.existingSecret .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.storage.valkey.password) }}
+              {{- if and .Values.muster.oauth.server.enabled (eq .Values.muster.oauth.server.storage.type "valkey") (or .Values.muster.oauth.server.storage.valkey.existingSecret .Values.muster.oauth.server.existingSecret .Values.muster.oauth.server.storage.valkey.password) }}
               # Valkey password (mounted as valkey-password)
               - secret:
                   name: {{ .Values.muster.oauth.server.storage.valkey.existingSecret | default .Values.muster.oauth.server.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .)) }}

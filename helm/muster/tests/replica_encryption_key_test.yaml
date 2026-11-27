@@ -42,3 +42,79 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"'
+
+  - it: refuses multiple replicas without OAuth and without a shared key
+    template: templates/deployment.yaml
+    set:
+      muster.oauth.server.enabled: false
+      replicaCount: 2
+    asserts:
+      - failedTemplate:
+          errorMessage: "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused"
+
+  - it: renders the shared key path without enabling OAuth
+    template: templates/configmap.yaml
+    set:
+      muster.oauth.server.enabled: false
+      muster.oauth.server.encryptionKey: true
+      muster.oauth.server.existingSecret: shared-key
+      replicaCount: 2
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'enabled: false\s+encryptionKeyFile: "/etc/muster/secrets/oauth-encryption-key"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'protectedSecrets:\s+- shared-key'
+
+  - it: mounts the shared key without enabling OAuth
+    template: templates/deployment.yaml
+    set:
+      muster.oauth.server.enabled: false
+      muster.oauth.server.encryptionKey: true
+      muster.oauth.server.existingSecret: shared-key
+      muster.oauth.server.storage.type: valkey
+      replicaCount: 2
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: oauth-secrets
+            mountPath: /etc/muster/secrets
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: oauth-secrets
+            projected:
+              defaultMode: 288
+              sources:
+                - secret:
+                    name: shared-key
+
+  - it: creates only the encryption key without OAuth credentials
+    template: templates/oauth-secret.yaml
+    set:
+      muster.oauth.server.enabled: false
+      muster.oauth.server.encryptionKey: true
+      muster.oauth.server.encryptionKeyValue: "test-key"
+      muster.oauth.server.dex.clientSecret: ""
+      muster.oauth.server.registrationToken: ""
+      muster.oauth.server.storage.type: valkey
+      muster.oauth.server.storage.valkey.password: unused-without-oauth
+    asserts:
+      - equal:
+          path: data
+          value:
+            oauth-encryption-key: dGVzdC1rZXk=
+
+  - it: allows autoscaling capped at one replica without a shared key
+    template: templates/configmap.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 1
+      autoscaling.maxReplicas: 1
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "encryptionKeyFile"

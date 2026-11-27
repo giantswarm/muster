@@ -191,7 +191,7 @@ identity token when their `MCPServer` sets `auth.forwardToken: true`.
 
 Sessions, grants and OAuth state live in memory by default. For more than one replica, or to
 survive a pod restart without every client logging in again, back them with Valkey. The chart also
-requires `encryptionKey: true` with more than one replica: muster derives the key that seals a
+requires `encryptionKey: true` with more than one replica, including with inbound OAuth disabled: muster derives the key that seals a
 client's `requestState` from it, so a retry of a sign-in or a server's question can reach any replica:
 
 ```yaml

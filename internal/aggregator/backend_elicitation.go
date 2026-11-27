@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync/atomic"
 
@@ -54,8 +55,8 @@ import (
 // A backend that falls back to 2025-11-25 is declared no capability to ask
 // the person: its answer stays the one it gives a client that cannot be asked.
 
-// backendInputMarkerKey is the structuredContent key that holds the
-// requestState of a backend's input_required answer in its text answer.
+// backendInputMarkerKey correlates a text result with the input request
+// recorded on the call's context. It contains no continuation state.
 const backendInputMarkerKey = "inputRequired"
 
 // backendInputState is the state muster seals into the requestState it
@@ -128,6 +129,13 @@ func answerBackendInput(ctx context.Context, serverName, tool string, result *mc
 				slog.String("server", serverName),
 				slog.String("mode", mode))
 			return mcp.NewToolResultError(fmt.Sprintf("[%s] The server asked for a %s mode elicitation, which the client did not declare.", serverName, mode))
+		}
+		if request.Elicitation.Mode == mcp.ElicitationModeURL {
+			location, err := url.Parse(request.Elicitation.URL)
+			if err != nil || location.Scheme != "https" || location.Hostname() == "" || location.User != nil || strings.ContainsAny(request.Elicitation.URL, " \t\r\n") {
+				logging.WarnWithAttrs("Aggregator", "Refusing an unsafe backend URL elicitation", slog.String("server", serverName))
+				return mcp.NewToolResultError(fmt.Sprintf("[%s] The server supplied an invalid URL elicitation; an absolute HTTPS URL without user information is required.", serverName))
+			}
 		}
 	}
 	passed := &mcp.CallToolResult{

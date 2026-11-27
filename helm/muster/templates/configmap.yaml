@@ -87,17 +87,18 @@ data:
           {{- end }}
           {{- end }}
         {{- end }}
-        {{- if .Values.muster.oauth.server.enabled }}
-        {{- if and (or .Values.autoscaling.enabled (gt (int .Values.replicaCount) 1)) (not .Values.muster.oauth.server.encryptionKey) }}{{ fail "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused" }}{{- end }}
+        {{- if and (or (and .Values.autoscaling.enabled (gt (int .Values.autoscaling.maxReplicas) 1)) (and (not .Values.autoscaling.enabled) (gt (int .Values.replicaCount) 1))) (not .Values.muster.oauth.server.encryptionKey) }}{{ fail "muster.oauth.server.encryptionKey is required with more than one replica: muster derives the key that seals requestState from it, and without a shared key a client's retry that reaches another replica is refused" }}{{- end }}
+        {{- if or .Values.muster.oauth.server.enabled .Values.muster.oauth.server.encryptionKey }}
         {{- $secretsPath := "/etc/muster/secrets" }}
         server:
-          enabled: true
-          baseUrl: {{ .Values.muster.oauth.server.baseUrl | quote }}
-          provider: {{ .Values.muster.oauth.server.provider | default "dex" | quote }}
+          enabled: {{ .Values.muster.oauth.server.enabled }}
           {{- /* Secret file paths - secrets are mounted from Kubernetes Secret */}}
           {{- if .Values.muster.oauth.server.encryptionKey }}
           encryptionKeyFile: {{ printf "%s/oauth-encryption-key" $secretsPath | quote }}
           {{- end }}
+          {{- if .Values.muster.oauth.server.enabled }}
+          baseUrl: {{ .Values.muster.oauth.server.baseUrl | quote }}
+          provider: {{ .Values.muster.oauth.server.provider | default "dex" | quote }}
           {{- if eq (.Values.muster.oauth.server.provider | default "dex") "dex" }}
           dex:
             issuerUrl: {{ .Values.muster.oauth.server.dex.issuerUrl | quote }}
@@ -218,6 +219,7 @@ data:
           {{- with .Values.muster.oauth.server.tokenExchangeBroker }}
           tokenExchangeBroker:
             {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- end }}
         {{- end }}
     {{- if not (kindIs "invalid" .Values.muster.mcpServerNamespaceSelector) }}

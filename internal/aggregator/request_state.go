@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
 	"github.com/giantswarm/mcp-oauth/providers"
@@ -84,6 +85,9 @@ func requestStateSecret(encryptionKey string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encryption key: %w", err)
 	}
+	if err := security.ValidateKeyEntropy(key); err != nil {
+		return nil, fmt.Errorf("encryption key: %w", err)
+	}
 	secret, err := hkdf.Key(sha256.New, key, nil, requestStateKeyLabel, 32)
 	if err != nil {
 		return nil, fmt.Errorf("requestState key: %w", err)
@@ -113,11 +117,11 @@ func requestStateCaller(ctx context.Context) *providers.UserInfo {
 // be bound to (requeststate.ErrIncompleteIdentity, ErrMissingClientID) fails
 // the call, as does a failure of the sealer: muster never answers a call
 // that needs state without it.
-func (a *AggregatorServer) sealRequestState(ctx context.Context, req mcp.CallToolRequest, state sealedRequestState) (string, error) {
+func (a *AggregatorServer) sealRequestState(ctx context.Context, request mcp.CallToolRequest, state sealedRequestState) (string, error) {
 	if a.requestStates == nil {
 		return "", errors.New("no requestState sealer")
 	}
-	request, err := urlelicitation.RequestBinding(req)
+	binding, err := urlelicitation.RequestBinding(request)
 	if err != nil {
 		return "", err
 	}
@@ -125,7 +129,7 @@ func (a *AggregatorServer) sealRequestState(ctx context.Context, req mcp.CallToo
 	if err != nil {
 		return "", fmt.Errorf("requestState: %w", err)
 	}
-	sealed, err := a.requestStates.Seal(requestStateCaller(ctx), request, payload, requestStateTTL)
+	sealed, err := a.requestStates.Seal(requestStateCaller(ctx), binding, payload, requestStateTTL)
 	if err != nil {
 		return "", fmt.Errorf("seal requestState: %w", err)
 	}
@@ -137,27 +141,35 @@ func (a *AggregatorServer) sealRequestState(ctx context.Context, req mcp.CallToo
 // Any other requestState is refused with invalid params (-32602), as is one
 // presented by a caller it cannot be bound to, as muster never sealed one for
 // such a caller.
-func (a *AggregatorServer) openRequestState(ctx context.Context, req mcp.CallToolRequest) (*sealedRequestState, error) {
-	if req.Params.RequestState == "" {
+func (a *AggregatorServer) openRequestState(ctx context.Context, request mcp.CallToolRequest) (*sealedRequestState, error) {
+	if request.Params.RequestState == "" {
 		return nil, nil
 	}
+	reject := func(reason string, cause error) (*sealedRequestState, error) {
+		logging.WarnWithAttrsCtx(ctx, "Aggregator", "Request state rejected",
+			slog.String("event", "request_state_rejected"),
+			slog.String("reason", reason),
+			slog.String("tool", request.Params.Name),
+			slog.Any("caller", requestStateCaller(ctx)))
+		return nil, refuseRequestState(cause)
+	}
 	if a.requestStates == nil {
-		return nil, refuseRequestState(errInvalidRequestState)
+		return reject("sealer_unavailable", errInvalidRequestState)
 	}
-	request, err := urlelicitation.RequestBinding(req)
+	binding, err := urlelicitation.RequestBinding(request)
 	if err != nil {
-		return nil, refuseRequestState(fmt.Errorf("%w: %w", errInvalidRequestState, err))
+		return reject("invalid_request", fmt.Errorf("%w: %w", errInvalidRequestState, err))
 	}
-	payload, err := a.requestStates.Open(requestStateCaller(ctx), request, req.Params.RequestState)
+	payload, err := a.requestStates.Open(requestStateCaller(ctx), binding, request.Params.RequestState)
 	if errors.Is(err, requeststate.ErrExpired) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, refuseRequestState(fmt.Errorf("%w: %w", errInvalidRequestState, err))
+		return reject("verification_failed", fmt.Errorf("%w: %w", errInvalidRequestState, err))
 	}
 	var state sealedRequestState
 	if err := json.Unmarshal(payload, &state); err != nil || !state.valid() {
-		return nil, refuseRequestState(errInvalidRequestState)
+		return reject("invalid_payload", errInvalidRequestState)
 	}
 	return &state, nil
 }
