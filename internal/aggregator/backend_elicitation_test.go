@@ -528,8 +528,7 @@ func TestBackendInput_RequestStateIsBoundToTheCallerAndCall(t *testing.T) {
 	}}}
 
 	t.Run("another person", func(t *testing.T) {
-		other := oauthhandler.ContextWithUserInfo(sessionModernContext(urlElicitationCapabilities()),
-			&providers.UserInfo{Issuer: testCaller().Issuer, ID: "mallory", ClientID: testCaller().ClientID})
+		other := api.WithSubject(sessionModernContext(urlElicitationCapabilities()), "mallory")
 		_, err := call(other, retry)
 		requireInvalidParams(t, err)
 	})
@@ -549,7 +548,7 @@ func TestPassBackendInput_UnboundCallerFails(t *testing.T) {
 	modern := func(ctx context.Context) context.Context {
 		return mcpserver.WithRequestProtocolInfo(ctx, &mcpserver.RequestProtocolInfo{Modern: true, ProtocolVersion: mcp.ProtocolVersion20260728, ClientCapabilities: new(urlElicitationCapabilities())})
 	}
-	noClient := oauthhandler.ContextWithUserInfo(t.Context(), &providers.UserInfo{Issuer: "https://dex.example", ID: "jane"})
+	noSession := oauthhandler.ContextWithUserInfo(t.Context(), &providers.UserInfo{Issuer: "https://dex.example", ID: "jane"})
 	input := func(backendState string) *recordedBackendInput {
 		return &recordedBackendInput{
 			marker: "marker",
@@ -562,8 +561,8 @@ func TestPassBackendInput_UnboundCallerFails(t *testing.T) {
 		ctx  context.Context
 		want error
 	}{
-		"no client":             {noClient, requeststate.ErrMissingClientID},
-		"no validated identity": {t.Context(), requeststate.ErrIncompleteIdentity},
+		"no session":  {noSession, requeststate.ErrIncompleteIdentity},
+		"no identity": {t.Context(), requeststate.ErrIncompleteIdentity},
 	} {
 		for _, backendState := range []string{"", testBackendState} {
 			t.Run(name+"/backend state "+backendState, func(t *testing.T) {
@@ -579,12 +578,12 @@ func TestPassBackendInput_UnboundCallerFails(t *testing.T) {
 // 2026-07-28, not the link without state.
 func TestElicitSignIn_UnboundCallerFails(t *testing.T) {
 	a := elicitingAggregator(t)
-	ctx := mcpserver.WithRequestProtocolInfo(oauthhandler.ContextWithUserInfo(t.Context(), &providers.UserInfo{Issuer: "https://dex.example", ID: "jane"}),
+	ctx := mcpserver.WithRequestProtocolInfo(t.Context(),
 		&mcpserver.RequestProtocolInfo{Modern: true, ProtocolVersion: mcp.ProtocolVersion20260728, ClientCapabilities: new(urlElicitationCapabilities())})
 
 	result, err := a.urlElicitation()(signInHandler(true))(ctx, mcp.CallToolRequest{})
 
-	require.ErrorIs(t, err, requeststate.ErrMissingClientID)
+	require.ErrorIs(t, err, requeststate.ErrIncompleteIdentity)
 	require.Nil(t, result)
 }
 

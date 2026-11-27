@@ -30,6 +30,12 @@ func testCaller() *providers.UserInfo {
 // withTestCaller is a request of testCaller, validated by muster's inbound
 // OAuth.
 func withTestCaller(ctx context.Context) context.Context {
+	if api.GetSubjectFromContext(ctx) == "" {
+		ctx = api.WithSubject(ctx, testCaller().ID)
+	}
+	if api.GetSessionIDFromContext(ctx) == "" {
+		ctx = api.WithSessionID(ctx, "session-1")
+	}
 	return oauthhandler.ContextWithUserInfo(ctx, testCaller())
 }
 
@@ -137,17 +143,32 @@ func TestNewRequestStateSealer(t *testing.T) {
 }
 
 func TestRequestStateCaller(t *testing.T) {
-	t.Run("the validated user of muster's inbound OAuth", func(t *testing.T) {
-		require.Equal(t, testCaller(), requestStateCaller(withTestCaller(t.Context())))
+	t.Run("the subject and session muster resolved", func(t *testing.T) {
+		ctx := api.WithSessionID(api.WithSubject(t.Context(), "jane"), "family-1")
+		require.Equal(t, &providers.UserInfo{Issuer: requestStateIssuer, ID: "jane", ClientID: "family-1"}, requestStateCaller(ctx))
+	})
+
+	t.Run("an agent's actor bearer: the bound person and Session, without a validated user", func(t *testing.T) {
+		ctx := api.WithSessionID(api.WithSubject(t.Context(), "jane"), "agent-session-7")
+		require.Equal(t, &providers.UserInfo{Issuer: requestStateIssuer, ID: "jane", ClientID: "agent-session-7"}, requestStateCaller(ctx))
+	})
+
+	t.Run("a delegated token's current actor", func(t *testing.T) {
+		ctx := oauthhandler.ContextWithUserInfo(api.WithSessionID(api.WithSubject(t.Context(), "jane"), "family-1"),
+			&providers.UserInfo{Issuer: "https://dex.example", ID: "jane", ActorIssuer: "https://ate.example", ActorSubject: "actor/agent"})
+		caller := requestStateCaller(ctx)
+		require.Equal(t, "https://ate.example", caller.ActorIssuer)
+		require.Equal(t, "actor/agent", caller.ActorSubject)
 	})
 
 	t.Run("the one local person of a muster without inbound OAuth, in their session", func(t *testing.T) {
 		ctx := api.WithSessionID(api.WithSubject(t.Context(), stdioDefaultUser), stdioDefaultUser)
-		require.Equal(t, &providers.UserInfo{Issuer: localCaller, ID: stdioDefaultUser, ClientID: localCaller}, requestStateCaller(ctx))
+		require.Equal(t, &providers.UserInfo{Issuer: requestStateIssuer, ID: stdioDefaultUser, ClientID: stdioDefaultUser}, requestStateCaller(ctx))
 	})
 
-	t.Run("nobody otherwise", func(t *testing.T) {
-		require.Nil(t, requestStateCaller(api.WithSubject(t.Context(), "jane")))
+	t.Run("nobody without a subject or a session", func(t *testing.T) {
+		require.Nil(t, requestStateCaller(t.Context()))
+		require.Nil(t, requestStateCaller(api.WithSessionID(t.Context(), "family-1")))
 	})
 }
 
@@ -180,8 +201,8 @@ func TestRequestStateBinding(t *testing.T) {
 		ctx    context.Context
 		mutate func(*mcp.CallToolRequest)
 	}{
-		"another person":                 {ctx: oauthhandler.ContextWithUserInfo(t.Context(), &providers.UserInfo{Issuer: "https://muster.example", ID: "john", ClientID: "client-1"})},
-		"another client":                 {ctx: oauthhandler.ContextWithUserInfo(t.Context(), &providers.UserInfo{Issuer: "https://muster.example", ID: "jane", ClientID: "client-2"})},
+		"another person":                 {ctx: api.WithSessionID(api.WithSubject(t.Context(), "john"), "session-1")},
+		"another session":                {ctx: api.WithSessionID(api.WithSubject(t.Context(), "jane"), "session-2")},
 		"a caller it cannot be bound to": {ctx: t.Context()},
 		"another tool": {ctx: ctx, mutate: func(req *mcp.CallToolRequest) {
 			req.Params.Name = "x_github_merge_pull_request"
@@ -204,7 +225,7 @@ func TestRequestStateBinding(t *testing.T) {
 	}
 
 	t.Run("a lapsed state is a first call", func(t *testing.T) {
-		lapsed, err := a.requestStates.Seal(testCaller(), mustBinding(t, call), []byte(`{"kind":"signIn","signIn":{}}`), 1)
+		lapsed, err := a.requestStates.Seal(requestStateCaller(ctx), mustBinding(t, call), []byte(`{"kind":"signIn","signIn":{}}`), 1)
 		require.NoError(t, err)
 		opened, err := retry(ctx, func(req *mcp.CallToolRequest) { req.Params.RequestState = lapsed })
 		require.NoError(t, err)
@@ -216,9 +237,10 @@ func TestRequestStateBinding(t *testing.T) {
 		require.ErrorIs(t, err, requeststate.ErrIncompleteIdentity)
 	})
 
-	t.Run("a token naming no single client cannot be sealed for", func(t *testing.T) {
-		_, err := a.sealRequestState(oauthhandler.ContextWithUserInfo(t.Context(), &providers.UserInfo{Issuer: "https://dex.example", ID: "jane"}), call, state)
-		require.ErrorIs(t, err, requeststate.ErrMissingClientID)
+	t.Run("a token naming no single client is bound to its muster session", func(t *testing.T) {
+		forwarded := oauthhandler.ContextWithUserInfo(api.WithSessionID(t.Context(), "family-9"), &providers.UserInfo{Issuer: "https://dex.example", ID: "jane"})
+		_, err := a.sealRequestState(forwarded, call, state)
+		require.NoError(t, err)
 	})
 }
 
@@ -250,6 +272,8 @@ func TestRejectedRequestStateIsAuditedWithoutState(t *testing.T) {
 	require.Contains(t, logs.String(), "event=request_state_rejected")
 	require.Contains(t, logs.String(), "reason=verification_failed")
 	require.Contains(t, logs.String(), "tool=create")
-	require.Contains(t, logs.String(), "caller.issuer=https://muster.example")
+	require.Contains(t, logs.String(), "caller.issuer="+requestStateIssuer)
+	require.Contains(t, logs.String(), "caller.subject="+testCaller().ID)
+	require.NotContains(t, logs.String(), "session-1", "the session ID stays out of the log")
 	require.NotContains(t, logs.String(), request.Params.RequestState)
 }

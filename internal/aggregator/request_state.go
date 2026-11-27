@@ -18,7 +18,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/giantswarm/muster/v5/internal/api"
 	"github.com/giantswarm/muster/v5/internal/config"
 	"github.com/giantswarm/muster/v5/pkg/logging"
 )
@@ -27,10 +26,10 @@ import (
 // valid: the sign-in link's OAuth state lives as long (signInElicitationTTL).
 const requestStateTTL = signInElicitationTTL
 
-// localCaller names the caller of a muster without inbound OAuth, which
-// serves one person: requestState is bound to the session muster keys that
-// person's state by.
-const localCaller = "urn:muster:local"
+// requestStateIssuer names muster's own resolution of a caller in the binding
+// of its requestState: the subject and session every authentication path of
+// muster resolves, not the claims of one kind of token.
+const requestStateIssuer = "urn:muster:caller"
 
 // Kinds of state muster seals into a requestState.
 const (
@@ -95,22 +94,24 @@ func requestStateSecret(encryptionKey string) ([]byte, error) {
 	return secret, nil
 }
 
-// requestStateCaller returns the caller a requestState is bound to: the
-// validated user of muster's inbound OAuth or, on a muster without it, the
-// one local person in the session muster keys their state by. It returns nil
-// when neither is known.
+// requestStateCaller returns the caller a requestState is bound to, as muster
+// resolved it on every authentication path (its own OAuth, a forwarded or
+// trusted issuer's token, a delegated bearer, an agent's actor bearer, or the
+// one local person of a muster without inbound OAuth): the subject, and the
+// session muster keeps the caller's state in, which stands for the client: one
+// client's login of one person, or one bound agent Session. A delegated token's
+// current actor is bound as well. It returns nil when muster resolved no
+// subject or no session.
 func requestStateCaller(ctx context.Context) *providers.UserInfo {
+	subject, sessionID := getUserSubjectFromContext(ctx), getSessionIDFromContext(ctx)
+	if subject == "" || sessionID == "" {
+		return nil
+	}
+	caller := &providers.UserInfo{Issuer: requestStateIssuer, ID: subject, ClientID: sessionID}
 	if user, ok := oauthhandler.UserInfoFromContext(ctx); ok && user != nil {
-		return user
+		caller.ActorIssuer, caller.ActorSubject = user.ActorIssuer, user.ActorSubject
 	}
-	if api.GetSubjectFromContext(ctx) != stdioDefaultUser {
-		return nil
-	}
-	sessionID := getSessionIDFromContext(ctx)
-	if sessionID == "" {
-		return nil
-	}
-	return &providers.UserInfo{Issuer: localCaller, ID: sessionID, ClientID: localCaller}
+	return caller
 }
 
 // sealRequestState seals state for the caller and call. A caller it cannot
