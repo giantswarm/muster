@@ -154,11 +154,24 @@ A client that declares URL mode elicitation (`elicitation: {url: {}}`) is asked 
 
 | Client's protocol version | Answer |
 |---|---|
-| 2026-07-28 or later, `elicitation.url` in the request's client capabilities | `resultType: "input_required"` with one `elicitation/create` input request (`mode: "url"`, `url`, `message`, and an `elicitationId`, the same for every answer with one link, which the 2026-07-28 schema does not define and rmcp requires) under the key `muster_sign_in`, and a `requestState` naming the server and the link. Retry the call, echoing `requestState`, once the person agreed to open the link: a retry whose `inputResponses` accept `muster_sign_in` waits until the sign-in's OAuth callback has run, on any replica, then runs the call. When the callback did not sign the session in (the person was refused, the server was suspended meanwhile, the connection failed), or did not run within 5 minutes, the retry gets the same answer with a new link. A retry whose `inputResponses` decline or cancel `muster_sign_in` runs nothing and gets a tool error without the link instead. |
+| 2026-07-28 or later, `elicitation.url` in the request's client capabilities | `resultType: "input_required"` with one `elicitation/create` input request (`mode: "url"`, `url`, `message`, and an `elicitationId`, the same for every answer with one link, which the 2026-07-28 schema does not define and rmcp requires) under the key `muster_sign_in`, and a sealed `requestState` naming the server and the link (see "requestState" below). Retry the call, echoing `requestState`, once the person agreed to open the link: a retry whose `inputResponses` accept `muster_sign_in` waits until the sign-in's OAuth callback has run, on any replica, then runs the call. When the callback did not sign the session in (the person was refused, the server was suspended meanwhile, the connection failed), or did not run within 5 minutes, the retry gets the same answer with a new link. A retry whose `inputResponses` decline or cancel `muster_sign_in` runs nothing and gets a tool error without the link instead. |
 | 2025-11-25, `elicitation.url` declared at `initialize` | JSON-RPC error `-32042` (`URLElicitationRequiredError`) with the elicitation and its `elicitationId`, the same one for every call of that session answered with the same link. When the sign-in completes on the replica that answered, the session is sent `notifications/elicitation/complete` with that `elicitationId`; retry the call then. A retry before the sign-in completed gets the same error again: this protocol tells muster neither that the person accepted nor that they declined, so muster cannot hold the retry until the sign-in completes. |
 | Any other | The `auth_required` answer. |
 
 Only the sign-in answers muster issues are elicited: a backend result that has the same shape is returned unchanged. A server muster connects with the person's muster sign-in (token forwarding, token exchange) has no link to open, and keeps the `auth_required` answer.
+
+#### requestState
+
+Every `requestState` muster answers with is sealed with AES-256-GCM (mcp-oauth's `requeststate`) and bound to:
+
+- the validated OAuth identity: issuer, subject, client and current actor; authenticated actor bearers and local callers use a separate Muster-owned identity;
+- the subject and session muster resolved for grants and visibility, in addition to that identity;
+- the call the client retries: `tools/call`, the tool it called (`call_tool` when it went through `call_tool`) and a digest of its arguments;
+- an expiry of 10 minutes.
+
+A retry whose `requestState` was changed, was sealed for another caller or call, or was sealed by a muster with another key is refused with JSON-RPC `-32602` (invalid params) and runs nothing. A lapsed `requestState` is ignored: the call runs as a first call and asks again. A caller without a resolved subject or session, or an OAuth caller naming no single client, gets an error instead of an answer that needs a `requestState`.
+
+The sealing key is derived (HKDF-SHA256) from muster's token encryption key (`muster.oauth.server.encryptionKey`, `oauth-encryption-key` in the OAuth Secret), which every replica shares; it is a key of its own, not the encryption key. Rotating the encryption key voids the `requestState` in flight, which lives 10 minutes. Without an encryption key, each muster process seals with a key of its own and warns at start: a retry that reaches another replica is refused. The chart therefore requires `encryptionKey` for more than one replica (`replicaCount` above 1, or autoscaling with `maxReplicas` above 1), including when the OAuth server is disabled. The shared key is mounted independently of inbound OAuth. Invalid state is logged with a rejection reason and caller identity, without the sealed value or its payload.
 
 #### A call a server answers with an input request
 
@@ -170,7 +183,7 @@ A 2026-07-28 server that needs something of the person answers with `resultType:
 
 - each elicitation's `message` is put on one line (each run of white space made one space) and prefixed with the server's key in brackets, `[github]` or, for a server of an organization namespace, `[org-a/github]`: the client only sees muster, and the person is told which server asks;
 - each URL elicitation without an `elicitationId` gets one, the same for every answer with one link: the 2026-07-28 schema does not define it, and rmcp requires it;
-- `requestState` is the server's own, wrapped with the server's key and the tool's name. The client echoes it with `inputResponses` on its retry of the same tool, and muster hands the server its own `requestState` and the answers. A retry whose `requestState` names another server or tool than the one called is refused, so the echo never chooses where an answer goes. muster binds the server's own `requestState` to nothing else: the server treats it as attacker-controlled input and verifies it, as MRTR requires (integrity, the person it was issued to, expiry).
+- `requestState` is muster's own, sealed with the server's key, the tool's name and the server's own `requestState` inside (see "requestState" below). The client echoes it with `inputResponses` on its retry of the same call, and muster hands the server its own `requestState` and the answers. The server still treats its own `requestState` as attacker-controlled input and verifies it, as MRTR requires (integrity, the person it was issued to, expiry).
 
 | Client's protocol version | Answer |
 |---|---|

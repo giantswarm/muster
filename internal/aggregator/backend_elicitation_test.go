@@ -3,12 +3,16 @@ package aggregator
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	oauthhandler "github.com/giantswarm/mcp-oauth/handler"
+	"github.com/giantswarm/mcp-oauth/providers"
+	"github.com/giantswarm/mcp-oauth/requeststate"
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -26,6 +30,23 @@ const (
 	testBackendState      = "backend-state"
 	testBackendInputKey   = "model_key"
 )
+
+func TestBackendURLMustBeSafeHTTPS(t *testing.T) {
+	for _, location := range []string{"http://example.com/credentials", "javascript:alert(1)", "/relative", "https:///missing-host", "https://user:password@example.com/form", "https://example.com/\nspoof", "https://example.com/has space"} {
+		t.Run(location, func(t *testing.T) {
+			ctx := sessionModernContext(urlElicitationCapabilities())
+			input := mcpserver.NewInputRequestBuilder("backend-secret-state").Elicit("credentials", mcp.ElicitationParams{
+				Mode: mcp.ElicitationModeURL, URL: location, Message: "Add credentials.",
+			}).ToolResult()
+			result := answerBackendInput(ctx, "backend", "create", input)
+			require.True(t, result.IsError)
+			require.False(t, result.NeedsInput())
+			require.Empty(t, backendInputMarker(result))
+			require.NotContains(t, textOf(t, result), location)
+			require.NotContains(t, textOf(t, result), "backend-secret-state")
+		})
+	}
+}
 
 // inputBackend is a backend MCP server, served over streamable HTTP, whose
 // tools ask the person for input the way a backend following the protocol
@@ -127,7 +148,7 @@ func newInputMuster(t *testing.T, backends map[string]*inputBackend) string {
 			})
 		}
 	}
-	ts := httptest.NewServer(mcpserver.NewStreamableHTTPServer(srv))
+	ts := httptest.NewServer(mcpserver.NewStreamableHTTPServer(srv, mcpserver.WithHTTPContextFunc(func(ctx context.Context, _ *http.Request) context.Context { return withTestCaller(ctx) })))
 	t.Cleanup(ts.Close)
 	return ts.URL
 }
@@ -276,7 +297,7 @@ func TestBackendInput_ThroughCallTool(t *testing.T) {
 		result, err := meta.GetProvider().ExecuteTool(ctx, "call_tool", req.GetArguments())
 		return convertToMCPResult(result), err
 	})
-	ts := httptest.NewServer(mcpserver.NewStreamableHTTPServer(srv))
+	ts := httptest.NewServer(mcpserver.NewStreamableHTTPServer(srv, mcpserver.WithHTTPContextFunc(func(ctx context.Context, _ *http.Request) context.Context { return withTestCaller(ctx) })))
 	t.Cleanup(ts.Close)
 	c := connectToMuster(t, ts.URL, mcp.ProtocolVersion20260728, urlAndForm(), nil)
 	callTool := func(roundTrip mcp.MultiRoundTripParams) (*mcp.CallToolResult, error) {
@@ -332,9 +353,8 @@ func TestBackendInput_TenantServerAttribution(t *testing.T) {
 	first, err := call(t, c, testTenantServer+"/create", mcp.MultiRoundTripParams{})
 	require.NoError(t, err)
 	require.Equal(t, "[org-a/agents] A model key is missing.", first.InputRequests[testBackendInputKey].Elicitation.Message)
-	state, ok := decodeBackendInputState(first.RequestState)
-	require.True(t, ok)
-	require.Equal(t, backendInputState{Server: testTenantServer, Tool: "create", State: testBackendState}, state)
+	require.NotContains(t, first.RequestState, testBackendState, "the backend's state is sealed")
+	require.NotContains(t, first.RequestState, testTenantServer)
 
 	t.Run("the retry reaches the server that asked", func(t *testing.T) {
 		retried, err := call(t, c, testTenantServer+"/create", mcp.MultiRoundTripParams{InputResponses: accepted(), RequestState: first.RequestState})
@@ -346,13 +366,13 @@ func TestBackendInput_TenantServerAttribution(t *testing.T) {
 	t.Run("a retry sent to another server is refused, not forwarded", func(t *testing.T) {
 		result, err := call(t, c, testElicitingServer+"/create", mcp.MultiRoundTripParams{InputResponses: accepted(), RequestState: first.RequestState})
 
-		requireRefused(t, result, err, "answers a request of tool create of org-a/agents")
+		requireRefused(t, result, err, "invalid requestState")
 	})
 
 	t.Run("a retry sent to another tool of the server is refused, not forwarded", func(t *testing.T) {
 		result, err := call(t, c, testTenantServer+"/confirm", mcp.MultiRoundTripParams{InputResponses: accepted(), RequestState: first.RequestState})
 
-		requireRefused(t, result, err, "answers a request of tool create of org-a/agents, but the call goes to tool confirm")
+		requireRefused(t, result, err, "invalid requestState")
 	})
 }
 
@@ -476,18 +496,95 @@ func TestAttributed_KeepsTheServerKeyAlone(t *testing.T) {
 	}
 }
 
-func TestBackendInputState_RoundTrip(t *testing.T) {
-	state := backendInputState{Server: testTenantServer, Tool: "create", State: "opaque{\"x\":1}"}
+func TestSealedRequestState_Valid(t *testing.T) {
+	backend := &backendInputState{Server: testTenantServer, Tool: "create", State: "opaque{\"x\":1}"}
+	signIn := &signInRequestState{Server: "github", Link: testAuthURL}
 
-	decoded, ok := decodeBackendInputState(state.encode())
-
-	require.True(t, ok)
-	require.Equal(t, state, decoded)
-	withoutTool := backendInputState{Server: testTenantServer, State: testBackendState}.encode()
-	for _, foreign := range []string{"", testBackendState, `{"server":"agents"}`, backendInputStatePrefix + "!!", backendInputStatePrefix, withoutTool} {
-		_, ok := decodeBackendInputState(foreign)
-		require.False(t, ok, foreign)
+	require.True(t, sealedRequestState{Kind: stateKindBackend, Backend: backend}.valid())
+	require.True(t, sealedRequestState{Kind: stateKindSignIn, SignIn: signIn}.valid())
+	for name, state := range map[string]sealedRequestState{
+		"no kind":              {Backend: backend},
+		"unknown kind":         {Kind: "other", Backend: backend},
+		"backend without tool": {Kind: stateKindBackend, Backend: &backendInputState{Server: testTenantServer}},
+		"backend without body": {Kind: stateKindBackend},
+		"sign-in without body": {Kind: stateKindSignIn},
+		"both":                 {Kind: stateKindSignIn, SignIn: signIn, Backend: backend},
+	} {
+		require.False(t, state.valid(), name)
 	}
+}
+
+// A retry of a backend's input request is answered with the backend's state
+// only for the caller and the call it was sealed for.
+func TestBackendInput_RequestStateIsBoundToTheCallerAndCall(t *testing.T) {
+	backendURL, _ := newSessionInputBackend(t)
+	a := newSessionInputFixture(t, backendURL)
+	call := a.urlElicitation()(sessionDispatchPaths(a)["session-cache branch"])
+	first, err := call(sessionModernContext(urlElicitationCapabilities()), mcp.CallToolRequest{})
+	require.NoError(t, err)
+	require.True(t, first.NeedsInput())
+	retry := mcp.CallToolRequest{Params: mcp.CallToolParams{MultiRoundTripParams: mcp.MultiRoundTripParams{
+		InputResponses: accepted(), RequestState: first.RequestState,
+	}}}
+
+	t.Run("another person", func(t *testing.T) {
+		other := api.WithSubject(sessionModernContext(urlElicitationCapabilities()), "mallory")
+		_, err := call(other, retry)
+		requireInvalidParams(t, err)
+	})
+
+	t.Run("other arguments", func(t *testing.T) {
+		changed := retry
+		changed.Params.Arguments = map[string]any{"model": "other"}
+		_, err := call(sessionModernContext(urlElicitationCapabilities()), changed)
+		requireInvalidParams(t, err)
+	})
+}
+
+// A caller muster cannot bind state to is never given a backend's request
+// without its state: the call fails, whether or not the backend kept state.
+func TestPassBackendInput_UnboundCallerFails(t *testing.T) {
+	a := elicitingAggregator(t)
+	modern := func(ctx context.Context) context.Context {
+		return mcpserver.WithRequestProtocolInfo(ctx, &mcpserver.RequestProtocolInfo{Modern: true, ProtocolVersion: mcp.ProtocolVersion20260728, ClientCapabilities: new(urlElicitationCapabilities())})
+	}
+	noSession := oauthhandler.ContextWithUserInfo(t.Context(), &providers.UserInfo{Issuer: "https://dex.example", ID: "jane"})
+	input := func(backendState string) *recordedBackendInput {
+		return &recordedBackendInput{
+			marker: "marker",
+			state:  backendInputState{Server: testElicitingServer, Tool: "create", State: backendState},
+			passed: &mcp.CallToolResult{Result: mcp.Result{ResultType: mcp.ResultTypeInputRequired}},
+		}
+	}
+
+	for name, tc := range map[string]struct {
+		ctx  context.Context
+		want error
+	}{
+		"no session":  {noSession, requeststate.ErrIncompleteIdentity},
+		"no identity": {t.Context(), requeststate.ErrIncompleteIdentity},
+	} {
+		for _, backendState := range []string{"", testBackendState} {
+			t.Run(name+"/backend state "+backendState, func(t *testing.T) {
+				result, err := a.passBackendInput(modern(tc.ctx), mcp.CallToolRequest{}, input(backendState))
+				require.ErrorIs(t, err, tc.want)
+				require.Nil(t, result)
+			})
+		}
+	}
+}
+
+// A caller muster cannot bind state to gets an error for a sign-in on
+// 2026-07-28, not the link without state.
+func TestElicitSignIn_UnboundCallerFails(t *testing.T) {
+	a := elicitingAggregator(t)
+	ctx := mcpserver.WithRequestProtocolInfo(t.Context(),
+		&mcpserver.RequestProtocolInfo{Modern: true, ProtocolVersion: mcp.ProtocolVersion20260728, ClientCapabilities: new(urlElicitationCapabilities())})
+
+	result, err := a.urlElicitation()(signInHandler(true))(ctx, mcp.CallToolRequest{})
+
+	require.ErrorIs(t, err, requeststate.ErrIncompleteIdentity)
+	require.Nil(t, result)
 }
 
 func TestAnswerBackendElicitation_OtherOutcomesPassThrough(t *testing.T) {

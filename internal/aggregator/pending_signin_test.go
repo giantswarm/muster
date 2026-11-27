@@ -43,6 +43,7 @@ func newPollFixture(t *testing.T) *pollFixture {
 	f.agg.authRateLimiter = NewAuthRateLimiter(DefaultAuthRateLimiterConfig())
 	t.Cleanup(f.agg.authRateLimiter.Stop)
 	f.agg.pendingSignIns.now = func() time.Time { return f.now }
+	f.agg.requestStates = testRequestStateSealer(t)
 	require.NoError(t, f.agg.authStore.Revoke(context.Background(), answerSession, answerServer))
 	f.agg.connPool.Evict(answerSession, answerServer)
 	return f
