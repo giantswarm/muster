@@ -760,6 +760,10 @@ muster:
 
       # Enable token encryption at rest
       # If "true", the encryption key must be provided in the secret (oauth-encryption-key)
+      # muster also derives the key that seals its requestState (MCP 2026-07-28)
+      # from it, so the chart requires it with more than one replica
+      # (replicaCount above 1, or autoscaling with maxReplicas above 1), even
+      # when the OAuth server is disabled.
       encryptionKey: false
 
       # Encryption key value (32 bytes, base64-encoded)

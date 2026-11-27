@@ -2,10 +2,10 @@ package aggregator
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync/atomic"
 
@@ -55,53 +55,35 @@ import (
 // A backend that falls back to 2025-11-25 is declared no capability to ask
 // the person: its answer stays the one it gives a client that cannot be asked.
 
-// backendInputMarkerKey is the structuredContent key that holds the
-// requestState of a backend's input_required answer in its text answer.
+// backendInputMarkerKey correlates a text result with the input request
+// recorded on the call's context. It contains no continuation state.
 const backendInputMarkerKey = "inputRequired"
 
-// backendInputStatePrefix starts every requestState muster wraps a backend's
-// in, telling it apart from muster's own (signInRequestState,
-// relayedRequestState).
-const backendInputStatePrefix = "muster.backend."
-
-// backendInputState is the requestState muster answers a call with when a
-// 2026-07-28 backend answered it with input_required: the server's key, the
-// backend's name of the tool, and the backend's own requestState, which
-// muster does not read.
+// backendInputState is the state muster seals into the requestState it
+// answers a call with when a 2026-07-28 backend answered it with
+// input_required: the server's key, the backend's name of the tool, and the
+// backend's own requestState, which muster does not read.
 type backendInputState struct {
 	Server string `json:"server"`
 	Tool   string `json:"tool"`
 	State  string `json:"state,omitempty"`
 }
 
-func (s backendInputState) encode() string {
-	encoded, _ := json.Marshal(s)
-	return backendInputStatePrefix + base64.RawURLEncoding.EncodeToString(encoded)
+// recordedBackendInput is a backend's input request a tool call is answered
+// with: the input_required result muster passes on, messages prefixed and
+// without requestState; the state muster seals into it; and the marker that
+// identifies the call's text answer, which a workflow step or call_tool may
+// show, so it carries no state.
+type recordedBackendInput struct {
+	marker string
+	state  backendInputState
+	passed *mcp.CallToolResult
 }
 
-// decodeBackendInputState reads a requestState muster wrapped a backend's in,
-// and reports whether it is one.
-func decodeBackendInputState(requestState string) (backendInputState, bool) {
-	encoded, ok := strings.CutPrefix(requestState, backendInputStatePrefix)
-	if !ok {
-		return backendInputState{}, false
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(encoded)
-	if err != nil {
-		return backendInputState{}, false
-	}
-	var state backendInputState
-	if json.Unmarshal(raw, &state) != nil || state.Server == "" || state.Tool == "" {
-		return backendInputState{}, false
-	}
-	return state, true
-}
-
-// recordBackendInput notes the input_required result, requestState wrapped
-// and messages prefixed, that muster passes on for the backend input request
-// a tool call is answered with, for the URL elicitation middleware. Outside a
-// tool call it does nothing.
-func recordBackendInput(ctx context.Context, input *mcp.CallToolResult) {
+// recordBackendInput notes the backend input request a tool call is answered
+// with, for the URL elicitation middleware. Outside a tool call it does
+// nothing.
+func recordBackendInput(ctx context.Context, input *recordedBackendInput) {
 	if recorder, ok := ctx.Value(challengeRecorderKey{}).(*challengeRecorder); ok {
 		recorder.backendInput.Store(input)
 	}
@@ -148,12 +130,18 @@ func answerBackendInput(ctx context.Context, serverName, tool string, result *mc
 				slog.String("mode", mode))
 			return mcp.NewToolResultError(fmt.Sprintf("[%s] The server asked for a %s mode elicitation, which the client did not declare.", serverName, mode))
 		}
+		if request.Elicitation.Mode == mcp.ElicitationModeURL {
+			location, err := url.Parse(request.Elicitation.URL)
+			if err != nil || location.Scheme != "https" || location.Hostname() == "" || location.User != nil || strings.ContainsAny(request.Elicitation.URL, " \t\r\n") {
+				logging.WarnWithAttrs("Aggregator", "Refusing an unsafe backend URL elicitation", slog.String("server", serverName))
+				return mcp.NewToolResultError(fmt.Sprintf("[%s] The server supplied an invalid URL elicitation; an absolute HTTPS URL without user information is required.", serverName))
+			}
+		}
 	}
 	passed := &mcp.CallToolResult{
 		Result: mcp.Result{ResultType: mcp.ResultTypeInputRequired},
 		MultiRoundTripResult: mcp.MultiRoundTripResult{
 			InputRequests: make(mcp.InputRequests, len(result.InputRequests)),
-			RequestState:  backendInputState{Server: serverName, Tool: tool, State: result.RequestState}.encode(),
 		},
 	}
 	var text strings.Builder
@@ -173,14 +161,20 @@ func answerBackendInput(ctx context.Context, serverName, tool string, result *mc
 		}
 		passed.InputRequests[key] = request
 	}
-	recordBackendInput(ctx, passed)
+	content := []mcp.Content{mcp.NewTextContent(text.String())}
+	marker := rand.Text()
+	recordBackendInput(ctx, &recordedBackendInput{
+		marker: marker,
+		state:  backendInputState{Server: serverName, Tool: tool, State: result.RequestState},
+		passed: passed,
+	})
 	logging.InfoWithAttrs("Aggregator", "Passing on a backend's input request",
 		slog.String("server", serverName),
 		slog.Int("inputRequests", len(passed.InputRequests)))
 	return &mcp.CallToolResult{
-		Content:           []mcp.Content{mcp.NewTextContent(text.String())},
+		Content:           content,
 		IsError:           true,
-		StructuredContent: map[string]any{backendInputMarkerKey: passed.RequestState},
+		StructuredContent: map[string]any{backendInputMarkerKey: marker},
 	}
 }
 
@@ -209,7 +203,7 @@ func supportsElicitationMode(declared *mcp.ElicitationCapability, mode string) b
 	}
 }
 
-// backendInputMarker returns the requestState a backend input request's text
+// backendInputMarker returns the marker a backend input request's text
 // answer carries in structuredContent, directly or relayed by call_tool, or "".
 func backendInputMarker(result *mcp.CallToolResult) string {
 	if result == nil {
@@ -260,27 +254,40 @@ func prepareBackendCall(ctx context.Context, serverName, tool string) (context.C
 }
 
 // passBackendInput answers a tool call with a 2026-07-28 backend's input
-// request, in the shape of the request's protocol version. A 2026-07-28
-// client gets the input_required result. A 2025-11-25 client is asked to open
-// the pages of a request made only of URL elicitations with -32042, which it
-// answers by calling the tool again without the requestState; any other
-// request is returned as is, and mcp-go asks it with elicitation/create and
-// calls the tool again with the answers and the requestState.
-// answerBackendInput already refused an elicitation in a mode the client did
-// not declare.
-func passBackendInput(ctx context.Context, input *mcp.CallToolResult) (*mcp.CallToolResult, error) {
-	if mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
-		return input, nil
+// request, in the shape of the request's protocol version. A 2025-11-25
+// client is asked to open the pages of a request made only of URL
+// elicitations with -32042, which it answers by calling the tool again
+// without the requestState. Any other request is passed on with the
+// backend's state sealed for the caller and the client's call as its
+// requestState: a 2026-07-28 client gets the input_required result, and for
+// a 2025-11-25 client mcp-go asks it with elicitation/create and calls the
+// tool again with the answers and the requestState. A caller it cannot be
+// bound to fails the call. answerBackendInput already refused an elicitation
+// in a mode the client did not declare.
+func (a *AggregatorServer) passBackendInput(ctx context.Context, call mcp.CallToolRequest, input *recordedBackendInput) (*mcp.CallToolResult, error) {
+	if !mcp.IsModernProtocol(mcpserver.RequestProtocolVersion(ctx)) {
+		if elicitations, ok := urlElicitationsOnly(input.passed.InputRequests); ok {
+			return nil, mcp.URLElicitationRequiredError{Elicitations: elicitations}
+		}
 	}
-	elicitations := make([]mcp.ElicitationParams, 0, len(input.InputRequests))
-	for _, request := range input.InputRequests {
+	sealed, err := a.sealRequestState(ctx, call, sealedRequestState{Kind: stateKindBackend, Backend: &input.state})
+	if err != nil {
+		return nil, err
+	}
+	passed := *input.passed
+	passed.RequestState = sealed
+	return &passed, nil
+}
+
+// urlElicitationsOnly returns the elicitations of input requests made only of
+// URL elicitations.
+func urlElicitationsOnly(requests mcp.InputRequests) ([]mcp.ElicitationParams, bool) {
+	elicitations := make([]mcp.ElicitationParams, 0, len(requests))
+	for _, request := range requests {
 		if request.Elicitation == nil || request.Elicitation.Mode != mcp.ElicitationModeURL {
-			return input, nil
+			return nil, false
 		}
 		elicitations = append(elicitations, *request.Elicitation)
 	}
-	if len(elicitations) == 0 {
-		return input, nil
-	}
-	return nil, mcp.URLElicitationRequiredError{Elicitations: elicitations}
+	return elicitations, len(elicitations) > 0
 }

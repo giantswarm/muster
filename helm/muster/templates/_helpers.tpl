@@ -118,6 +118,7 @@ cannot drift. The gates fail the render the way the Secret template did.
 {{- define "muster.oauthSecretData" -}}
 {{- $s := .Values.muster.oauth.server -}}
 {{- $lines := list -}}
+{{- if $s.enabled -}}
 {{- if eq ($s.provider | default "dex") "google" -}}
 {{- if $s.google.clientID -}}
 {{- $lines = append $lines (printf "google-client-id: %s" ($s.google.clientID | b64enc | quote)) -}}
@@ -141,6 +142,7 @@ cannot drift. The gates fail the render the way the Secret template did.
 {{- else if and (not $s.allowPublicClientRegistration) (not $s.trustedPublicRegistrationSchemes) (not $s.trustedPublicRegistrationRedirectURIs) -}}
 {{- fail "OAuth client registration has no gate configured. Set one of: initialAccessToken | allowPublicClientRegistration=true | trustedPublicRegistrationSchemes | trustedPublicRegistrationRedirectURIs | existingSecret." -}}
 {{- end -}}
+{{- end -}}
 {{- if $s.encryptionKey -}}
 {{- if $s.encryptionKeyValue -}}
 {{- $lines = append $lines (printf "oauth-encryption-key: %s" ($s.encryptionKeyValue | b64enc | quote)) -}}
@@ -148,7 +150,7 @@ cannot drift. The gates fail the render the way the Secret template did.
 {{- fail "muster.oauth.server.encryptionKeyValue is required when encryptionKey is true and existingSecret is not set" -}}
 {{- end -}}
 {{- end -}}
-{{- if and (eq $s.storage.type "valkey") (not $s.storage.valkey.existingSecret) $s.storage.valkey.password -}}
+{{- if and $s.enabled (eq $s.storage.type "valkey") (not $s.storage.valkey.existingSecret) $s.storage.valkey.password -}}
 {{- $lines = append $lines (printf "valkey-password: %s" ($s.storage.valkey.password | b64enc | quote)) -}}
 {{- end -}}
 {{- join "\n" $lines -}}
@@ -158,12 +160,12 @@ cannot drift. The gates fail the render the way the Secret template did.
 Value of the pod template's checksum/oauth-secret annotation: the SHA-256 of the
 chart-rendered Secret's data, or muster.oauth.server.existingSecretChecksum
 verbatim when the credentials come from an existing Secret the chart cannot
-read. Empty while the OAuth server is off, or while nothing marks the existing
-Secret's revision.
+read. Empty without OAuth or an encryption key, or without an existing Secret's
+revision.
 */}}
 {{- define "muster.oauthSecretChecksum" -}}
 {{- $s := .Values.muster.oauth.server -}}
-{{- if $s.enabled -}}
+{{- if or $s.enabled $s.encryptionKey -}}
 {{- if $s.existingSecret -}}
 {{- $s.existingSecretChecksum -}}
 {{- else -}}
@@ -212,7 +214,7 @@ MCPServer may share one.
 {{- define "muster.protectedSecrets" -}}
 {{- $names := list -}}
 {{- $s := .Values.muster.oauth.server -}}
-{{- if $s.enabled -}}
+{{- if or $s.enabled $s.encryptionKey -}}
 {{- $names = append $names ($s.existingSecret | default (printf "%s-oauth" (include "muster.fullname" .))) -}}
 {{- end -}}
 {{- with $s.storage.valkey.existingSecret -}}

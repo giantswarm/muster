@@ -517,7 +517,8 @@ type OAuthServerConfig struct {
 	EnableClientManagementEndpoint bool `yaml:"enableClientManagementEndpoint,omitempty"`
 
 	// EncryptionKey is the AES-256 key for encrypting tokens at rest (32 bytes, base64-encoded).
-	// Required for production deployments.
+	// muster also derives the key that seals its requestState from it, so
+	// every replica needs the same one. Required for production deployments.
 	// For production, use EncryptionKeyFile instead to avoid secrets in config files.
 	EncryptionKey string `yaml:"encryptionKey,omitempty"`
 

@@ -44,6 +44,7 @@ func newSessionInputBackend(t *testing.T) (string, *atomic.Pointer[mcp.ClientCap
 func newSessionInputFixture(t *testing.T, backendURL string) *AggregatorServer {
 	t.Helper()
 	a := newTestAggregatorWithPool(t)
+	a.requestStates = testRequestStateSealer(t)
 	registerSubjectGrantServer(t, a, backendURL, api.GrantScopeSubject)
 
 	handler := newSubjectGrantMockHandler()
@@ -54,7 +55,7 @@ func newSessionInputFixture(t *testing.T, backendURL string) *AggregatorServer {
 }
 
 func sessionModernContext(capabilities mcp.ClientCapabilities) context.Context {
-	return mcpgoserver.WithRequestProtocolInfo(sessionContext("sess-2", "alice"), &mcpgoserver.RequestProtocolInfo{
+	return mcpgoserver.WithRequestProtocolInfo(withTestCaller(sessionContext("sess-2", "alice")), &mcpgoserver.RequestProtocolInfo{
 		Modern:             true,
 		ProtocolVersion:    mcp.ProtocolVersion20260728,
 		ClientCapabilities: &capabilities,
